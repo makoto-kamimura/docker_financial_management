@@ -78,14 +78,31 @@
 [ブラウザ / SPA]
       │ HTTPS (REST / JSON)
       ▼
-[API サーバー (バックエンド)]
+[Next.js バックエンド API (Route Handlers /api/*)]
    ├─ 認証・認可
    ├─ 集計サービス
-   ├─ 予測サービス（時系列分析）
+   ├─ 予測サービス
    └─ レポート生成
       │
       ▼
-[データベース (RDB)]   [オブジェクトストレージ（ファイル/帳票）]
+[データベース (PostgreSQL / Prisma)]
+```
+
+### プロジェクト構成（モノレポ）
+
+```
+.
+├── app/                 # アプリケーションのソースコード
+│   ├── web/             # Web（Next.js: フロントエンド + バックエンド API）
+│   └── mobile/          # モバイル（Expo / React Native）
+├── platform/            # 実行基盤（Docker など）
+│   ├── docker/
+│   ├── docker-compose.yml
+│   └── .env.example
+└── docs/                # ドキュメント
+    ├── design.md        # 仕様
+    ├── history.md       # 変更履歴
+    └── task.md          # 開発タスク
 ```
 
 ---
@@ -108,12 +125,11 @@
 
 | 技術 | 選定理由 |
 | --- | --- |
-| **Python (FastAPI)** | **時系列予測・データ集計のライブラリ（pandas, statsmodels, Prophet, scikit-learn）が最も充実**しており本システムの中核要件に直結。FastAPI は高速かつ型安全な API 構築が可能 |
-| **pandas** | 大量の財務データの集計・整形・ピボット処理に最適 |
-| **statsmodels / Prophet / scikit-learn** | 移動平均・回帰から季節性を考慮した時系列予測まで段階的に実装可能 |
-| **SQLAlchemy + Alembic** | ORM とマイグレーション管理 |
+| **Next.js（App Router の Route Handlers）** | **フロントエンドと同一プロジェクト・同一言語（TypeScript）で API を提供**できるため、開発・型共有・運用が一本化。Web とモバイルの両方から `/api/*` を利用する |
+| **Zod** | API 入出力のバリデーション・型安全 |
+| **Prisma** | 型安全な ORM とマイグレーション管理 |
 
-> 補足：チームのスキルセットが Node.js 中心の場合は、バックエンドを **NestJS (TypeScript)** に統一し、予測処理のみ Python マイクロサービスとして分離する構成も可。
+> バックエンドは **Next.js に一本化**する（`app/web/src/app/api/*`）。集計・予測ロジックは TypeScript で実装する（`src/lib`）。将来、季節性を考慮した高度な時系列予測が必要になった場合は、予測処理のみ Python マイクロサービスとして分離する選択肢も残す。
 
 ### 5.3 データベース
 
@@ -133,8 +149,9 @@
 
 | レイヤー | 採用技術 |
 | --- | --- |
-| フロントエンド | TypeScript / React / Next.js / Recharts |
-| バックエンド | Python / FastAPI / pandas / statsmodels・Prophet |
+| Web フロントエンド | TypeScript / React / Next.js / Recharts |
+| バックエンド | **Next.js (Route Handlers) / TypeScript / Zod / Prisma** |
+| モバイル | Expo / React Native / Victory Native |
 | データベース | PostgreSQL |
 | インフラ | Docker / クラウド / GitHub Actions |
 
