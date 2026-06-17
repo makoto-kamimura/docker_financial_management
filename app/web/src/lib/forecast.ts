@@ -1,4 +1,9 @@
-export type ForecastMethod = "moving_average" | "linear_regression" | "growth_rate";
+export type ForecastMethod =
+  | "moving_average"
+  | "linear_regression"
+  | "growth_rate"
+  | "holt"
+  | "holt_winters";
 
 // 単純な最小二乗法による線形回帰で将来値を予測する。
 // history: 過去の実績値（時系列順）, months: 予測する先の月数
@@ -60,6 +65,71 @@ export function forecastGrowthRate(history: number[], months: number): number[] 
   return result;
 }
 
+// Holt の線形指数平滑法（二重指数平滑法）。レベルとトレンドを平滑化する。
+export function forecastHolt(history: number[], months: number, alpha = 0.5, beta = 0.3): number[] {
+  if (history.length < 2) return forecastMovingAverage(history, months);
+
+  let level = history[0];
+  let trend = history[1] - history[0];
+  for (let i = 1; i < history.length; i++) {
+    const prevLevel = level;
+    level = alpha * history[i] + (1 - alpha) * (level + trend);
+    trend = beta * (level - prevLevel) + (1 - beta) * trend;
+  }
+
+  const result: number[] = [];
+  for (let h = 1; h <= months; h++) {
+    result.push(Math.round(level + h * trend));
+  }
+  return result;
+}
+
+// Holt-Winters の加法的季節モデル（三重指数平滑法）。
+// seasonLength: 季節周期（月次は通常 12）。データが 2 周期未満なら Holt にフォールバック。
+export function forecastHoltWinters(
+  history: number[],
+  months: number,
+  seasonLength = 12,
+  alpha = 0.4,
+  beta = 0.1,
+  gamma = 0.3,
+): number[] {
+  const L = seasonLength;
+  if (history.length < 2 * L) return forecastHolt(history, months);
+
+  // 初期レベル・トレンド・季節指数を算出
+  const seasons = Math.floor(history.length / L);
+  const seasonAverages: number[] = [];
+  for (let s = 0; s < seasons; s++) {
+    const slice = history.slice(s * L, (s + 1) * L);
+    seasonAverages.push(slice.reduce((a, b) => a + b, 0) / L);
+  }
+
+  let level = seasonAverages[0];
+  let trend = (seasonAverages[1] - seasonAverages[0]) / L;
+  const seasonal: number[] = [];
+  for (let i = 0; i < L; i++) {
+    let sum = 0;
+    for (let s = 0; s < seasons; s++) sum += history[s * L + i] - seasonAverages[s];
+    seasonal[i] = sum / seasons;
+  }
+
+  for (let i = 0; i < history.length; i++) {
+    const prevLevel = level;
+    const s = seasonal[i % L];
+    level = alpha * (history[i] - s) + (1 - alpha) * (level + trend);
+    trend = beta * (level - prevLevel) + (1 - beta) * trend;
+    seasonal[i % L] = gamma * (history[i] - level) + (1 - gamma) * s;
+  }
+
+  const result: number[] = [];
+  for (let h = 1; h <= months; h++) {
+    const s = seasonal[(history.length + h - 1) % L];
+    result.push(Math.round(level + h * trend + s));
+  }
+  return result;
+}
+
 // 手法を指定して予測する統一エントリポイント。
 export function forecast(history: number[], months: number, method: ForecastMethod): number[] {
   switch (method) {
@@ -67,6 +137,10 @@ export function forecast(history: number[], months: number, method: ForecastMeth
       return forecastMovingAverage(history, months);
     case "growth_rate":
       return forecastGrowthRate(history, months);
+    case "holt":
+      return forecastHolt(history, months);
+    case "holt_winters":
+      return forecastHoltWinters(history, months);
     case "linear_regression":
     default:
       return forecastLinear(history, months);

@@ -2,6 +2,15 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (Phase 3)
+- **Phase 3: 高度な予測・予実対比レポート・エクスポート** を実装。
+  - 予測手法に Holt（二重指数平滑）と Holt-Winters（三重指数平滑・加法的季節モデル）を追加。データ不足時は自動フォールバック。`/api/forecasts` と各画面の手法選択に反映。
+  - 予算モデル `budgets` を Prisma に追加（シードに月次予算を投入）。
+  - 予実対比レポート: `lib/report.ts` + `GET /api/reports/budget-actual`（予算 vs 実績 vs 予測、差異・達成率・合計）。
+  - エクスポート: CSV（`/api/reports/budget-actual/export`、BOM 付）、PNG（`lib/export-client.ts` で SVG→Canvas）、PDF（ブラウザ印刷）。
+  - 画面 `/reports`（予実対比の複合グラフ + 表 + 出力ボタン）を追加。`middleware.ts` の保護対象にも追加。
+  - design / task を更新。
+
 ## 2026-06-17 (Phase 2 + 残課題)
 - **Phase 2: 予測高度化・KPI ダッシュボード・モバイル** を実装。
   - 予測手法を 3 種に拡充（移動平均 / 線形回帰 / 成長率）。`/api/forecasts` に `method`・`scenario`（楽観/標準/悲観）パラメータを追加。

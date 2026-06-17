@@ -38,6 +38,8 @@ const METHOD_LABELS: Record<string, string> = {
   linear_regression: "線形回帰",
   moving_average: "移動平均",
   growth_rate: "成長率",
+  holt: "指数平滑(Holt)",
+  holt_winters: "季節性(Holt-Winters)",
 };
 const SCENARIO_LABELS: Record<string, string> = {
   base: "標準",
@@ -112,7 +114,8 @@ export default function DashboardPage() {
       {data && <TrendChart data={buildTrend(data)} />}
 
       <p style={{ marginTop: "1.5rem" }}>
-        <a href="/entry">実績入力</a> ｜ <a href="/masters">マスタ管理</a>
+        <a href="/entry">実績入力</a> ｜ <a href="/masters">マスタ管理</a> ｜{" "}
+        <a href="/reports">予実対比レポート</a>
       </p>
     </main>
   );

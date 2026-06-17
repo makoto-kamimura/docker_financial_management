@@ -46,6 +46,13 @@ async function main() {
         },
       });
     }
+
+    // 予算（売上）: 月 1,300 万円で計画
+    await prisma.budget.upsert({
+      where: { accountId_periodId: { accountId: revenue.id, periodId: period.id } },
+      update: {},
+      create: { accountId: revenue.id, periodId: period.id, amount: 13_000_000 },
+    });
   }
 
   // 管理者ユーザー

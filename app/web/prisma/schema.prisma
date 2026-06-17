@@ -44,6 +44,7 @@ model Account {
 
   records   FinancialRecord[]
   forecasts Forecast[]
+  budgets   Budget[]
 
   @@map("accounts")
 }
@@ -70,9 +71,24 @@ model Period {
 
   records   FinancialRecord[]
   forecasts Forecast[]
+  budgets   Budget[]
 
   @@unique([fiscalYear, month])
   @@map("periods")
+}
+
+// 予算データ（予実対比に使用）
+model Budget {
+  id        Int      @id @default(autoincrement())
+  account   Account  @relation(fields: [accountId], references: [id])
+  accountId Int
+  period    Period   @relation(fields: [periodId], references: [id])
+  periodId  Int
+  amount    Decimal  @db.Decimal(18, 2)
+  createdAt DateTime @default(now())
+
+  @@unique([accountId, periodId])
+  @@map("budgets")
 }
 
 // 実績データ

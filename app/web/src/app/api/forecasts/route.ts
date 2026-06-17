@@ -3,7 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { aggregate } from "@/lib/aggregate";
 import { forecast, type ForecastMethod } from "@/lib/forecast";
 
-const METHODS: ForecastMethod[] = ["moving_average", "linear_regression", "growth_rate"];
+const METHODS: ForecastMethod[] = [
+  "moving_average",
+  "linear_regression",
+  "growth_rate",
+  "holt",
+  "holt_winters",
+];
 
 // シナリオ係数: 楽観 / 標準 / 悲観
 const SCENARIO_FACTOR = { optimistic: 1.1, base: 1.0, pessimistic: 0.9 } as const;

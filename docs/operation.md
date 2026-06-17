@@ -73,6 +73,7 @@ npm run dev                  # http://localhost:3000
 - `/dashboard` … KPI カード + 売上推移グラフ（予測手法・シナリオ・期間を切替）
 - `/entry` … 実績データ手入力
 - `/masters` … 勘定科目・部門の管理
+- `/reports` … 予実対比レポート（CSV / PNG / PDF 出力）
 
 ### 5.2 本番ビルド
 ```bash
