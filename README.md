@@ -7,6 +7,27 @@
 
 ---
 
+## デモ画面
+
+ダッシュボード（1920×1080）のイメージです。KPI カードと、売上の実績＋将来予測の推移グラフを表示します。
+
+![ダッシュボード デモ（1920×1080）](docs/images/dashboard-demo.svg)
+
+> 上図はレイアウトを示すイメージ図です。実機のスクリーンショットは、ローカルでアプリと DB を起動した状態で次のコマンドで生成できます（`docs/images/dashboard.png` に出力）。
+>
+> ```bash
+> cd app/web
+> npm run e2e:install                 # 初回のみ: ブラウザ導入
+> docker compose -f ../../platform/docker-compose.yml up -d db
+> npm run db:migrate && npm run db:seed
+> npm run build && npm run start &    # アプリ起動
+> npm run screenshot                  # 1920×1080 で撮影 → docs/images/dashboard.png
+> ```
+>
+> 生成後、上の画像参照を `docs/images/dashboard.png` に差し替えてください。
+
+---
+
 ## 1. 概要
 
 | 項目 | 内容 |

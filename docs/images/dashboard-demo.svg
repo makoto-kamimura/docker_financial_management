@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" font-family="-apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif">
+  <!-- desktop background -->
+  <rect width="1920" height="1080" fill="#eef1f5"/>
+
+  <!-- browser window -->
+  <g>
+    <rect x="160" y="70" width="1600" height="950" rx="12" fill="#ffffff" stroke="#d1d5db"/>
+    <!-- title bar -->
+    <rect x="160" y="70" width="1600" height="52" rx="12" fill="#e5e7eb"/>
+    <rect x="160" y="104" width="1600" height="18" fill="#e5e7eb"/>
+    <circle cx="196" cy="96" r="7" fill="#ef4444"/>
+    <circle cx="222" cy="96" r="7" fill="#f59e0b"/>
+    <circle cx="248" cy="96" r="7" fill="#22c55e"/>
+    <rect x="290" y="82" width="520" height="28" rx="14" fill="#ffffff" stroke="#d1d5db"/>
+    <text x="312" y="101" font-size="15" fill="#6b7280">localhost:3000/dashboard</text>
+  </g>
+
+  <!-- content -->
+  <text x="220" y="190" font-size="34" font-weight="700" fill="#111827">ダッシュボード</text>
+  <text x="220" y="224" font-size="16" fill="#6b7280">対象月: 2025-06</text>
+
+  <!-- KPI cards -->
+  <g>
+    <!-- card 1 -->
+    <rect x="220" y="250" width="350" height="92" rx="10" fill="#ffffff" stroke="#e5e7eb"/>
+    <text x="244" y="288" font-size="14" fill="#6b7280">売上高</text>
+    <text x="244" y="320" font-size="24" font-weight="700" fill="#111827">￥17,000,000</text>
+    <!-- card 2 -->
+    <rect x="590" y="250" width="350" height="92" rx="10" fill="#ffffff" stroke="#e5e7eb"/>
+    <text x="614" y="288" font-size="14" fill="#6b7280">営業利益</text>
+    <text x="614" y="320" font-size="24" font-weight="700" fill="#111827">￥4,250,000</text>
+    <!-- card 3 -->
+    <rect x="960" y="250" width="350" height="92" rx="10" fill="#ffffff" stroke="#e5e7eb"/>
+    <text x="984" y="288" font-size="14" fill="#6b7280">営業利益率</text>
+    <text x="984" y="320" font-size="24" font-weight="700" fill="#111827">25.0%</text>
+    <!-- card 4 -->
+    <rect x="1330" y="250" width="350" height="92" rx="10" fill="#ffffff" stroke="#e5e7eb"/>
+    <text x="1354" y="288" font-size="14" fill="#6b7280">前年同月比 (YoY)</text>
+    <text x="1354" y="320" font-size="24" font-weight="700" fill="#16a34a">+8.4%</text>
+  </g>
+
+  <!-- chart section heading + controls -->
+  <text x="220" y="400" font-size="22" font-weight="700" fill="#111827">売上推移（実績＋予測）</text>
+  <g font-size="14" fill="#374151">
+    <rect x="220" y="420" width="190" height="34" rx="6" fill="#ffffff" stroke="#d1d5db"/>
+    <text x="236" y="442">予測手法: 季節性(HW)</text>
+    <rect x="430" y="420" width="150" height="34" rx="6" fill="#ffffff" stroke="#d1d5db"/>
+    <text x="446" y="442">シナリオ: 標準</text>
+    <rect x="600" y="420" width="150" height="34" rx="6" fill="#ffffff" stroke="#d1d5db"/>
+    <text x="616" y="442">予測期間: 6か月</text>
+  </g>
+
+  <!-- chart area -->
+  <rect x="220" y="475" width="1460" height="430" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
+
+  <!-- gridlines (horizontal) -->
+  <g stroke="#eef0f3">
+    <line x1="260" y1="520" x2="1640" y2="520"/>
+    <line x1="260" y1="595" x2="1640" y2="595"/>
+    <line x1="260" y1="670" x2="1640" y2="670"/>
+    <line x1="260" y1="745" x2="1640" y2="745"/>
+    <line x1="260" y1="820" x2="1640" y2="820"/>
+  </g>
+  <!-- y axis labels -->
+  <g font-size="13" fill="#9ca3af" text-anchor="end">
+    <text x="250" y="525">22M</text>
+    <text x="250" y="600">19M</text>
+    <text x="250" y="675">16M</text>
+    <text x="250" y="750">13M</text>
+    <text x="250" y="825">10M</text>
+  </g>
+  <!-- x axis labels -->
+  <g font-size="13" fill="#9ca3af" text-anchor="middle">
+    <text x="260" y="845">1月</text>
+    <text x="385" y="845">2月</text>
+    <text x="510" y="845">3月</text>
+    <text x="635" y="845">4月</text>
+    <text x="760" y="845">5月</text>
+    <text x="885" y="845">6月</text>
+    <text x="1135" y="845">8月</text>
+    <text x="1385" y="845">10月</text>
+    <text x="1635" y="845">12月</text>
+  </g>
+
+  <!-- actual line (solid blue) -->
+  <polyline fill="none" stroke="#2563eb" stroke-width="3"
+    points="260,763 385,721 510,673 635,684 760,647 885,622"/>
+  <g fill="#2563eb">
+    <circle cx="260" cy="763" r="4"/>
+    <circle cx="385" cy="721" r="4"/>
+    <circle cx="510" cy="673" r="4"/>
+    <circle cx="635" cy="684" r="4"/>
+    <circle cx="760" cy="647" r="4"/>
+    <circle cx="885" cy="622" r="4"/>
+  </g>
+
+  <!-- forecast line (dashed orange) -->
+  <polyline fill="none" stroke="#f97316" stroke-width="3" stroke-dasharray="7 6"
+    points="885,622 1010,605 1135,588 1260,571 1385,554 1510,537 1635,520"/>
+
+  <!-- legend -->
+  <g font-size="14" fill="#374151">
+    <line x1="1380" y1="500" x2="1410" y2="500" stroke="#2563eb" stroke-width="3"/>
+    <text x="1418" y="505">実績</text>
+    <line x1="1480" y1="500" x2="1510" y2="500" stroke="#f97316" stroke-width="3" stroke-dasharray="7 6"/>
+    <text x="1518" y="505">予測</text>
+  </g>
+
+  <!-- footer nav -->
+  <text x="220" y="965" font-size="15" fill="#2563eb">実績入力 ｜ マスタ管理 ｜ 予実対比レポート ｜ セキュリティ設定 ｜ 監査ログ</text>
+</svg>

@@ -2,6 +2,13 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (デモ画像 / 公開準備)
+- README に「デモ画面」セクションを追加。1920×1080 のダッシュボードのイメージ図（`docs/images/dashboard-demo.svg`）を掲載。
+- 実機スクリーンショット生成スクリプト `app/web/scripts/screenshot.ts`（Playwright・1920×1080）と `npm run screenshot` を追加。`docs/images/dashboard.png` に出力。
+- operation.md にスクリーンショット手順を追記。
+- xlsx を公式 SheetJS CDN 配布版に変更（lockfile は CDN 到達環境で `npm install` 再実行が必要）。
+- 注: 本サンドボックスはブラウザ取得が制限され実機スクショは未生成。README には差し替え用の生成手順を記載。
+
 ## 2026-06-17 (E2E テスト)
 - Playwright を導入し E2E テストを実装。
   - `playwright.config.ts`（webServer 自動起動、`E2E_BASE_URL` で外部サーバー利用も可）。

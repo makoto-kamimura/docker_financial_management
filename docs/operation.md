@@ -153,6 +153,15 @@ npm run e2e                  # http://localhost:3000 を自動起動して実行
 - 既に起動中のサーバーに対して実行する場合は `E2E_BASE_URL=http://... npm run e2e`。
 - テスト: `e2e/auth.spec.ts`（認証ガード・DB 不要）、`e2e/dashboard.spec.ts`（ログイン後フロー・要シード）。
 
+### スクリーンショット（README 用デモ画像）
+```bash
+cd app/web
+npm run e2e:install          # 初回のみ: ブラウザ導入
+npm run build && npm run start &   # アプリ起動（DB は migrate + seed 済みであること）
+npm run screenshot           # 1920×1080 で撮影 → docs/images/dashboard.png
+```
+`E2E_BASE_URL` で既存サーバーを指定可能。
+
 CI は `.github/workflows/ci.yml`（GitHub Actions）で
 `main` への push と PR 時に以下を実行する。
 - `web`: 依存インストール → Prisma 生成 → typecheck → test → build
