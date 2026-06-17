@@ -55,17 +55,19 @@ async function main() {
     });
   }
 
-  // 管理者ユーザー
-  await prisma.user.upsert({
-    where: { email: "admin@example.com" },
-    update: {},
-    create: {
-      email: "admin@example.com",
-      name: "管理者",
-      passwordHash: hashPassword("password"),
-      role: "admin",
-    },
-  });
+  // ロール別ユーザー（admin / editor / viewer）
+  const users = [
+    { email: "admin@example.com", name: "管理者", role: "admin" },
+    { email: "editor@example.com", name: "編集者", role: "editor" },
+    { email: "viewer@example.com", name: "閲覧者", role: "viewer" },
+  ];
+  for (const u of users) {
+    await prisma.user.upsert({
+      where: { email: u.email },
+      update: {},
+      create: { ...u, passwordHash: hashPassword("password") },
+    });
+  }
 
   console.log("Seed completed.");
 }

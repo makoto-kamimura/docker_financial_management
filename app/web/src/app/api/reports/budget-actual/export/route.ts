@@ -3,12 +3,16 @@ import { prisma } from "@/lib/prisma";
 import { aggregate } from "@/lib/aggregate";
 import { forecast, type ForecastMethod } from "@/lib/forecast";
 import { buildBudgetActual } from "@/lib/report";
+import { requireRole } from "@/lib/authz";
 
 const keyOf = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
 // GET /api/reports/budget-actual/export?accountCode=4000&year=2025
 // 予実対比レポートを CSV でダウンロードする。
 export async function GET(req: NextRequest) {
+  const auth = await requireRole("viewer");
+  if (auth.error) return auth.error;
+
   const sp = req.nextUrl.searchParams;
   const accountCode = sp.get("accountCode") ?? "4000";
   const year = Number(sp.get("year") ?? "2025");

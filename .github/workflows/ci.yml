@@ -26,3 +26,35 @@ jobs:
       - run: npx prisma generate
       - run: npm run typecheck
       - run: npm run build
+
+  migrate-check:
+    name: prisma migrate (validate against PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/web
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: financial
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d financial"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://app:app@localhost:5432/financial
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - run: npm ci
+      # マイグレーションが正しく適用できることを検証
+      - run: npx prisma migrate deploy
+      - run: npx prisma generate

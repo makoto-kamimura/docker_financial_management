@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { categoryBucket, computeLatestKpi, type MonthlyByCategory } from "@/lib/kpi";
+import { requireRole } from "@/lib/authz";
 
 // GET /api/kpi … 最新月の主要 KPI（利益率・YoY・MoM・YTD）を返す。
 export async function GET() {
+  const auth = await requireRole("viewer");
+  if (auth.error) return auth.error;
+
   const records = await prisma.financialRecord.findMany({
     include: { period: true, account: true },
   });

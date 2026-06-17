@@ -115,7 +115,8 @@ export default function DashboardPage() {
 
       <p style={{ marginTop: "1.5rem" }}>
         <a href="/entry">実績入力</a> ｜ <a href="/masters">マスタ管理</a> ｜{" "}
-        <a href="/reports">予実対比レポート</a>
+        <a href="/reports">予実対比レポート</a> ｜ <a href="/settings">セキュリティ設定</a> ｜{" "}
+        <a href="/admin/audit">監査ログ</a>
       </p>
     </main>
   );

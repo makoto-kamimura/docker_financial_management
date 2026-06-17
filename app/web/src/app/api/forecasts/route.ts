@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { aggregate } from "@/lib/aggregate";
 import { forecast, type ForecastMethod } from "@/lib/forecast";
+import { requireRole } from "@/lib/authz";
 
 const METHODS: ForecastMethod[] = [
   "moving_average",
@@ -18,6 +19,9 @@ type Scenario = keyof typeof SCENARIO_FACTOR;
 // GET /api/forecasts?accountCode=4000&months=6&method=linear_regression&scenario=base
 // DB の実績（月次）を元に将来 N か月の推移を予測して返す。
 export async function GET(req: NextRequest) {
+  const auth = await requireRole("viewer");
+  if (auth.error) return auth.error;
+
   const sp = req.nextUrl.searchParams;
   const months = Number(sp.get("months") ?? "6");
   const accountCode = sp.get("accountCode") ?? "4000";

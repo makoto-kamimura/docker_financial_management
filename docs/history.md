@@ -2,6 +2,19 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (Phase 4 + CI/CD 基盤)
+- **Phase 4: 運用・セキュリティ強化** を実装。
+  - RBAC: `lib/authz.ts` の `requireRole()` を導入。書き込み API（マスタ・実績・インポート）を editor 以上、監査ログを admin に制限。読み取り API はログイン必須に。
+  - MFA: TOTP（RFC 6238）を外部依存なしで実装（`lib/totp.ts`）。`/api/auth/mfa/setup|enable|disable` と `/settings` 画面。ログインフローを MFA 対応に更新。
+  - 監査ログ: `lib/audit.ts` でログイン・データ変更・MFA 操作を記録。`/api/audit-logs`（admin）と `/admin/audit` 画面。
+  - User スキーマに `mfaEnabled` / `totpSecret` を追加。シードを admin/editor/viewer の 3 ロールに拡充。
+- **CI/CD 基盤**を整備。
+  - CI に `migrate-check` ジョブ（PostgreSQL サービス上で `prisma migrate deploy` を検証）を追加。
+  - CD ワークフロー `.github/workflows/cd.yml`（GHCR へのイメージ build & push + deploy プレースホルダ）。
+  - 本番用 `platform/docker-compose.prod.yml`、`app/web/.dockerignore`。
+  - バックアップ / リストアスクリプト（`platform/scripts/backup.sh` / `restore.sh`、保持ポリシー対応）。
+- ドキュメント: operation.md にセキュリティ・バックアップ・デプロイ節を追加。design / history / task を更新。task.md を全面的に洗い出し。
+
 ## 2026-06-17 (Phase 3)
 - **Phase 3: 高度な予測・予実対比レポート・エクスポート** を実装。
   - 予測手法に Holt（二重指数平滑）と Holt-Winters（三重指数平滑・加法的季節モデル）を追加。データ不足時は自動フォールバック。`/api/forecasts` と各画面の手法選択に反映。

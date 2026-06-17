@@ -130,6 +130,8 @@ model User {
   name         String
   passwordHash String
   role         String   @default("viewer") // admin / editor / viewer
+  mfaEnabled   Boolean  @default(false)
+  totpSecret   String? // Base32 エンコードされた TOTP シークレット
   createdAt    DateTime @default(now())
 
   sessions Session[]
