@@ -2,6 +2,18 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (Phase 1)
+- **Phase 1: データ管理・基本集計・推移グラフ・認証** を実装。
+  - Prisma スキーマを定義（accounts / departments / periods / financial_records / forecasts / users / sessions / audit_logs）＋シード（`prisma/seed.ts`）。
+  - マスタ管理 API を追加: `accounts` / `departments` / `periods`（GET・POST）。
+  - 実績 API を Prisma 化し、月次 / 四半期 / 年次の粒度別集計に対応（`GET /api/financials?granularity=`）。手入力登録（POST）も対応。
+  - CSV 一括取り込み API を追加（`POST /api/financials/import`、papaparse + Zod）。
+  - 予測 API を DB 実績ベースに変更（`/api/forecasts`）。
+  - 認証基盤を追加: scrypt パスワードハッシュ + DB セッション + httpOnly Cookie。`login` / `logout` / `me` API。
+  - 画面を追加: `/login`、`/dashboard`（Recharts 推移グラフ、実績＋予測）、`/entry`（手入力フォーム）。React Query プロバイダを導入。
+  - `集計ロジック（aggregate.ts）` を粒度対応にリファクタ。
+  - 依存追加: prisma, @prisma/client, papaparse, tsx。
+
 ## 2026-06-17
 - プロジェクト構成を確立。
   - ディレクトリ構成を作成: `app/`（`web` / `mobile`）, `platform/`, `docs/`。

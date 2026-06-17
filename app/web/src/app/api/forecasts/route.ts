@@ -1,13 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { aggregate } from "@/lib/aggregate";
 import { forecastLinear } from "@/lib/forecast";
 
-// バックエンド API: GET /api/forecasts?months=6
-// 過去実績から将来 N か月の推移を予測して返す。
-// NOTE: Phase 1 は線形回帰ベース。Phase 3 で季節性を考慮した手法に拡張する。
-const sampleHistory = [12_000_000, 13_500_000, 15_200_000, 14_800_000, 16_100_000];
-
+// GET /api/forecasts?months=6&accountCode=4000
+// DB の実績（月次）を元に将来 N か月の推移を線形回帰で予測して返す。
 export async function GET(req: NextRequest) {
   const months = Number(req.nextUrl.searchParams.get("months") ?? "6");
-  const forecast = forecastLinear(sampleHistory, months);
-  return NextResponse.json({ history: sampleHistory, forecast });
+  const accountCode = req.nextUrl.searchParams.get("accountCode") ?? "4000";
+
+  const records = await prisma.financialRecord.findMany({
+    where: { account: { code: accountCode } },
+    include: { period: true },
+  });
+
+  const monthly = aggregate(
+    records.map((r) => ({
+      amount: Number(r.amount),
+      fiscalYear: r.period.fiscalYear,
+      quarter: r.period.quarter,
+      month: r.period.month,
+    })),
+    "month",
+  );
+
+  const history = monthly.map((b) => b.total);
+  const forecast = forecastLinear(history, months);
+
+  return NextResponse.json({
+    accountCode,
+    history: monthly,
+    forecast,
+  });
 }

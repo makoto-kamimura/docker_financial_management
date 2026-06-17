@@ -12,15 +12,18 @@
 - [x] Docker / docker-compose の整備
 - [x] ドキュメント整備（design / history / task）
 - [ ] CI（GitHub Actions: lint / typecheck / build）の追加
-- [ ] Prisma 導入と PostgreSQL スキーマ定義
+- [x] Prisma 導入と PostgreSQL スキーマ定義
 
 ## Phase 1: データ管理・基本集計・推移グラフ
-- [ ] マスタ管理（勘定科目・部門・会計期間）API + 画面
-- [ ] 実績データの手入力フォーム
-- [ ] CSV / Excel インポート機能
-- [ ] 月次 / 四半期 / 年次の集計（Prisma クエリへ置き換え）
-- [ ] 推移グラフ（Recharts）の実装
-- [ ] 認証基盤（ログイン）
+- [x] マスタ管理（勘定科目・部門・会計期間）API
+- [x] 実績データの手入力フォーム
+- [x] CSV インポート機能（Excel は今後 xlsx 対応を追加）
+- [x] 月次 / 四半期 / 年次の集計（Prisma クエリへ置き換え）
+- [x] 推移グラフ（Recharts）の実装
+- [x] 認証基盤（ログイン / ログアウト / セッション）
+- [ ] マスタ管理の画面（API は実装済み、UI は未）
+- [ ] Excel (xlsx) インポート対応
+- [ ] 認証ミドルウェアによる画面アクセス制御
 
 ## Phase 2: 将来予測・ダッシュボード
 - [ ] 予測 API の本実装（移動平均・線形回帰・成長率）

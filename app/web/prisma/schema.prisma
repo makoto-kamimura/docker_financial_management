@@ -1,0 +1,144 @@
+// 決算管理システム データモデル
+// 参照: docs/design.md「6. データモデル」
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 勘定科目カテゴリ
+enum AccountCategory {
+  REVENUE // 売上
+  COGS // 売上原価
+  EXPENSE // 販管費
+  PROFIT // 利益
+  OTHER
+}
+
+// 予測手法
+enum ForecastMethod {
+  MOVING_AVERAGE
+  LINEAR_REGRESSION
+  GROWTH_RATE
+}
+
+// 予測シナリオ
+enum ForecastScenario {
+  OPTIMISTIC
+  BASE
+  PESSIMISTIC
+}
+
+// 勘定科目マスタ
+model Account {
+  id        Int             @id @default(autoincrement())
+  code      String          @unique
+  name      String
+  category  AccountCategory @default(OTHER)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  records   FinancialRecord[]
+  forecasts Forecast[]
+
+  @@map("accounts")
+}
+
+// 部門 / セグメントマスタ
+model Department {
+  id       Int          @id @default(autoincrement())
+  name     String
+  parentId Int?
+  parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id])
+  children Department[] @relation("DepartmentTree")
+
+  records FinancialRecord[]
+
+  @@map("departments")
+}
+
+// 会計期間マスタ
+model Period {
+  id         Int    @id @default(autoincrement())
+  fiscalYear Int
+  quarter    Int // 1-4
+  month      Int // 1-12
+
+  records   FinancialRecord[]
+  forecasts Forecast[]
+
+  @@unique([fiscalYear, month])
+  @@map("periods")
+}
+
+// 実績データ
+model FinancialRecord {
+  id           Int         @id @default(autoincrement())
+  account      Account     @relation(fields: [accountId], references: [id])
+  accountId    Int
+  department   Department? @relation(fields: [departmentId], references: [id])
+  departmentId Int?
+  period       Period      @relation(fields: [periodId], references: [id])
+  periodId     Int
+  amount       Decimal     @db.Decimal(18, 2)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([accountId, periodId])
+  @@map("financial_records")
+}
+
+// 予測データ
+model Forecast {
+  id        Int              @id @default(autoincrement())
+  account   Account          @relation(fields: [accountId], references: [id])
+  accountId Int
+  period    Period           @relation(fields: [periodId], references: [id])
+  periodId  Int
+  method    ForecastMethod   @default(LINEAR_REGRESSION)
+  scenario  ForecastScenario @default(BASE)
+  amount    Decimal          @db.Decimal(18, 2)
+  createdAt DateTime         @default(now())
+
+  @@map("forecasts")
+}
+
+// ユーザー（認証）
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("viewer") // admin / editor / viewer
+  createdAt    DateTime @default(now())
+
+  sessions Session[]
+
+  @@map("users")
+}
+
+// セッション
+model Session {
+  id        String   @id
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("sessions")
+}
+
+// 監査ログ
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String
+  target    String
+  changedAt DateTime @default(now())
+
+  @@map("audit_logs")
+}

@@ -6,9 +6,9 @@ export default function HomePage() {
         過去の財務データを集計し、将来の推移を予測してグラフで可視化するダッシュボードです。
       </p>
       <ul>
-        <li>データ取り込み・集計</li>
-        <li>将来予測（推移グラフ）</li>
-        <li>予実対比レポート</li>
+        <li><a href="/dashboard">ダッシュボード（推移グラフ）</a></li>
+        <li><a href="/entry">実績データ入力</a></li>
+        <li><a href="/login">ログイン</a></li>
       </ul>
       <p>
         バックエンド API は <code>/api/*</code>（Next.js Route Handlers）で提供しています。
