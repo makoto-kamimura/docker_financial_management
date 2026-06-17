@@ -2,6 +2,19 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (Phase 2 + 残課題)
+- **Phase 2: 予測高度化・KPI ダッシュボード・モバイル** を実装。
+  - 予測手法を 3 種に拡充（移動平均 / 線形回帰 / 成長率）。`/api/forecasts` に `method`・`scenario`（楽観/標準/悲観）パラメータを追加。
+  - KPI 算出ロジック（`lib/kpi.ts`）と `GET /api/kpi` を追加（売上総利益率・営業利益率・YoY・MoM・YTD）。
+  - ダッシュボードに KPI カードと、予測手法・シナリオ・期間の切替 UI を追加。
+  - モバイルアプリにダッシュボード（実績＋予測の折れ線、react-native-svg）を実装。共通 API を参照。
+- **残課題対応**。
+  - マスタ管理画面 `/masters`（勘定科目・部門の追加・一覧）を実装。
+  - Excel(xlsx) インポートに対応（`lib/import.ts` で CSV/Excel を共通処理、xlsx 依存追加）。
+  - 認証ミドルウェア `middleware.ts` を追加し `/dashboard` `/entry` `/masters` を保護。
+  - CI（GitHub Actions: `.github/workflows/ci.yml`）で typecheck / build を自動化。
+- ドキュメント: `docs/operation.md`（構築・起動・運用手順）を新規作成し情報を集約。design / task を更新。
+
 ## 2026-06-17 (Phase 1)
 - **Phase 1: データ管理・基本集計・推移グラフ・認証** を実装。
   - Prisma スキーマを定義（accounts / departments / periods / financial_records / forecasts / users / sessions / audit_logs）＋シード（`prisma/seed.ts`）。
