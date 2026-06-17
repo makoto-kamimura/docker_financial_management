@@ -45,6 +45,17 @@
 
 ---
 
+## ⚠️ 手動実行が必要な項目（開発サンドボックスのネットワーク制約により未実施）
+
+本リポジトリの開発環境では外部ネットワークが制限されており、以下は **CDN/ブラウザへ到達できる環境（ローカル PC や GitHub Actions 等）で手動実行**する必要がある。コード／設定の変更自体は完了済み。
+
+- [ ] **xlsx の lockfile 更新**: `package.json` は公式 SheetJS CDN 版（`https://cdn.sheetjs.com/...`）に変更済み。`cdn.sheetjs.com` へ到達できる環境で `cd app/web && npm install` を実行し、更新後の `package-lock.json` をコミットする。
+  - ⚠️ 未実施の間は `package.json` と `package-lock.json` が不一致のため **CI の `npm ci` が失敗**する。
+- [ ] **実機スクリーンショットの生成**: `npm run screenshot`（要ブラウザ + 起動中アプリ + DB）で `docs/images/dashboard.png` を生成し、README のデモ画像参照を SVG イメージ図から差し替える（任意。現状は SVG イメージ図のままで運用）。
+- [ ] **E2E のローカル検証**: Playwright のブラウザ取得が制限されサンドボックスでは未実行。`npm run e2e:install` 後にローカル、または CI の `e2e` ジョブで実行・確認する。
+
+---
+
 ## 🔜 今後のバックログ（洗い出し）
 
 ### A. テスト・品質

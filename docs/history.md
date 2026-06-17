@@ -2,6 +2,10 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (手動実行項目の明記)
+- README のデモ画像は SVG イメージ図のまま運用することを確定。
+- task.md に「手動実行が必要な項目」セクションを追加（xlsx の lockfile 更新、実機スクショ生成、E2E のローカル検証）。サンドボックスのネットワーク制約で未実施の作業を明記。
+
 ## 2026-06-17 (デモ画像 / 公開準備)
 - README に「デモ画面」セクションを追加。1920×1080 のダッシュボードのイメージ図（`docs/images/dashboard-demo.svg`）を掲載。
 - 実機スクリーンショット生成スクリプト `app/web/scripts/screenshot.ts`（Playwright・1920×1080）と `npm run screenshot` を追加。`docs/images/dashboard.png` に出力。
