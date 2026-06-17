@@ -7,6 +7,55 @@
 
 ---
 
+## システム概要
+
+過去の財務データを蓄積し、**集計・将来予測・可視化**を一気通貫で行う Web 中心の決算管理システムです。
+経営者・経理・経営企画が、月次/四半期/年次の業績推移と将来見通し、予実差異をダッシュボードで把握できます。
+
+### 主な機能
+- 📥 **データ取込**: CSV / Excel(xlsx) の一括インポート、手入力フォーム、マスタ管理（勘定科目・部門・会計期間）
+- 📊 **集計**: 月次 / 四半期 / 年次の自動集計、KPI（売上総利益率・営業利益率・YoY・MoM・YTD）
+- 🔮 **将来予測**: 5 手法（移動平均 / 線形回帰 / 成長率 / Holt / Holt-Winters）＋ シナリオ（楽観・標準・悲観）
+- 📈 **可視化**: 実績＋予測の推移グラフ、予実対比レポート、CSV / PNG / PDF エクスポート
+- 🔐 **セキュリティ**: 認証（ログイン/セッション）、RBAC（admin / editor / viewer）、MFA(TOTP)、監査ログ
+- 📱 **マルチデバイス**: Web ダッシュボード＋モバイルアプリ（共通 API）
+
+### 技術スタック
+| レイヤー | 採用技術 |
+| --- | --- |
+| Web フロント | TypeScript / React / Next.js (App Router) / Recharts |
+| バックエンド | **Next.js Route Handlers**（`/api/*`）/ Zod / Prisma |
+| モバイル | Expo / React Native / react-native-svg |
+| データベース | PostgreSQL |
+| テスト | Vitest（単体）/ Playwright（E2E） |
+| インフラ / CI-CD | Docker / GitHub Actions / GHCR |
+
+### アーキテクチャ（モノレポ）
+```
+.
+├── app/
+│   ├── web/        # Next.js（フロント + バックエンドAPI）
+│   └── mobile/     # Expo / React Native
+├── platform/       # Docker / docker-compose / scripts（backup 等）
+└── docs/           # design / operation / cicd / history / task
+```
+
+```
+[Web (React)]  [Mobile (React Native)]
+        \           /
+         \  HTTPS  /  (REST / JSON)
+          ▼       ▼
+   [Next.js API (Route Handlers /api/*)]
+   認証/認可 ・ 集計 ・ 予測 ・ レポート
+          │
+          ▼
+   [PostgreSQL (Prisma)]
+```
+
+> バックエンドは **Next.js に一本化**し、Web フロントとモバイルが同一 API を共有します。
+
+---
+
 ## デモ画面
 
 ダッシュボード（1920×1080）のイメージです。KPI カードと、売上の実績＋将来予測の推移グラフを表示します。
