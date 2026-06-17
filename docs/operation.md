@@ -136,13 +136,28 @@ API 接続先は `app/mobile/app.json` の `extra.apiBaseUrl` で設定する。
 ```bash
 cd app/web
 npm run typecheck            # 型チェック
+npm run test                 # 単体テスト（Vitest）
 npm run build                # 本番ビルド
 ```
 
+### E2E テスト（Playwright）
+```bash
+cd app/web
+npm run e2e:install          # 初回のみ: ブラウザ(chromium)を導入
+# DB を起動・初期化（DB 依存テスト用）
+docker compose -f ../../platform/docker-compose.yml up -d db
+npm run db:migrate && npm run db:seed
+npm run build                # webServer は本番ビルドを起動するため必要
+npm run e2e                  # http://localhost:3000 を自動起動して実行
+```
+- 既に起動中のサーバーに対して実行する場合は `E2E_BASE_URL=http://... npm run e2e`。
+- テスト: `e2e/auth.spec.ts`（認証ガード・DB 不要）、`e2e/dashboard.spec.ts`（ログイン後フロー・要シード）。
+
 CI は `.github/workflows/ci.yml`（GitHub Actions）で
 `main` への push と PR 時に以下を実行する。
-- `web`: 依存インストール → Prisma 生成 → typecheck → build
+- `web`: 依存インストール → Prisma 生成 → typecheck → test → build
 - `migrate-check`: PostgreSQL サービス上で `prisma migrate deploy` を検証
+- `e2e`: PostgreSQL 上で migrate + seed → build → Playwright 実行（レポートを artifact 保存）
 
 ---
 

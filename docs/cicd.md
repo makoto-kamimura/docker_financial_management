@@ -44,6 +44,7 @@
 | --- | --- | --- |
 | `web` | アプリの品質ゲート | `npm ci` → `prisma generate` → `typecheck` → `test` → `build` |
 | `migrate-check` | マイグレーションの健全性検証 | PostgreSQL サービスを起動し `prisma migrate deploy` |
+| `e2e` | 画面の通しテスト | PostgreSQL で migrate + seed → `build` → Playwright（chromium）実行、レポートを artifact 保存 |
 
 ### ポイント
 - Node.js 22 / `actions/setup-node` の npm キャッシュを利用。
@@ -75,7 +76,13 @@ npm run build
 | `src/lib/report.test.ts` | 予実対比（差異・達成率・合計） |
 | `src/lib/totp.test.ts` | Base32・TOTP 検証・otpauth URI |
 
-> API ルートや UI の結合/E2E テスト（route handlers / Playwright）は `task.md` のバックログに記載。
+### E2E テスト（Playwright）
+- 設定: `app/web/playwright.config.ts`（`webServer` で本番ビルドを起動、baseURL `http://localhost:3000`）。
+- 対象: `app/web/e2e/*.spec.ts`
+  - `auth.spec.ts`: 認証ガード（未ログイン時のリダイレクト、ログイン画面、誤資格情報）— DB シード不要。
+  - `dashboard.spec.ts`: ログイン〜ダッシュボード（KPI/グラフ）〜予実対比レポート〜実績入力 — シード必要。
+- 実行: `npm run e2e`（初回は `npm run e2e:install` でブラウザ導入）。
+- CI の `e2e` ジョブで PostgreSQL を用意して自動実行する。
 
 ---
 

@@ -2,6 +2,16 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (E2E テスト)
+- Playwright を導入し E2E テストを実装。
+  - `playwright.config.ts`（webServer 自動起動、`E2E_BASE_URL` で外部サーバー利用も可）。
+  - `e2e/auth.spec.ts`: 認証ガード・ログイン画面（DB 不要）。
+  - `e2e/dashboard.spec.ts`: ログイン〜ダッシュボード〜予実対比〜実績入力（要シード）。
+  - スクリプト `e2e` / `e2e:install` を追加。
+- CI（`ci.yml`）に `e2e` ジョブを追加（PostgreSQL で migrate + seed → build → Playwright 実行、レポート artifact 保存）。
+- operation / cicd / task を更新。
+- 注: 本サンドボックスではブラウザ取得が制限され E2E のローカル実行は未検証。型チェック・単体テスト・ビルドは通過。CI で実行される。
+
 ## 2026-06-17 (自動テスト + CI/CD 資料)
 - Vitest を導入し、ドメインロジックの単体テストを実装（35 ケース）。
   - `aggregate` / `forecast` / `kpi` / `report` / `totp` を対象（DB 非依存）。

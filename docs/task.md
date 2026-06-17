@@ -51,8 +51,8 @@
 - [x] 単体テスト（集計 / 予測 / KPI / 予実 / TOTP）の整備（Vitest）
 - [x] CI に test ジョブを追加
 - [x] CI/CD 説明資料（`docs/cicd.md`）の作成
+- [x] E2E テスト（Playwright：認証ガード + ログイン〜ダッシュボード〜レポート〜入力）+ CI 組込み
 - [ ] API の結合テスト（route handlers）
-- [ ] E2E テスト（Playwright：ログイン〜ダッシュボード〜入力）
 - [ ] ESLint / Prettier の設定と CI 組み込み
 
 ### B. データ・機能の拡充
