@@ -48,11 +48,12 @@
 ## 🔜 今後のバックログ（洗い出し）
 
 ### A. テスト・品質
-- [ ] 単体テスト（集計 `aggregate` / 予測 `forecast` / KPI / 予実 `report`）の整備（Vitest）
+- [x] 単体テスト（集計 / 予測 / KPI / 予実 / TOTP）の整備（Vitest）
+- [x] CI に test ジョブを追加
+- [x] CI/CD 説明資料（`docs/cicd.md`）の作成
 - [ ] API の結合テスト（route handlers）
 - [ ] E2E テスト（Playwright：ログイン〜ダッシュボード〜入力）
 - [ ] ESLint / Prettier の設定と CI 組み込み
-- [ ] CI に lint・test ジョブを追加
 
 ### B. データ・機能の拡充
 - [ ] マスタの編集・削除（現状は追加・一覧のみ）／会計期間 UI

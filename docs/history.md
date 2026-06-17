@@ -2,6 +2,14 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (自動テスト + CI/CD 資料)
+- Vitest を導入し、ドメインロジックの単体テストを実装（35 ケース）。
+  - `aggregate` / `forecast` / `kpi` / `report` / `totp` を対象（DB 非依存）。
+  - `vitest.config.ts`、`npm run test` / `test:watch` を追加。
+- CI（`ci.yml`）の `web` ジョブに `test` ステップを追加。
+- CI/CD 説明資料 `docs/cicd.md` を新規作成（CI/CD の構成・トリガー・ジョブ・リリース手順・シークレット）。
+- README / task を更新。
+
 ## 2026-06-17 (Phase 4 + CI/CD 基盤)
 - **Phase 4: 運用・セキュリティ強化** を実装。
   - RBAC: `lib/authz.ts` の `requireRole()` を導入。書き込み API（マスタ・実績・インポート）を editor 以上、監査ログを admin に制限。読み取り API はログイン必須に。
