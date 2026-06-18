@@ -2,6 +2,13 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (自動デプロイ: SSH + Docker Compose)
+- CD の `deploy` ジョブを実装（プレースホルダから差し替え）。`main` push / `v*` タグで本番サーバーへ自動デプロイ。
+  - compose を scp 配置 → `docker compose pull` / `up -d` → `prisma migrate deploy` → 古いイメージ掃除。
+  - イメージタグ: `main` push → `:main` / `vX.Y.Z` → `:X.Y.Z`。`DEPLOY_PORT` 既定 22。
+- 本番 Dockerfile を修正: `prisma generate` 実行、`prisma/` を runner に同梱（マイグレーション対応）、`npm ci`・ビルド用ダミー DATABASE_URL。
+- operation.md / cicd.md にデプロイ手順・サーバー前提・必要 Secrets を追記。
+
 ## 2026-06-17 (README システム概要)
 - README 冒頭に「システム概要」セクションを追加（主な機能・技術スタック・アーキテクチャ図・モノレポ構成）。リポジトリを開いた際にひと目で把握できる説明を集約。
 

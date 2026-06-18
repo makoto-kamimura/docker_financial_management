@@ -97,25 +97,30 @@ npm run build
 | ジョブ | 目的 |
 | --- | --- |
 | `build-and-push` | `platform/docker/web.Dockerfile` でイメージをビルドし、GHCR（`ghcr.io/<repo>/web`）へ push |
-| `deploy` | 本番環境へ反映（基盤未確定のためプレースホルダ。`environment: production`） |
+| `deploy` | 本番サーバーへ **SSH + Docker Compose** で自動反映（`environment: production`） |
 
 ### タグ付け（`docker/metadata-action`）
 - ブランチ名（`main`）
 - セマンティックバージョン（`v1.2.3` → `1.2.3`）
 - コミット SHA
 
-### deploy ジョブの実装方針
-利用する基盤に合わせて、`deploy` ジョブのプレースホルダを置き換える。代表例:
-- **SSH + Docker Compose**: リモートホストで `docker compose -f platform/docker-compose.prod.yml pull && up -d` ＋ `npm run db:migrate`
-- **AWS ECS / Google Cloud Run**: 新イメージのタスク定義/リビジョン反映
-- **Kubernetes**: `kubectl set image` / `helm upgrade`
+### deploy ジョブの処理（SSH + Docker Compose）
+1. デプロイ対象イメージタグを決定（`main` push → `:main` / `vX.Y.Z` → `:X.Y.Z`）。
+2. `platform/docker-compose.prod.yml` をサーバーへ scp 配置。
+3. SSH して `docker compose pull` → `up -d` で更新。
+4. `docker compose run --rm web npx prisma migrate deploy` で DB マイグレーション。
+5. `docker image prune -f` で古いイメージを掃除。
 
-### 必要なシークレット（例）
+本番サーバーの前提（Docker / `.env` の配置など）と必要 Secrets の一覧は
+[`operation.md`](operation.md) 「11. デプロイ」を参照。
+
+### 必要な GitHub Secrets（要約）
 | シークレット | 用途 |
 | --- | --- |
+| `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY` / `DEPLOY_PATH` | SSH デプロイ（必須） |
+| `DEPLOY_PORT` | SSH ポート（任意・既定 22） |
+| `GHCR_USER` / `GHCR_PAT` | GHCR が private の場合のサーバー側ログイン（任意） |
 | `GITHUB_TOKEN` | GHCR への push（Actions が自動付与） |
-| `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY` | SSH デプロイ |
-| `DATABASE_URL` | 本番 DB 接続 |
 
 > シークレットは GitHub の **Settings → Secrets and variables → Actions** に登録する。
 > `deploy` ジョブは `environment: production` を使うため、必要に応じて承認（required reviewers）を設定できる。

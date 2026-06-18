@@ -53,6 +53,7 @@
   - ⚠️ 未実施の間は `package.json` と `package-lock.json` が不一致のため **CI の `npm ci` が失敗**する。
 - [ ] **実機スクリーンショットの生成**: `npm run screenshot`（要ブラウザ + 起動中アプリ + DB）で `docs/images/dashboard.png` を生成し、README のデモ画像参照を SVG イメージ図から差し替える（任意。現状は SVG イメージ図のままで運用）。
 - [ ] **E2E のローカル検証**: Playwright のブラウザ取得が制限されサンドボックスでは未実行。`npm run e2e:install` 後にローカル、または CI の `e2e` ジョブで実行・確認する。
+- [ ] **自動デプロイ（SSH + Docker Compose）の有効化**: CD の `deploy` ジョブは実装済み。動作には GitHub Secrets（`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY` / `DEPLOY_PATH`、必要に応じ `DEPLOY_PORT` / `GHCR_USER` / `GHCR_PAT`）の登録と、本番サーバー側の準備（Docker、`DEPLOY_PATH` への `.env` 配置、初回 DB 起動）が必要。詳細は `docs/operation.md` 11 章。
 
 ---
 
@@ -90,7 +91,7 @@
 - [ ] 構造化ログ / 監査ログの外部保管
 
 ### E. インフラ・デプロイ
-- [ ] CD の deploy ジョブ実装（クラウド確定後：ECS / Cloud Run / k8s 等）
+- [x] CD の deploy ジョブ実装（SSH + Docker Compose による自動デプロイ）
 - [ ] IaC（Terraform 等）でのインフラ定義
 - [ ] ステージング環境の構築
 - [ ] マネージド PostgreSQL の採用・接続プーリング

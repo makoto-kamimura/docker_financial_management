@@ -1,9 +1,9 @@
 name: CD
 
-# 本番デプロイのベースワークフロー。
+# 本番デプロイのワークフロー。
 # - main へのマージ、または v* タグの push で起動
 # - Docker イメージをビルドして GitHub Container Registry (GHCR) に push
-# - deploy ジョブは環境に合わせてコメント部分を実装する（プレースホルダ）
+# - 本番サーバーへ SSH して docker compose で反映（自動デプロイ）
 on:
   push:
     branches: [main]
@@ -50,30 +50,59 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   deploy:
-    name: deploy
+    name: deploy (SSH + Docker Compose)
     needs: build-and-push
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
 
-      # デプロイ手順は利用するクラウド/基盤に合わせて実装する。
-      # 代表的な選択肢:
-      #  - クラウドのコンテナサービス（例: AWS ECS / Cloud Run）へ新イメージを反映
-      #  - リモートホストへ SSH して docker compose pull && up -d
-      #  - Kubernetes へ kubectl set image / helm upgrade
-      #
-      # 例（SSH + docker compose の場合）:
-      # - name: Deploy over SSH
-      #   uses: appleboy/ssh-action@v1
-      #   with:
-      #     host: ${{ secrets.DEPLOY_HOST }}
-      #     username: ${{ secrets.DEPLOY_USER }}
-      #     key: ${{ secrets.DEPLOY_SSH_KEY }}
-      #     script: |
-      #       cd /opt/financial-management
-      #       docker compose -f platform/docker-compose.prod.yml pull
-      #       docker compose -f platform/docker-compose.prod.yml up -d
-      #       docker compose -f platform/docker-compose.prod.yml exec -T web npm run db:migrate
-      - name: Deploy placeholder
-        run: echo "TODO: 実際のデプロイ手順をここに実装する（docs/operation.md 参照）"
+      # デプロイ対象イメージのタグを決定（タグ push は版数、main は :main）
+      - name: Resolve image reference
+        id: img
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/v}"
+          else
+            TAG="main"
+          fi
+          echo "ref=ghcr.io/${GITHUB_REPOSITORY}/web:${TAG}" >> "$GITHUB_OUTPUT"
+
+      # 本番用 compose ファイルをサーバーへ配置
+      - name: Copy compose file to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          source: platform/docker-compose.prod.yml
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      # SSH してイメージを pull し、コンテナを更新・マイグレーション適用
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          WEB_IMAGE: ${{ steps.img.outputs.ref }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          envs: WEB_IMAGE
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            # GHCR が private の場合のみログイン（public パッケージなら不要）
+            if [ -n "${{ secrets.GHCR_PAT }}" ]; then
+              echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
+            fi
+            export WEB_IMAGE
+            # 新イメージを取得して起動
+            docker compose -f platform/docker-compose.prod.yml pull
+            docker compose -f platform/docker-compose.prod.yml up -d
+            # DB マイグレーションを適用
+            docker compose -f platform/docker-compose.prod.yml run --rm web npx prisma migrate deploy
+            # 不要になった古いイメージを掃除
+            docker image prune -f
+

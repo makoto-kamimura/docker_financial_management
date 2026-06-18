@@ -212,22 +212,43 @@ DATABASE_URL=postgresql://app:app@localhost:5432/financial \
 
 ---
 
-## 11. デプロイ（CD）
+## 11. デプロイ（CD / 自動デプロイ：SSH + Docker Compose）
 
-- `.github/workflows/cd.yml` が `main` マージ / `v*` タグ push で起動。
-- Docker イメージをビルドし GHCR（`ghcr.io/<repo>/web`）に push。
-- `deploy` ジョブは基盤に合わせて実装する（プレースホルダ）。例:
-  - SSH + `docker compose -f platform/docker-compose.prod.yml pull && up -d`
-  - AWS ECS / Google Cloud Run へのイメージ反映
-  - Kubernetes（`kubectl set image` / `helm upgrade`）
-- 本番用 Compose は `platform/docker-compose.prod.yml`。機密値は環境変数 / シークレットで注入する。
+`main` への push（マージ）または `v*` タグ push で `.github/workflows/cd.yml` が起動し、**自動デプロイ**される。
 
-### 必要なシークレット（例）
-| シークレット | 用途 |
-| --- | --- |
-| `GITHUB_TOKEN` | GHCR への push（自動付与） |
-| `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY` | SSH デプロイ時 |
-| `DATABASE_URL` | 本番 DB 接続 |
+1. `build-and-push`: Docker イメージをビルドし GHCR（`ghcr.io/<repo>/web`）へ push。
+2. `deploy`: 本番サーバーへ SSH し、
+   - 本番用 `platform/docker-compose.prod.yml` を配置（scp）
+   - `docker compose pull` → `up -d` で新イメージに更新
+   - `docker compose run --rm web npx prisma migrate deploy` で DB マイグレーション適用
+   - 古いイメージを `docker image prune -f` で掃除
+   - デプロイするタグ: `main` push → `:main` / `vX.Y.Z` タグ → `:X.Y.Z`
+
+### 本番サーバー側の前提
+- Docker / Docker Compose v2 がインストール済み。
+- `DEPLOY_PATH`（例: `/opt/financial-management`）に **`.env`** を配置（compose が自動読込）。
+  ```env
+  WEB_IMAGE=ghcr.io/<owner>/-financial-management/web:main
+  DATABASE_URL=postgresql://<user>:<pass>@db:5432/financial
+  POSTGRES_USER=<user>
+  POSTGRES_PASSWORD=<pass>
+  POSTGRES_DB=financial
+  ```
+  ※ `WEB_IMAGE` は CD 実行時に上書きされるが、手動 `docker compose` 用に置いておくとよい。
+
+### 必要な GitHub Secrets（Settings → Secrets and variables → Actions）
+| シークレット | 用途 | 必須 |
+| --- | --- | --- |
+| `DEPLOY_HOST` | デプロイ先サーバーのホスト/IP | ✅ |
+| `DEPLOY_USER` | SSH ユーザー名 | ✅ |
+| `DEPLOY_SSH_KEY` | SSH 秘密鍵（対応する公開鍵をサーバーに登録） | ✅ |
+| `DEPLOY_PATH` | サーバー上の配置ディレクトリ（compose / .env の場所） | ✅ |
+| `DEPLOY_PORT` | SSH ポート（未設定時は 22） | 任意 |
+| `GHCR_USER` / `GHCR_PAT` | GHCR が private の場合のサーバー側ログイン（public なら不要） | 任意 |
+| `GITHUB_TOKEN` | GHCR への push（Actions が自動付与） | 自動 |
+
+> `production` 環境（`environment: production`）に required reviewers を設定すれば、デプロイ前に承認を挟める。
+> 初回はサーバーで `docker compose -f platform/docker-compose.prod.yml up -d db` などで DB を用意し、`db:seed` 相当の初期投入を行う。
 
 ---
 
