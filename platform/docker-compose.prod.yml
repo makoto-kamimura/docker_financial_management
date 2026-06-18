@@ -13,6 +13,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # /api/health への応答でコンテナの健全性を判定（Node 22 の global fetch を使用）
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   db:
     image: postgres:16-alpine

@@ -109,7 +109,14 @@ npm run build
 2. `platform/docker-compose.prod.yml` をサーバーへ scp 配置。
 3. SSH して `docker compose pull` → `up -d` で更新。
 4. `docker compose run --rm web npx prisma migrate deploy` で DB マイグレーション。
-5. `docker image prune -f` で古いイメージを掃除。
+5. **デプロイ後ヘルスチェック**: `/api/health` が 200 を返すまで最大 60 秒リトライ。失敗時は web ログを出力し `exit 1`（リリース失敗）。
+6. `docker image prune -f` で古いイメージを掃除。
+7. `HEALTHCHECK_URL` 設定時は、公開エンドポイントへの外形チェック（200 確認）も実施。
+
+### ヘルスチェックの構成（二重）
+- **Compose `healthcheck`**: コンテナ単位で `/api/health` を定期監視（`docker compose ps` の health に反映、`restart: always` と併用）。
+- **CD デプロイ直後チェック**: 新リリースが実際に応答するかを検証し、ダメならジョブを失敗させて気付けるようにする。
+- 監視先エンドポイント: `GET /api/health` → `{"status":"ok",...}`。
 
 本番サーバーの前提（Docker / `.env` の配置など）と必要 Secrets の一覧は
 [`operation.md`](operation.md) 「11. デプロイ」を参照。

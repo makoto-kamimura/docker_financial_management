@@ -2,6 +2,12 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (デプロイ後ヘルスチェック)
+- 本番 compose の web サービスに `healthcheck`（`/api/health` を Node fetch で監視）を追加。
+- CD の deploy にデプロイ後ヘルスチェックを追加（`/api/health` が応答するまで最大 60 秒リトライ、失敗時は web ログ出力 + ジョブ失敗）。
+- 任意の公開エンドポイント外形チェック（`HEALTHCHECK_URL` シークレット設定時）を追加。
+- operation.md / cicd.md を更新（ヘルスチェック構成・必要シークレット）。
+
 ## 2026-06-17 (自動デプロイ: SSH + Docker Compose)
 - CD の `deploy` ジョブを実装（プレースホルダから差し替え）。`main` push / `v*` タグで本番サーバーへ自動デプロイ。
   - compose を scp 配置 → `docker compose pull` / `up -d` → `prisma migrate deploy` → 古いイメージ掃除。

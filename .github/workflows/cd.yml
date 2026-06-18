@@ -54,6 +54,8 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     environment: production
+    env:
+      HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -98,11 +100,40 @@ jobs:
               echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
             fi
             export WEB_IMAGE
+            COMPOSE="docker compose -f platform/docker-compose.prod.yml"
             # 新イメージを取得して起動
-            docker compose -f platform/docker-compose.prod.yml pull
-            docker compose -f platform/docker-compose.prod.yml up -d
+            $COMPOSE pull
+            $COMPOSE up -d
             # DB マイグレーションを適用
-            docker compose -f platform/docker-compose.prod.yml run --rm web npx prisma migrate deploy
+            $COMPOSE run --rm web npx prisma migrate deploy
+            # --- デプロイ後ヘルスチェック（/api/health が応答するまで待機） ---
+            echo "Running post-deploy health check..."
+            HEALTHY=0
+            for i in $(seq 1 30); do
+              if $COMPOSE exec -T web node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+                echo "Health check passed (attempt $i)"; HEALTHY=1; break
+              fi
+              echo "  not ready yet... ($i/30)"; sleep 2
+            done
+            if [ "$HEALTHY" != "1" ]; then
+              echo "::error::Health check failed. Recent web logs:"
+              $COMPOSE logs --tail=80 web
+              exit 1
+            fi
             # 不要になった古いイメージを掃除
             docker image prune -f
+
+      # 公開エンドポイントの外形ヘルスチェック（HEALTHCHECK_URL を設定した場合のみ）
+      - name: External health check
+        if: ${{ env.HEALTHCHECK_URL != '' }}
+        run: |
+          URL="$HEALTHCHECK_URL"
+          echo "Checking $URL ..."
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
+            if [ "$code" = "200" ]; then echo "External health OK (200)"; exit 0; fi
+            echo "  got '$code', retrying ($i/20)"; sleep 3
+          done
+          echo "::error::External health check failed for $URL"
+          exit 1
 

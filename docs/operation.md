@@ -221,8 +221,12 @@ DATABASE_URL=postgresql://app:app@localhost:5432/financial \
    - 本番用 `platform/docker-compose.prod.yml` を配置（scp）
    - `docker compose pull` → `up -d` で新イメージに更新
    - `docker compose run --rm web npx prisma migrate deploy` で DB マイグレーション適用
+   - **デプロイ後ヘルスチェック**: `/api/health` が応答するまで最大 60 秒待機。失敗時は web ログを出力してジョブを失敗させる
    - 古いイメージを `docker image prune -f` で掃除
    - デプロイするタグ: `main` push → `:main` / `vX.Y.Z` タグ → `:X.Y.Z`
+3. `External health check`（任意）: `HEALTHCHECK_URL` シークレットを設定すると、公開エンドポイントへ外形監視（200 を確認）。
+
+> ヘルスチェックは二重構成: ①Compose の `healthcheck`（コンテナ単位で `/api/health` を定期監視）、②CD のデプロイ直後チェック（リリースの成否判定）。
 
 ### 本番サーバー側の前提
 - Docker / Docker Compose v2 がインストール済み。
@@ -245,6 +249,7 @@ DATABASE_URL=postgresql://app:app@localhost:5432/financial \
 | `DEPLOY_PATH` | サーバー上の配置ディレクトリ（compose / .env の場所） | ✅ |
 | `DEPLOY_PORT` | SSH ポート（未設定時は 22） | 任意 |
 | `GHCR_USER` / `GHCR_PAT` | GHCR が private の場合のサーバー側ログイン（public なら不要） | 任意 |
+| `HEALTHCHECK_URL` | デプロイ後の公開エンドポイント外形チェック先（例: `https://example.com/api/health`） | 任意 |
 | `GITHUB_TOKEN` | GHCR への push（Actions が自動付与） | 自動 |
 
 > `production` 環境（`environment: production`）に required reviewers を設定すれば、デプロイ前に承認を挟める。
