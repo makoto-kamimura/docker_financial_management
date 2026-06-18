@@ -214,7 +214,10 @@ DATABASE_URL=postgresql://app:app@localhost:5432/financial \
 
 ## 11. デプロイ（CD / 自動デプロイ：SSH + Docker Compose）
 
+> デプロイの動作概要・設計（ロールバック / 通知含む）は [`deploy.md`](deploy.md) に集約。
+
 `main` への push（マージ）または `v*` タグ push で `.github/workflows/cd.yml` が起動し、**自動デプロイ**される。
+ヘルスチェック失敗時は**直前イメージへ自動ロールバック**し、結果を**メール通知**する（いずれも設定時）。
 
 1. `build-and-push`: Docker イメージをビルドし GHCR（`ghcr.io/<repo>/web`）へ push。
 2. `deploy`: 本番サーバーへ SSH し、

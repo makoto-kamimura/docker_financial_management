@@ -3,7 +3,7 @@
 過去の財務データを取り込み・集計し、将来の推移を予測してグラフで可視化する決算管理システムです。
 
 > **構築・起動方法は [`docs/operation.md`](docs/operation.md) に集約しています。**
-> 仕様は [`docs/design.md`](docs/design.md)、CI/CD は [`docs/cicd.md`](docs/cicd.md)、変更履歴は [`docs/history.md`](docs/history.md)、開発タスクは [`docs/task.md`](docs/task.md) を参照してください。
+> 仕様は [`docs/design.md`](docs/design.md)、CI/CD は [`docs/cicd.md`](docs/cicd.md)、デプロイ設計は [`docs/deploy.md`](docs/deploy.md)、変更履歴は [`docs/history.md`](docs/history.md)、開発タスクは [`docs/task.md`](docs/task.md) を参照してください。
 
 ---
 
