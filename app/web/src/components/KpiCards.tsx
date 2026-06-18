@@ -17,23 +17,16 @@ type Kpi = {
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 
-function Card({ label, value }: { label: string; value: string }) {
+function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div
-      style={{
-        border: "1px solid #e5e7eb",
-        borderRadius: 8,
-        padding: "0.75rem 1rem",
-        minWidth: 140,
-      }}
-    >
-      <div style={{ fontSize: 12, color: "#6b7280" }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700 }}>{value}</div>
+    <div className="bg-white rounded-xl border border-slate-200 px-5 py-4 flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</span>
+      <span className="text-lg font-bold text-slate-900 tabular-nums">{value}</span>
+      {sub && <span className="text-xs text-slate-400">{sub}</span>}
     </div>
   );
 }
 
-// 最新月の主要 KPI をカード表示する
 export function KpiCards() {
   const { data } = useQuery({
     queryKey: ["kpi"],
@@ -44,20 +37,21 @@ export function KpiCards() {
   });
 
   const kpi = data?.kpi;
-  if (!kpi) return <p>KPI データがありません。</p>;
+  if (!kpi)
+    return (
+      <p className="text-sm text-slate-400 py-4">KPI データがありません。</p>
+    );
 
   return (
     <div>
-      <p style={{ color: "#6b7280", fontSize: 13 }}>対象月: {kpi.period}</p>
-      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-        <Card label="売上高" value={yen(kpi.revenue)} />
-        <Card label="売上総利益" value={yen(kpi.grossProfit)} />
-        <Card label="売上総利益率" value={pct(kpi.grossMargin)} />
-        <Card label="営業利益" value={yen(kpi.operatingProfit)} />
-        <Card label="営業利益率" value={pct(kpi.operatingMargin)} />
-        <Card label="前月比 (MoM)" value={pct(kpi.mom)} />
-        <Card label="前年同月比 (YoY)" value={pct(kpi.yoy)} />
-        <Card label="当年累計 (YTD)" value={yen(kpi.ytd)} />
+      <p className="text-xs text-slate-400 mb-3">対象月: {kpi.period}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiCard label="売上高" value={yen(kpi.revenue)} />
+        <KpiCard label="売上総利益" value={yen(kpi.grossProfit)} sub={`粗利率 ${pct(kpi.grossMargin)}`} />
+        <KpiCard label="営業利益" value={yen(kpi.operatingProfit)} sub={`営業利益率 ${pct(kpi.operatingMargin)}`} />
+        <KpiCard label="当年累計 (YTD)" value={yen(kpi.ytd)} />
+        <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} />
+        <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} />
       </div>
     </div>
   );
