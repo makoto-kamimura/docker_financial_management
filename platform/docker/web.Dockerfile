@@ -25,7 +25,10 @@ ENV NODE_ENV=production
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-# マイグレーション(prisma migrate deploy)と起動に必要なファイルを同梱
+# migrate deploy・seed・起動に必要なファイルを同梱
 COPY --from=builder /app/prisma ./prisma
+COPY platform/docker/entrypoint.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
 EXPOSE 3000
-CMD ["npm", "run", "start"]
+# 起動時に migrate deploy → 初回のみ seed → next start を順に実行する
+CMD ["./entrypoint.sh"]
