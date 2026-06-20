@@ -31,8 +31,8 @@ test.describe("ダッシュボードと主要フロー", () => {
     await expect(page).toHaveURL(/\/reports/);
     await expect(page.getByRole("heading", { name: /予実対比レポート/ })).toBeVisible();
     await expect(page.getByText("達成率")).toBeVisible();
-    // CSV 出力ボタンが存在する
-    await expect(page.getByRole("button", { name: "CSV 出力" })).toBeVisible();
+    // CSV 出力リンクが存在する
+    await expect(page.getByRole("link", { name: "CSV 出力" })).toBeVisible();
   });
 
   test("実績入力画面へ遷移できる", async ({ page }) => {
