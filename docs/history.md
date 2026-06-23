@@ -2,6 +2,12 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-17 (資金フロー図 / Sankey)
+- 資金フロー図機能を追加。勘定科目カテゴリ別集計から Sankey ダイアグラムを自動生成。
+  - `lib/cashflow.ts`（売上→原価/総利益、総利益→販管費/営業利益のフロー構築。損失時は該当フローを除外）。
+  - `GET /api/cashflow?year=`、`/cashflow` 画面（Recharts Sankey）、`components/CashFlowSankey.tsx`。
+  - 単体テスト 4 件追加（計 39 件）。middleware 保護・ダッシュボード導線に追加。
+
 ## 2026-06-17 (自動ロールバック / メール通知 / deploy.md)
 - CD に **失敗時の自動ロールバック**を追加。デプロイ前に稼働中イメージ ID を控え、ヘルスチェック失敗時は直前イメージへ `docker compose up -d` で復帰（DB マイグレーションは前進専用のため戻さない旨を明記）。
 - **メール通知**を追加（`dawidd6/action-send-mail`）。deploy 成功/失敗を `MAIL_TO` 宛に送信（任意）。
