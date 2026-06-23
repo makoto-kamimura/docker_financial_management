@@ -160,3 +160,51 @@ model AuditLog {
 
   @@map("audit_logs")
 }
+
+// 銀行口座の役割
+enum BankAccountRole {
+  SALARY // 給与口座
+  WITHDRAWAL // 引き落とし用口座
+  SAVINGS // 貯蓄
+  OTHER
+}
+
+// 資金移動の種別
+enum TransferKind {
+  MANUAL // 手動振込
+  AUTO // 自動振替 / 自動引き落とし
+}
+
+// 銀行口座
+model BankAccount {
+  id          Int             @id @default(autoincrement())
+  name        String // 表示名（例: 給与口座）
+  bankName    String // 銀行名
+  branchName  String? // 支店名
+  accountType String          @default("普通") // 普通 / 当座
+  role        BankAccountRole @default(OTHER)
+  createdAt   DateTime        @default(now())
+
+  outgoing Transfer[] @relation("from")
+  incoming Transfer[] @relation("to")
+
+  @@map("bank_accounts")
+}
+
+// 資金移動（振込 / 引き落とし）ルール
+model Transfer {
+  id            Int          @id @default(autoincrement())
+  fromAccount   BankAccount  @relation("from", fields: [fromAccountId], references: [id])
+  fromAccountId Int
+  toAccount     BankAccount  @relation("to", fields: [toAccountId], references: [id])
+  toAccountId   Int
+  amount        Decimal      @db.Decimal(18, 2)
+  kind          TransferKind @default(AUTO)
+  day           Int // 振込日 / 引き落とし日 (1-31)
+  note          String?
+  createdAt     DateTime     @default(now())
+
+  @@index([fromAccountId])
+  @@index([toAccountId])
+  @@map("transfers")
+}

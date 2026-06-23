@@ -9,6 +9,7 @@ const NAV = [
   { href: "/masters", label: "マスタ管理" },
   { href: "/reports", label: "予実対比レポート" },
   { href: "/cashflow", label: "資金フロー図" },
+  { href: "/transfers", label: "口座間フロー" },
   { href: "/settings", label: "セキュリティ設定" },
   { href: "/admin/audit", label: "監査ログ" },
 ] as const;

@@ -137,6 +137,31 @@ async function main() {
   }
   // ─────────────────────────────────────────────────────────────────────
 
+  // ─── 銀行口座と資金移動（口座間フロー）サンプル ────────────────────
+  const salary = await prisma.bankAccount.upsert({
+    where: { id: 1 }, update: {},
+    create: { name: "給与口座", bankName: "みずほ銀行", branchName: "新宿支店", role: "SALARY" },
+  });
+  const withdrawal = await prisma.bankAccount.upsert({
+    where: { id: 2 }, update: {},
+    create: { name: "引き落とし口座", bankName: "三菱UFJ銀行", branchName: "渋谷支店", role: "WITHDRAWAL" },
+  });
+  const savings = await prisma.bankAccount.upsert({
+    where: { id: 3 }, update: {},
+    create: { name: "貯蓄口座", bankName: "住信SBIネット銀行", role: "SAVINGS" },
+  });
+
+  // 給与口座 → 引き落とし口座（毎月27日 自動）、給与口座 → 貯蓄（毎月25日 手動）
+  const transfers = [
+    { fromAccountId: salary.id, toAccountId: withdrawal.id, amount: 250_000, kind: "AUTO" as const, day: 27, note: "家賃・カード等の引き落とし用" },
+    { fromAccountId: salary.id, toAccountId: savings.id, amount: 100_000, kind: "MANUAL" as const, day: 25, note: "貯蓄積立" },
+  ];
+  const existingTransfers = await prisma.transfer.count();
+  if (existingTransfers === 0) {
+    for (const t of transfers) await prisma.transfer.create({ data: t });
+  }
+  // ─────────────────────────────────────────────────────────────────────
+
   // ロール別ユーザー（admin / editor / viewer）
   const users = [
     { email: "admin@example.com", name: "管理者", role: "admin" },

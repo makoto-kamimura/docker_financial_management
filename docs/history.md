@@ -2,6 +2,14 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-24 (口座間 資金移動フロー)
+- 銀行口座間の資金移動（給与口座→引き落とし口座への振込/引き落とし等）をモデル化し、フロー図を自動生成する機能を追加。
+  - Prisma に `BankAccount` / `Transfer`（種別 MANUAL/AUTO、振込日/引き落とし日 `day`）を追加。マイグレーション `20260624000000_bank_transfers`。
+  - `lib/transferflow.ts`（口座→Sankey グラフ構築、循環検出 `hasCycle`）。
+  - API: `GET/POST /api/bank-accounts`、`GET/POST /api/transfers`、`GET /api/transfers/flow`。
+  - `/transfers` 画面（口座・振替の登録フォーム + フロー図 + 振替一覧）。AppShell ナビ・middleware・seed に追加。
+  - 単体テスト 6 件追加（計 45 件）。design を更新。
+
 ## 2026-06-17 (資金フロー図 / Sankey)
 - 資金フロー図機能を追加。勘定科目カテゴリ別集計から Sankey ダイアグラムを自動生成。
   - `lib/cashflow.ts`（売上→原価/総利益、総利益→販管費/営業利益のフロー構築。損失時は該当フローを除外）。
