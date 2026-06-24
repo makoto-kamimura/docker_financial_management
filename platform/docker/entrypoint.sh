@@ -2,12 +2,13 @@
 set -e
 
 echo "[entrypoint] Resolving any previously failed migrations..."
-npx prisma db execute --stdin << 'SQL' || true
-UPDATE "_prisma_migrations"
-SET "rolled_back_at" = NOW()
-WHERE "finished_at" IS NULL
-  AND "rolled_back_at" IS NULL;
-SQL
+node -e "
+const { PrismaClient } = require('@prisma/client');
+const p = new PrismaClient();
+p.\$executeRawUnsafe('UPDATE \"_prisma_migrations\" SET rolled_back_at = NOW() WHERE finished_at IS NULL AND rolled_back_at IS NULL')
+  .then(() => p.\$disconnect())
+  .catch(() => p.\$disconnect());
+" || true
 
 echo "[entrypoint] Running migrations..."
 npx prisma migrate deploy
