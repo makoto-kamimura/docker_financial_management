@@ -1,24 +1,17 @@
--- CreateEnum
-CREATE TYPE "BankAccountRole" AS ENUM ('SALARY', 'WITHDRAWAL', 'SAVINGS', 'OTHER');
+-- CreateEnum (idempotent)
+DO $$ BEGIN
+  CREATE TYPE "BankAccountRole" AS ENUM ('SALARY', 'WITHDRAWAL', 'SAVINGS', 'OTHER');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
--- CreateEnum
-CREATE TYPE "TransferKind" AS ENUM ('MANUAL', 'AUTO');
+DO $$ BEGIN
+  CREATE TYPE "TransferKind" AS ENUM ('MANUAL', 'AUTO');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
--- CreateTable
-CREATE TABLE "bank_accounts" (
-    "id" SERIAL NOT NULL,
-    "name" TEXT NOT NULL,
-    "bankName" TEXT NOT NULL,
-    "branchName" TEXT,
-    "accountType" TEXT NOT NULL DEFAULT '普通',
-    "role" "BankAccountRole" NOT NULL DEFAULT 'OTHER',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+-- bank_accounts は既存テーブルに role 列を追加（なければ）
+ALTER TABLE "bank_accounts" ADD COLUMN IF NOT EXISTS "role" "BankAccountRole" NOT NULL DEFAULT 'OTHER';
 
-    CONSTRAINT "bank_accounts_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "transfers" (
+-- transfers テーブルを新規作成
+CREATE TABLE IF NOT EXISTS "transfers" (
     "id" SERIAL NOT NULL,
     "fromAccountId" INTEGER NOT NULL,
     "toAccountId" INTEGER NOT NULL,
@@ -31,14 +24,13 @@ CREATE TABLE "transfers" (
     CONSTRAINT "transfers_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "transfers_fromAccountId_idx" ON "transfers"("fromAccountId");
+CREATE INDEX IF NOT EXISTS "transfers_fromAccountId_idx" ON "transfers"("fromAccountId");
+CREATE INDEX IF NOT EXISTS "transfers_toAccountId_idx" ON "transfers"("toAccountId");
 
--- CreateIndex
-CREATE INDEX "transfers_toAccountId_idx" ON "transfers"("toAccountId");
+ALTER TABLE "transfers" DROP CONSTRAINT IF EXISTS "transfers_fromAccountId_fkey";
+ALTER TABLE "transfers" ADD CONSTRAINT "transfers_fromAccountId_fkey"
+  FOREIGN KEY ("fromAccountId") REFERENCES "bank_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE "transfers" ADD CONSTRAINT "transfers_fromAccountId_fkey" FOREIGN KEY ("fromAccountId") REFERENCES "bank_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "transfers" ADD CONSTRAINT "transfers_toAccountId_fkey" FOREIGN KEY ("toAccountId") REFERENCES "bank_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "transfers" DROP CONSTRAINT IF EXISTS "transfers_toAccountId_fkey";
+ALTER TABLE "transfers" ADD CONSTRAINT "transfers_toAccountId_fkey"
+  FOREIGN KEY ("toAccountId") REFERENCES "bank_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
