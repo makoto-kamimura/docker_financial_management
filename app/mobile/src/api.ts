@@ -7,18 +7,28 @@ const API_BASE_URL: string =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
   `http://${_devHost}:3000/api`;
 
+console.log("[api] API_BASE_URL:", API_BASE_URL);
+
+const TIMEOUT_MS = 10_000;
+
+function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
 // ── セッション管理（モジュール変数 - アプリ再起動でリセット）──────────
 let _session = "";
 export function getSession() { return _session; }
 export function setSession(token: string) { _session = token; }
 export function clearSession() { _session = ""; }
 
-async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string> ?? {}),
   };
   if (_session) headers["Cookie"] = `fm_session=${_session}`;
-  return fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  return fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers });
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────
@@ -26,11 +36,19 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 export type UserInfo = { id: number; name: string; role: string };
 
 export async function login(email: string, password: string): Promise<UserInfo> {
-  const res = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${API_BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch (e) {
+    const msg = e instanceof Error && e.name === "AbortError"
+      ? `サーバーに接続できません（${API_BASE_URL}）\nDockerが起動しているか確認してください。`
+      : `ネットワークエラー: ${e instanceof Error ? e.message : String(e)}`;
+    throw new Error(msg);
+  }
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? "ログインに失敗しました");
   setSession(json.data.sessionId as string);
