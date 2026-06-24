@@ -1,9 +1,11 @@
 import Constants from "expo-constants";
 
+// 開発時は Metro サーバーと同じホスト IP に向ける（固定 IP 不要）
+// 本番時は EXPO_PUBLIC_API_BASE_URL 環境変数で上書き可能
+const _devHost = Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
 const API_BASE_URL: string =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
-  (Constants.expoConfig?.extra?.apiBaseUrl as string) ??
-  "http://localhost:3000/api";
+  `http://${_devHost}:3000/api`;
 
 // ── セッション管理（モジュール変数 - アプリ再起動でリセット）──────────
 let _session = "";

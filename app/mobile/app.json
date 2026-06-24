@@ -14,8 +14,6 @@
         "backgroundColor": "#ffffff"
       }
     },
-    "extra": {
-      "apiBaseUrl": "http://192.168.100.223:3000/api"
-    }
+    "extra": {}
   }
 }
