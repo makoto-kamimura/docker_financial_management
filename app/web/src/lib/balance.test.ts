@@ -53,6 +53,17 @@ describe("simulateBalances", () => {
     expect(last.balances[2]).toBe(10_000);
   });
 
+  it("入金(外部→口座)・支出(口座→外部)を残高に反映する", () => {
+    const accts: SimAccount[] = [{ id: 1, name: "給与口座", opening: 0 }];
+    const transfers: SimTransfer[] = [
+      { fromId: null, toId: 1, amount: 450_000, day: 25 }, // 入金
+      { fromId: 1, toId: null, amount: 120_000, day: 27 }, // カード/支出
+    ];
+    const { timeline } = simulateBalances(accts, transfers, { startYear: 2025, startMonth: 1, months: 1 });
+    const last = timeline[timeline.length - 1];
+    expect(last.balances[1]).toBe(330_000); // 0 + 450,000 - 120,000
+  });
+
   it("複数月にわたり毎月実行される", () => {
     const transfers: SimTransfer[] = [{ fromId: 1, toId: 2, amount: 50_000, day: 15 }];
     const { timeline } = simulateBalances(accounts, transfers, {

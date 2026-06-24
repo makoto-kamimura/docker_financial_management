@@ -3,7 +3,9 @@
 // 日次の残高推移を計算し、残高不足が発生する日を検出する。
 
 export type SimAccount = { id: number; name: string; opening: number };
-export type SimTransfer = { fromId: number; toId: number; amount: number; day: number };
+// fromId/toId は口座(number)または外部(null)。
+// 入金: fromId=null, 支出/引き落とし: toId=null, 口座間振替: 両方指定。
+export type SimTransfer = { fromId: number | null; toId: number | null; amount: number; day: number };
 
 export type BalancePoint = { date: string; balances: Record<number, number> };
 export type Shortfall = { date: string; accountId: number; accountName: string; balance: number };
@@ -45,8 +47,8 @@ export function simulateBalances(
     for (const t of transfers) {
       const effectiveDay = Math.min(t.day, dim);
       if (d === effectiveDay) {
-        if (balances[t.fromId] !== undefined) balances[t.fromId] -= t.amount;
-        if (balances[t.toId] !== undefined) balances[t.toId] += t.amount;
+        if (t.fromId != null && balances[t.fromId] !== undefined) balances[t.fromId] -= t.amount;
+        if (t.toId != null && balances[t.toId] !== undefined) balances[t.toId] += t.amount;
       }
     }
 

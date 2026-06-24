@@ -2,6 +2,18 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-06-24 (外部入出金・カード引落・銀行入出金の自動取得)
+- 資金移動（Transfer）を一般化。出金元/入金先を null 許容にし、`channel`（口座間振込/口座引落/**カード引落**/入金/支出）と `label` を追加。
+  - 入金（外部→口座）・支出/カード/口座引落（口座→外部）を同じ仕組みで扱え、フロー図・残高シミュレーションに反映。
+  - `lib/transferflow.ts` を外部端点対応に、`lib/balance.ts` を null 端点対応に更新。
+- 銀行入出金の自動取得を追加。
+  - `bank_transactions` モデル、`lib/banksync.ts`（`BankSyncProvider` IF + モック、実 API 差し替え可）、`lib/banktxn-import.ts`（CSV、重複防止 externalId）。
+  - API: `GET/POST /api/bank-accounts/:id/transactions`（取得/CSV取込）、`POST /api/bank-accounts/:id/sync`（同期）。
+  - 画面 `/bank-transactions`（口座選択・自動取得・CSV取込・明細一覧）。
+- `/transfers` 画面に channel・外部端点・label を追加。seed に給与入金/カード引落/家賃引落の例を追加。
+- マイグレーション `20260624010000_transfer_channels_and_bank_txns`。単体テスト +6（計 55 件）。
+- 注: 実銀行接続はアグリゲーション事業者の API・認証情報・外部接続が必要なため、本リポジトリではモック＋CSV取込で提供（差し替え前提）。
+
 ## 2026-06-24 (残高シミュレーション)
 - 残高推移シミュレーション機能を追加。期首残高と登録済みの振込/引き落とし（毎月の日付）から、日次の残高推移を計算し残高不足日を検出。
   - `lib/balance.ts`（日次シミュレーション、月末超え日付は月末に実行、残高不足検出）。

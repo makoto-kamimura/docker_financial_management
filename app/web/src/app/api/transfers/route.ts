@@ -4,14 +4,25 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
-const TransferSchema = z.object({
-  fromAccountId: z.number().int(),
-  toAccountId: z.number().int(),
-  amount: z.number().positive(),
-  kind: z.enum(["MANUAL", "AUTO"]).default("AUTO"),
-  day: z.number().int().min(1).max(31),
-  note: z.string().optional(),
-});
+const TransferSchema = z
+  .object({
+    fromAccountId: z.number().int().nullable().optional(),
+    toAccountId: z.number().int().nullable().optional(),
+    amount: z.number().positive(),
+    kind: z.enum(["MANUAL", "AUTO"]).default("AUTO"),
+    channel: z
+      .enum(["BANK_TRANSFER", "AUTO_DEBIT", "CARD_PAYMENT", "INCOME", "EXPENSE"])
+      .default("BANK_TRANSFER"),
+    label: z.string().optional(),
+    day: z.number().int().min(1).max(31),
+    note: z.string().optional(),
+  })
+  .refine((d) => d.fromAccountId != null || d.toAccountId != null, {
+    message: "出金元または入金先のいずれかは口座を指定してください",
+  })
+  .refine((d) => !(d.fromAccountId != null && d.fromAccountId === d.toAccountId), {
+    message: "出金元と入金先が同じです",
+  });
 
 // GET /api/transfers … 資金移動ルール一覧（口座名を含む）
 export async function GET() {
@@ -33,9 +44,6 @@ export async function POST(req: NextRequest) {
   const parsed = TransferSchema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
-  if (parsed.data.fromAccountId === parsed.data.toAccountId) {
-    return NextResponse.json({ error: "出金元と入金先が同じです" }, { status: 400 });
   }
   const transfer = await prisma.transfer.create({ data: parsed.data });
   await writeAudit(auth.user.id, "create", `transfer:${transfer.id}`);

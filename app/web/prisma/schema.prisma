@@ -175,6 +175,22 @@ enum TransferKind {
   AUTO // 自動振替 / 自動引き落とし
 }
 
+// 資金移動のチャネル（口座引き落とし・カード引き落とし・入金・支出など）
+enum TransferChannel {
+  BANK_TRANSFER // 口座間振込
+  AUTO_DEBIT // 口座引き落とし
+  CARD_PAYMENT // クレジットカード引き落とし
+  INCOME // 入金（給与等・外部から）
+  EXPENSE // 支出（外部へ）
+}
+
+// 銀行入出金明細の取得元
+enum TxnSource {
+  MANUAL // 手入力
+  CSV // CSV 取込
+  SYNC // 自動同期（アグリゲーション）
+}
+
 // 銀行口座
 model BankAccount {
   id          Int             @id @default(autoincrement())
@@ -185,26 +201,48 @@ model BankAccount {
   role        BankAccountRole @default(OTHER)
   createdAt   DateTime        @default(now())
 
-  outgoing Transfer[] @relation("from")
-  incoming Transfer[] @relation("to")
+  outgoing     Transfer[]        @relation("from")
+  incoming     Transfer[]        @relation("to")
+  transactions BankTransaction[]
 
   @@map("bank_accounts")
 }
 
-// 資金移動（振込 / 引き落とし）ルール
+// 資金移動ルール（振込 / 口座引き落とし / カード引き落とし / 入金 / 支出）
+// fromAccountId / toAccountId は null 可（null = 外部＝給与・カード会社・各種支出先）
 model Transfer {
-  id            Int          @id @default(autoincrement())
-  fromAccount   BankAccount  @relation("from", fields: [fromAccountId], references: [id])
-  fromAccountId Int
-  toAccount     BankAccount  @relation("to", fields: [toAccountId], references: [id])
-  toAccountId   Int
-  amount        Decimal      @db.Decimal(18, 2)
-  kind          TransferKind @default(AUTO)
+  id            Int             @id @default(autoincrement())
+  fromAccount   BankAccount?    @relation("from", fields: [fromAccountId], references: [id])
+  fromAccountId Int?
+  toAccount     BankAccount?    @relation("to", fields: [toAccountId], references: [id])
+  toAccountId   Int?
+  amount        Decimal         @db.Decimal(18, 2)
+  kind          TransferKind    @default(AUTO)
+  channel       TransferChannel @default(BANK_TRANSFER)
+  label         String? // 外部側の名称（例: 給与、◯◯カード、家賃）
   day           Int // 振込日 / 引き落とし日 (1-31)
   note          String?
-  createdAt     DateTime     @default(now())
+  createdAt     DateTime        @default(now())
 
   @@index([fromAccountId])
   @@index([toAccountId])
   @@map("transfers")
+}
+
+// 銀行入出金明細（取込・同期したトランザクション）
+model BankTransaction {
+  id          Int         @id @default(autoincrement())
+  account     BankAccount @relation(fields: [accountId], references: [id])
+  accountId   Int
+  date        DateTime // 取引日
+  description String // 摘要
+  amount      Decimal     @db.Decimal(18, 2) // +入金 / -出金
+  balance     Decimal?    @db.Decimal(18, 2) // 取引後残高（取得できた場合）
+  source      TxnSource   @default(MANUAL)
+  externalId  String? // 重複取込防止用の外部ID
+  createdAt   DateTime    @default(now())
+
+  @@unique([accountId, externalId])
+  @@index([accountId, date])
+  @@map("bank_transactions")
 }

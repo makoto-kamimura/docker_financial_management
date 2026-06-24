@@ -151,10 +151,18 @@ async function main() {
     create: { name: "貯蓄口座", bankName: "住信SBIネット銀行", role: "SAVINGS" },
   });
 
-  // 給与口座 → 引き落とし口座（毎月27日 自動）、給与口座 → 貯蓄（毎月25日 手動）
+  // 入金（給与）→ 給与口座、口座間振替、カード引き落とし、各種支出
   const transfers = [
-    { fromAccountId: salary.id, toAccountId: withdrawal.id, amount: 250_000, kind: "AUTO" as const, day: 27, note: "家賃・カード等の引き落とし用" },
-    { fromAccountId: salary.id, toAccountId: savings.id, amount: 100_000, kind: "MANUAL" as const, day: 25, note: "貯蓄積立" },
+    // 給与入金（外部 → 給与口座）
+    { fromAccountId: null, toAccountId: salary.id, amount: 450_000, kind: "AUTO" as const, channel: "INCOME" as const, label: "給与", day: 25, note: "毎月の給与振込" },
+    // 給与口座 → 引き落とし口座（口座間振替）
+    { fromAccountId: salary.id, toAccountId: withdrawal.id, amount: 250_000, kind: "AUTO" as const, channel: "BANK_TRANSFER" as const, day: 26, note: "引き落とし用に移動" },
+    // 給与口座 → 貯蓄（手動振替）
+    { fromAccountId: salary.id, toAccountId: savings.id, amount: 100_000, kind: "MANUAL" as const, channel: "BANK_TRANSFER" as const, day: 25, note: "貯蓄積立" },
+    // クレジットカード引き落とし（引き落とし口座 → 外部カード会社）
+    { fromAccountId: withdrawal.id, toAccountId: null, amount: 120_000, kind: "AUTO" as const, channel: "CARD_PAYMENT" as const, label: "楽天カード", day: 27, note: "カード利用分の引き落とし" },
+    // 家賃の口座引き落とし（引き落とし口座 → 外部）
+    { fromAccountId: withdrawal.id, toAccountId: null, amount: 90_000, kind: "AUTO" as const, channel: "AUTO_DEBIT" as const, label: "家賃", day: 27, note: "家賃の自動引き落とし" },
   ];
   const existingTransfers = await prisma.transfer.count();
   if (existingTransfers === 0) {

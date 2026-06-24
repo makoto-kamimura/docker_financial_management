@@ -8,10 +8,13 @@ import { CashFlowSankey, type SankeyData } from "@/components/CashFlowSankey";
 type BankAccount = { id: number; name: string; bankName: string; role: string };
 type TransferRow = {
   id: number;
-  from: string;
-  to: string;
+  from: string | null;
+  to: string | null;
   amount: number;
   kind: "MANUAL" | "AUTO";
+  channel: string;
+  channelLabel: string;
+  label: string | null;
   day: number;
   note: string | null;
 };
@@ -23,6 +26,14 @@ const ROLES = [
   { value: "SAVINGS", label: "貯蓄" },
   { value: "OTHER", label: "その他" },
 ];
+const CHANNELS = [
+  { value: "BANK_TRANSFER", label: "口座間振込" },
+  { value: "AUTO_DEBIT", label: "口座引き落とし" },
+  { value: "CARD_PAYMENT", label: "カード引き落とし" },
+  { value: "INCOME", label: "入金（給与等）" },
+  { value: "EXPENSE", label: "支出" },
+];
+const EXTERNAL = "__external__";
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 export default function TransfersPage() {
@@ -39,7 +50,19 @@ export default function TransfersPage() {
   });
 
   const [acct, setAcct] = useState({ name: "", bankName: "", branchName: "", role: "OTHER" });
-  const [tr, setTr] = useState({ fromAccountId: "", toAccountId: "", amount: 0, kind: "AUTO", day: 27, note: "" });
+  const [tr, setTr] = useState({
+    fromAccountId: "",
+    toAccountId: "",
+    amount: 0,
+    kind: "AUTO",
+    channel: "BANK_TRANSFER",
+    label: "",
+    day: 27,
+    note: "",
+  });
+
+  // 出金元/入金先の値を口座ID or 外部(null)に変換
+  const toAccountIdOrNull = (v: string) => (v === EXTERNAL || v === "" ? null : Number(v));
 
   async function addAccount(e: { preventDefault(): void }) {
     e.preventDefault();
@@ -58,15 +81,17 @@ export default function TransfersPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        fromAccountId: Number(tr.fromAccountId),
-        toAccountId: Number(tr.toAccountId),
+        fromAccountId: toAccountIdOrNull(tr.fromAccountId),
+        toAccountId: toAccountIdOrNull(tr.toAccountId),
         amount: Number(tr.amount),
         kind: tr.kind,
+        channel: tr.channel,
+        label: tr.label || undefined,
         day: Number(tr.day),
         note: tr.note || undefined,
       }),
     });
-    setTr({ fromAccountId: "", toAccountId: "", amount: 0, kind: "AUTO", day: 27, note: "" });
+    setTr({ fromAccountId: "", toAccountId: "", amount: 0, kind: "AUTO", channel: "BANK_TRANSFER", label: "", day: 27, note: "" });
     qc.invalidateQueries({ queryKey: ["transfer-flow"] });
   }
 
@@ -126,35 +151,46 @@ export default function TransfersPage() {
 
         {/* 振替登録 */}
         <div className="card">
-          <h2 className="section-title">振込 / 引き落としを追加</h2>
+          <h2 className="section-title">振込 / 引き落とし / 入金を追加</h2>
           <form onSubmit={addTransfer} className="space-y-3">
+            <select className="input-field" value={tr.channel}
+              onChange={(e) => setTr({ ...tr, channel: e.target.value })}>
+              {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
             <div className="grid grid-cols-2 gap-2">
-              <select className="input-field" value={tr.fromAccountId} required
+              <select className="input-field" value={tr.fromAccountId}
                 onChange={(e) => setTr({ ...tr, fromAccountId: e.target.value })}>
-                <option value="">出金元口座</option>
+                <option value="">出金元</option>
+                <option value={EXTERNAL}>外部（給与等）</option>
                 {accounts?.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
-              <select className="input-field" value={tr.toAccountId} required
+              <select className="input-field" value={tr.toAccountId}
                 onChange={(e) => setTr({ ...tr, toAccountId: e.target.value })}>
-                <option value="">入金先口座</option>
+                <option value="">入金先</option>
+                <option value={EXTERNAL}>外部（カード/支出）</option>
                 {accounts?.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </div>
+            <input className="input-field" placeholder="外部の名称（例: 給与、◯◯カード、家賃）" value={tr.label}
+              onChange={(e) => setTr({ ...tr, label: e.target.value })} />
             <input className="input-field" type="number" placeholder="金額" value={tr.amount}
               onChange={(e) => setTr({ ...tr, amount: Number(e.target.value) })} required />
             <div className="grid grid-cols-2 gap-2">
               <select className="input-field" value={tr.kind}
                 onChange={(e) => setTr({ ...tr, kind: e.target.value })}>
-                <option value="AUTO">自動（振替/引き落とし）</option>
-                <option value="MANUAL">手動振込</option>
+                <option value="AUTO">自動</option>
+                <option value="MANUAL">手動</option>
               </select>
               <input className="input-field" type="number" min={1} max={31} placeholder="日(1-31)"
                 value={tr.day} onChange={(e) => setTr({ ...tr, day: Number(e.target.value) })} required />
             </div>
             <input className="input-field" placeholder="メモ（任意）" value={tr.note}
               onChange={(e) => setTr({ ...tr, note: e.target.value })} />
-            <button type="submit" className="btn-primary w-full py-2">振替を追加</button>
+            <button type="submit" className="btn-primary w-full py-2">追加</button>
           </form>
+          <p className="text-xs text-slate-400 mt-2">
+            出金元を「外部」にすると入金（給与）、入金先を「外部」にするとカード/口座引き落とし・支出になります。
+          </p>
         </div>
       </div>
 
@@ -164,7 +200,7 @@ export default function TransfersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                {["毎月", "出金元", "入金先", "金額", "種別", "メモ"].map((h) => (
+                {["毎月", "チャネル", "出金元", "入金先", "金額", "種別", "メモ"].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600">{h}</th>
                 ))}
               </tr>
@@ -173,8 +209,9 @@ export default function TransfersPage() {
               {flow.transfers.map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50">
                   <td className="px-4 py-2.5 whitespace-nowrap">{t.day}日</td>
-                  <td className="px-4 py-2.5">{t.from}</td>
-                  <td className="px-4 py-2.5">{t.to}</td>
+                  <td className="px-4 py-2.5 text-xs">{t.channelLabel}</td>
+                  <td className="px-4 py-2.5">{t.from ?? <span className="text-slate-400">外部（{t.label ?? "入金"}）</span>}</td>
+                  <td className="px-4 py-2.5">{t.to ?? <span className="text-slate-400">外部（{t.label ?? "支出"}）</span>}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums">{yen(t.amount)}</td>
                   <td className="px-4 py-2.5">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.kind === "AUTO" ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
