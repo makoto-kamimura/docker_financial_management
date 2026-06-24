@@ -15,3 +15,7 @@ platform/.env
 # misc
 *.tsbuildinfo
 .DS_Store
+
+# private / work data
+docs/private/
+docs/work/

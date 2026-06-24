@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 
-export type Role = "admin" | "editor" | "viewer";
+export type Role = "admin" | "editor" | "accountant" | "viewer";
 
 // ロールの権限階層（上位は下位を包含）
-const RANK: Record<Role, number> = { viewer: 1, editor: 2, admin: 3 };
+// accountant = 閲覧・仕訳確認・申告書出力が可能、マスタ編集・ユーザー管理は不可
+const RANK: Record<Role, number> = { viewer: 1, accountant: 2, editor: 3, admin: 4 };
 
 type AuthResult =
   | { user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>; error?: never }

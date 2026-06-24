@@ -1,6 +1,6 @@
 # financial-management（決算管理システム）
 
-過去の財務データを取り込み・集計し、将来の推移を予測してグラフで可視化する決算管理システムです。
+財務データの取り込み・集計・将来予測を行い、個人事業主・法人の確定申告・決算を支援する統合会計管理システムです。Web とモバイルの両方から利用できます。
 
 > **構築・起動方法は [`docs/operation.md`](docs/operation.md) に集約しています。**
 > 仕様は [`docs/design.md`](docs/design.md)、CI/CD は [`docs/cicd.md`](docs/cicd.md)、デプロイ設計は [`docs/deploy.md`](docs/deploy.md)、変更履歴は [`docs/history.md`](docs/history.md)、開発タスクは [`docs/task.md`](docs/task.md) を参照してください。
@@ -9,50 +9,116 @@
 
 ## システム概要
 
-過去の財務データを蓄積し、**集計・将来予測・可視化**を一気通貫で行う Web 中心の決算管理システムです。
-経営者・経理・経営企画が、月次/四半期/年次の業績推移と将来見通し、予実差異をダッシュボードで把握できます。
-
-### 主な機能
-- 📥 **データ取込**: CSV / Excel(xlsx) の一括インポート、手入力フォーム、マスタ管理（勘定科目・部門・会計期間）
-- 📊 **集計**: 月次 / 四半期 / 年次の自動集計、KPI（売上総利益率・営業利益率・YoY・MoM・YTD）
-- 🔮 **将来予測**: 5 手法（移動平均 / 線形回帰 / 成長率 / Holt / Holt-Winters）＋ シナリオ（楽観・標準・悲観）
-- 📈 **可視化**: 実績＋予測の推移グラフ、予実対比レポート、CSV / PNG / PDF エクスポート
-- 🔐 **セキュリティ**: 認証（ログイン/セッション）、RBAC（admin / editor / viewer）、MFA(TOTP)、監査ログ
-- 📱 **マルチデバイス**: Web ダッシュボード＋モバイルアプリ（共通 API）
-
-### 技術スタック
-| レイヤー | 採用技術 |
+| 項目 | 内容 |
 | --- | --- |
-| Web フロント | TypeScript / React / Next.js (App Router) / Recharts |
-| バックエンド | **Next.js Route Handlers**（`/api/*`）/ Zod / Prisma |
-| モバイル | Expo / React Native / react-native-svg |
-| データベース | PostgreSQL |
-| テスト | Vitest（単体）/ Playwright（E2E） |
-| インフラ / CI-CD | Docker / GitHub Actions / GHCR |
+| 想定ユーザー | 個人事業主・中小法人の経営者・経理担当・税理士 |
+| 提供形態 | Web アプリ（PC ブラウザ） + モバイルアプリ（iOS / Android） |
+| バックエンド | Next.js App Router Route Handlers |
+| DB | PostgreSQL 16（Prisma ORM） |
+| キャッシュ | Redis 7（TTL 1 時間） |
 
-### アーキテクチャ（モノレポ）
+---
+
+## 主な機能
+
+### 基本集計・予測・ダッシュボード
+- **データ取込**: CSV 一括インポート、手入力フォーム、実績履歴管理
+- **集計**: 月次 / 四半期 / 年次の自動集計、KPI（利益率・YoY・MoM・YTD）
+- **将来予測**: 5 手法（移動平均 / 線形回帰 / 成長率 / Holt / Holt-Winters）＋ シナリオ（楽観・標準・悲観）＋ 精度評価（MAPE / RMSE）
+- **予算管理**: 月別予算クロス集計・インライン編集、予実対比レポート（CSV / PNG / PDF 出力）
+- **構成比グラフ**: 円グラフ・積み上げ棒グラフ
+
+### 個人事業主・確定申告支援
+- 複式簿記による仕訳入力（テンプレート仕訳・AI 仕訳提案）
+- 証憑ファイルアップロード管理
+- 棚卸管理（評価方法：最終仕入原価法 / 総平均法 / 移動平均法）
+- 固定資産・減価償却（定額法・定率法）
+- 家事按分管理
+- 売掛金・買掛金管理（入金・支払時の仕訳自動生成）
+- 消費税設定（免税 / 原則課税 / 簡易課税）
+- 決算処理・年度締め、青色申告決算書 印刷（P/L・B/S・月別収支・家事按分計算書）
+- 総勘定元帳・試算表（JSON / CSV 出力）
+- e-Tax / eLTAX 向け XML 生成（青色申告・法人税・消費税）
+
+### 法人・統合会計（マルチテナント対応）
+- マルチテナント管理（SOLE_PROPRIETOR / CORPORATION）・会計年度管理
+- 銀行口座・資金管理、借入金・返済管理
+- 適格請求書（インボイス）発行・ステータス管理
+- 未収金・未払金管理
+- 法人向け決算書出力（P/L・B/S・株主資本等変動計算書・法人税概算）
+- 財務分析指標（流動比率・自己資本比率・ROA / ROE 等）
+- 法人ガバナンス（役員・株主総会・配当・決算公告）
+- 電子帳簿保存法対応（仕訳承認ワークフロー）
+
+### セキュリティ・運用
+- 認証（メール + パスワード）・httpOnly Cookie セッション
+- RBAC（admin / editor / accountant / viewer の 4 ロール）
+- MFA（TOTP・RFC 6238、外部依存なし）・リカバリーコード
+- 監査ログ（before / after 差分記録）、パスワードポリシー・アカウントロック
+- ユーザー管理画面（ロール変更・パスワードリセット・新規作成）
+
+### 外部連携・その他
+- freee / マネーフォワード API 連携（OAuth 2.0 skeleton）
+- オープンバンキング API 連携
+- 税理士ポータル（テナント横断財務サマリ）
+- 国際化（日本語 / English 切り替え）
+- a11y 対応（スキップリンク・ARIA・reduced-motion）
+- 観点切り替え（家計 / 個人会計 / 法人 の 3 モード）
+
+---
+
+## 技術スタック
+
+| レイヤー | 採用技術 | バージョン |
+| --- | --- | --- |
+| Web フロント | TypeScript / React / Next.js (App Router) / Recharts / TanStack Query / Tailwind CSS | Next.js 15 |
+| バックエンド | Next.js Route Handlers (`/api/*`) / Zod | — |
+| ORM | Prisma + PostgreSQL | Prisma 6 / PG 16 |
+| キャッシュ | Redis（`redis` npm パッケージ） | Redis 7 |
+| モバイル | Expo / React Native / react-native-svg | Expo 54 |
+| テスト | Vitest（単体）/ Playwright（E2E） | — |
+| インフラ | Docker Compose | — |
+| CI/CD | GitHub Actions / GHCR | — |
+
+---
+
+## アーキテクチャ
+
+```
+[Web フロントエンド (React)]    [Mobile (React Native)]
+             │                           │
+             └──────────────┬────────────┘
+                            │ HTTPS (REST / JSON)
+                            ▼
+         [Next.js Route Handlers  /api/*]
+            認証/認可・集計・予測・レポート
+                            │
+              ┌─────────────┼──────────────┐
+              ▼             ▼              ▼
+       [PostgreSQL]      [Redis]     [uploads vol]
+        (Prisma)      (キャッシュ)   (証憑ファイル)
+```
+
+### プロジェクト構成（モノレポ）
+
 ```
 .
 ├── app/
-│   ├── web/        # Next.js（フロント + バックエンドAPI）
-│   └── mobile/     # Expo / React Native
-├── platform/       # Docker / docker-compose / scripts（backup 等）
-└── docs/           # design / operation / cicd / history / task
+│   ├── web/             # Next.js（フロント + バックエンド API）
+│   └── mobile/          # Expo / React Native
+├── platform/
+│   ├── docker/
+│   ├── docker-compose.yml        # 開発環境（web + db + redis + cron）
+│   ├── docker-compose.prod.yml   # 本番環境
+│   └── scripts/                  # backup.sh / restore.sh
+└── docs/
+    ├── design.md        # 仕様・設計書
+    ├── operation.md     # 構築・運用手順
+    ├── cicd.md          # CI/CD 解説
+    ├── deploy.md        # デプロイ設計
+    ├── task.md          # 開発タスク管理
+    └── history.md       # 変更履歴
 ```
-
-```
-[Web (React)]  [Mobile (React Native)]
-        \           /
-         \  HTTPS  /  (REST / JSON)
-          ▼       ▼
-   [Next.js API (Route Handlers /api/*)]
-   認証/認可 ・ 集計 ・ 予測 ・ レポート
-          │
-          ▼
-   [PostgreSQL (Prisma)]
-```
-
-> バックエンドは **Next.js に一本化**し、Web フロントとモバイルが同一 API を共有します。
 
 ---
 
@@ -67,7 +133,7 @@
 > ```bash
 > cd app/web
 > npm run e2e:install                 # 初回のみ: ブラウザ導入
-> docker compose -f ../../platform/docker-compose.yml up -d db
+> docker compose -f ../../platform/docker-compose.yml up -d db redis
 > npm run db:migrate && npm run db:seed
 > npm run build && npm run start &    # アプリ起動
 > npm run screenshot                  # 1920×1080 で撮影 → docs/images/dashboard.png
@@ -77,192 +143,114 @@
 
 ---
 
-## 1. 概要
+## クイックスタート
 
-| 項目 | 内容 |
+### Docker（推奨）
+
+```bash
+# ビルド & 起動（web + db + redis）
+docker compose -f platform/docker-compose.yml up --build
+
+# 初回のみ: マイグレーション + シード
+docker compose -f platform/docker-compose.yml exec web npm run db:migrate
+docker compose -f platform/docker-compose.yml exec web npm run db:seed
+```
+
+### ローカル開発
+
+```bash
+# DB・Redis だけ Docker で起動
+docker compose -f platform/docker-compose.yml up -d db redis
+
+cd app/web
+npm install
+npm run db:generate   # Prisma Client 生成
+npm run db:migrate    # マイグレーション
+npm run db:seed       # 初期データ投入
+npm run dev           # http://localhost:3000
+```
+
+### 初期ログインアカウント（パスワードはいずれも `password`）
+
+| メール | ロール | 権限 |
+| --- | --- | --- |
+| `admin@example.com` | admin | 全操作 + ユーザー管理 + 監査ログ |
+| `editor@example.com` | editor | データ登録・編集・削除 |
+| `viewer@example.com` | viewer | 閲覧のみ |
+
+`accountant` ロールは `/admin/users` でロール変更して使用する。
+
+---
+
+## モバイルアプリ
+
+```bash
+cd app/mobile
+npm install
+npm run start    # Expo Dev Server 起動 → QR コードを Expo Go で読み取る
+# npm run ios    # iOS Simulator
+# npm run android  # Android Emulator
+```
+
+実機から接続する場合は `app/mobile/app.json` の `extra.apiBaseUrl` を開発 PC の LAN IP に変更する。
+
+```json
+"extra": {
+  "apiBaseUrl": "http://192.168.x.x:3000/api"
+}
+```
+
+---
+
+## 主要画面
+
+| URL | 画面名 |
 | --- | --- |
-| システム名 | 決算管理システム（financial-management） |
-| 目的 | 過去の決算・財務データを蓄積し、集計・将来予測を行い、経営判断に資するグラフを提供する |
-| 想定ユーザー | 経営者、経理・財務担当、経営企画 |
-| 提供形態 | Web アプリケーション（PC ブラウザ中心、タブレット対応） |
-
-### 解決したい課題
-- Excel での手作業集計に依存しており、月次・年次の推移把握に時間がかかる
-- 過去データから将来を見通す予測がブラックボックス化・属人化している
-- 経営会議用のグラフ・レポート作成に工数がかかる
-
----
-
-## 2. 機能要件
-
-### 2.1 データ管理
-- **データ取り込み**
-  - CSV / Excel ファイルのインポート（勘定科目別の月次・年次データ）
-  - 手入力フォームによる実績データ登録・編集
-  - 会計期間（年度・四半期・月次）の定義と紐付け
-- **マスタ管理**
-  - 勘定科目マスタ（売上高、売上原価、販管費、営業利益 等）
-  - 部門・事業セグメントマスタ
-  - 会計年度・期間マスタ
-
-### 2.2 集計
-- 月次 / 四半期 / 年次での自動集計
-- PL（損益計算書）系指標の算出：売上総利益、営業利益、経常利益、当期純利益
-- 主要経営指標の算出：売上総利益率、営業利益率、前年同月比（YoY）、前月比（MoM）、累計（YTD）
-- 部門別・セグメント別の内訳集計とドリルダウン
-
-### 2.3 将来予測
-- 過去実績に基づく将来推移の予測（売上・利益など）
-- 予測モデル（段階的に高度化）
-  - フェーズ1：移動平均・線形回帰・前年同期比成長率ベース
-  - フェーズ2：季節性を考慮した時系列予測（指数平滑法 / Holt-Winters、Prophet 等）
-- 予測期間（先 N か月／N 年）と予測手法の切り替え
-- シナリオ比較（楽観・標準・悲観）
-
-### 2.4 可視化（グラフ表示）
-- 推移グラフ（折れ線・棒・複合グラフ）：実績と予測を同一チャートで表示
-- 構成比グラフ（円・積み上げ棒）
-- ダッシュボード：主要 KPI のサマリー表示
-- 期間・部門・指標でのフィルタリング
-- グラフ／表のエクスポート（PNG・PDF・CSV）
-
-### 2.5 レポート
-- 月次・四半期・年次レポートの自動生成
-- 予実対比レポート（予算 vs 実績 vs 予測）
+| `/dashboard` | KPI カード・予実推移グラフ・将来予測 |
+| `/entry` | 実績管理（CSV インポート・手入力） |
+| `/assets` | 資産管理（純資産推移グラフ） |
+| `/budget` | 予算管理 |
+| `/reports` | 予実対比レポート |
+| `/journals` | 仕訳帳（承認ワークフロー付き） |
+| `/journal-templates` | 仕訳テンプレート |
+| `/reports/ledger` | 総勘定元帳（CSV 出力） |
+| `/receivables` / `/payables` | 売掛金・買掛金管理 |
+| `/invoices` | インボイス（適格請求書）発行 |
+| `/inventories` | 棚卸管理 |
+| `/fixed-assets` | 固定資産管理 |
+| `/apportionments` | 家事按分管理 |
+| `/bank-accounts` / `/loans` | 銀行・資金管理・借入金管理 |
+| `/closing` | 決算処理（P/L・B/S・財務分析） |
+| `/closing/print` | 青色申告書類 印刷 |
+| `/closing/corporate-print` | 法人決算書類 印刷 |
+| `/corporate` | 法人・事業者情報管理 |
+| `/fiscal-years` | 会計年度管理 |
+| `/governance` | 法人ガバナンス管理 |
+| `/linked-accounts` | 口座・カード管理 |
+| `/integrations` | 外部サービス連携 |
+| `/portal` | 税理士ポータル |
+| `/masters` | マスタ管理（勘定科目・部門・会計期間） |
+| `/settings` | 設定（事業者情報・消費税設定・MFA） |
+| `/admin/users` | ユーザー管理（admin） |
+| `/admin/audit` | 監査ログ（admin） |
 
 ---
 
-## 3. 非機能要件
+## CI/CD
+
+- **CI** (`ci.yml`): PR・`main` push ごとに型チェック・単体テスト（Vitest）・ビルド・マイグレーション検証・E2E（Playwright）を自動実行。
+- **CD** (`cd.yml`): `main` push または `v*` タグで Docker イメージを GHCR に push し、SSH + Docker Compose で本番自動デプロイ。ヘルスチェック失敗時は直前イメージへ自動ロールバック。
+
+詳細は [`docs/cicd.md`](docs/cicd.md) / [`docs/deploy.md`](docs/deploy.md) を参照。
+
+---
+
+## 非機能要件
 
 | 区分 | 要件 |
 | --- | --- |
-| 性能 | 主要画面の表示は通常データ量で 2 秒以内。集計バッチは夜間に完了 |
-| セキュリティ | 認証（ID/パスワード + 多要素認証）、ロールベースアクセス制御（RBAC）、通信の TLS 暗号化、監査ログ |
-| 可用性 | 平日業務時間帯の稼働率 99.5% を目標 |
-| データ保全 | 日次バックアップ、データ保持期間の設定 |
-| 拡張性 | 勘定科目・部門・指標の追加に柔軟に対応できるデータモデル |
-| 監査性 | データ変更履歴の記録（誰が・いつ・何を変更したか） |
-
----
-
-## 4. システム構成
-
-```
-[ブラウザ / SPA]
-      │ HTTPS (REST / JSON)
-      ▼
-[Next.js バックエンド API (Route Handlers /api/*)]
-   ├─ 認証・認可
-   ├─ 集計サービス
-   ├─ 予測サービス
-   └─ レポート生成
-      │
-      ▼
-[データベース (PostgreSQL / Prisma)]
-```
-
-### プロジェクト構成（モノレポ）
-
-```
-.
-├── app/                 # アプリケーションのソースコード
-│   ├── web/             # Web（Next.js: フロントエンド + バックエンド API）
-│   └── mobile/          # モバイル（Expo / React Native）
-├── platform/            # 実行基盤（Docker など）
-│   ├── docker/
-│   ├── docker-compose.yml
-│   └── .env.example
-└── docs/                # ドキュメント
-    ├── design.md        # 仕様
-    ├── history.md       # 変更履歴
-    └── task.md          # 開発タスク
-```
-
----
-
-## 5. 技術スタック選定
-
-> 選定方針：データ集計・時系列予測・リッチなグラフ表示という要件に対し、**エコシステムが豊富で、予測ライブラリ（時系列分析）を扱いやすい構成**を優先。学習コストと保守性のバランスも考慮。
-
-### 5.1 フロントエンド
-
-| 技術 | 選定理由 |
-| --- | --- |
-| **TypeScript** | 型安全により大規模化・保守性を確保 |
-| **React + Next.js** | コンポーネント志向・SSR/SSG対応。ダッシュボード UI に適し、エコシステムが充実 |
-| **Recharts / Chart.js** | 推移・構成比など決算グラフを宣言的に実装可能。実績＋予測の複合表示に対応 |
-| **TanStack Query** | サーバー状態のキャッシュ・取得管理 |
-| **Tailwind CSS / shadcn/ui** | ダッシュボード UI を効率的に構築 |
-
-### 5.2 バックエンド
-
-| 技術 | 選定理由 |
-| --- | --- |
-| **Next.js（App Router の Route Handlers）** | **フロントエンドと同一プロジェクト・同一言語（TypeScript）で API を提供**できるため、開発・型共有・運用が一本化。Web とモバイルの両方から `/api/*` を利用する |
-| **Zod** | API 入出力のバリデーション・型安全 |
-| **Prisma** | 型安全な ORM とマイグレーション管理 |
-
-> バックエンドは **Next.js に一本化**する（`app/web/src/app/api/*`）。集計・予測ロジックは TypeScript で実装する（`src/lib`）。将来、季節性を考慮した高度な時系列予測が必要になった場合は、予測処理のみ Python マイクロサービスとして分離する選択肢も残す。
-
-### 5.3 データベース
-
-| 技術 | 選定理由 |
-| --- | --- |
-| **PostgreSQL** | トランザクション整合性・集計クエリ（ウィンドウ関数等）に強く、財務データの正確性要件に適合。時系列拡張（TimescaleDB）への発展も可能 |
-
-### 5.4 インフラ / 運用
-
-| 技術 | 選定理由 |
-| --- | --- |
-| **Docker / Docker Compose** | 開発・本番環境の差異を吸収 |
-| **クラウド（AWS / GCP）** | マネージド DB・ストレージ・スケーラビリティ |
-| **GitHub Actions** | CI/CD（テスト・ビルド・デプロイの自動化） |
-
-### 5.5 構成サマリー
-
-| レイヤー | 採用技術 |
-| --- | --- |
-| Web フロントエンド | TypeScript / React / Next.js / Recharts |
-| バックエンド | **Next.js (Route Handlers) / TypeScript / Zod / Prisma** |
-| モバイル | Expo / React Native / Victory Native |
-| データベース | PostgreSQL |
-| インフラ | Docker / クラウド / GitHub Actions |
-
----
-
-## 6. データモデル（概略）
-
-- **accounts**（勘定科目マスタ）：id, code, name, category（売上/原価/費用/利益 …）
-- **departments**（部門マスタ）：id, name, parent_id
-- **periods**（会計期間）：id, fiscal_year, quarter, month
-- **financial_records**（実績データ）：id, account_id, department_id, period_id, amount
-- **forecasts**（予測データ）：id, account_id, period_id, method, scenario, amount
-- **audit_logs**（監査ログ）：id, user_id, action, target, changed_at
-
----
-
-## 7. 画面構成（主要画面）
-
-1. ダッシュボード（主要 KPI サマリー・推移グラフ）
-2. データ取り込み画面（CSV/Excel インポート・手入力）
-3. 集計・分析画面（期間・部門フィルタ、ドリルダウン）
-4. 将来予測画面（予測手法・期間・シナリオ設定とグラフ）
-5. レポート画面（予実対比・出力）
-6. マスタ管理画面（勘定科目・部門・期間）
-
----
-
-## 8. 開発ロードマップ（案）
-
-| フェーズ | 内容 |
-| --- | --- |
-| Phase 1 | データ取り込み・マスタ管理・基本集計・推移グラフ表示 |
-| Phase 2 | 将来予測（移動平均・回帰）・ダッシュボード |
-| Phase 3 | 高度な時系列予測（季節性）・シナリオ比較・レポート自動生成 |
-| Phase 4 | 権限管理強化・監査ログ・エクスポート機能の拡充 |
-
----
-
-## 9. 補足
-
-本ドキュメントは要件定義および技術スタック選定の初版です。実際のデータ量・利用部門・既存会計システムとの連携要否に応じて、技術選定（特にバックエンド言語・DB・予測手法）は見直す前提とします。
+| 性能 | 主要画面 2 秒以内（重い集計は Redis キャッシュで TTL 1h） |
+| セキュリティ | 認証 + MFA、RBAC（4 ロール）、TLS、監査ログ |
+| 可用性 | 平日業務時間帯 99.5% |
+| データ保全 | 日次バックアップ、保持期間設定（既定 30 日） |
+| 拡張性 | 勘定科目・部門・テナントの追加に柔軟対応 |

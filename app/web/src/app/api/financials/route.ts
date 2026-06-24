@@ -64,6 +64,9 @@ export async function POST(req: NextRequest) {
   const record = await prisma.financialRecord.create({
     data: { accountId: account.id, departmentId, periodId: period.id, amount },
   });
+  await prisma.financialRecordHistory.create({
+    data: { recordId: record.id, userId: auth.user.id, action: "create", amount },
+  });
   await writeAudit(auth.user.id, "create", `financial_record:${record.id}`);
 
   return NextResponse.json({ data: record }, { status: 201 });

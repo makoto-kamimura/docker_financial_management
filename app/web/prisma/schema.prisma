@@ -12,10 +12,12 @@ datasource db {
 
 // 勘定科目カテゴリ
 enum AccountCategory {
-  REVENUE // 売上
-  COGS // 売上原価
-  EXPENSE // 販管費
-  PROFIT // 利益
+  REVENUE  // 売上・収入
+  COGS     // 売上原価・変動費
+  EXPENSE  // 販管費・固定費
+  PROFIT   // 利益・貯蓄
+  ASSET    // 資産（貸借対照表）
+  LIABILITY // 負債（貸借対照表）
   OTHER
 }
 
@@ -39,12 +41,21 @@ model Account {
   code      String          @unique
   name      String
   category  AccountCategory @default(OTHER)
+  parentId  Int?            // 親勘定科目 ID（null = トップレベル）
+  parent    Account?        @relation("AccountTree", fields: [parentId], references: [id])
+  children  Account[]       @relation("AccountTree")
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 
-  records   FinancialRecord[]
-  forecasts Forecast[]
-  budgets   Budget[]
+  records              FinancialRecord[]
+  forecasts            Forecast[]
+  budgets              Budget[]
+  linkedAccounts       LinkedAccount[]
+  journalDetails       JournalDetail[]
+  apportionments       Apportionment[]
+  journalTemplateLines JournalTemplateLine[]
+  accruedRevenues      AccruedRevenue[]
+  accruedExpenses      AccruedExpense[]
 
   @@map("accounts")
 }
@@ -53,6 +64,7 @@ model Account {
 model Department {
   id       Int          @id @default(autoincrement())
   name     String
+  manager  String?      // 担当者名
   parentId Int?
   parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id])
   children Department[] @relation("DepartmentTree")
@@ -104,8 +116,24 @@ model FinancialRecord {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+  history FinancialRecordHistory[]
+
   @@index([accountId, periodId])
   @@map("financial_records")
+}
+
+// 実績データ変更履歴（入力・更新・削除の日時とユーザーを記録）
+model FinancialRecordHistory {
+  id        Int             @id @default(autoincrement())
+  record    FinancialRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  recordId  Int
+  userId    Int?            // 操作ユーザー（null = CSV インポート等のシステム操作）
+  action    String          // "create" | "update" | "delete"
+  amount    Decimal         @db.Decimal(18, 2) // 操作時点の金額
+  changedAt DateTime        @default(now())
+
+  @@index([recordId])
+  @@map("financial_record_histories")
 }
 
 // 予測データ
@@ -123,18 +151,38 @@ model Forecast {
   @@map("forecasts")
 }
 
+// 銀行口座・クレジットカード 連携情報
+model LinkedAccount {
+  id          Int      @id @default(autoincrement())
+  name        String               // 口座名・カード名（表示名）
+  type        String               // BANK | CREDIT_CARD
+  institution String               // 金融機関名
+  lastFour    String?              // 口座番号・カード番号の下4桁
+  accountId   Int?                 // 紐付く勘定科目（ASSET/LIABILITY）
+  account     Account? @relation(fields: [accountId], references: [id])
+  note        String?              // メモ
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("linked_accounts")
+}
+
 // ユーザー（認証）
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         String   @default("viewer") // admin / editor / viewer
-  mfaEnabled   Boolean  @default(false)
-  totpSecret   String? // Base32 エンコードされた TOTP シークレット
-  createdAt    DateTime @default(now())
+  id               Int       @id @default(autoincrement())
+  email            String    @unique
+  name             String
+  passwordHash     String
+  role             String    @default("viewer") // admin / editor / accountant / viewer
+  mfaEnabled       Boolean   @default(false)
+  totpSecret       String?   // Base32 エンコードされた TOTP シークレット
+  mfaRecoveryCodes String?   // JSON 配列: ハッシュ化されたリカバリーコード
+  loginAttempts    Int       @default(0) // 連続失敗回数
+  lockedUntil      DateTime? // アカウントロック解除時刻
+  createdAt        DateTime  @default(now())
 
-  sessions Session[]
+  sessions         Session[]
+  journalApprovals JournalApproval[]
 
   @@map("users")
 }
@@ -156,6 +204,8 @@ model AuditLog {
   userId    Int?
   action    String
   target    String
+  before    String?  // 変更前の値（JSON）
+  after     String?  // 変更後の値（JSON）
   changedAt DateTime @default(now())
 
   @@map("audit_logs")
@@ -191,12 +241,311 @@ enum TxnSource {
   SYNC // 自動同期（アグリゲーション）
 }
 
+// ── 個人事業主・確定申告支援 ───────────────────────────────────────────
+
+// F001 事業者情報
+model BusinessProfile {
+  id              Int       @id @default(autoincrement())
+  tradeName       String?               // 屋号
+  ownerName       String    @default("") // 氏名
+  openedOn        DateTime?             // 開業日
+  blueReturn      Boolean   @default(false) // 青色申告
+  invoiceNumber   String?               // インボイス登録番号（T + 13桁）
+  taxationType    String    @default("exempt") // exempt / general / simplified
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("business_profiles")
+}
+
+// F012 消費税設定（年度別）
+model TaxSetting {
+  id              Int      @id @default(autoincrement())
+  taxYear         Int                   // 適用年度
+  taxationType    String                // exempt / general / simplified
+  simplifiedRate  Decimal? @db.Decimal(5, 2) // 簡易課税みなし仕入率（%）
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([taxYear])
+  @@map("tax_settings")
+}
+
+// F002 仕訳帳ヘッダ
+model JournalEntry {
+  id              Int       @id @default(autoincrement())
+  transactionDate DateTime              // 取引日
+  description     String                // 摘要
+  paymentMethod   String    @default("cash") // cash / bank / card / transfer
+  taxCategory     String    @default("taxable") // taxable / exempt / non_taxable
+  receiptUrl      String?               // 証憑ファイル URL
+  approvalStatus  String    @default("approved") // draft / pending / approved / rejected
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  details   JournalDetail[]
+  receipts  Receipt[]
+  approvals JournalApproval[]
+
+  @@index([transactionDate])
+  @@index([approvalStatus])
+  @@map("journal_entries")
+}
+
+// 電子帳簿保存法: 仕訳承認ワークフロー
+model JournalApproval {
+  id             Int          @id @default(autoincrement())
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  journalEntryId Int
+  action         String                   // submitted / approved / rejected
+  actorId        Int
+  actor          User         @relation(fields: [actorId], references: [id])
+  comment        String?
+  createdAt      DateTime     @default(now())
+
+  @@index([journalEntryId])
+  @@map("journal_approvals")
+}
+
+// F002 仕訳明細（複式簿記：借方/貸方）
+model JournalDetail {
+  id                  Int          @id @default(autoincrement())
+  journalEntry        JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  journalEntryId      Int
+  side                String                // debit（借方）/ credit（貸方）
+  account             Account      @relation(fields: [accountId], references: [id])
+  accountId           Int
+  amount              Decimal      @db.Decimal(18, 2)
+  taxRate             Decimal?     @db.Decimal(5, 4)     // 消費税率（0.10 / 0.08 / null=非課税）
+  taxCreditEligible   Boolean      @default(true)        // 仕入税額控除対象か
+  note                String?                            // 明細摘要
+
+  @@index([journalEntryId])
+  @@map("journal_details")
+}
+
+// F005 証憑ファイル
+model Receipt {
+  id             Int          @id @default(autoincrement())
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  journalEntryId Int
+  fileName       String
+  fileUrl        String
+  fileType       String       // pdf / image / other
+  fileSize       Int
+  uploadedAt     DateTime     @default(now())
+
+  @@index([journalEntryId])
+  @@map("receipts")
+}
+
+// F006 棚卸帳ヘッダ
+model Inventory {
+  id               Int             @id @default(autoincrement())
+  name             String          // 棚卸名（例: 2026年6月末棚卸）
+  inventoryDate    DateTime        // 棚卸日
+  status           String          @default("open") // open / closed
+  totalAmount      Decimal         @default(0) @db.Decimal(18, 2)
+  valuationMethod  String          @default("last_purchase") // last_purchase / average / moving_average
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  items InventoryItem[]
+
+  @@index([inventoryDate])
+  @@map("inventories")
+}
+
+// F006 棚卸明細
+model InventoryItem {
+  id          Int       @id @default(autoincrement())
+  inventory   Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  inventoryId Int
+  itemName    String
+  itemType    String    @default("product") // product / material / wip / goods
+  quantity    Decimal   @db.Decimal(10, 3)
+  unit        String    @default("個")
+  unitPrice   Decimal   @db.Decimal(18, 2)
+  totalAmount Decimal   @db.Decimal(18, 2) // quantity × unitPrice
+  createdAt   DateTime  @default(now())
+
+  @@index([inventoryId])
+  @@map("inventory_items")
+}
+
+// F007 固定資産台帳
+model FixedAsset {
+  id              Int       @id @default(autoincrement())
+  name            String    // 資産名
+  category        String    @default("tangible") // tangible / intangible
+  acquiredOn      DateTime  // 取得日
+  acquisitionCost Decimal   @db.Decimal(18, 2)   // 取得金額
+  usefulLife      Int       // 耐用年数（年）
+  method          String    @default("straight")  // straight（定額）/ declining（定率）
+  residualRate    Decimal   @default(0.1) @db.Decimal(5, 4) // 残存率（旧定率法）
+  bookValue       Decimal   @db.Decimal(18, 2)   // 帳簿価額
+  disposedOn      DateTime?                       // 除却・売却日
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  depreciations Depreciation[]
+
+  @@map("fixed_assets")
+}
+
+// F008 減価償却明細
+model Depreciation {
+  id           Int        @id @default(autoincrement())
+  fixedAsset   FixedAsset @relation(fields: [fixedAssetId], references: [id], onDelete: Cascade)
+  fixedAssetId Int
+  fiscalYear   Int
+  amount       Decimal    @db.Decimal(18, 2) // 年間償却費
+  createdAt    DateTime   @default(now())
+
+  @@unique([fixedAssetId, fiscalYear])
+  @@index([fixedAssetId])
+  @@map("depreciations")
+}
+
+// F009 家事按分設定
+model Apportionment {
+  id           Int      @id @default(autoincrement())
+  account      Account  @relation(fields: [accountId], references: [id])
+  accountId    Int
+  businessRate Decimal  @db.Decimal(5, 2) // 事業利用率（%）
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([accountId])
+  @@map("apportionments")
+}
+
+// F010 売掛金管理
+model Receivable {
+  id            Int       @id @default(autoincrement())
+  customerName  String                       // 得意先名
+  description   String                       // 件名・摘要
+  amount        Decimal   @db.Decimal(18, 2) // 請求金額（税込）
+  taxAmount     Decimal   @default(0) @db.Decimal(18, 2)
+  issueDate     DateTime                     // 請求日
+  dueDate       DateTime                     // 支払期限
+  status        String    @default("open")   // open / paid / overdue
+  paidOn        DateTime?                    // 入金日
+  paidAmount    Decimal?  @db.Decimal(18, 2) // 入金金額
+  invoiceNumber String?                      // 請求書番号
+  note          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([dueDate])
+  @@index([status])
+  @@map("receivables")
+}
+
+// F011 買掛金管理
+model Payable {
+  id           Int       @id @default(autoincrement())
+  supplierName String                       // 仕入先名
+  description  String                       // 件名・摘要
+  amount       Decimal   @db.Decimal(18, 2) // 請求金額（税込）
+  taxAmount    Decimal   @default(0) @db.Decimal(18, 2)
+  issueDate    DateTime                     // 請求書受取日
+  dueDate      DateTime                     // 支払期限
+  status       String    @default("open")   // open / paid / overdue
+  paidOn       DateTime?                    // 支払日
+  paidAmount   Decimal?  @db.Decimal(18, 2) // 支払金額
+  note         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([dueDate])
+  @@index([status])
+  @@map("payables")
+}
+
+// ============================================================
+// 法人・統合会計 — Phase 1: マルチテナント基盤
+// ============================================================
+
+// テナント（法人 / 個人事業主）
+model Tenant {
+  id              Int       @id @default(autoincrement())
+  type            String    @default("SOLE_PROPRIETOR") // SOLE_PROPRIETOR / CORPORATION
+  name            String                                // 屋号または法人名
+  corporateNumber String?                               // 法人番号 13 桁
+  capitalAmount   Decimal?  @db.Decimal(18, 2)          // 資本金
+  establishedOn   DateTime?
+  closingMonth    Int       @default(12)                // 決算月（1-12）
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  fiscalYears       FiscalYear[]
+  officers          Officer[]
+  meetings          ShareholderMeeting[]
+  dividends         Dividend[]
+  announcements     Announcement[]
+
+  @@map("tenants")
+}
+
+// 会計年度（テナント別）
+model FiscalYear {
+  id        Int      @id @default(autoincrement())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId  Int
+  year      Int
+  startDate DateTime
+  endDate   DateTime
+  status    String   @default("open") // open / closed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, year])
+  @@map("fiscal_years")
+}
+
+// ============================================================
+// 法人・統合会計 — Phase 2: 会計帳簿機能強化
+// ============================================================
+
+// 仕訳テンプレート
+model JournalTemplate {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines JournalTemplateLine[]
+
+  @@map("journal_templates")
+}
+
+model JournalTemplateLine {
+  id         Int             @id @default(autoincrement())
+  template   JournalTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateId Int
+  side       String          // debit / credit
+  account    Account         @relation(fields: [accountId], references: [id])
+  accountId  Int
+  amount     Decimal?        @db.Decimal(18, 2) // null = 入力時に指定
+  note       String?
+  sortOrder  Int             @default(0)
+
+  @@map("journal_template_lines")
+}
+
+// ============================================================
+// 法人・統合会計 — Phase 3: 在庫・銀行・借入金管理
+// ============================================================
+
 // 銀行口座
 model BankAccount {
   id          Int             @id @default(autoincrement())
-  name        String // 表示名（例: 給与口座）
-  bankName    String // 銀行名
-  branchName  String? // 支店名
+  name        String          // 表示名（例: 給与口座）
+  bankName    String          // 銀行名
+  branchName  String?         // 支店名
   accountType String          @default("普通") // 普通 / 当座
   role        BankAccountRole @default(OTHER)
   createdAt   DateTime        @default(now())
@@ -234,15 +583,205 @@ model BankTransaction {
   id          Int         @id @default(autoincrement())
   account     BankAccount @relation(fields: [accountId], references: [id])
   accountId   Int
-  date        DateTime // 取引日
-  description String // 摘要
+  date        DateTime    // 取引日
+  description String      // 摘要
   amount      Decimal     @db.Decimal(18, 2) // +入金 / -出金
   balance     Decimal?    @db.Decimal(18, 2) // 取引後残高（取得できた場合）
   source      TxnSource   @default(MANUAL)
-  externalId  String? // 重複取込防止用の外部ID
+  externalId  String?     // 重複取込防止用の外部ID
   createdAt   DateTime    @default(now())
 
   @@unique([accountId, externalId])
   @@index([accountId, date])
   @@map("bank_transactions")
+}
+
+// 借入金
+model Loan {
+  id              Int       @id @default(autoincrement())
+  lenderName      String
+  amount          Decimal   @db.Decimal(18, 2)
+  interestRate    Decimal   @db.Decimal(5, 4)
+  borrowedOn      DateTime
+  repaymentDate   DateTime
+  remainingAmount Decimal   @db.Decimal(18, 2)
+  status          String    @default("active") // active / repaid
+  note            String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  repayments LoanRepayment[]
+
+  @@map("loans")
+}
+
+model LoanRepayment {
+  id          Int      @id @default(autoincrement())
+  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  loanId      Int
+  repaidOn    DateTime
+  principal   Decimal  @db.Decimal(18, 2)
+  interest    Decimal  @db.Decimal(18, 2)
+  totalAmount Decimal  @db.Decimal(18, 2)
+  createdAt   DateTime @default(now())
+
+  @@index([loanId])
+  @@map("loan_repayments")
+}
+
+// ============================================================
+// 法人・統合会計 — Phase 4: 消費税・インボイス強化
+// ============================================================
+
+// インボイス（適格請求書）
+model Invoice {
+  id              Int      @id @default(autoincrement())
+  invoiceNumber   String   @unique
+  customerName    String
+  customerAddress String?
+  issueDate       DateTime
+  dueDate         DateTime
+  status          String   @default("draft") // draft / issued / paid
+  subtotal        Decimal  @db.Decimal(18, 2)
+  taxAmount       Decimal  @db.Decimal(18, 2)
+  total           Decimal  @db.Decimal(18, 2)
+  note            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines InvoiceLine[]
+
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id          Int     @id @default(autoincrement())
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId   Int
+  description String
+  quantity    Decimal @db.Decimal(10, 3)
+  unitPrice   Decimal @db.Decimal(18, 2)
+  taxRate     Decimal @default(0.10) @db.Decimal(5, 4)
+  amount      Decimal @db.Decimal(18, 2)
+
+  @@map("invoice_lines")
+}
+
+// ============================================================
+// 法人・統合会計 — Phase 5: 決算整理
+// ============================================================
+
+// 未収収益・未払費用（決算整理仕訳）
+model AccruedRevenue {
+  id          Int      @id @default(autoincrement())
+  description String
+  amount      Decimal  @db.Decimal(18, 2)
+  accrualDate DateTime
+  account     Account  @relation(fields: [accountId], references: [id])
+  accountId   Int
+  fiscalYear  Int
+  status      String   @default("pending") // pending / posted
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("accrued_revenues")
+}
+
+model AccruedExpense {
+  id          Int      @id @default(autoincrement())
+  description String
+  amount      Decimal  @db.Decimal(18, 2)
+  accrualDate DateTime
+  account     Account  @relation(fields: [accountId], references: [id])
+  accountId   Int
+  fiscalYear  Int
+  status      String   @default("pending") // pending / posted
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("accrued_expenses")
+}
+
+// ============================================================
+// 法人・統合会計 — Phase 6: 法人ガバナンス機能
+// ============================================================
+
+// 役員
+model Officer {
+  id        Int      @id @default(autoincrement())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId  Int
+  name      String
+  title     String
+  termStart DateTime
+  termEnd   DateTime
+  salary    Decimal? @db.Decimal(18, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("officers")
+}
+
+// 株主総会
+model ShareholderMeeting {
+  id          Int      @id @default(autoincrement())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    Int
+  meetingDate DateTime
+  meetingType String   @default("regular") // regular / extraordinary
+  agenda      String
+  resolution  String?
+  minutesUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("shareholder_meetings")
+}
+
+// 配当
+model Dividend {
+  id             Int      @id @default(autoincrement())
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId       Int
+  resolutionDate DateTime
+  paymentDate    DateTime
+  perShareAmount Decimal  @db.Decimal(18, 4)
+  totalAmount    Decimal  @db.Decimal(18, 2)
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("dividends")
+}
+
+// 決算公告
+model Announcement {
+  id               Int      @id @default(autoincrement())
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId         Int
+  announcementDate DateTime
+  method           String   @default("WEBSITE") // KANPO / NEWSPAPER / WEBSITE
+  content          String?
+  fiscalYear       Int
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("announcements")
+}
+
+// ============================================================
+// F013 決算年度管理（既存）
+// ============================================================
+
+// F013 決算年度管理
+model FiscalYearClose {
+  id         Int       @id @default(autoincrement())
+  fiscalYear Int       @unique
+  status     String    @default("open") // open / closed
+  netIncome  Decimal?  @db.Decimal(18, 2)
+  closedAt   DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@map("fiscal_year_closes")
 }

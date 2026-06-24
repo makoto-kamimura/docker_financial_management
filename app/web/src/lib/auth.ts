@@ -21,8 +21,8 @@ export function verifyPassword(password: string, stored: string): boolean {
   return keyBuf.length === derived.length && timingSafeEqual(keyBuf, derived);
 }
 
-// ログイン: セッションを作成し Cookie を設定する
-export async function createSession(userId: number): Promise<void> {
+// ログイン: セッションを作成し Cookie を設定する。セッション ID を返す（モバイル用）
+export async function createSession(userId: number): Promise<string> {
   const id = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   await prisma.session.create({ data: { id, userId, expiresAt } });
@@ -35,6 +35,7 @@ export async function createSession(userId: number): Promise<void> {
     expires: expiresAt,
     path: "/",
   });
+  return id;
 }
 
 // 現在のリクエストのログインユーザーを取得する（未ログインなら null）
@@ -49,7 +50,8 @@ export async function getCurrentUser() {
   });
   if (!session || session.expiresAt < new Date()) return null;
 
-  const { passwordHash, ...user } = session.user;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { passwordHash: _passwordHash, ...user } = session.user;
   return user;
 }
 

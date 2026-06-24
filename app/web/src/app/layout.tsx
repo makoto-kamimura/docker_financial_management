@@ -12,7 +12,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ja">
       <body>
-        <Providers>{children}</Providers>
+        {/* スキップリンク: キーボード・スクリーンリーダーユーザー向け */}
+        <a href="#main-content" className="skip-link">
+          メインコンテンツへスキップ
+        </a>
+        <Providers>
+          <div id="main-content">
+            {children}
+          </div>
+        </Providers>
       </body>
     </html>
   );

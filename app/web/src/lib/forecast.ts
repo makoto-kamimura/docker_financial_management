@@ -130,17 +130,31 @@ export function forecastHoltWinters(
   return result;
 }
 
+export interface ForecastParams {
+  window?:       number; // moving_average: 移動平均ウィンドウ幅（デフォルト 3）
+  alpha?:        number; // holt / holt_winters: レベル平滑化係数（0〜1）
+  beta?:         number; // holt / holt_winters: トレンド平滑化係数（0〜1）
+  gamma?:        number; // holt_winters: 季節平滑化係数（0〜1）
+  seasonLength?: number; // holt_winters: 季節周期（デフォルト 12）
+}
+
 // 手法を指定して予測する統一エントリポイント。
-export function forecast(history: number[], months: number, method: ForecastMethod): number[] {
+export function forecast(
+  history: number[],
+  months: number,
+  method: ForecastMethod,
+  params: ForecastParams = {},
+): number[] {
+  const { window = 3, alpha = 0.5, beta = 0.3, gamma = 0.3, seasonLength = 12 } = params;
   switch (method) {
     case "moving_average":
-      return forecastMovingAverage(history, months);
+      return forecastMovingAverage(history, months, window);
     case "growth_rate":
       return forecastGrowthRate(history, months);
     case "holt":
-      return forecastHolt(history, months);
+      return forecastHolt(history, months, alpha, beta);
     case "holt_winters":
-      return forecastHoltWinters(history, months);
+      return forecastHoltWinters(history, months, seasonLength, alpha, beta, gamma);
     case "linear_regression":
     default:
       return forecastLinear(history, months);

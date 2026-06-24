@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams;
   const accountCode = sp.get("accountCode") ?? "4000";
-  const year = Number(sp.get("year") ?? "2025");
+  const year = Number(sp.get("year") ?? new Date().getFullYear());
   const method = (sp.get("method") ?? "linear_regression") as ForecastMethod;
 
   const account = await prisma.account.findUnique({ where: { code: accountCode } });

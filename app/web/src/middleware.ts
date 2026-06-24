@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 // 保護対象パス。未ログイン（セッション Cookie 無し）なら /login へリダイレクトする。
 // NOTE: ここでは Cookie の有無のみを確認する軽量チェック。
 //       セッションの有効性検証は各 API / Server 側（lib/auth）で行う。
-const PROTECTED = ["/dashboard", "/entry", "/masters", "/reports", "/cashflow", "/transfers", "/bank-transactions", "/simulation", "/settings", "/admin"];
+const PROTECTED = ["/dashboard", "/assets", "/linked-accounts", "/entry", "/budget", "/masters", "/reports", "/cashflow", "/transfers", "/bank-transactions", "/simulation", "/settings", "/admin"];
 const SESSION_COOKIE = "fm_session";
 
 export function middleware(req: NextRequest) {
@@ -24,7 +24,10 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     "/dashboard/:path*",
+    "/assets/:path*",
+    "/linked-accounts/:path*",
     "/entry/:path*",
+    "/budget/:path*",
     "/masters/:path*",
     "/reports/:path*",
     "/cashflow/:path*",
@@ -33,5 +36,6 @@ export const config = {
     "/simulation/:path*",
     "/settings/:path*",
     "/admin/:path*",
+    "/linked-accounts/:path*",
   ],
 };

@@ -10,20 +10,70 @@
   textarea {
     font-family: inherit;
   }
+
+  /* フォーカスリング: キーボード操作で視認しやすいアウトライン */
+  :focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* スキップリンク: スクリーンリーダー・キーボードユーザー向け */
+  .skip-link {
+    @apply absolute -top-10 left-2 bg-indigo-700 text-white px-4 py-2 rounded-b-lg text-sm font-medium;
+    @apply focus:top-0 transition-all z-50;
+  }
+
+  /* 縮小モーション対応 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* ハイコントラスト対応 */
+  @media (forced-colors: active) {
+    .btn-primary,
+    .btn-secondary {
+      border: 2px solid ButtonText;
+    }
+  }
 }
 
 @layer components {
   .input-field {
-    @apply w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent;
+    @apply w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white;
+    @apply focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent;
+    /* a11y: 最小コントラスト比 4.5:1 確保のため text-slate-900 を使用 */
+    @apply text-slate-900 placeholder:text-slate-400;
   }
   .btn-primary {
     @apply inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer;
+    @apply focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
     @apply inline-flex items-center justify-center bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer;
+    @apply focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer;
+    @apply focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .card {
     @apply bg-white rounded-xl border border-slate-200 p-6;
+  }
+  /* カードのモバイル対応 */
+  @media (max-width: 640px) {
+    .card {
+      @apply p-4 rounded-lg;
+    }
   }
   .page-title {
     @apply text-xl font-bold text-slate-900;
@@ -31,4 +81,17 @@
   .section-title {
     @apply text-base font-semibold text-slate-800 mb-4;
   }
+  /* テーブルの横スクロール対応 */
+  .table-scroll {
+    @apply overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0;
+  }
+  /* ステータスバッジ */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-green  { @apply bg-green-100 text-green-700; }
+  .badge-amber  { @apply bg-amber-100 text-amber-700; }
+  .badge-red    { @apply bg-red-100 text-red-700; }
+  .badge-blue   { @apply bg-blue-100 text-blue-700; }
+  .badge-slate  { @apply bg-slate-100 text-slate-600; }
 }

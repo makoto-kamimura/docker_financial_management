@@ -6,6 +6,7 @@ import { writeAudit } from "@/lib/audit";
 
 const DepartmentSchema = z.object({
   name: z.string().min(1),
+  manager: z.string().optional(),
   parentId: z.number().int().optional(),
 });
 

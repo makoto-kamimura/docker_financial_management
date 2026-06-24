@@ -1,5 +1,4 @@
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 
@@ -18,14 +17,7 @@ export function parseCsv(csv: string): Record<string, unknown>[] {
   return Papa.parse<Record<string, unknown>>(csv, { header: true, skipEmptyLines: true }).data;
 }
 
-// xlsx バイナリを行配列に変換する（先頭シート）
-export function parseXlsx(buffer: ArrayBuffer): Record<string, unknown>[] {
-  const wb = XLSX.read(buffer, { type: "array" });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-}
-
-// 行配列をバリデーションして実績データとして登録する（CSV/Excel 共通）
+// 行配列をバリデーションして実績データとして登録する
 export async function importRows(rows: Record<string, unknown>[]): Promise<ImportResult> {
   const errors: ImportResult["errors"] = [];
   let inserted = 0;
@@ -50,8 +42,11 @@ export async function importRows(rows: Record<string, unknown>[]): Promise<Impor
       create: { fiscalYear, month, quarter: Math.ceil(month / 3) },
     });
 
-    await prisma.financialRecord.create({
+    const record = await prisma.financialRecord.create({
       data: { accountId: account.id, periodId: period.id, amount },
+    });
+    await prisma.financialRecordHistory.create({
+      data: { recordId: record.id, action: "create", amount },
     });
     inserted++;
   }

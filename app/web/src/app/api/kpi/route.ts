@@ -8,7 +8,19 @@ export async function GET() {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
   const records = await prisma.financialRecord.findMany({
+    where: {
+      period: {
+        OR: [
+          { fiscalYear: { lt: currentYear } },
+          { fiscalYear: currentYear, month: { lte: currentMonth } },
+        ],
+      },
+    },
     include: { period: true, account: true },
   });
 

@@ -1,51 +1,73 @@
 # 開発タスク（task.md）
 
 決算管理システムの開発タスクを管理する。`[ ]` 未着手 / `[x]` 完了。
-最終更新: 2026-06-17（Phase 0〜4 完了。以降は今後のバックログ）。
+最終更新: 2026-06-21
 
 ---
 
-## ✅ 完了済み（Phase 0〜4）
+## ✅ 完了済み
 
-### Phase 0: プロジェクト基盤
-- [x] ディレクトリ構成の作成（app/web, app/mobile, platform, docs）
-- [x] バックエンド方針の決定（Next.js Route Handlers）
-- [x] Web (Next.js) / Mobile (Expo) の雛形作成
-- [x] Docker / docker-compose の整備
-- [x] Prisma 導入と PostgreSQL スキーマ定義
-- [x] ドキュメント整備（design / history / task / operation）
-- [x] CI（GitHub Actions: typecheck / build / migrate-check）
+### Phase 0〜4: プロジェクト基盤・基本機能・セキュリティ
 
-### Phase 1: データ管理・基本集計・推移グラフ
+- [x] ディレクトリ構成・Docker / docker-compose・Prisma 導入
 - [x] マスタ管理 API + 画面（勘定科目・部門・会計期間）
-- [x] 実績データの手入力フォーム
-- [x] CSV / Excel(xlsx) インポート
-- [x] 月次 / 四半期 / 年次の集計（Prisma）
-- [x] 推移グラフ（Recharts）
-- [x] 認証基盤（ログイン / セッション / ミドルウェア）
+- [x] 実績データ手入力・CSVインポート・月次/四半期/年次集計
+- [x] 推移グラフ（Recharts）・KPI ダッシュボード（利益率・YoY・MoM・YTD）
+- [x] 将来予測（移動平均・線形回帰・Holt・Holt-Winters・シナリオ比較）
+- [x] 予実対比レポート（CSV / PNG / PDF 出力）・構成比グラフ
+- [x] RBAC（admin / editor / accountant / viewer）・MFA（TOTP）・監査ログ
+- [x] ユーザー管理画面（`/admin/users`）・監査ログ画面（`/admin/audit`）
+- [x] 予算登録・編集 UI（`/budget`）
+- [x] 銀行口座・クレジットカード連携（`/linked-accounts`）
+- [x] 実績入力履歴（`FinancialRecordHistory` テーブル）
+- [x] モバイルアプリ（ダッシュボード・資産管理・予算・実績入力・純資産グラフ）
+- [x] 単体テスト（Vitest 35 ケース）・E2E テスト（Playwright）・ESLint / Prettier
+- [x] CI（typecheck / test / build / migrate-check / e2e）
+- [x] CD（GHCR build & push・自動デプロイ・自動ロールバック・メール通知）
+- [x] バックアップ / リストアスクリプト（保持ポリシー対応）
 
-### Phase 2: 将来予測・ダッシュボード
-- [x] 予測 API（移動平均 / 線形回帰 / 成長率）
-- [x] 予測手法・シナリオ・期間の切替 UI
-- [x] KPI ダッシュボード（利益率・YoY・MoM・YTD）
-- [x] モバイルアプリのダッシュボード
+### 個人事業主・確定申告支援（F001〜F015）
 
-### Phase 3: 高度な予測・レポート
-- [x] 季節性を考慮した予測（Holt / Holt-Winters）
-- [x] シナリオ比較（楽観・標準・悲観）
-- [x] 予実対比レポートの自動生成
-- [x] エクスポート（CSV / PNG / PDF）
+- [x] **F001** 事業者情報管理（`business_profiles`）
+- [x] **F002** 仕訳入力・複式簿記（`journal_entries` / `journal_details`）
+- [x] **F003** 個人事業主向け初期勘定科目 seed
+- [x] **F005** 証憑ファイルアップロード（`receipts`、Docker volume）
+- [x] **F006** 棚卸管理（`inventories` / `inventory_items`、itemType / valuationMethod）
+- [x] **F007** 固定資産管理（`fixed_assets`）
+- [x] **F008** 減価償却計算（定額法・定率法、`depreciations`）
+- [x] **F009** 家事按分管理（`apportionments`）
+- [x] **F010** 売掛金管理（`receivables`、入金時仕訳自動生成）
+- [x] **F011** 買掛金管理（`payables`、支払時仕訳自動生成）
+- [x] **F012** 消費税設定（`tax_settings`、免税/原則課税/簡易課税）
+- [x] **F013** 決算処理・年度締め（`fiscal_year_closes`）
+- [x] **F014** 青色申告決算書 印刷（`/closing/print`）
+- [x] **F015** 確定申告資料出力
 
-### Phase 4: 運用・セキュリティ強化
-- [x] RBAC（admin / editor / viewer）
-- [x] 多要素認証（MFA / TOTP）
-- [x] 監査ログ（記録 + admin 閲覧画面）
-- [x] バックアップ / リストアスクリプト + 保持ポリシー
-- [x] CD ワークフロー（GHCR への build & push）+ 本番 Compose
+### 法人・統合会計（フェーズ 1〜8）
+
+- [x] マルチテナント（`tenants`）・会計年度管理（`fiscal_years`）・`accountant` ロール
+- [x] テンプレート仕訳・AI 仕訳提案（`POST /api/journals/suggest`）
+- [x] 総勘定元帳（`/reports/ledger`、JSON / CSV）
+- [x] 試算表（`/api/reports/trial-balance`、JSON / CSV）
+- [x] 在庫管理の高度化（`valuationMethod` / `itemType` 追加）
+- [x] 未収金・未払金管理（`accrued_revenues` / `accrued_expenses`）
+- [x] 銀行・資金管理（`bank_accounts` / `bank_transactions`）
+- [x] 借入金管理（`loans` / `loan_repayments`）
+- [x] 適格請求書（インボイス）発行（`invoices` / `invoice_lines`）
+- [x] 仕入税額控除管理（`taxCreditEligible`、`GET /api/tax-credit`）
+- [x] 法人向け決算書出力（`/closing/corporate-print`：P/L・B/S・S/S・法人税概算）
+- [x] 財務分析指標（流動比率・ROA/ROE 等、`/closing` 財務分析タブ）
+- [x] 法人ガバナンス（役員・株主総会・配当・決算公告、`/governance`）
+- [x] 電子帳簿保存法対応（`journal_approvals`、承認ワークフロー、`/api/journals/approve`）
+- [x] Redis 導入（Docker Compose、`src/lib/redis.ts`、TTL 1h キャッシュ）
+- [x] MFA リカバリーコード（`mfaRecoveryCodes`、発行 API `POST /api/auth/mfa/recovery`、ログイン時リカバリーコード認証対応）
+- [x] Redis キャッシュ無効化（`finalize` / `journals` POST 時に `invalidateCache()` で当該年度を削除）
+- [x] API 結合テスト（Vitest 15 ケース、100% パス）
+- [x] セッションの定期削除ジョブ（`/api/admin/cleanup` + docker-compose cron コンテナ）
 
 ---
 
-## ⚠️ 手動実行が必要な項目（開発サンドボックスのネットワーク制約により未実施）
+## ⚠️ 手動実行が必要（ネットワーク制約により未実施）
 
 本リポジトリの開発環境では外部ネットワークが制限されており、以下は **CDN/ブラウザへ到達できる環境（ローカル PC や GitHub Actions 等）で手動実行**する必要がある。コード／設定の変更自体は完了済み。
 
@@ -55,18 +77,15 @@
 - [ ] **E2E のローカル検証**: Playwright のブラウザ取得が制限されサンドボックスでは未実行。`npm run e2e:install` 後にローカル、または CI の `e2e` ジョブで実行・確認する。
 - [ ] **自動デプロイ（SSH + Docker Compose）の有効化**: CD の `deploy` ジョブは実装済み。動作には GitHub Secrets（`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY` / `DEPLOY_PATH`、必要に応じ `DEPLOY_PORT` / `GHCR_USER` / `GHCR_PAT`）の登録と、本番サーバー側の準備（Docker、`DEPLOY_PATH` への `.env` 配置、初回 DB 起動）が必要。詳細は `docs/operation.md` 11 章。
 - [ ] **銀行入出金の実自動取得**: `lib/banksync.ts` のプロバイダを実アグリゲーション事業者（Plaid / Moneytree LINK 等）の API 実装に差し替え。OAuth 等の認証情報・外部接続・利用契約が必要。現状はモック＋CSV取込で代替。
+- [ ] **xlsx の package-lock.json 更新**: `cdn.sheetjs.com` 到達可能な環境で `cd app/web && npm install` を実行し `package-lock.json` をコミット。未実施の間 **CI の `npm ci` が失敗**する。
+- [ ] **E2E のローカル実機検証**: `npm run e2e:install` 後にローカル or CI `e2e` ジョブで実行・確認。
+- [ ] **本番自動デプロイの有効化**: GitHub Secrets（`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY` / `DEPLOY_PATH`）を登録し、本番サーバーを用意する。詳細は `docs/deploy.md`。
 
 ---
 
-## 🔜 今後のバックログ（洗い出し）
+## 🔴 優先度: 高（早めに対応推奨）
 
-### A. テスト・品質
-- [x] 単体テスト（集計 / 予測 / KPI / 予実 / TOTP）の整備（Vitest）
-- [x] CI に test ジョブを追加
-- [x] CI/CD 説明資料（`docs/cicd.md`）の作成
-- [x] E2E テスト（Playwright：認証ガード + ログイン〜ダッシュボード〜レポート〜入力）+ CI 組込み
-- [ ] API の結合テスト（route handlers）
-- [ ] ESLint / Prettier の設定と CI 組み込み
+- [x] **マスタの編集・削除 UI** — 勘定科目・部門・会計期間のインライン編集・削除（`/masters` ページ実装済み）。
 
 ### B. データ・機能の拡充
 - [ ] マスタの編集・削除（現状は追加・一覧のみ）／会計期間 UI
@@ -85,36 +104,36 @@
 - [ ] 勘定科目の階層・連結（売上総利益等の自動算出ルール）
 - [ ] Excel エクスポート（現状 CSV / PNG / PDF）
 - [ ] 既存会計システム連携（freee / 弥生 等）の調査・実装
+---
 
-### C. 予測の高度化
-- [ ] 予測精度の評価指標（MAPE / RMSE）の表示
-- [ ] 季節周期・平滑化パラメータのチューニング UI
-- [ ] 予測結果の保存（`forecasts` テーブルへの永続化）
+## 🟡 優先度: 中（中期バックログ）
 
-### D. セキュリティ・運用の強化
-- [ ] MFA リカバリーコード / バックアップコード
-- [ ] パスワードポリシー・アカウントロック・レート制限
-- [ ] セッションの定期削除（期限切れクリーンアップのジョブ）
-- [ ] ユーザー管理画面（admin によるユーザー / ロール管理）
-- [ ] 監査ログの変更前後差分（before/after）記録
-- [x] デプロイ後ヘルスチェック（Compose healthcheck + CD のリリース後検証 + 任意の外形監視）
-- [ ] 監視・アラート（外形監視の常時化、エラートラッキング、通知連携）
-- [ ] 構造化ログ / 監査ログの外部保管
+- [x] **勘定科目の階層連結** — 親子科目ロールアップを試算表 API に追加（`rollup=true`）。
+- [x] **部門別・セグメント別ドリルダウン集計** — `closing/statements?departmentId=` クエリパラメータ追加。
+- [x] **監査ログの before/after 差分記録** — `audit_logs.before/after` カラム追加、`writeAudit()` 拡張。
+- [x] **パスワードポリシー・アカウントロック・レート制限** — 5回失敗で15分ロック、`loginAttempts`/`lockedUntil` カラム。
+- [x] **予測精度の評価指標（MAPE / RMSE）表示** — `/api/forecasts` レスポンスに `accuracy.mape/rmse` 追加（ホールドアウトバックテスト）。
+- [x] **予測結果の永続化** — ダッシュボードに「予測を保存」ボタン追加。`POST /api/forecasts` へ送信、`forecasts` テーブルにスナップショット保存。精度指標（MAPE/RMSE）も常時表示。
 
-### E. インフラ・デプロイ
-- [x] CD の deploy ジョブ実装（SSH + Docker Compose による自動デプロイ）
-- [x] 失敗時の自動ロールバック（直前イメージへ復帰）
-- [x] デプロイ結果のメール通知
-- [ ] Blue/Green・カナリア等のゼロダウンタイムデプロイ
-- [ ] マイグレーション後方互換ガイドライン / DB スナップショット復元手順
-- [ ] IaC（Terraform 等）でのインフラ定義
-- [ ] ステージング環境の構築
-- [ ] マネージド PostgreSQL の採用・接続プーリング
-- [ ] バックアップの定期実行（cron / スケジューラ）と復旧訓練
+---
 
-### F. UX / アクセシビリティ
-- [ ] UI デザイン整備（Tailwind / shadcn-ui の導入）
-- [ ] ログアウトボタン・共通ナビゲーション・ロール表示
-- [ ] ローディング / エラー状態の改善
-- [ ] レスポンシブ対応・アクセシビリティ（a11y）対応
-- [ ] 国際化（i18n）の検討
+## 🟢 優先度: 低（将来対応）
+
+- [x] **e-Tax / eLTAX 連携** — `GET /api/closing/etax?type=blue_return|corporate|consumption_tax` で XML 生成。決算画面にドロップダウンダウンロードボタン追加。
+- [x] **税理士ポータル** — `/portal` ページ（accountant 以上）+ `GET /api/portal` でテナント横断財務サマリ表示。
+- [x] **freee / マネーフォワード API 連携** — OAuth 2.0 skeleton: `/api/integrations/freee`・`/api/integrations/moneyforward`（環境変数設定で本番稼働可能）。
+- [x] **オープンバンキング API 連携** — `GET/POST /api/integrations/openbanking`（OPENBANKING_API_KEY 設定で稼働）。`/integrations` 連携管理ページ追加。
+- [ ] **Blue/Green デプロイ** — ゼロダウンタイムデプロイ対応。
+- [ ] **マネージド PostgreSQL** — 本番環境での接続プーリング・マネージド移行。
+- [ ] **ステージング環境の構築** — 本番相当の検証環境。
+- [x] **UI デザイン整備** — a11y 対応（スキップリンク・aria-current・role 属性・フォーカスリング・reduced-motion）。モバイルレスポンシブ対応（サイドバートグル）。グローバル CSS に `.badge`・`.btn-danger`・`.table-scroll` クラス追加。
+- [x] **国際化（i18n）** — `src/lib/i18n.ts`・`src/locales/ja.ts`・`src/locales/en.ts`・`src/hooks/useLocale.ts` を追加。AppShell サイドバーに日本語/English 切り替えボタン追加（localStorage 永続化）。
+- [x] **季節周期・平滑化パラメータのチューニング UI** — ダッシュボードに「パラメータ調整」パネル追加（window / α / β / γ / 周期 L のスライダー）。`/api/forecasts` クエリパラメータ対応。`forecast()` に `ForecastParams` オプション追加。
+
+
+
+# 追加項目（完了）
+- [x] **勘定科目文言の変更機能** — マスタ編集モーダルにコード・名称の両方を変更可能なフィールドを追加。PATCH API にも `code` フィールド対応（重複チェック付き）。
+- [x] **Excel インポート削除** — `entry/page.tsx` を CSV 専用に変更、`import.ts` から `xlsx` 依存を削除、import API も CSV のみに整理。
+- [x] **年月日のデフォルトを今年度に** — `entry/page.tsx` のデフォルト年月を `new Date()` ベースに変更。仕訳帳・予実レポートの年選択リストも動的年リストに変更。
+- [x] **観点切り替え機能** — AppShell サイドバーに「家計 / 個人 / 法人」3モード switcher を追加。モードに応じてナビ項目をフィルタ、localStorage で永続化。

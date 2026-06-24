@@ -1,51 +1,103 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { fetchForecast, type ForecastResponse } from "./api";
-import { TrendChart } from "./TrendChart";
+import { type UserInfo, logout } from "./api";
+import { LoginScreen } from "./screens/LoginScreen";
+import { DashboardScreen } from "./screens/DashboardScreen";
+import { AssetsScreen } from "./screens/AssetsScreen";
+import { BudgetScreen } from "./screens/BudgetScreen";
+import { EntryScreen } from "./screens/EntryScreen";
 
-// 決算管理システム モバイルアプリ。
-// Web と共通のバックエンド API (/api/forecasts) を参照しダッシュボードを表示する。
+type Tab = "dashboard" | "assets" | "budget" | "entry";
+
+const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: "dashboard", label: "ホーム", icon: "📊" },
+  { id: "assets", label: "資産", icon: "🏦" },
+  { id: "budget", label: "予算", icon: "📋" },
+  { id: "entry", label: "入力", icon: "✏️" },
+];
+
 export default function App() {
-  const [data, setData] = useState<ForecastResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<UserInfo | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
 
-  useEffect(() => {
-    fetchForecast("4000", 6)
-      .then(setData)
-      .catch(() => setError("データの取得に失敗しました。"));
-  }, []);
+  async function handleLogout() {
+    await logout().catch(() => {});
+    setUser(null);
+  }
+
+  if (!user) {
+    return (
+      <>
+        <LoginScreen onLogin={setUser} />
+        <StatusBar style="dark" />
+      </>
+    );
+  }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>決算管理システム</Text>
-      <Text style={styles.body}>売上高（4000）の実績と将来予測</Text>
+    <SafeAreaView style={s.root}>
+      <StatusBar style="dark" />
 
-      {error && <Text style={styles.error}>{error}</Text>}
-      {!data && !error && <ActivityIndicator style={{ marginTop: 24 }} />}
+      {/* ヘッダー */}
+      <View style={s.header}>
+        <Text style={s.headerTitle}>決算管理</Text>
+        <TouchableOpacity onPress={handleLogout} style={s.logoutBtn}>
+          <Text style={s.logoutText}>{user.name} ▸ ログアウト</Text>
+        </TouchableOpacity>
+      </View>
 
-      {data && (
-        <View style={styles.card}>
-          <TrendChart
-            actual={data.history.map((h) => h.total)}
-            forecast={data.forecast}
-          />
-          <Text style={styles.caption}>
-            実績 {data.history.length} 件 / 予測 {data.forecast.length} か月（{data.method}）
-          </Text>
-        </View>
-      )}
+      {/* コンテンツ */}
+      <View style={s.body}>
+        {activeTab === "dashboard" && <DashboardScreen />}
+        {activeTab === "assets" && <AssetsScreen />}
+        {activeTab === "budget" && <BudgetScreen />}
+        {activeTab === "entry" && <EntryScreen />}
+      </View>
 
-      <StatusBar style="auto" />
-    </ScrollView>
+      {/* タブバー */}
+      <View style={s.tabBar}>
+        {TABS.map(t => (
+          <TouchableOpacity
+            key={t.id}
+            style={s.tabItem}
+            onPress={() => setActiveTab(t.id)}
+          >
+            <Text style={[s.tabIcon, activeTab === t.id && s.tabIconActive]}>{t.icon}</Text>
+            <Text style={[s.tabLabel, activeTab === t.id && s.tabLabelActive]}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { backgroundColor: "#fff", alignItems: "center", padding: 24, paddingTop: 64 },
-  title: { fontSize: 22, fontWeight: "bold", marginBottom: 8 },
-  body: { fontSize: 14, color: "#444", marginBottom: 16 },
-  error: { color: "crimson", marginTop: 16 },
-  card: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, padding: 12 },
-  caption: { fontSize: 12, color: "#6b7280", marginTop: 8 },
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#fff" },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+    backgroundColor: "#fff",
+  },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: "#1e293b" },
+  logoutBtn: { paddingVertical: 4, paddingHorizontal: 8 },
+  logoutText: { fontSize: 12, color: "#64748b" },
+  body: { flex: 1 },
+  tabBar: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+    backgroundColor: "#fff",
+    paddingBottom: 4,
+  },
+  tabItem: { flex: 1, alignItems: "center", paddingVertical: 8 },
+  tabIcon: { fontSize: 20, opacity: 0.45 },
+  tabIconActive: { opacity: 1 },
+  tabLabel: { fontSize: 10, color: "#94a3b8", marginTop: 2 },
+  tabLabelActive: { color: "#4f46e5", fontWeight: "600" },
 });
