@@ -36,7 +36,6 @@ export async function GET(req: NextRequest) {
         bankName:    a.bankName,
         accountName: a.name,
         accountType: a.accountType,
-        balance:     Number(a.balance),
       })),
     });
   }
@@ -78,7 +77,7 @@ export async function GET(req: NextRequest) {
     }
 
     const txData = await txRes.json() as { transactions: Array<{
-      id: string; date: string; amount: number; description: string; balance: number;
+      id: string; date: string; amount: number; description: string; balance: number | null;
     }> };
 
     return NextResponse.json({
@@ -101,7 +100,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json() as {
     accountId: number;
-    transactions: Array<{ date: string; amount: number; description: string; balance: number }>;
+    transactions: Array<{ id: string; date: string; amount: number; description: string; balance: number | null }>;
   };
 
   if (!body.accountId || !Array.isArray(body.transactions)) {
@@ -118,36 +117,24 @@ export async function POST(req: NextRequest) {
 
   for (const tx of body.transactions) {
     const txDate = new Date(tx.date);
-    // 同日・同金額・同摘要の重複は skip
+    const externalId = tx.id;
     const existing = await prisma.bankTransaction.findFirst({
-      where: {
-        bankAccountId: account.id,
-        transactionDate: txDate,
-        amount:          tx.amount,
-        description:     tx.description,
-      },
+      where: { accountId: account.id, externalId },
     });
     if (existing) { skipped++; continue; }
 
     await prisma.bankTransaction.create({
       data: {
-        bankAccountId:   account.id,
-        transactionDate: txDate,
-        amount:          tx.amount,
-        description:     tx.description,
-        balanceAfter:    tx.balance,
+        account:     { connect: { id: account.id } },
+        date:        txDate,
+        amount:      tx.amount,
+        description: tx.description,
+        balance:     tx.balance,
+        source:      "SYNC",
+        externalId,
       },
     });
     inserted++;
-  }
-
-  // 残高を最新取引に更新
-  const latest = body.transactions.at(-1);
-  if (latest) {
-    await prisma.bankAccount.update({
-      where: { id: account.id },
-      data:  { balance: latest.balance },
-    });
   }
 
   return NextResponse.json({ inserted, skipped }, { status: 201 });
