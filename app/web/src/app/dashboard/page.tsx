@@ -143,7 +143,9 @@ export default function DashboardPage() {
       ? toAnnualRows(data.rows)
       : data.rows
     : [];
-  const yearForComp = compYear ?? comp?.years.at(-1) ?? new Date().getFullYear();
+  const now = new Date();
+  const fiscalYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const yearForComp = compYear ?? fiscalYear;
 
   return (
     <AppShell>
