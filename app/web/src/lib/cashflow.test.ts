@@ -9,7 +9,7 @@ describe("buildCashFlow", () => {
   });
 
   it("売上→原価/総利益、総利益→販管費/営業利益のリンクを生成する", () => {
-    const { graph } = buildCashFlow({ revenue: 1000, cogs: 400, expense: 200 });
+    const { graph } = buildCashFlow({ revenue: 1000, cogs: 400, expense: 200 }, "corporate");
     const names = graph.nodes.map((n) => n.name);
     expect(names).toContain("売上高");
     expect(names).toContain("売上総利益");
