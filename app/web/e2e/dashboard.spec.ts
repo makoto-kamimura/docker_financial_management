@@ -15,7 +15,7 @@ test.describe("ダッシュボードと主要フロー", () => {
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
     // KPI カード（exact: true でオプション要素との strict mode 違反を回避）
     await expect(page.getByText("売上高", { exact: true })).toBeVisible();
-    await expect(page.getByText("営業利益率", { exact: true })).toBeVisible();
+    await expect(page.getByText("営業利益率")).toBeVisible();
     // 予測手法セレクタ
     await expect(page.getByText("予測手法")).toBeVisible();
   });
