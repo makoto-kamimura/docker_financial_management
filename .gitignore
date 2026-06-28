@@ -19,3 +19,7 @@ platform/.env
 # private / work data
 docs/private/
 docs/work/
+docs/
+
+# DB data (host bind mount)
+platform/db/

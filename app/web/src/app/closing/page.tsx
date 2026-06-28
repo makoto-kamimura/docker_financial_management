@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 
@@ -365,9 +365,22 @@ function MonthlyTab({ monthly, fiscalYear }: { monthly: Statements["monthly"]; f
 // ── メインページ ──────────────────────────────────────────────────────────
 export default function ClosingPage() {
   const currentYear = new Date().getFullYear();
-  const [year, setYear]   = useState(currentYear);
-  const [tab, setTab]     = useState<"pnl" | "bs" | "trial" | "monthly" | "ratios">("pnl");
+  const [year, setYear]     = useState(currentYear);
+  const [tab, setTab]       = useState<"pnl" | "bs" | "trial" | "monthly" | "ratios">("pnl");
+  const [etaxOpen, setEtaxOpen] = useState(false);
+  const etaxRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!etaxOpen) return;
+    function close(e: MouseEvent) {
+      if (etaxRef.current && !etaxRef.current.contains(e.target as Node)) {
+        setEtaxOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [etaxOpen]);
 
   const { data, isLoading } = useQuery<Statements>({
     queryKey: ["closing-statements", year],
@@ -426,25 +439,29 @@ export default function ClosingPage() {
             🏢 法人決算書類
           </button>
           {/* e-Tax XML ダウンロード */}
-          <div className="relative group">
+          <div className="relative" ref={etaxRef}>
             <button type="button"
+              onClick={() => setEtaxOpen(o => !o)}
               className="text-sm px-4 py-1.5 border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700">
-              📤 e-Tax XML
+              📤 e-Tax XML ▾
             </button>
-            <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 hidden group-hover:block min-w-max">
-              {([
-                { type: "blue_return",     label: "青色申告決算書" },
-                { type: "corporate",       label: "法人税申告書" },
-                { type: "consumption_tax", label: "消費税申告書" },
-              ] as const).map(({ type, label }) => (
-                <a key={type}
-                  href={`/api/closing/etax?fiscalYear=${year}&type=${type}`}
-                  download={`etax_${type}_${year}.xml`}
-                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg">
-                  {label}
-                </a>
-              ))}
-            </div>
+            {etaxOpen && (
+              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 min-w-max">
+                {([
+                  { type: "blue_return",     label: "青色申告決算書" },
+                  { type: "corporate",       label: "法人税申告書" },
+                  { type: "consumption_tax", label: "消費税申告書" },
+                ] as const).map(({ type, label }) => (
+                  <a key={type}
+                    href={`/api/closing/etax?fiscalYear=${year}&type=${type}`}
+                    download={`etax_${type}_${year}.xml`}
+                    onClick={() => setEtaxOpen(false)}
+                    className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg">
+                    {label}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
           {!isClosed ? (
             <button type="button"

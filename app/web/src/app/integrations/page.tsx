@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 
 type OBAccount = {
-  id: number; bankName: string; accountName: string; accountType: string; balance: number;
+  id: number; bankName: string; accountName: string; accountType: string; balance: number | null;
 };
 type OBStatus = { configured: boolean; message?: string; accounts: OBAccount[] };
 
@@ -160,7 +160,9 @@ export default function IntegrationsPage() {
                   <td className="px-4 py-2 text-slate-800">{a.bankName}</td>
                   <td className="px-4 py-2 text-slate-700">{a.accountName}</td>
                   <td className="px-4 py-2 text-slate-500">{a.accountType}</td>
-                  <td className="px-4 py-2 text-right font-medium text-slate-800">{yen(a.balance)}</td>
+                  <td className="px-4 py-2 text-right font-medium text-slate-800">
+                    {a.balance != null ? yen(a.balance) : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>

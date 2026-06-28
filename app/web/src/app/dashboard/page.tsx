@@ -1,7 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   PieChart,
   Pie,
@@ -16,6 +17,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { BudgetActualChart } from "@/components/BudgetActualChart";
+import { BalanceChart, type BalancePoint } from "@/components/BalanceChart";
 import { downloadSvgAsPng } from "@/lib/export-client";
 import { KpiCards } from "@/components/KpiCards";
 import { AppShell } from "@/components/AppShell";
@@ -43,6 +45,12 @@ type CompositionResponse = {
   years: number[];
 };
 type AccountItem = { id: number; code: string; name: string; category: string };
+type BankAccount = { id: number; name: string; bankName: string };
+type SimResult = {
+  accounts: { id: number; name: string }[];
+  timeline: BalancePoint[];
+  shortfalls: { date: string; accountId: number; accountName: string; balance: number }[];
+};
 
 const yen = (v: number | null) => (v == null ? "—" : v.toLocaleString("ja-JP"));
 const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -84,8 +92,10 @@ function toAnnualRows(rows: Row[]): Row[] {
   });
 }
 
-export default function DashboardPage() {
-  const [tab,         setTab]         = useState<"budget" | "composition">("budget");
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const initialTab = (searchParams.get("tab") ?? "budget") as "budget" | "composition" | "simulation";
+  const [tab,         setTab]         = useState<"budget" | "composition" | "simulation">(initialTab);
   const [method,      setMethod]      = useState("moving_average");
   const [viewMode,    setViewMode]    = useState<"monthly" | "annual">("monthly");
   const [compYear,    setCompYear]    = useState<number | null>(null);
@@ -137,6 +147,47 @@ export default function DashboardPage() {
     },
   });
 
+  // ── 残高シミュレーション ───────────────────────────────────────────
+  const [openings, setOpenings] = useState<Record<number, number>>({});
+  const [months,   setMonths]   = useState(3);
+  const [autoRan,  setAutoRan]  = useState(false);
+
+  const { data: bankAccounts } = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: async (): Promise<BankAccount[]> =>
+      (await (await fetch("/api/bank-accounts")).json()).data ?? [],
+  });
+
+  const sim = useMutation({
+    mutationFn: async (): Promise<SimResult> => {
+      const res = await fetch("/api/transfers/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          openings: Object.fromEntries(Object.entries(openings).map(([k, v]) => [k, Number(v)])),
+          months,
+          startYear:  now.getFullYear(),
+          startMonth: now.getMonth() + 1,
+        }),
+      });
+      if (!res.ok) throw new Error("simulation failed");
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (!bankAccounts || bankAccounts.length === 0) return;
+    setOpenings(prev => Object.keys(prev).length > 0 ? prev : Object.fromEntries(bankAccounts.map(a => [a.id, 0])));
+  }, [bankAccounts]);
+
+  useEffect(() => {
+    if (tab !== "simulation" || autoRan || !bankAccounts || bankAccounts.length === 0) return;
+    setAutoRan(true);
+    sim.mutate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, bankAccounts]);
+
+  // ── 共通計算 ──────────────────────────────────────────────────────
   const csvUrl = `/api/reports/budget-actual/export?accountCode=${accountCode}&year=${year}&method=${method}`;
   const displayRows = data
     ? viewMode === "annual"
@@ -162,7 +213,11 @@ export default function DashboardPage() {
 
       {/* タブ */}
       <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(["budget", "composition"] as const).map((t) => (
+        {([
+          ["budget",     "予実対比"],
+          ["composition","構成比グラフ"],
+          ["simulation", "残高シミュレーション"],
+        ] as ["budget" | "composition" | "simulation", string][]).map(([t, label]) => (
           <button
             key={t}
             type="button"
@@ -173,7 +228,7 @@ export default function DashboardPage() {
                 : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
-            {t === "budget" ? "予実対比" : "構成比グラフ"}
+            {label}
           </button>
         ))}
       </div>
@@ -337,6 +392,83 @@ export default function DashboardPage() {
         </>
       )}
 
+      {/* ── 残高シミュレーションタブ ─────────────── */}
+      {tab === "simulation" && (
+        <>
+          <div className="card mb-4">
+            <h2 className="section-title mb-3">条件設定</h2>
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {bankAccounts?.map(a => (
+                  <div key={a.id}>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">
+                      {a.name} <span className="text-slate-400">期首残高</span>
+                    </label>
+                    <input
+                      type="number"
+                      className="input-field"
+                      value={openings[a.id] ?? 0}
+                      onChange={e => setOpenings(prev => ({ ...prev, [a.id]: Number(e.target.value) }))}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-end gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">期間</label>
+                  <select
+                    className="input-field w-28"
+                    value={months}
+                    onChange={e => setMonths(Number(e.target.value))}
+                  >
+                    {[3, 6, 12].map(m => <option key={m} value={m}>{m}か月</option>)}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary px-5 py-2"
+                  onClick={() => sim.mutate()}
+                  disabled={sim.isPending}
+                >
+                  {sim.isPending ? "計算中…" : "シミュレーション実行"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {sim.isPending && (
+            <div className="text-center text-sm text-slate-400 py-8">計算中…</div>
+          )}
+          {sim.data && (
+            <>
+              {(sim.data.shortfalls?.length ?? 0) > 0 ? (
+                <div className="card mb-4 border border-red-200 bg-red-50">
+                  <h2 className="section-title text-red-700 mb-2">⚠️ 残高不足の警告</h2>
+                  <ul className="text-sm text-red-700 space-y-1">
+                    {[...new Map(sim.data.shortfalls.map(s => [`${s.date}-${s.accountId}`, s])).values()]
+                      .slice(0, 10)
+                      .map((s, i) => (
+                        <li key={i}>
+                          {s.date}：<strong>{s.accountName}</strong> が{" "}
+                          {s.balance.toLocaleString("ja-JP", { style: "currency", currency: "JPY" })}（マイナス）
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="card mb-4 border border-green-200 bg-green-50">
+                  <p className="text-sm text-green-700">✅ {months}か月間、残高不足は発生しません。</p>
+                </div>
+              )}
+              <div className="card">
+                <h2 className="section-title mb-3">残高推移（{months}か月）</h2>
+                <BalanceChart timeline={sim.data.timeline} accounts={sim.data.accounts} />
+              </div>
+            </>
+          )}
+        </>
+      )}
+
       {/* ── 構成比タブ ────────────────────────── */}
       {tab === "composition" && (
         <>
@@ -425,5 +557,13 @@ export default function DashboardPage() {
         </>
       )}
     </AppShell>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense>
+      <DashboardContent />
+    </Suspense>
   );
 }

@@ -11,6 +11,7 @@ services:
       DATABASE_URL: postgresql://app:app@db:5432/financial
       REDIS_URL: redis://redis:6379
       NODE_ENV: production
+      COOKIE_SECURE: "false"
     volumes:
       - uploads_data:/app/uploads
     depends_on:
@@ -28,7 +29,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - ./db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d financial"]
       interval: 5s
@@ -64,6 +65,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  db-data:
   uploads_data:
   redis-data:

@@ -1,11 +1,11 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 
-// ── 型定義 ───────────────────────────────────────────────
+// ── 型定義 ─────────────────────────────────────────────────────────
 type Account = {
   id: number;
   code: string;
@@ -32,7 +32,16 @@ type RecentHistory = {
   period: { fiscalYear: number; month: number };
 };
 
-// ── 定数 ────────────────────────────────────────────────
+type JournalDetail = {
+  id: number; side: "debit" | "credit"; amount: number;
+  account: { id: number; code: string; name: string; category: string };
+};
+type JournalEntry = {
+  id: number; transactionDate: string; description: string;
+  paymentMethod: string; details: JournalDetail[];
+};
+
+// ── 定数 ───────────────────────────────────────────────────────────
 const ACTION_LABEL: Record<string, string> = { create: "登録", update: "更新", delete: "削除" };
 const ACTION_COLOR: Record<string, string> = {
   create: "text-green-700 bg-green-50",
@@ -74,20 +83,56 @@ const CATEGORY_BADGE: Record<string, string> = {
 const BLANK_ACCT = { code: "", name: "", category: "OTHER", parentCode: "" };
 const BLANK_DEPT = { name: "", manager: "" };
 
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+const PAY_METHODS = [
+  { value: "cash",     label: "現金" },
+  { value: "bank",     label: "銀行" },
+  { value: "card",     label: "カード" },
+  { value: "transfer", label: "振込" },
+];
+const INCOME_CATS  = ["REVENUE", "PROFIT"];
+const EXPENSE_CATS = ["EXPENSE", "COGS"];
+const ASSET_CATS   = ["ASSET"];
+
+const BLANK_CAL_FORM = {
+  description:        "",
+  accountCode:        "",
+  counterAccountCode: "",
+  amount:             "",
+  direction:          "expense" as "income" | "expense",
+  paymentMethod:      "cash",
+};
+
 const yen = (v: number) => v.toLocaleString("ja-JP") + "円";
 const fmtDate = (iso: string) => {
   const d = new Date(iso);
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
+function entryAmount(e: JournalEntry): { income: number; expense: number } {
+  let income = 0, expense = 0;
+  for (const d of e.details) {
+    const amt = Number(d.amount);
+    if (INCOME_CATS.includes(d.account.category))  { if (d.side === "credit") income  += amt; }
+    if (EXPENSE_CATS.includes(d.account.category)) { if (d.side === "debit")  expense += amt; }
+  }
+  return { income, expense };
+}
+
 const now = new Date();
 const THIS_YEAR  = now.getFullYear();
 const THIS_MONTH = now.getMonth() + 1;
 
+type Tab = "manual" | "calendar" | "csv";
+
+// ── ページ ─────────────────────────────────────────────────────────
 export default function EntryPage() {
   const queryClient = useQueryClient();
 
-  // ── クエリ ───────────────────────────────────────────
+  // ── タブ ──────────────────────────────────────────────────────
+  const [tab, setTab] = useState<Tab>("manual");
+
+  // ── クエリ ────────────────────────────────────────────────────
   const { data: accounts } = useQuery({
     queryKey: ["accounts"],
     queryFn: async (): Promise<Account[]> => (await (await fetch("/api/accounts")).json()).data,
@@ -108,27 +153,60 @@ export default function EntryPage() {
     refetchInterval: 30_000,
   });
 
-  // ── タブ ────────────────────────────────────────────
-  const [tab, setTab] = useState<"manual" | "csv">("manual");
-
-  // ── 手入力フォーム ──────────────────────────────────
+  // ── 手入力フォーム ────────────────────────────────────────────
   const [form, setForm] = useState({ accountCode: "", fiscalYear: THIS_YEAR, month: THIS_MONTH, amount: 0 });
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // 勘定科目名インライン編集（手入力タブ）
   const [nameEditOpen,   setNameEditOpen]   = useState(false);
   const [nameEditValue,  setNameEditValue]  = useState("");
   const [nameEditMsg,    setNameEditMsg]    = useState<{ ok: boolean; text: string } | null>(null);
   const [nameEditSaving, setNameEditSaving] = useState(false);
 
-  // ── CSV インポート ────────────────────────────────
+  // ── CSV インポート ─────────────────────────────────────────────
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing,    setImporting]    = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError,  setImportError]  = useState<string | null>(null);
   const [dragOver,     setDragOver]     = useState(false);
 
-  // ── マスタ: 勘定科目 ─────────────────────────────
+  // ── カレンダー ────────────────────────────────────────────────
+  const [viewYear,    setViewYear]    = useState(now.getFullYear());
+  const [viewMonth,   setViewMonth]   = useState(now.getMonth() + 1);
+  const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
+  const [calForm,     setCalForm]     = useState(BLANK_CAL_FORM);
+  const [calSaving,   setCalSaving]   = useState(false);
+  const [calError,    setCalError]    = useState("");
+
+  const { data: journalData, isLoading: calLoading } = useQuery({
+    queryKey: ["actuals", viewYear, viewMonth],
+    queryFn: async (): Promise<{ data: JournalEntry[] }> =>
+      (await fetch(`/api/actuals?year=${viewYear}&month=${viewMonth}`)).json(),
+    enabled: tab === "calendar",
+  });
+
+  const calEntries = journalData?.data ?? [];
+
+  const byDay = useMemo(() => {
+    const m = new Map<number, JournalEntry[]>();
+    for (const e of calEntries) {
+      const d = new Date(e.transactionDate).getDate();
+      if (!m.has(d)) m.set(d, []);
+      m.get(d)!.push(e);
+    }
+    return m;
+  }, [calEntries]);
+
+  const firstWeekday = new Date(viewYear, viewMonth - 1, 1).getDay();
+  const daysInMonth  = new Date(viewYear, viewMonth, 0).getDate();
+  const totalCells   = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  const selectedEntries = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
+
+  const incomeAccounts  = (accounts ?? []).filter(a => INCOME_CATS.includes(a.category));
+  const expenseAccounts = (accounts ?? []).filter(a => EXPENSE_CATS.includes(a.category));
+  const assetAccounts   = (accounts ?? []).filter(a => ASSET_CATS.includes(a.category));
+  const calMainAccounts = calForm.direction === "income" ? incomeAccounts : expenseAccounts;
+
+  // ── マスタ: 勘定科目 ─────────────────────────────────────────
   const [acct,         setAcct]        = useState(BLANK_ACCT);
   const [editAcct,     setEditAcct]    = useState<Account | null>(null);
   const [editAcctCode, setEditAcctCode] = useState("");
@@ -136,11 +214,10 @@ export default function EntryPage() {
   const [editAcctCat,  setEditAcctCat]  = useState("OTHER");
   const [acctEditMsg,  setAcctEditMsg]  = useState<string | null>(null);
 
-  // ── マスタ: 部門 ─────────────────────────────────
+  // ── マスタ: 部門 ─────────────────────────────────────────────
   const [dept,     setDept]     = useState(BLANK_DEPT);
   const [editDept, setEditDept] = useState<Department | null>(null);
 
-  // ── カテゴリ別グループ化 ──────────────────────────
   const byCategory = (accounts ?? []).reduce<Record<string, Account[]>>((acc, a) => {
     (acc[a.category] ??= []).push(a);
     return acc;
@@ -148,7 +225,7 @@ export default function EntryPage() {
 
   const selectedAccount = (accounts ?? []).find((a) => a.code === form.accountCode) ?? null;
 
-  // ── 手入力ハンドラ ───────────────────────────────
+  // ── 手入力ハンドラ ───────────────────────────────────────────
   function onAccountChange(code: string) {
     setForm((f) => ({ ...f, accountCode: code }));
     setNameEditOpen(false);
@@ -198,7 +275,7 @@ export default function EntryPage() {
     setMessage(res.ok ? { ok: true, text: "登録しました。" } : { ok: false, text: "登録に失敗しました。" });
   }
 
-  // ── CSV ハンドラ ─────────────────────────────────
+  // ── CSV ハンドラ ─────────────────────────────────────────────
   async function importFile(file: File) {
     if (!file.name.toLowerCase().endsWith(".csv")) {
       setImportError("CSV ファイル (.csv) のみ対応しています。");
@@ -234,7 +311,53 @@ export default function EntryPage() {
     if (file) importFile(file);
   }
 
-  // ── 勘定科目 CRUD ────────────────────────────────
+  // ── カレンダーハンドラ ───────────────────────────────────────
+  function prevMonth() {
+    if (viewMonth === 1) { setViewYear(y => y - 1); setViewMonth(12); }
+    else setViewMonth(m => m - 1);
+    setSelectedDay(null);
+  }
+  function nextMonth() {
+    if (viewMonth === 12) { setViewYear(y => y + 1); setViewMonth(1); }
+    else setViewMonth(m => m + 1);
+    setSelectedDay(null);
+  }
+
+  async function handleCalSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedDay) return;
+    setCalSaving(true);
+    setCalError("");
+    const dateStr = `${viewYear}-${String(viewMonth).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`;
+    const res = await fetch("/api/actuals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        date:               dateStr,
+        description:        calForm.description,
+        accountCode:        calForm.accountCode,
+        counterAccountCode: calForm.counterAccountCode,
+        amount:             Number(calForm.amount),
+        direction:          calForm.direction,
+        paymentMethod:      calForm.paymentMethod,
+      }),
+    });
+    if (res.ok) {
+      setCalForm(BLANK_CAL_FORM);
+      queryClient.invalidateQueries({ queryKey: ["actuals", viewYear, viewMonth] });
+    } else {
+      const j = await res.json() as { error?: string };
+      setCalError(j.error ?? "登録に失敗しました");
+    }
+    setCalSaving(false);
+  }
+
+  async function handleCalDelete(id: number) {
+    await fetch(`/api/actuals?id=${id}`, { method: "DELETE" });
+    queryClient.invalidateQueries({ queryKey: ["actuals", viewYear, viewMonth] });
+  }
+
+  // ── 勘定科目 CRUD ────────────────────────────────────────────
   async function addAccount(e: { preventDefault(): void }) {
     e.preventDefault();
     const body: Record<string, string> = { code: acct.code, name: acct.name, category: acct.category };
@@ -279,7 +402,7 @@ export default function EntryPage() {
     queryClient.invalidateQueries({ queryKey: ["accounts"] });
   }
 
-  // ── 部門 CRUD ────────────────────────────────────
+  // ── 部門 CRUD ────────────────────────────────────────────────
   async function addDepartment(e: { preventDefault(): void }) {
     e.preventDefault();
     await fetch("/api/departments", {
@@ -372,7 +495,7 @@ export default function EntryPage() {
 
       {/* タブ切り替え */}
       <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(["manual", "csv"] as const).map((t) => (
+        {([["manual", "明細詳細"], ["calendar", "カレンダー"], ["csv", "CSV インポート"]] as [Tab, string][]).map(([t, label]) => (
           <button
             key={t}
             type="button"
@@ -383,18 +506,18 @@ export default function EntryPage() {
                 : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
-            {t === "manual" ? "手入力" : "CSV インポート"}
+            {label}
           </button>
         ))}
       </div>
 
-      {/* ── 手入力 ─────────────────────────────────── */}
+      {/* ── 手入力タブ ────────────────────────────────────────── */}
       {tab === "manual" && (
-        <div className="card max-w-md">
-          <h2 className="section-title">新規登録</h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">勘定科目</label>
+        <div className="card mb-6">
+          <h2 className="section-title mb-4">新規登録</h2>
+          <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1 w-72">
+              <label className="text-xs font-medium text-slate-600">勘定科目</label>
               <div className="flex gap-2">
                 <select
                   value={form.accountCode}
@@ -419,14 +542,14 @@ export default function EntryPage() {
                   <button
                     type="button"
                     onClick={openNameEdit}
-                    className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors"
+                    className="shrink-0 text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors whitespace-nowrap"
                   >
-                    名前を編集
+                    名前変更
                   </button>
                 )}
               </div>
               {nameEditOpen && selectedAccount && (
-                <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                <div className="mt-1 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                   <p className="text-xs font-medium text-slate-600">「{selectedAccount.name}」の名前を変更</p>
                   <div className="flex gap-2">
                     <input type="text" value={nameEditValue}
@@ -450,37 +573,231 @@ export default function EntryPage() {
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">年度</label>
-                <input type="number" value={form.fiscalYear}
-                  onChange={(e) => setForm({ ...form, fiscalYear: Number(e.target.value) })}
-                  className="input-field" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">月</label>
-                <input type="number" min={1} max={12} value={form.month}
-                  onChange={(e) => setForm({ ...form, month: Number(e.target.value) })}
-                  className="input-field" />
-              </div>
+            <div className="flex flex-col gap-1 w-24">
+              <label className="text-xs font-medium text-slate-600">年度</label>
+              <input type="number" value={form.fiscalYear}
+                onChange={(e) => setForm({ ...form, fiscalYear: Number(e.target.value) })}
+                className="input-field" />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">金額（円）</label>
+            <div className="flex flex-col gap-1 w-20">
+              <label className="text-xs font-medium text-slate-600">月</label>
+              <input type="number" min={1} max={12} value={form.month}
+                onChange={(e) => setForm({ ...form, month: Number(e.target.value) })}
+                className="input-field" />
+            </div>
+            <div className="flex flex-col gap-1 w-36">
+              <label className="text-xs font-medium text-slate-600">金額（円）</label>
               <input type="number" value={form.amount}
                 onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
                 className="input-field" />
             </div>
-            {message && (
-              <p className={`text-sm rounded-lg px-3 py-2 border ${message.ok ? "text-green-700 bg-green-50 border-green-200" : "text-red-600 bg-red-50 border-red-200"}`}>
-                {message.text}
-              </p>
-            )}
-            <button type="submit" className="btn-primary w-full py-2.5">登録</button>
+            <button type="submit" className="btn-primary px-5 py-2 self-end ml-auto">登録</button>
           </form>
+          {message && (
+            <p className={`mt-3 text-sm rounded-lg px-3 py-2 border ${message.ok ? "text-green-700 bg-green-50 border-green-200" : "text-red-600 bg-red-50 border-red-200"}`}>
+              {message.text}
+            </p>
+          )}
         </div>
       )}
 
-      {/* ── CSV インポート ─────────────────────────── */}
+      {/* ── カレンダータブ ────────────────────────────────────── */}
+      {tab === "calendar" && (
+        <div className="flex gap-4 items-start">
+          {/* カレンダー */}
+          <div className="card flex-1 min-w-0 p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <button onClick={prevMonth} className="p-1.5 rounded hover:bg-slate-100 text-slate-500">
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <span className="font-semibold text-slate-800">{viewYear}年{viewMonth}月</span>
+              <button onClick={nextMonth} className="p-1.5 rounded hover:bg-slate-100 text-slate-500">
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+            <div className="grid grid-cols-7 border-b border-slate-100">
+              {WEEKDAYS.map((w, i) => (
+                <div key={w} className={`py-2 text-center text-xs font-medium ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-slate-500"}`}>
+                  {w}
+                </div>
+              ))}
+            </div>
+            {calLoading ? (
+              <div className="p-8"><LoadingSpinner /></div>
+            ) : (
+              <div className="grid grid-cols-7">
+                {Array.from({ length: totalCells }, (_, i) => {
+                  const day = i - firstWeekday + 1;
+                  const isValid    = day >= 1 && day <= daysInMonth;
+                  const isToday    = isValid && viewYear === now.getFullYear() && viewMonth === now.getMonth() + 1 && day === now.getDate();
+                  const isSelected = isValid && day === selectedDay;
+                  const dayEntries = byDay.get(day) ?? [];
+                  const totalIncome  = dayEntries.reduce((s, e) => s + entryAmount(e).income,  0);
+                  const totalExpense = dayEntries.reduce((s, e) => s + entryAmount(e).expense, 0);
+                  const weekday = i % 7;
+                  return (
+                    <button
+                      key={i}
+                      disabled={!isValid}
+                      onClick={() => isValid && setSelectedDay(day)}
+                      className={[
+                        "min-h-[4.5rem] p-1.5 border-b border-r border-slate-100 text-left transition-colors",
+                        !isValid ? "bg-slate-50/50" : "hover:bg-indigo-50/50 cursor-pointer",
+                        isSelected ? "bg-indigo-50 ring-1 ring-inset ring-indigo-300" : "",
+                      ].join(" ")}
+                    >
+                      {isValid && (
+                        <>
+                          <span className={[
+                            "inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full mb-0.5",
+                            isToday ? "bg-indigo-600 text-white" : weekday === 0 ? "text-red-500" : weekday === 6 ? "text-blue-500" : "text-slate-700",
+                          ].join(" ")}>{day}</span>
+                          {totalIncome > 0 && (
+                            <p className="text-[10px] text-emerald-600 truncate leading-tight">+{yen(totalIncome)}</p>
+                          )}
+                          {totalExpense > 0 && (
+                            <p className="text-[10px] text-rose-600 truncate leading-tight">−{yen(totalExpense)}</p>
+                          )}
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* サイドパネル */}
+          <div className="w-80 shrink-0 flex flex-col gap-3">
+            {selectedDay ? (
+              <>
+                <div className="card py-2 px-4">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {viewYear}年{viewMonth}月{selectedDay}日
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">{selectedEntries.length} 件の実績</p>
+                </div>
+
+                {selectedEntries.length > 0 && (
+                  <div className="card p-0 overflow-hidden">
+                    <ul className="divide-y divide-slate-100">
+                      {selectedEntries.map((e) => {
+                        const { income, expense } = entryAmount(e);
+                        const isIncome = income > 0;
+                        return (
+                          <li key={e.id} className="flex items-start gap-2 px-3 py-2.5">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-slate-800 truncate">{e.description}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                {e.details.map(d => d.account.name).join(" / ")}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={`text-xs font-semibold ${isIncome ? "text-emerald-600" : "text-rose-600"}`}>
+                                {isIncome ? "+" : "−"}{yen(isIncome ? income : expense)}
+                              </span>
+                              <button
+                                onClick={() => handleCalDelete(e.id)}
+                                className="text-slate-300 hover:text-red-400 text-xs"
+                                title="削除"
+                              >✕</button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="card">
+                  <h3 className="text-xs font-semibold text-slate-600 mb-3">実績を追加</h3>
+                  <form onSubmit={handleCalSubmit} className="flex flex-col gap-2.5">
+                    <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs">
+                      {(["expense", "income"] as const).map(d => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setCalForm(f => ({ ...f, direction: d, accountCode: "" }))}
+                          className={`flex-1 py-1.5 font-medium transition-colors ${calForm.direction === d
+                            ? d === "expense" ? "bg-rose-500 text-white" : "bg-emerald-500 text-white"
+                            : "bg-white text-slate-500 hover:bg-slate-50"
+                          }`}
+                        >
+                          {d === "expense" ? "支出" : "収入"}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-slate-500">摘要</label>
+                      <input type="text" required placeholder="例: 食料品"
+                        value={calForm.description}
+                        onChange={e => setCalForm(f => ({ ...f, description: e.target.value }))}
+                        className="input-field text-xs" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-slate-500">
+                        {calForm.direction === "expense" ? "支出科目" : "収入科目"}
+                      </label>
+                      <select required value={calForm.accountCode}
+                        onChange={e => setCalForm(f => ({ ...f, accountCode: e.target.value }))}
+                        className="input-field text-xs">
+                        <option value="">選択してください</option>
+                        {calMainAccounts.map(a => (
+                          <option key={a.code} value={a.code}>{a.code} {a.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-slate-500">
+                        {calForm.direction === "expense" ? "支払元口座" : "入金先口座"}
+                      </label>
+                      <select required value={calForm.counterAccountCode}
+                        onChange={e => setCalForm(f => ({ ...f, counterAccountCode: e.target.value }))}
+                        className="input-field text-xs">
+                        <option value="">選択してください</option>
+                        {assetAccounts.map(a => (
+                          <option key={a.code} value={a.code}>{a.code} {a.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-slate-500">金額（円）</label>
+                      <input type="number" required min={1} placeholder="例: 5000"
+                        value={calForm.amount}
+                        onChange={e => setCalForm(f => ({ ...f, amount: e.target.value }))}
+                        className="input-field text-xs" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-slate-500">支払方法</label>
+                      <select value={calForm.paymentMethod}
+                        onChange={e => setCalForm(f => ({ ...f, paymentMethod: e.target.value }))}
+                        className="input-field text-xs">
+                        {PAY_METHODS.map(m => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {calError && <p className="text-xs text-red-600">{calError}</p>}
+                    <button type="submit" disabled={calSaving} className="btn-primary text-xs py-2 mt-1">
+                      {calSaving ? "登録中..." : "登録"}
+                    </button>
+                  </form>
+                </div>
+              </>
+            ) : (
+              <div className="card text-center py-8">
+                <p className="text-sm text-slate-400">カレンダーの日付をクリックして<br />実績を入力してください</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── CSV インポートタブ ──────────────────────────────────── */}
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
           <div
@@ -560,123 +877,125 @@ HA101,${THIS_YEAR},12,500000`}</pre>
         </div>
       )}
 
-      {/* ── 入力履歴 ──────────────────────────────── */}
-      <div className="mt-10">
-        <h2 className="section-title mb-4">入力履歴（直近 30 件）</h2>
-        {histLoading ? (
-          <LoadingSpinner label="履歴を読み込み中…" />
-        ) : recentHistory && recentHistory.length > 0 ? (
-          <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-500 border-b border-slate-200">
-                  <th className="text-left py-2 pr-4 font-medium">日時</th>
-                  <th className="text-left py-2 pr-4 font-medium">操作</th>
-                  <th className="text-left py-2 pr-4 font-medium">勘定科目</th>
-                  <th className="text-left py-2 pr-4 font-medium">期間</th>
-                  <th className="text-right py-2 font-medium">金額</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {recentHistory.map((h) => (
-                  <tr key={h.historyId} className="hover:bg-slate-50">
-                    <td className="py-2 pr-4 text-slate-500 whitespace-nowrap text-xs font-mono">{fmtDate(h.changedAt)}</td>
-                    <td className="py-2 pr-4">
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLOR[h.action] ?? ""}`}>
-                        {ACTION_LABEL[h.action] ?? h.action}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4 text-slate-700">
-                      <span className="font-mono text-xs text-slate-400 mr-1">{h.account.code}</span>
-                      {h.account.name}
-                    </td>
-                    <td className="py-2 pr-4 text-slate-600 whitespace-nowrap">{h.period.fiscalYear}年 {h.period.month}月</td>
-                    <td className="py-2 text-right font-mono text-slate-800">{yen(h.amount)}</td>
+      {/* ── 入力履歴（手入力タブのみ表示） ─────────────────────── */}
+      {tab === "manual" && (
+        <div className="mt-10">
+          <h2 className="section-title mb-4">入力履歴（直近 30 件）</h2>
+          {histLoading ? (
+            <LoadingSpinner label="履歴を読み込み中…" />
+          ) : recentHistory && recentHistory.length > 0 ? (
+            <div className="card overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-500 border-b border-slate-200">
+                    <th className="text-left py-2 pr-4 font-medium">日時</th>
+                    <th className="text-left py-2 pr-4 font-medium">操作</th>
+                    <th className="text-left py-2 pr-4 font-medium">勘定科目</th>
+                    <th className="text-left py-2 pr-4 font-medium">期間</th>
+                    <th className="text-right py-2 font-medium">金額</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-sm text-slate-400">まだ入力履歴はありません。</p>
-        )}
-      </div>
-
-      {/* ── マスタ管理 ──────────────────────────────── */}
-      <div className="mt-10 grid gap-6 lg:grid-cols-2">
-        {/* 勘定科目 */}
-        <div className="card">
-          <h2 className="section-title">勘定科目</h2>
-          <form onSubmit={addAccount} className="flex gap-2 mb-4 flex-wrap">
-            <input placeholder="コード" value={acct.code}
-              onChange={(e) => setAcct({ ...acct, code: e.target.value })}
-              required className="input-field w-20 font-mono" />
-            <input placeholder="名称" value={acct.name}
-              onChange={(e) => setAcct({ ...acct, name: e.target.value })}
-              required className="input-field flex-1 min-w-28" />
-            <select value={acct.category} onChange={(e) => setAcct({ ...acct, category: e.target.value })}
-              className="input-field w-24">
-              {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-            <input placeholder="親コード（任意）" value={acct.parentCode}
-              onChange={(e) => setAcct({ ...acct, parentCode: e.target.value })}
-              className="input-field w-28 font-mono" />
-            <button type="submit" className="btn-primary px-3">追加</button>
-          </form>
-          <ul className="divide-y divide-slate-100">
-            {accounts?.map((a) => (
-              <li key={a.id} className="flex items-center gap-2 py-2 group">
-                <span className="text-xs font-mono text-slate-400 w-14 shrink-0">{a.code}</span>
-                <span className="text-sm text-slate-800 flex-1 min-w-0 truncate">
-                  {a.parent && <span className="text-xs text-slate-400 mr-1">└ </span>}
-                  {a.name}
-                </span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${CATEGORY_BADGE[a.category] ?? CATEGORY_BADGE.OTHER}`}>
-                  {CATEGORIES.find((c) => c.value === a.category)?.label}
-                </span>
-                <button onClick={() => startEditAcct(a)}
-                  className="text-xs text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                  title="編集">✏️</button>
-                <button onClick={() => deleteAccount(a)}
-                  className="text-xs text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                  title="削除">🗑</button>
-              </li>
-            ))}
-          </ul>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {recentHistory.map((h) => (
+                    <tr key={h.historyId} className="hover:bg-slate-50">
+                      <td className="py-2 pr-4 text-slate-500 whitespace-nowrap text-xs font-mono">{fmtDate(h.changedAt)}</td>
+                      <td className="py-2 pr-4">
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLOR[h.action] ?? ""}`}>
+                          {ACTION_LABEL[h.action] ?? h.action}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-slate-700">
+                        <span className="font-mono text-xs text-slate-400 mr-1">{h.account.code}</span>
+                        {h.account.name}
+                      </td>
+                      <td className="py-2 pr-4 text-slate-600 whitespace-nowrap">{h.period.fiscalYear}年 {h.period.month}月</td>
+                      <td className="py-2 text-right font-mono text-slate-800">{yen(h.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">まだ入力履歴はありません。</p>
+          )}
         </div>
+      )}
 
-        {/* 部門 */}
-        <div className="card">
-          <h2 className="section-title">部門・担当</h2>
-          <form onSubmit={addDepartment} className="flex gap-2 mb-4 flex-wrap">
-            <input placeholder="部門名" value={dept.name}
-              onChange={(e) => setDept({ ...dept, name: e.target.value })}
-              required className="input-field flex-1 min-w-28" />
-            <input placeholder="担当者名（任意）" value={dept.manager}
-              onChange={(e) => setDept({ ...dept, manager: e.target.value })}
-              className="input-field w-28" />
-            <button type="submit" className="btn-primary px-3">追加</button>
-          </form>
-          <ul className="divide-y divide-slate-100">
-            {departments?.map((d) => (
-              <li key={d.id} className="flex items-center gap-2 py-2 group">
-                <span className="text-sm text-slate-800 flex-1">{d.name}</span>
-                {d.manager && (
-                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                    担当: {d.manager}
+      {/* ── マスタ管理（手入力タブのみ表示） ────────────────────── */}
+      {tab === "manual" && (
+        <div className="mt-10 grid gap-6 lg:grid-cols-2">
+          <div className="card">
+            <h2 className="section-title">勘定科目</h2>
+            <form onSubmit={addAccount} className="flex gap-2 mb-4 flex-wrap">
+              <input placeholder="コード" value={acct.code}
+                onChange={(e) => setAcct({ ...acct, code: e.target.value })}
+                required className="input-field w-20 font-mono" />
+              <input placeholder="名称" value={acct.name}
+                onChange={(e) => setAcct({ ...acct, name: e.target.value })}
+                required className="input-field flex-1 min-w-28" />
+              <select value={acct.category} onChange={(e) => setAcct({ ...acct, category: e.target.value })}
+                className="input-field w-24">
+                {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+              <input placeholder="親コード（任意）" value={acct.parentCode}
+                onChange={(e) => setAcct({ ...acct, parentCode: e.target.value })}
+                className="input-field w-28 font-mono" />
+              <button type="submit" className="btn-primary px-3">追加</button>
+            </form>
+            <ul className="divide-y divide-slate-100">
+              {accounts?.map((a) => (
+                <li key={a.id} className="flex items-center gap-2 py-2 group">
+                  <span className="text-xs font-mono text-slate-400 w-14 shrink-0">{a.code}</span>
+                  <span className="text-sm text-slate-800 flex-1 min-w-0 truncate">
+                    {a.parent && <span className="text-xs text-slate-400 mr-1">└ </span>}
+                    {a.name}
                   </span>
-                )}
-                <button onClick={() => setEditDept(d)}
-                  className="text-xs text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="編集">✏️</button>
-                <button onClick={() => deleteDept(d)}
-                  className="text-xs text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="削除">🗑</button>
-              </li>
-            ))}
-          </ul>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${CATEGORY_BADGE[a.category] ?? CATEGORY_BADGE.OTHER}`}>
+                    {CATEGORIES.find((c) => c.value === a.category)?.label}
+                  </span>
+                  <button onClick={() => startEditAcct(a)}
+                    className="text-xs text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    title="編集">✏️</button>
+                  <button onClick={() => deleteAccount(a)}
+                    className="text-xs text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    title="削除">🗑</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="card">
+            <h2 className="section-title">部門・担当</h2>
+            <form onSubmit={addDepartment} className="flex gap-2 mb-4 flex-wrap">
+              <input placeholder="部門名" value={dept.name}
+                onChange={(e) => setDept({ ...dept, name: e.target.value })}
+                required className="input-field flex-1 min-w-28" />
+              <input placeholder="担当者名（任意）" value={dept.manager}
+                onChange={(e) => setDept({ ...dept, manager: e.target.value })}
+                className="input-field w-28" />
+              <button type="submit" className="btn-primary px-3">追加</button>
+            </form>
+            <ul className="divide-y divide-slate-100">
+              {departments?.map((d) => (
+                <li key={d.id} className="flex items-center gap-2 py-2 group">
+                  <span className="text-sm text-slate-800 flex-1">{d.name}</span>
+                  {d.manager && (
+                    <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                      担当: {d.manager}
+                    </span>
+                  )}
+                  <button onClick={() => setEditDept(d)}
+                    className="text-xs text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="編集">✏️</button>
+                  <button onClick={() => deleteDept(d)}
+                    className="text-xs text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="削除">🗑</button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-      </div>
+      )}
     </AppShell>
   );
 }

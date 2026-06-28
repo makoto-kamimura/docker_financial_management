@@ -70,6 +70,12 @@ async function fetchAssets(): Promise<AssetsResponse> {
 
 export default function AssetsPage() {
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const toggle = (id: number) => setExpandedIds((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["assets"],
@@ -179,18 +185,24 @@ export default function AssetsPage() {
                   {topAssets.map((a) => {
                     const children = childrenOf(a.id);
                     const subtotal = children.reduce((s, c) => s + latestBalance(c.balances, year), 0);
+                    const open = expandedIds.has(a.id);
                     return (
                       <>
-                        <tr key={a.id} className="font-medium bg-slate-50/60">
+                        <tr
+                          key={a.id}
+                          className="font-medium bg-slate-50/60 cursor-pointer select-none hover:bg-slate-100/80"
+                          onClick={() => toggle(a.id)}
+                        >
                           <td className="py-2 text-slate-800">
-                            <span className="text-xs font-mono text-slate-400 mr-2">{a.code}</span>
-                            {a.name}
+                            <span className="inline-flex items-center gap-1">
+                              <svg className="w-3 h-3 text-slate-400 shrink-0 transition-transform" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
+                              <span className="text-xs font-mono text-slate-400 mr-1">{a.code}</span>
+                              {a.name}
+                            </span>
                           </td>
-                          <td className="py-2 text-right text-emerald-700">
-                            {yen(subtotal)}
-                          </td>
+                          <td className="py-2 text-right text-emerald-700">{yen(subtotal)}</td>
                         </tr>
-                        {children.map((c) => (
+                        {open && children.map((c) => (
                           <tr key={c.id} className="text-slate-600">
                             <td className="py-1.5 pl-6">
                               <span className="text-xs font-mono text-slate-300 mr-2">{c.code}</span>
@@ -227,18 +239,24 @@ export default function AssetsPage() {
                     {topLiabs.map((a) => {
                       const children = childrenOf(a.id);
                       const subtotal = children.reduce((s, c) => s + latestBalance(c.balances, year), 0);
+                      const open = expandedIds.has(a.id);
                       return (
                         <>
-                          <tr key={a.id} className="font-medium bg-slate-50/60">
+                          <tr
+                            key={a.id}
+                            className="font-medium bg-slate-50/60 cursor-pointer select-none hover:bg-slate-100/80"
+                            onClick={() => toggle(a.id)}
+                          >
                             <td className="py-2 text-slate-800">
-                              <span className="text-xs font-mono text-slate-400 mr-2">{a.code}</span>
-                              {a.name}
+                              <span className="inline-flex items-center gap-1">
+                                <svg className="w-3 h-3 text-slate-400 shrink-0 transition-transform" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
+                                <span className="text-xs font-mono text-slate-400 mr-1">{a.code}</span>
+                                {a.name}
+                              </span>
                             </td>
-                            <td className="py-2 text-right text-rose-700">
-                              {yen(subtotal)}
-                            </td>
+                            <td className="py-2 text-right text-rose-700">{yen(subtotal)}</td>
                           </tr>
-                          {children.map((c) => (
+                          {open && children.map((c) => (
                             <tr key={c.id} className="text-slate-600">
                               <td className="py-1.5 pl-6">
                                 <span className="text-xs font-mono text-slate-300 mr-2">{c.code}</span>

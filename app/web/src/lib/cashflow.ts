@@ -3,16 +3,47 @@ export type CashFlowNode = { name: string };
 export type CashFlowLink = { source: number; target: number; value: number };
 export type CashFlowGraph = { nodes: CashFlowNode[]; links: CashFlowLink[] };
 
+export type SysMode = "household" | "sole" | "corporate";
+
+export type CashFlowLabels = {
+  revenue: string; cogs: string; grossProfit: string; expense: string; operatingProfit: string;
+};
+
+export const MODE_LABELS: Record<SysMode, CashFlowLabels> = {
+  household: {
+    revenue:         "収入",
+    cogs:            "変動費",
+    grossProfit:     "収支差額",
+    expense:         "固定費",
+    operatingProfit: "手残り",
+  },
+  sole: {
+    revenue:         "売上",
+    cogs:            "仕入・変動費",
+    grossProfit:     "粗利",
+    expense:         "経費",
+    operatingProfit: "事業利益",
+  },
+  corporate: {
+    revenue:         "売上高",
+    cogs:            "売上原価",
+    grossProfit:     "売上総利益",
+    expense:         "販管費",
+    operatingProfit: "営業利益",
+  },
+};
+
 export type CashFlowInput = {
-  revenue: number; // 売上高
-  cogs: number; // 売上原価
-  expense: number; // 販管費
+  revenue: number;
+  cogs: number;
+  expense: number;
 };
 
 export type CashFlowResult = {
   graph: CashFlowGraph;
-  grossProfit: number; // 売上総利益 = 売上 - 原価
-  operatingProfit: number; // 営業利益 = 売上総利益 - 販管費
+  grossProfit: number;
+  operatingProfit: number;
+  labels: CashFlowLabels;
 };
 
 // ラベル付きエッジから、使用ノードのみを含む Sankey 用グラフを構築する。
@@ -35,18 +66,18 @@ function graphFromEdges(edges: { from: string; to: string; value: number }[]): C
   return { nodes: names.map((name) => ({ name })), links };
 }
 
-// 売上・原価・販管費から資金フロー図を組み立てる。
-// 売上高 → (売上原価 / 売上総利益) 、売上総利益 → (販管費 / 営業利益)
-export function buildCashFlow(input: CashFlowInput): CashFlowResult {
-  const grossProfit = input.revenue - input.cogs;
+// 収入・支出から資金フロー図を組み立てる。モードに応じてノード名を切り替える。
+export function buildCashFlow(input: CashFlowInput, mode: SysMode = "sole"): CashFlowResult {
+  const L = MODE_LABELS[mode];
+  const grossProfit    = input.revenue - input.cogs;
   const operatingProfit = grossProfit - input.expense;
 
   const graph = graphFromEdges([
-    { from: "売上高", to: "売上原価", value: input.cogs },
-    { from: "売上高", to: "売上総利益", value: grossProfit },
-    { from: "売上総利益", to: "販管費", value: input.expense },
-    { from: "売上総利益", to: "営業利益", value: operatingProfit },
+    { from: L.revenue,    to: L.cogs,            value: input.cogs },
+    { from: L.revenue,    to: L.grossProfit,      value: grossProfit },
+    { from: L.grossProfit, to: L.expense,          value: input.expense },
+    { from: L.grossProfit, to: L.operatingProfit,  value: operatingProfit },
   ]);
 
-  return { graph, grossProfit, operatingProfit };
+  return { graph, grossProfit, operatingProfit, labels: L };
 }

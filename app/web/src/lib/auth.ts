@@ -1,5 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
 const SESSION_COOKIE = "fm_session";
@@ -30,7 +30,7 @@ export async function createSession(userId: number): Promise<string> {
   const store = await cookies();
   store.set(SESSION_COOKIE, id, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false",
     sameSite: "lax",
     expires: expiresAt,
     path: "/",
@@ -39,9 +39,14 @@ export async function createSession(userId: number): Promise<string> {
 }
 
 // 現在のリクエストのログインユーザーを取得する（未ログインなら null）
+// Cookie（Web）または Authorization: Bearer <sessionId>（モバイル）の両方に対応
 export async function getCurrentUser() {
+  const reqHeaders = await headers();
+  const auth = reqHeaders.get("authorization");
+  const bearerSessionId = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+
   const store = await cookies();
-  const sessionId = store.get(SESSION_COOKIE)?.value;
+  const sessionId = bearerSessionId ?? store.get(SESSION_COOKIE)?.value;
   if (!sessionId) return null;
 
   const session = await prisma.session.findUnique({

@@ -12,13 +12,27 @@ const BankAccountSchema = z.object({
   role: z.enum(["SALARY", "WITHDRAWAL", "SAVINGS", "OTHER"]).default("OTHER"),
 });
 
-// GET /api/bank-accounts … 銀行口座一覧
+// GET /api/bank-accounts … 銀行口座一覧（残高はトランザクション合計から算出）
 export async function GET() {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
-  const accounts = await prisma.bankAccount.findMany({ orderBy: { id: "asc" } });
-  return NextResponse.json({ data: accounts });
+  const [accounts, balances] = await Promise.all([
+    prisma.bankAccount.findMany({
+      orderBy: { id: "asc" },
+      include: { _count: { select: { transactions: true } } },
+    }),
+    prisma.bankTransaction.groupBy({
+      by: ["accountId"],
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const balanceMap = new Map(balances.map(b => [b.accountId, b._sum.amount?.toNumber() ?? 0]));
+
+  return NextResponse.json({
+    data: accounts.map(a => ({ ...a, balance: balanceMap.get(a.id) ?? 0 })),
+  });
 }
 
 // POST /api/bank-accounts … 銀行口座の登録（editor 以上）

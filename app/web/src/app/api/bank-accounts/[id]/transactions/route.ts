@@ -20,8 +20,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   });
 }
 
-// POST /api/bank-accounts/:id/transactions … CSV(text/csv) で入出金明細を取込（editor 以上）
-// ヘッダ: date,description,amount[,balance]
+// POST /api/bank-accounts/:id/transactions
+//   application/json → 手動1件登録 { date, description, amount, balance? }
+//   text/csv         → CSV一括取込  ヘッダ: date,description,amount[,balance]
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -30,28 +31,62 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const account = await prisma.bankAccount.findUnique({ where: { id: accountId } });
   if (!account) return NextResponse.json({ error: "account not found" }, { status: 404 });
 
+  const ct = req.headers.get("content-type") ?? "";
+
+  if (ct.includes("application/json")) {
+    const body = await req.json() as { date: string; description: string; amount: number; balance?: number | null };
+    if (!body.date || !body.description || body.amount == null) {
+      return NextResponse.json({ error: "date, description, amount は必須です" }, { status: 400 });
+    }
+    const txn = await prisma.bankTransaction.create({
+      data: {
+        accountId,
+        date:        new Date(body.date),
+        description: body.description,
+        amount:      body.amount,
+        balance:     body.balance ?? null,
+        source:      "MANUAL",
+      },
+    });
+    await writeAudit(auth.user.id, "create_txn", `bank_account:${accountId}:${txn.id}`);
+    return NextResponse.json({ data: { ...txn, amount: Number(txn.amount), balance: txn.balance ? Number(txn.balance) : null } }, { status: 201 });
+  }
+
   const csv = await req.text();
   if (!csv.trim()) return NextResponse.json({ error: "empty body" }, { status: 400 });
 
   const { rows, errors } = parseBankCsv(csv, accountId);
   let inserted = 0;
   for (const r of rows) {
-    // externalId の重複はスキップ（再取込での二重登録防止）
     const created = await prisma.bankTransaction.upsert({
       where: { accountId_externalId: { accountId, externalId: r.externalId } },
       update: {},
       create: {
         accountId,
-        date: new Date(r.date),
+        date:        new Date(r.date),
         description: r.description,
-        amount: r.amount,
-        balance: r.balance,
-        source: "CSV",
-        externalId: r.externalId,
+        amount:      r.amount,
+        balance:     r.balance,
+        source:      "CSV",
+        externalId:  r.externalId,
       },
     });
     if (created) inserted++;
   }
   await writeAudit(auth.user.id, "import_txn", `bank_account:${accountId}:${inserted}`);
   return NextResponse.json({ inserted, errors }, { status: errors.length ? 207 : 201 });
+}
+
+// DELETE /api/bank-accounts/:id/transactions?txnId=123
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireRole("editor");
+  if (auth.error) return auth.error;
+
+  const accountId = Number((await params).id);
+  const txnId    = Number(req.nextUrl.searchParams.get("txnId"));
+  if (!txnId) return NextResponse.json({ error: "txnId が必要です" }, { status: 400 });
+
+  await prisma.bankTransaction.delete({ where: { id: txnId, accountId } });
+  await writeAudit(auth.user.id, "delete_txn", `bank_account:${accountId}:${txnId}`);
+  return NextResponse.json({ ok: true });
 }

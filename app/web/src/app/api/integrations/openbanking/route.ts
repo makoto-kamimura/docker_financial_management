@@ -28,6 +28,16 @@ export async function GET(req: NextRequest) {
     const accounts = await prisma.bankAccount.findMany({
       orderBy: { bankName: "asc" },
     });
+
+    // 口座ごとの最新残高：最新トランザクションの balance or 取引合計
+    const latestTxns = await prisma.bankTransaction.findMany({
+      where: { accountId: { in: accounts.map(a => a.id) } },
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+      distinct: ["accountId"],
+      select: { accountId: true, balance: true },
+    });
+    const balanceMap = new Map(latestTxns.map(t => [t.accountId, t.balance != null ? Number(t.balance) : null]));
+
     return NextResponse.json({
       configured: !!apiKey,
       message:    apiKey ? undefined : "OPENBANKING_API_KEY が未設定です。環境変数を設定してください。",
@@ -36,6 +46,7 @@ export async function GET(req: NextRequest) {
         bankName:    a.bankName,
         accountName: a.name,
         accountType: a.accountType,
+        balance:     balanceMap.get(a.id) ?? null,
       })),
     });
   }
