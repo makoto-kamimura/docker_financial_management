@@ -1,0 +1,201 @@
+name: CD
+
+# 本番デプロイのワークフロー。
+# - main へのマージ、または v* タグの push で起動
+# - Docker イメージをビルドして GitHub Container Registry (GHCR) に push
+# - 本番サーバーへ SSH して docker compose で反映（自動デプロイ）
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/web
+
+jobs:
+  build-and-push:
+    name: build & push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: platform/docker/web.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: deploy (SSH + Docker Compose)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+      MAIL_TO: ${{ secrets.MAIL_TO }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # デプロイ対象イメージのタグを決定（タグ push は版数、main は :main）
+      - name: Resolve image reference
+        id: img
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/v}"
+          else
+            TAG="main"
+          fi
+          echo "ref=ghcr.io/${GITHUB_REPOSITORY}/web:${TAG}" >> "$GITHUB_OUTPUT"
+
+      # 本番用 compose ファイルをサーバーへ配置
+      - name: Copy compose file to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          source: platform/docker-compose.prod.yml
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      # SSH してイメージを pull し、コンテナを更新・マイグレーション適用
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          WEB_IMAGE: ${{ steps.img.outputs.ref }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          envs: WEB_IMAGE
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            # GHCR が private の場合のみログイン（public パッケージなら不要）
+            if [ -n "${{ secrets.GHCR_PAT }}" ]; then
+              echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
+            fi
+            export WEB_IMAGE
+            COMPOSE="docker compose -f platform/docker-compose.prod.yml"
+
+            # ロールバック用に「現在稼働中の web イメージ ID」を控える（初回は空）
+            PREV_IMAGE_ID="$(docker inspect --format '{{.Image}}' "$($COMPOSE ps -q web 2>/dev/null)" 2>/dev/null || echo "")"
+            echo "Previous image: ${PREV_IMAGE_ID:-<none>}"
+
+            # health check 関数（コンテナ内から /api/health を確認）
+            check_health() {
+              for i in $(seq 1 30); do
+                if $COMPOSE exec -T web node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+                  echo "Health check passed (attempt $i)"; return 0
+                fi
+                echo "  not ready yet... ($i/30)"; sleep 2
+              done
+              return 1
+            }
+
+            # 新イメージを取得して起動 → マイグレーション
+            $COMPOSE pull
+            $COMPOSE up -d
+            $COMPOSE run --rm web npx prisma migrate deploy
+
+            echo "Running post-deploy health check..."
+            if check_health; then
+              echo "Deployment healthy. Cleaning up old images."
+              docker image prune -f
+            else
+              echo "::error::Health check failed. Recent web logs:"
+              $COMPOSE logs --tail=80 web || true
+              # --- 自動ロールバック（直前イメージへ戻す） ---
+              if [ -n "$PREV_IMAGE_ID" ]; then
+                echo "::warning::Rolling back to previous image: $PREV_IMAGE_ID"
+                WEB_IMAGE="$PREV_IMAGE_ID" $COMPOSE up -d web
+                if check_health; then
+                  echo "Rollback succeeded (previous version is healthy)."
+                else
+                  echo "::error::Rollback failed health check as well."
+                fi
+              else
+                echo "::warning::No previous image available; cannot roll back (likely first deploy)."
+              fi
+              exit 1
+            fi
+
+      # 公開エンドポイントの外形ヘルスチェック（HEALTHCHECK_URL を設定した場合のみ）
+      - name: External health check
+        if: ${{ env.HEALTHCHECK_URL != '' }}
+        run: |
+          URL="$HEALTHCHECK_URL"
+          echo "Checking $URL ..."
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
+            if [ "$code" = "200" ]; then echo "External health OK (200)"; exit 0; fi
+            echo "  got '$code', retrying ($i/20)"; sleep 3
+          done
+          echo "::error::External health check failed for $URL"
+          exit 1
+
+      # --- メール通知（MAIL_TO を設定した場合のみ） ---
+      - name: Notify success (email)
+        if: ${{ success() && env.MAIL_TO != '' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: ${{ secrets.MAIL_FROM }}
+          to: ${{ secrets.MAIL_TO }}
+          subject: "[financial-management] ✅ デプロイ成功 (${{ github.ref_name }})"
+          body: |
+            デプロイが成功しました。
+
+            リポジトリ: ${{ github.repository }}
+            参照: ${{ github.ref_name }}
+            コミット: ${{ github.sha }}
+            実行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Notify failure (email)
+        if: ${{ failure() && env.MAIL_TO != '' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: ${{ secrets.MAIL_FROM }}
+          to: ${{ secrets.MAIL_TO }}
+          subject: "[financial-management] ❌ デプロイ失敗 (${{ github.ref_name }})"
+          body: |
+            デプロイが失敗しました（ヘルスチェック不合格時は自動ロールバックを試行済み）。
+            ログを確認してください。
+
+            リポジトリ: ${{ github.repository }}
+            参照: ${{ github.ref_name }}
+            コミット: ${{ github.sha }}
+            実行ログ: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+

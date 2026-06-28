@@ -1,0 +1,69 @@
+# 決算管理システム ローカル開発用 Docker Compose
+# 起動: docker compose -f platform/docker-compose.yml up --build
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: platform/docker/web.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://app:app@db:5432/financial
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      COOKIE_SECURE: "false"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: financial
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d financial"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 期限切れセッションを毎日 02:00 に削除する cron コンテナ
+  session-cleanup:
+    image: alpine:3.20
+    environment:
+      CLEANUP_SERVICE_KEY: ${CLEANUP_SERVICE_KEY:-local-cleanup-key}
+    command: >
+      sh -c "
+        echo '0 2 * * * wget -qO- --header=\"Authorization: Bearer $${CLEANUP_SERVICE_KEY}\"
+        http://web:3000/api/admin/cleanup --post-data=\"\" >> /proc/1/fd/1 2>&1' | crontab - &&
+        crond -f -l 8
+      "
+    depends_on:
+      web:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  uploads_data:
+  redis-data:

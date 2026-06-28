@@ -1,0 +1,44 @@
+# 本番用 Docker Compose（ベース）。
+# イメージは CD で GHCR に push したものを利用する想定。
+# 機密値（DATABASE_URL 等）は .env もしくはシークレット管理で注入する。
+services:
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/your-org/financial-management/web:latest}
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    # /api/health への応答でコンテナの健全性を判定（Node 22 の global fetch を使用）
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:

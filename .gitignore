@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build output
+.next/
+dist/
+out/
+.expo/
+
+# env
+.env
+.env.local
+platform/.env
+
+# misc
+*.tsbuildinfo
+.DS_Store
+
+# private / work data
+docs/private/
+docs/work/
+docs/
+
+# DB data (host bind mount)
+platform/db/

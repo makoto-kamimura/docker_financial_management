@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  web:
+    name: web (typecheck & build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/web
+    env:
+      # ビルド時はDB接続しないためダミーで可
+      DATABASE_URL: postgresql://app:app@localhost:5432/financial
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+
+  migrate-check:
+    name: prisma migrate (validate against PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/web
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: financial
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d financial"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://app:app@localhost:5432/financial
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - run: npm ci
+      # マイグレーションが正しく適用できることを検証
+      - run: npx prisma migrate deploy
+      - run: npx prisma generate
+
+  e2e:
+    name: e2e (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/web
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: financial
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d financial"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://app:app@localhost:5432/financial
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      # DB を用意（マイグレーション + シード）
+      - run: npx prisma migrate deploy
+      - run: npm run db:seed
+      # アプリをビルドし、ブラウザを導入して E2E を実行
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: app/web/playwright-report
+          retention-days: 7
