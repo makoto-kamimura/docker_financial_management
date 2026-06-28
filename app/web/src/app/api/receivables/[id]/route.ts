@@ -21,22 +21,28 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (auth.error) return auth.error;
 
   const { id } = await params;
-  const body = await req.json() as Partial<{
-    customerName: string; description: string; amount: number; taxAmount: number;
-    issueDate: string; dueDate: string; invoiceNumber: string; note: string;
+  const body = (await req.json()) as Partial<{
+    customerName: string;
+    description: string;
+    amount: number;
+    taxAmount: number;
+    issueDate: string;
+    dueDate: string;
+    invoiceNumber: string;
+    note: string;
   }>;
 
   const record = await prisma.receivable.update({
     where: { id: Number(id) },
     data: {
-      ...(body.customerName  !== undefined && { customerName:  body.customerName }),
-      ...(body.description   !== undefined && { description:   body.description }),
-      ...(body.amount        !== undefined && { amount:        body.amount }),
-      ...(body.taxAmount     !== undefined && { taxAmount:     body.taxAmount }),
-      ...(body.issueDate     !== undefined && { issueDate:     new Date(body.issueDate) }),
-      ...(body.dueDate       !== undefined && { dueDate:       new Date(body.dueDate) }),
+      ...(body.customerName !== undefined && { customerName: body.customerName }),
+      ...(body.description !== undefined && { description: body.description }),
+      ...(body.amount !== undefined && { amount: body.amount }),
+      ...(body.taxAmount !== undefined && { taxAmount: body.taxAmount }),
+      ...(body.issueDate !== undefined && { issueDate: new Date(body.issueDate) }),
+      ...(body.dueDate !== undefined && { dueDate: new Date(body.dueDate) }),
       ...(body.invoiceNumber !== undefined && { invoiceNumber: body.invoiceNumber }),
-      ...(body.note          !== undefined && { note:          body.note }),
+      ...(body.note !== undefined && { note: body.note }),
     },
   });
   return NextResponse.json({ data: record });

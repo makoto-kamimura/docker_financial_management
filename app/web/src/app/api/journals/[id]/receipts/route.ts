@@ -42,15 +42,17 @@ export async function POST(req: NextRequest, { params }: Params) {
   const bytes = await file.arrayBuffer();
   await writeFile(path.join(UPLOAD_DIR, savedName), Buffer.from(bytes));
 
-  const fileType = file.type.startsWith("image/") ? "image"
-    : file.type === "application/pdf" ? "pdf"
-    : "other";
+  const fileType = file.type.startsWith("image/")
+    ? "image"
+    : file.type === "application/pdf"
+      ? "pdf"
+      : "other";
 
   const receipt = await prisma.receipt.create({
     data: {
       journalEntryId: Number(id),
       fileName: file.name,
-      fileUrl:  `/api/uploads/${savedName}`,
+      fileUrl: `/api/uploads/${savedName}`,
       fileType,
       fileSize: file.size,
     },

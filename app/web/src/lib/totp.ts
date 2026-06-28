@@ -67,8 +67,18 @@ export function verifyTotp(secretBase32: string, code: string, window = 1, step 
 }
 
 // 認証アプリ登録用の otpauth URI を生成する
-export function otpauthUri(secretBase32: string, account: string, issuer = "FinancialManagement"): string {
+export function otpauthUri(
+  secretBase32: string,
+  account: string,
+  issuer = "FinancialManagement",
+): string {
   const label = encodeURIComponent(`${issuer}:${account}`);
-  const params = new URLSearchParams({ secret: secretBase32, issuer, algorithm: "SHA1", digits: "6", period: "30" });
+  const params = new URLSearchParams({
+    secret: secretBase32,
+    issuer,
+    algorithm: "SHA1",
+    digits: "6",
+    period: "30",
+  });
   return `otpauth://totp/${label}?${params.toString()}`;
 }

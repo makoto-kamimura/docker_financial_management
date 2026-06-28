@@ -34,6 +34,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     });
     inserted++;
   }
-  await writeAudit(auth.user.id, "sync_txn", `bank_account:${accountId}:${provider.name}:${inserted}`);
+  await writeAudit(
+    auth.user.id,
+    "sync_txn",
+    `bank_account:${accountId}:${provider.name}:${inserted}`,
+  );
   return NextResponse.json({ provider: provider.name, fetched: fetched.length });
 }

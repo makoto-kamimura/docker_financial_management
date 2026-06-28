@@ -17,12 +17,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
-  const body = await req.json() as {
-    tenantId: number; meetingDate: string; meetingType?: string;
-    agenda: string; resolution?: string;
+  const body = (await req.json()) as {
+    tenantId: number;
+    meetingDate: string;
+    meetingType?: string;
+    agenda: string;
+    resolution?: string;
   };
   if (!body.tenantId || !body.meetingDate || !body.agenda) {
-    return NextResponse.json({ error: "tenantId, meetingDate, agenda are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "tenantId, meetingDate, agenda are required" },
+      { status: 400 },
+    );
   }
   const meeting = await prisma.shareholderMeeting.create({
     data: {

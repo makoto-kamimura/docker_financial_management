@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     tradeName?: string;
     ownerName?: string;
     openedOn?: string | null;
@@ -28,12 +28,12 @@ export async function PUT(req: NextRequest) {
   const existing = await prisma.businessProfile.findFirst({ orderBy: { id: "asc" } });
 
   const data = {
-    tradeName:     body.tradeName     ?? "",
-    ownerName:     body.ownerName     ?? "",
-    openedOn:      body.openedOn ? new Date(body.openedOn) : null,
-    blueReturn:    body.blueReturn    ?? false,
+    tradeName: body.tradeName ?? "",
+    ownerName: body.ownerName ?? "",
+    openedOn: body.openedOn ? new Date(body.openedOn) : null,
+    blueReturn: body.blueReturn ?? false,
     invoiceNumber: body.invoiceNumber ?? null,
-    taxationType:  body.taxationType  ?? "exempt",
+    taxationType: body.taxationType ?? "exempt",
   };
 
   const profile = existing

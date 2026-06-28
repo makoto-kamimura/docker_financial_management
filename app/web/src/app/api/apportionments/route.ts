@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     accountId: number;
     businessRate: number;
     description?: string;
@@ -33,9 +33,13 @@ export async function POST(req: NextRequest) {
   }
 
   const record = await prisma.apportionment.upsert({
-    where:  { accountId: body.accountId },
+    where: { accountId: body.accountId },
     update: { businessRate: body.businessRate, description: body.description ?? null },
-    create: { accountId: body.accountId, businessRate: body.businessRate, description: body.description ?? null },
+    create: {
+      accountId: body.accountId,
+      businessRate: body.businessRate,
+      description: body.description ?? null,
+    },
     include: { account: { select: { id: true, code: true, name: true, category: true } } },
   });
   return NextResponse.json({ data: record });

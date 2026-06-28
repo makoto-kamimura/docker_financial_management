@@ -27,10 +27,10 @@ export async function GET(req: NextRequest) {
         totals[cat] = (totals[cat] ?? 0) + Number(r.amount);
       }
 
-      const revenue    = totals["REVENUE"]  ?? 0;
-      const expense    = totals["EXPENSE"]  ?? 0;
-      const cogs       = totals["COGS"]     ?? 0;
-      const netIncome  = revenue - cogs - expense;
+      const revenue = totals["REVENUE"] ?? 0;
+      const expense = totals["EXPENSE"] ?? 0;
+      const cogs = totals["COGS"] ?? 0;
+      const netIncome = revenue - cogs - expense;
 
       const closeStatus = await prisma.fiscalYearClose.findFirst({
         where: { fiscalYear },
@@ -43,13 +43,13 @@ export async function GET(req: NextRequest) {
       });
 
       return {
-        tenantId:         tenant.id,
-        tenantName:       tenant.name,
+        tenantId: tenant.id,
+        tenantName: tenant.name,
         fiscalYear,
         revenue,
         expense: cogs + expense,
         netIncome,
-        closeStatus:      closeStatus?.status ?? "OPEN",
+        closeStatus: closeStatus?.status ?? "OPEN",
         pendingApprovals,
       };
     }),

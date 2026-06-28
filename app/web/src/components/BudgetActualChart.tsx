@@ -30,7 +30,14 @@ export function BudgetActualChart({ data }: { data: BudgetActualPoint[] }) {
         <Tooltip formatter={(v: number) => v?.toLocaleString("ja-JP")} />
         <Legend />
         <Bar dataKey="budget" name="予算" fill="#cbd5e1" />
-        <Line type="monotone" dataKey="actual" name="実績" stroke="#2563eb" strokeWidth={2} connectNulls />
+        <Line
+          type="monotone"
+          dataKey="actual"
+          name="実績"
+          stroke="#2563eb"
+          strokeWidth={2}
+          connectNulls
+        />
         <Line
           type="monotone"
           dataKey="forecast"

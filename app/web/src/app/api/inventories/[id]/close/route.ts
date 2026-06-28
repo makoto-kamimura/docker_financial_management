@@ -24,9 +24,13 @@ export async function POST(_req: NextRequest, { params }: Params) {
   if (stockAccount) {
     const date = inventory.inventoryDate;
     const period = await prisma.period.upsert({
-      where:  { fiscalYear_month: { fiscalYear: date.getFullYear(), month: date.getMonth() + 1 } },
+      where: { fiscalYear_month: { fiscalYear: date.getFullYear(), month: date.getMonth() + 1 } },
       update: {},
-      create: { fiscalYear: date.getFullYear(), month: date.getMonth() + 1, quarter: Math.ceil((date.getMonth() + 1) / 3) },
+      create: {
+        fiscalYear: date.getFullYear(),
+        month: date.getMonth() + 1,
+        quarter: Math.ceil((date.getMonth() + 1) / 3),
+      },
     });
     await prisma.financialRecord.create({
       data: { accountId: stockAccount.id, periodId: period.id, amount: inventory.totalAmount },
@@ -35,7 +39,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   const updated = await prisma.inventory.update({
     where: { id: Number(id) },
-    data:  { status: "closed" },
+    data: { status: "closed" },
   });
   return NextResponse.json({ data: updated });
 }

@@ -50,7 +50,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const userId = parseInt(id, 10);
   if (isNaN(userId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
-  if (userId === auth.user.id) return NextResponse.json({ error: "自分自身は削除できません" }, { status: 400 });
+  if (userId === auth.user.id)
+    return NextResponse.json({ error: "自分自身は削除できません" }, { status: 400 });
 
   await prisma.session.deleteMany({ where: { userId } });
   await prisma.user.delete({ where: { id: userId } });

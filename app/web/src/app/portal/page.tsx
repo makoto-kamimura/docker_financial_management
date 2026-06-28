@@ -20,11 +20,10 @@ type PortalResponse = {
   tenants: TenantSummary[];
 };
 
-const yen = (v: number) =>
-  v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
+const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
-  OPEN:   { label: "未締め",   cls: "bg-amber-100 text-amber-700" },
+  OPEN: { label: "未締め", cls: "bg-amber-100 text-amber-700" },
   CLOSED: { label: "締め済み", cls: "bg-green-100 text-green-700" },
 };
 
@@ -46,27 +45,35 @@ export default function PortalPage() {
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
-  const totalRevenue  = data?.tenants.reduce((s, t) => s + t.revenue, 0)  ?? 0;
-  const totalExpense  = data?.tenants.reduce((s, t) => s + t.expense, 0)  ?? 0;
-  const totalNet      = data?.tenants.reduce((s, t) => s + t.netIncome, 0) ?? 0;
-  const totalPending  = data?.tenants.reduce((s, t) => s + t.pendingApprovals, 0) ?? 0;
+  const totalRevenue = data?.tenants.reduce((s, t) => s + t.revenue, 0) ?? 0;
+  const totalExpense = data?.tenants.reduce((s, t) => s + t.expense, 0) ?? 0;
+  const totalNet = data?.tenants.reduce((s, t) => s + t.netIncome, 0) ?? 0;
+  const totalPending = data?.tenants.reduce((s, t) => s + t.pendingApprovals, 0) ?? 0;
 
   return (
     <AppShell>
       <div className="mb-6 flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="page-title">税理士ポータル</h1>
-          <p className="text-sm text-slate-500 mt-0.5">複数テナント横断 財務サマリ（accountant 以上）</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            複数テナント横断 財務サマリ（accountant 以上）
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <label htmlFor="portal-year" className="text-sm text-slate-600">会計年度</label>
+          <label htmlFor="portal-year" className="text-sm text-slate-600">
+            会計年度
+          </label>
           <select
             id="portal-year"
             value={fiscalYear}
             onChange={(e) => setFiscalYear(Number(e.target.value))}
             className="input-field w-28 py-1.5 text-sm"
           >
-            {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}年
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -75,10 +82,10 @@ export default function PortalPage() {
       {data && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {[
-            { label: "総収益",         value: yen(totalRevenue),              sub: `${data.tenants.length} テナント` },
-            { label: "総費用",         value: yen(totalExpense),              sub: "経費＋原価" },
-            { label: "総純利益",       value: yen(totalNet),                  sub: totalNet >= 0 ? "黒字" : "赤字" },
-            { label: "未承認仕訳",     value: String(totalPending),           sub: "件の承認待ち" },
+            { label: "総収益", value: yen(totalRevenue), sub: `${data.tenants.length} テナント` },
+            { label: "総費用", value: yen(totalExpense), sub: "経費＋原価" },
+            { label: "総純利益", value: yen(totalNet), sub: totalNet >= 0 ? "黒字" : "赤字" },
+            { label: "未承認仕訳", value: String(totalPending), sub: "件の承認待ち" },
           ].map(({ label, value, sub }) => (
             <div key={label} className="card p-4">
               <p className="text-xs text-slate-500 mb-1">{label}</p>
@@ -90,13 +97,19 @@ export default function PortalPage() {
       )}
 
       {isLoading && (
-        <div className="flex items-center justify-center h-40 text-sm text-slate-400" aria-live="polite">
+        <div
+          className="flex items-center justify-center h-40 text-sm text-slate-400"
+          aria-live="polite"
+        >
           読み込み中…
         </div>
       )}
 
       {error && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3" role="alert">
+        <p
+          className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3"
+          role="alert"
+        >
           {error.message}
         </p>
       )}
@@ -121,17 +134,24 @@ export default function PortalPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.tenants.map((t) => {
-                const status = STATUS_LABEL[t.closeStatus] ?? { label: t.closeStatus, cls: "bg-slate-100 text-slate-600" };
+                const status = STATUS_LABEL[t.closeStatus] ?? {
+                  label: t.closeStatus,
+                  cls: "bg-slate-100 text-slate-600",
+                };
                 return (
                   <tr key={t.tenantId} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 font-medium text-slate-800">{t.tenantName}</td>
                     <td className="px-4 py-3 text-right text-slate-700">{yen(t.revenue)}</td>
                     <td className="px-4 py-3 text-right text-slate-700">{yen(t.expense)}</td>
-                    <td className={`px-4 py-3 text-right font-semibold ${t.netIncome >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                    <td
+                      className={`px-4 py-3 text-right font-semibold ${t.netIncome >= 0 ? "text-emerald-700" : "text-red-600"}`}
+                    >
                       {yen(t.netIncome)}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${status.cls}`}>
+                      <span
+                        className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${status.cls}`}
+                      >
                         {status.label}
                       </span>
                     </td>

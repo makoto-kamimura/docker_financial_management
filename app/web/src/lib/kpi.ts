@@ -23,7 +23,9 @@ export type Kpi = {
 const ratio = (num: number, den: number) => (den === 0 ? 0 : num / den);
 
 // カテゴリを売上/原価/費用にマップする
-export function categoryBucket(category: AccountCategory): keyof Omit<MonthlyByCategory, "key"> | null {
+export function categoryBucket(
+  category: AccountCategory,
+): keyof Omit<MonthlyByCategory, "key"> | null {
   switch (category) {
     case "REVENUE":
       return "revenue";
@@ -53,9 +55,7 @@ export function computeLatestKpi(monthly: MonthlyByCategory[]): Kpi | null {
   const prevYear = monthly.find((x) => x.key === prevYearKey) ?? null;
 
   // 当年累計（同一年の売上合計）
-  const ytd = monthly
-    .filter((x) => x.key.startsWith(`${y}-`))
-    .reduce((s, x) => s + x.revenue, 0);
+  const ytd = monthly.filter((x) => x.key.startsWith(`${y}-`)).reduce((s, x) => s + x.revenue, 0);
 
   return {
     period: latest.key,

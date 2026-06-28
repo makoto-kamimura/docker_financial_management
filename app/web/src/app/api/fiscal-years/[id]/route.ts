@@ -6,7 +6,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
   const { id } = await params;
-  const body = await req.json() as { status?: string; endDate?: string };
+  const body = (await req.json()) as { status?: string; endDate?: string };
   const fy = await prisma.fiscalYear.update({
     where: { id: Number(id) },
     data: {

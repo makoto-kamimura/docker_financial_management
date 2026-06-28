@@ -5,30 +5,42 @@ import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 
 type OBAccount = {
-  id: number; bankName: string; accountName: string; accountType: string; balance: number | null;
+  id: number;
+  bankName: string;
+  accountName: string;
+  accountType: string;
+  balance: number | null;
 };
 type OBStatus = { configured: boolean; message?: string; accounts: OBAccount[] };
 
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 function IntegrationCard({
-  name, icon, description, status, onConnect,
+  name,
+  icon,
+  description,
+  status,
+  onConnect,
 }: {
-  name: string; icon: string; description: string;
+  name: string;
+  icon: string;
+  description: string;
   status: "connected" | "unconfigured" | "pending";
   onConnect: () => void;
 }) {
   const statusProps = {
-    connected:    { label: "連携済み", cls: "bg-green-100 text-green-700" },
-    unconfigured: { label: "未設定",   cls: "bg-slate-100 text-slate-500" },
-    pending:      { label: "設定中…",  cls: "bg-amber-100 text-amber-600" },
+    connected: { label: "連携済み", cls: "bg-green-100 text-green-700" },
+    unconfigured: { label: "未設定", cls: "bg-slate-100 text-slate-500" },
+    pending: { label: "設定中…", cls: "bg-amber-100 text-amber-600" },
   }[status];
 
   return (
     <div className="card p-5 flex flex-col gap-3">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-2xl" aria-hidden="true">{icon}</span>
+          <span className="text-2xl" aria-hidden="true">
+            {icon}
+          </span>
           <div>
             <p className="font-semibold text-slate-800 text-sm">{name}</p>
             <p className="text-xs text-slate-500 mt-0.5">{description}</p>
@@ -55,7 +67,7 @@ export default function IntegrationsPage() {
 
   const { data: obStatus } = useQuery<OBStatus>({
     queryKey: ["openbanking-accounts"],
-    queryFn:  async () => {
+    queryFn: async () => {
       const res = await fetch("/api/integrations/openbanking?action=accounts");
       if (!res.ok) throw new Error("failed");
       return res.json();
@@ -65,7 +77,7 @@ export default function IntegrationsPage() {
   async function connectFreee() {
     setMsg(null);
     const res = await fetch("/api/integrations/freee?action=auth_url");
-    const json = await res.json() as { authUrl?: string; configured?: boolean; error?: string };
+    const json = (await res.json()) as { authUrl?: string; configured?: boolean; error?: string };
     if (!json.configured || !json.authUrl) {
       setMsg({ ok: false, text: json.error ?? "FREEE_CLIENT_ID が環境変数に設定されていません。" });
       return;
@@ -76,7 +88,7 @@ export default function IntegrationsPage() {
   async function connectMoneyForward() {
     setMsg(null);
     const res = await fetch("/api/integrations/moneyforward?action=auth_url");
-    const json = await res.json() as { authUrl?: string; configured?: boolean; error?: string };
+    const json = (await res.json()) as { authUrl?: string; configured?: boolean; error?: string };
     if (!json.configured || !json.authUrl) {
       setMsg({ ok: false, text: json.error ?? "MF_CLIENT_ID が環境変数に設定されていません。" });
       return;
@@ -89,7 +101,10 @@ export default function IntegrationsPage() {
       setMsg({ ok: false, text: "OPENBANKING_API_KEY が環境変数に設定されていません。" });
       return;
     }
-    setMsg({ ok: true, text: "オープンバンキング API は設定済みです。銀行口座管理ページで残高同期できます。" });
+    setMsg({
+      ok: true,
+      text: "オープンバンキング API は設定済みです。銀行口座管理ページで残高同期できます。",
+    });
   }
 
   return (
@@ -102,11 +117,14 @@ export default function IntegrationsPage() {
       </div>
 
       {msg && (
-        <p className={`mb-4 text-sm rounded-lg px-4 py-3 border ${
-          msg.ok
-            ? "text-green-700 bg-green-50 border-green-200"
-            : "text-amber-700 bg-amber-50 border-amber-200"
-        }`} role="alert">
+        <p
+          className={`mb-4 text-sm rounded-lg px-4 py-3 border ${
+            msg.ok
+              ? "text-green-700 bg-green-50 border-green-200"
+              : "text-amber-700 bg-amber-50 border-amber-200"
+          }`}
+          role="alert"
+        >
           {msg.text}
         </p>
       )}
@@ -116,7 +134,9 @@ export default function IntegrationsPage() {
           name="freee 会計"
           icon="📒"
           description="取引データ・仕訳の同期。OAuth 2.0 認可。"
-          status={process.env.NEXT_PUBLIC_FREEE_CONFIGURED === "true" ? "connected" : "unconfigured"}
+          status={
+            process.env.NEXT_PUBLIC_FREEE_CONFIGURED === "true" ? "connected" : "unconfigured"
+          }
           onConnect={connectFreee}
         />
         <IntegrationCard
@@ -138,9 +158,7 @@ export default function IntegrationsPage() {
       {/* 銀行口座一覧 */}
       <div className="card">
         <h2 className="section-title mb-4">連携済み銀行口座</h2>
-        {!obStatus && (
-          <p className="text-sm text-slate-400">読み込み中…</p>
-        )}
+        {!obStatus && <p className="text-sm text-slate-400">読み込み中…</p>}
         {obStatus?.accounts.length === 0 && (
           <p className="text-sm text-slate-500">銀行口座が登録されていません。</p>
         )}
@@ -174,9 +192,40 @@ export default function IntegrationsPage() {
       <div className="card mt-4 bg-slate-50 border-slate-200">
         <h2 className="section-title mb-3">設定手順</h2>
         <ol className="space-y-1.5 text-sm text-slate-600 list-decimal list-inside">
-          <li><strong>freee</strong>: <code className="text-xs bg-white border border-slate-200 rounded px-1">FREEE_CLIENT_ID</code> / <code className="text-xs bg-white border border-slate-200 rounded px-1">FREEE_CLIENT_SECRET</code> を <code className="text-xs bg-white border border-slate-200 rounded px-1">.env</code> に設定</li>
-          <li><strong>マネーフォワード</strong>: <code className="text-xs bg-white border border-slate-200 rounded px-1">MF_CLIENT_ID</code> / <code className="text-xs bg-white border border-slate-200 rounded px-1">MF_CLIENT_SECRET</code> を設定</li>
-          <li><strong>オープンバンキング</strong>: 参加銀行の API 申請後、<code className="text-xs bg-white border border-slate-200 rounded px-1">OPENBANKING_API_KEY</code> / <code className="text-xs bg-white border border-slate-200 rounded px-1">OPENBANKING_API_BASE</code> を設定</li>
+          <li>
+            <strong>freee</strong>:{" "}
+            <code className="text-xs bg-white border border-slate-200 rounded px-1">
+              FREEE_CLIENT_ID
+            </code>{" "}
+            /{" "}
+            <code className="text-xs bg-white border border-slate-200 rounded px-1">
+              FREEE_CLIENT_SECRET
+            </code>{" "}
+            を <code className="text-xs bg-white border border-slate-200 rounded px-1">.env</code>{" "}
+            に設定
+          </li>
+          <li>
+            <strong>マネーフォワード</strong>:{" "}
+            <code className="text-xs bg-white border border-slate-200 rounded px-1">
+              MF_CLIENT_ID
+            </code>{" "}
+            /{" "}
+            <code className="text-xs bg-white border border-slate-200 rounded px-1">
+              MF_CLIENT_SECRET
+            </code>{" "}
+            を設定
+          </li>
+          <li>
+            <strong>オープンバンキング</strong>: 参加銀行の API 申請後、
+            <code className="text-xs bg-white border border-slate-200 rounded px-1">
+              OPENBANKING_API_KEY
+            </code>{" "}
+            /{" "}
+            <code className="text-xs bg-white border border-slate-200 rounded px-1">
+              OPENBANKING_API_BASE
+            </code>{" "}
+            を設定
+          </li>
           <li>Docker Compose または本番環境を再起動して環境変数を反映</li>
         </ol>
       </div>

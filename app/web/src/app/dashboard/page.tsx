@@ -94,14 +94,17 @@ function toAnnualRows(rows: Row[]): Row[] {
 
 function DashboardContent() {
   const searchParams = useSearchParams();
-  const initialTab = (searchParams.get("tab") ?? "budget") as "budget" | "composition" | "simulation";
-  const [tab,         setTab]         = useState<"budget" | "composition" | "simulation">(initialTab);
-  const [method,      setMethod]      = useState("moving_average");
-  const [viewMode,    setViewMode]    = useState<"monthly" | "annual">("monthly");
-  const [compYear,    setCompYear]    = useState<number | null>(null);
+  const initialTab = (searchParams.get("tab") ?? "budget") as
+    | "budget"
+    | "composition"
+    | "simulation";
+  const [tab, setTab] = useState<"budget" | "composition" | "simulation">(initialTab);
+  const [method, setMethod] = useState("moving_average");
+  const [viewMode, setViewMode] = useState<"monthly" | "annual">("monthly");
+  const [compYear, setCompYear] = useState<number | null>(null);
   const [accountCode, setAccountCode] = useState("H1000");
-  const [year,        setYear]        = useState(new Date().getFullYear());
-  const [sysMode,     setSysMode]     = useState("sole");
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [sysMode, setSysMode] = useState("sole");
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -120,8 +123,8 @@ function DashboardContent() {
     queryFn: async (): Promise<AccountItem[]> => {
       const res = await fetch("/api/accounts");
       const json = await res.json();
-      return (json.data as AccountItem[]).filter(
-        (a) => ["REVENUE", "COGS", "EXPENSE", "PROFIT"].includes(a.category),
+      return (json.data as AccountItem[]).filter((a) =>
+        ["REVENUE", "COGS", "EXPENSE", "PROFIT"].includes(a.category),
       );
     },
   });
@@ -149,8 +152,8 @@ function DashboardContent() {
 
   // ── 残高シミュレーション ───────────────────────────────────────────
   const [openings, setOpenings] = useState<Record<number, number>>({});
-  const [months,   setMonths]   = useState(3);
-  const [autoRan,  setAutoRan]  = useState(false);
+  const [months, setMonths] = useState(3);
+  const [autoRan, setAutoRan] = useState(false);
 
   const { data: bankAccounts } = useQuery({
     queryKey: ["bank-accounts"],
@@ -166,7 +169,7 @@ function DashboardContent() {
         body: JSON.stringify({
           openings: Object.fromEntries(Object.entries(openings).map(([k, v]) => [k, Number(v)])),
           months,
-          startYear:  now.getFullYear(),
+          startYear: now.getFullYear(),
           startMonth: now.getMonth() + 1,
         }),
       });
@@ -177,23 +180,21 @@ function DashboardContent() {
 
   useEffect(() => {
     if (!bankAccounts || bankAccounts.length === 0) return;
-    setOpenings(prev => Object.keys(prev).length > 0 ? prev : Object.fromEntries(bankAccounts.map(a => [a.id, 0])));
+    setOpenings((prev) =>
+      Object.keys(prev).length > 0 ? prev : Object.fromEntries(bankAccounts.map((a) => [a.id, 0])),
+    );
   }, [bankAccounts]);
 
   useEffect(() => {
     if (tab !== "simulation" || autoRan || !bankAccounts || bankAccounts.length === 0) return;
     setAutoRan(true);
     sim.mutate();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, bankAccounts]);
 
   // ── 共通計算 ──────────────────────────────────────────────────────
   const csvUrl = `/api/reports/budget-actual/export?accountCode=${accountCode}&year=${year}&method=${method}`;
-  const displayRows = data
-    ? viewMode === "annual"
-      ? toAnnualRows(data.rows)
-      : data.rows
-    : [];
+  const displayRows = data ? (viewMode === "annual" ? toAnnualRows(data.rows) : data.rows) : [];
   const now = new Date();
   const fiscalYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
   const yearForComp = compYear ?? fiscalYear;
@@ -213,11 +214,13 @@ function DashboardContent() {
 
       {/* タブ */}
       <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {([
-          ["budget",     "予実対比"],
-          ["composition","構成比グラフ"],
-          ["simulation", "残高シミュレーション"],
-        ] as ["budget" | "composition" | "simulation", string][]).map(([t, label]) => (
+        {(
+          [
+            ["budget", "予実対比"],
+            ["composition", "構成比グラフ"],
+            ["simulation", "残高シミュレーション"],
+          ] as ["budget" | "composition" | "simulation", string][]
+        ).map(([t, label]) => (
           <button
             key={t}
             type="button"
@@ -245,9 +248,13 @@ function DashboardContent() {
                   onChange={(e) => setYear(Number(e.target.value))}
                   className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  {Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-                    <option key={y} value={y}>{y}年</option>
-                  ))}
+                  {Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - 2 + i).map(
+                    (y) => (
+                      <option key={y} value={y}>
+                        {y}年
+                      </option>
+                    ),
+                  )}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 flex-1">
@@ -265,7 +272,9 @@ function DashboardContent() {
                 </select>
               </div>
               <div className="flex items-center gap-1.5">
-                <label className="text-xs font-medium text-slate-600 whitespace-nowrap">予測手法</label>
+                <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
+                  予測手法
+                </label>
                 <select
                   value={method}
                   onChange={(e) => setMethod(e.target.value)}
@@ -399,7 +408,7 @@ function DashboardContent() {
             <h2 className="section-title mb-3">条件設定</h2>
             <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {bankAccounts?.map(a => (
+                {bankAccounts?.map((a) => (
                   <div key={a.id}>
                     <label className="block text-xs font-medium text-slate-600 mb-1">
                       {a.name} <span className="text-slate-400">期首残高</span>
@@ -408,7 +417,9 @@ function DashboardContent() {
                       type="number"
                       className="input-field"
                       value={openings[a.id] ?? 0}
-                      onChange={e => setOpenings(prev => ({ ...prev, [a.id]: Number(e.target.value) }))}
+                      onChange={(e) =>
+                        setOpenings((prev) => ({ ...prev, [a.id]: Number(e.target.value) }))
+                      }
                     />
                   </div>
                 ))}
@@ -419,9 +430,13 @@ function DashboardContent() {
                   <select
                     className="input-field w-28"
                     value={months}
-                    onChange={e => setMonths(Number(e.target.value))}
+                    onChange={(e) => setMonths(Number(e.target.value))}
                   >
-                    {[3, 6, 12].map(m => <option key={m} value={m}>{m}か月</option>)}
+                    {[3, 6, 12].map((m) => (
+                      <option key={m} value={m}>
+                        {m}か月
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <button
@@ -436,28 +451,36 @@ function DashboardContent() {
             </div>
           </div>
 
-          {sim.isPending && (
-            <div className="text-center text-sm text-slate-400 py-8">計算中…</div>
-          )}
+          {sim.isPending && <div className="text-center text-sm text-slate-400 py-8">計算中…</div>}
           {sim.data && (
             <>
               {(sim.data.shortfalls?.length ?? 0) > 0 ? (
                 <div className="card mb-4 border border-red-200 bg-red-50">
                   <h2 className="section-title text-red-700 mb-2">⚠️ 残高不足の警告</h2>
                   <ul className="text-sm text-red-700 space-y-1">
-                    {[...new Map(sim.data.shortfalls.map(s => [`${s.date}-${s.accountId}`, s])).values()]
+                    {[
+                      ...new Map(
+                        sim.data.shortfalls.map((s) => [`${s.date}-${s.accountId}`, s]),
+                      ).values(),
+                    ]
                       .slice(0, 10)
                       .map((s, i) => (
                         <li key={i}>
                           {s.date}：<strong>{s.accountName}</strong> が{" "}
-                          {s.balance.toLocaleString("ja-JP", { style: "currency", currency: "JPY" })}（マイナス）
+                          {s.balance.toLocaleString("ja-JP", {
+                            style: "currency",
+                            currency: "JPY",
+                          })}
+                          （マイナス）
                         </li>
                       ))}
                   </ul>
                 </div>
               ) : (
                 <div className="card mb-4 border border-green-200 bg-green-50">
-                  <p className="text-sm text-green-700">✅ {months}か月間、残高不足は発生しません。</p>
+                  <p className="text-sm text-green-700">
+                    ✅ {months}か月間、残高不足は発生しません。
+                  </p>
                 </div>
               )}
               <div className="card">
@@ -507,17 +530,11 @@ function DashboardContent() {
                       }
                     >
                       {comp.totals.map((entry) => (
-                        <Cell
-                          key={entry.name}
-                          fill={CAT_COLORS[entry.name] ?? "#cbd5e1"}
-                        />
+                        <Cell key={entry.name} fill={CAT_COLORS[entry.name] ?? "#cbd5e1"} />
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(v: number, name: string) => [
-                        man(v),
-                        CAT_LABEL[name] ?? name,
-                      ]}
+                      formatter={(v: number, name: string) => [man(v), CAT_LABEL[name] ?? name]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -540,12 +557,14 @@ function DashboardContent() {
                   <BarChart data={comp.monthly} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                    <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}`} tick={{ fontSize: 10 }} />
-                    <Tooltip formatter={(v: number, name: string) => [man(v), CAT_LABEL[name] ?? name]} />
-                    <Legend
-                      formatter={(v) => CAT_LABEL[v] ?? v}
-                      wrapperStyle={{ fontSize: 11 }}
+                    <YAxis
+                      tickFormatter={(v) => `${Math.round(v / 10000)}`}
+                      tick={{ fontSize: 10 }}
                     />
+                    <Tooltip
+                      formatter={(v: number, name: string) => [man(v), CAT_LABEL[name] ?? name]}
+                    />
+                    <Legend formatter={(v) => CAT_LABEL[v] ?? v} wrapperStyle={{ fontSize: 11 }} />
                     {Object.keys(CAT_COLORS).map((cat) => (
                       <Bar key={cat} dataKey={cat} stackId="a" fill={CAT_COLORS[cat]} />
                     ))}

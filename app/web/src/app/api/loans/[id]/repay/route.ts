@@ -8,20 +8,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
   const { id } = await params;
-  const body = await req.json() as { repaidOn: string; principal: number; interest: number };
+  const body = (await req.json()) as { repaidOn: string; principal: number; interest: number };
   if (!body.repaidOn || body.principal === undefined) {
     return NextResponse.json({ error: "repaidOn and principal are required" }, { status: 400 });
   }
 
   const loan = await prisma.loan.findUnique({ where: { id: Number(id) } });
   if (!loan) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (loan.status === "repaid") return NextResponse.json({ error: "already repaid" }, { status: 400 });
+  if (loan.status === "repaid")
+    return NextResponse.json({ error: "already repaid" }, { status: 400 });
 
   const principal = body.principal;
-  const interest  = body.interest ?? 0;
+  const interest = body.interest ?? 0;
   const newRemaining = Number(loan.remainingAmount) - principal;
 
-  const repayment = await prisma.$transaction(async tx => {
+  const repayment = await prisma.$transaction(async (tx) => {
     const r = await tx.loanRepayment.create({
       data: {
         loanId: Number(id),

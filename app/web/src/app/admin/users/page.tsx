@@ -15,7 +15,7 @@ type User = {
 };
 
 const ROLE_BADGE: Record<string, string> = {
-  admin:  "bg-red-50 text-red-700",
+  admin: "bg-red-50 text-red-700",
   editor: "bg-amber-50 text-amber-700",
   viewer: "bg-slate-100 text-slate-600",
 };
@@ -95,23 +95,42 @@ export default function AdminUsersPage() {
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-slate-500 mb-1 block">ロール</label>
-                <select className="input-field w-full" value={editRole}
-                  onChange={(e) => setEditRole(e.target.value)}>
+                <select
+                  className="input-field w-full"
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value)}
+                >
                   <option value="admin">管理者 (admin)</option>
                   <option value="editor">編集者 (editor)</option>
                   <option value="viewer">閲覧者 (viewer)</option>
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-500 mb-1 block">新しいパスワード（変更する場合のみ）</label>
-                <input type="password" className="input-field w-full" placeholder="8文字以上"
-                  value={resetPw} onChange={(e) => setResetPw(e.target.value)} />
+                <label className="text-xs text-slate-500 mb-1 block">
+                  新しいパスワード（変更する場合のみ）
+                </label>
+                <input
+                  type="password"
+                  className="input-field w-full"
+                  placeholder="8文字以上"
+                  value={resetPw}
+                  onChange={(e) => setResetPw(e.target.value)}
+                />
               </div>
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={saveEdit} className="btn-primary flex-1 py-1.5 text-sm">保存</button>
-              <button onClick={() => { setEditUser(null); setResetPw(""); }}
-                className="btn-secondary flex-1 py-1.5 text-sm">キャンセル</button>
+              <button onClick={saveEdit} className="btn-primary flex-1 py-1.5 text-sm">
+                保存
+              </button>
+              <button
+                onClick={() => {
+                  setEditUser(null);
+                  setResetPw("");
+                }}
+                className="btn-secondary flex-1 py-1.5 text-sm"
+              >
+                キャンセル
+              </button>
             </div>
           </div>
         </div>
@@ -139,21 +158,32 @@ export default function AdminUsersPage() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {u.mfaEnabled && (
-                    <span className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded-full">MFA</span>
+                    <span className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded-full">
+                      MFA
+                    </span>
                   )}
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_BADGE[u.role]}`}>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_BADGE[u.role]}`}
+                  >
                     {ROLE_LABEL[u.role]}
                   </span>
                   <button
-                    onClick={() => { setEditUser(u); setEditRole(u.role); }}
+                    onClick={() => {
+                      setEditUser(u);
+                      setEditRole(u.role);
+                    }}
                     className="text-xs text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
                     title="編集"
-                  >✏️</button>
+                  >
+                    ✏️
+                  </button>
                   <button
                     onClick={() => deleteUser(u)}
                     className="text-xs text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
                     title="削除"
-                  >🗑</button>
+                  >
+                    🗑
+                  </button>
                 </div>
               </li>
             ))}
@@ -166,18 +196,34 @@ export default function AdminUsersPage() {
           <form onSubmit={createUser} className="space-y-3 mt-3">
             <div>
               <label className="text-xs text-slate-500 mb-1 block">氏名</label>
-              <input placeholder="山田 太郎" required className="input-field w-full"
-                value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input
+                placeholder="山田 太郎"
+                required
+                className="input-field w-full"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
             </div>
             <div>
               <label className="text-xs text-slate-500 mb-1 block">メールアドレス</label>
-              <input type="email" placeholder="user@example.com" required className="input-field w-full"
-                value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              <input
+                type="email"
+                placeholder="user@example.com"
+                required
+                className="input-field w-full"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
             </div>
             <div>
               <label className="text-xs text-slate-500 mb-1 block">ロール</label>
-              <select className="input-field w-full" value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value as "admin" | "editor" | "viewer" })}>
+              <select
+                className="input-field w-full"
+                value={form.role}
+                onChange={(e) =>
+                  setForm({ ...form, role: e.target.value as "admin" | "editor" | "viewer" })
+                }
+              >
                 <option value="viewer">閲覧者 (viewer)</option>
                 <option value="editor">編集者 (editor)</option>
                 <option value="admin">管理者 (admin)</option>
@@ -185,13 +231,24 @@ export default function AdminUsersPage() {
             </div>
             <div>
               <label className="text-xs text-slate-500 mb-1 block">初期パスワード</label>
-              <input type="password" placeholder="8文字以上" required minLength={8} className="input-field w-full"
-                value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+              <input
+                type="password"
+                placeholder="8文字以上"
+                required
+                minLength={8}
+                className="input-field w-full"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+              />
             </div>
             {formError && (
-              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">{formError}</p>
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
+                {formError}
+              </p>
             )}
-            <button type="submit" className="btn-primary w-full py-2">作成</button>
+            <button type="submit" className="btn-primary w-full py-2">
+              作成
+            </button>
           </form>
         </div>
       </div>

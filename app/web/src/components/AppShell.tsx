@@ -7,21 +7,39 @@ import { useLocale } from "@/hooks/useLocale";
 import type { Locale } from "@/lib/i18n";
 import type { LucideIcon } from "lucide-react";
 import {
-  LayoutDashboard, Target, ClipboardList,
-  BookOpen, FileStack, BookMarked, ArrowDownToLine, ArrowUpFromLine, Receipt,
-  Package, Building2, SplitSquareHorizontal, TrendingUp,
-  Landmark, ArrowLeftRight, CreditCard, Plug,
+  LayoutDashboard,
+  Target,
+  ClipboardList,
+  BookOpen,
+  FileStack,
+  BookMarked,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Receipt,
+  Package,
+  Building2,
+  SplitSquareHorizontal,
+  TrendingUp,
+  Landmark,
+  ArrowLeftRight,
+  CreditCard,
+  Plug,
   FileBarChart2,
-  Building, CalendarDays, ShieldCheck,
-  Settings, Users, ScrollText, ExternalLink,
+  Building,
+  CalendarDays,
+  ShieldCheck,
+  Settings,
+  Users,
+  ScrollText,
+  ExternalLink,
 } from "lucide-react";
 
 export type ViewMode = "household" | "sole" | "corporate";
 
 const VIEW_MODES: { value: ViewMode; label: string; short: string }[] = [
-  { value: "household",  label: "家計簿",       short: "家計" },
-  { value: "sole",       label: "個人会計",     short: "個人" },
-  { value: "corporate",  label: "法人",         short: "法人" },
+  { value: "household", label: "家計簿", short: "家計" },
+  { value: "sole", label: "個人会計", short: "個人" },
+  { value: "corporate", label: "法人", short: "法人" },
 ];
 
 type NavItem = { href: string; label: string; icon: LucideIcon; modes: ViewMode[] };
@@ -31,70 +49,155 @@ const NAV_GROUPS: NavGroup[] = [
   {
     group: "基本",
     items: [
-      { href: "/dashboard",        label: "ダッシュボード",   icon: LayoutDashboard,        modes: ["household", "sole", "corporate"] },
-      { href: "/budget",           label: "予算管理",         icon: Target,                 modes: ["household", "sole", "corporate"] },
-      { href: "/entry",            label: "実績管理",         icon: ClipboardList,          modes: ["household", "sole", "corporate"] },
+      {
+        href: "/dashboard",
+        label: "ダッシュボード",
+        icon: LayoutDashboard,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/budget",
+        label: "予算管理",
+        icon: Target,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/entry",
+        label: "実績管理",
+        icon: ClipboardList,
+        modes: ["household", "sole", "corporate"],
+      },
     ],
   },
   {
     group: "会計帳簿",
     items: [
-      { href: "/journals",          label: "仕訳帳",           icon: BookOpen,               modes: ["sole", "corporate"] },
-      { href: "/journal-templates", label: "仕訳テンプレート", icon: FileStack,              modes: ["sole", "corporate"] },
-      { href: "/reports/ledger",    label: "総勘定元帳",       icon: BookMarked,             modes: ["sole", "corporate"] },
-      { href: "/receivables",       label: "売掛金管理",       icon: ArrowDownToLine,        modes: ["sole", "corporate"] },
-      { href: "/payables",          label: "買掛金管理",       icon: ArrowUpFromLine,        modes: ["sole", "corporate"] },
-      { href: "/invoices",          label: "インボイス発行",   icon: Receipt,                modes: ["sole", "corporate"] },
+      { href: "/journals", label: "仕訳帳", icon: BookOpen, modes: ["sole", "corporate"] },
+      {
+        href: "/journal-templates",
+        label: "仕訳テンプレート",
+        icon: FileStack,
+        modes: ["sole", "corporate"],
+      },
+      {
+        href: "/reports/ledger",
+        label: "総勘定元帳",
+        icon: BookMarked,
+        modes: ["sole", "corporate"],
+      },
+      {
+        href: "/receivables",
+        label: "売掛金管理",
+        icon: ArrowDownToLine,
+        modes: ["sole", "corporate"],
+      },
+      {
+        href: "/payables",
+        label: "買掛金管理",
+        icon: ArrowUpFromLine,
+        modes: ["sole", "corporate"],
+      },
+      { href: "/invoices", label: "インボイス発行", icon: Receipt, modes: ["sole", "corporate"] },
     ],
   },
   {
     group: "資産・経費管理",
     items: [
-      { href: "/inventories",       label: "棚卸管理",         icon: Package,                modes: ["sole", "corporate"] },
-      { href: "/fixed-assets",      label: "固定資産",         icon: Building2,              modes: ["sole", "corporate"] },
-      { href: "/apportionments",    label: "家事按分",         icon: SplitSquareHorizontal,  modes: ["sole"] },
-      { href: "/assets",            label: "資産管理",         icon: TrendingUp,             modes: ["household", "sole", "corporate"] },
-      { href: "/bank-accounts",     label: "銀行管理",         icon: Landmark,               modes: ["household", "sole", "corporate"] },
-      { href: "/bank-transactions", label: "入出金管理",       icon: ArrowLeftRight,         modes: ["household", "sole", "corporate"] },
-      { href: "/loans",             label: "借入金管理",       icon: CreditCard,             modes: ["household", "sole", "corporate"] },
-      { href: "/integrations",      label: "外部サービス連携", icon: Plug,                   modes: ["sole", "corporate"] },
+      { href: "/inventories", label: "棚卸管理", icon: Package, modes: ["sole", "corporate"] },
+      { href: "/fixed-assets", label: "固定資産", icon: Building2, modes: ["sole", "corporate"] },
+      { href: "/apportionments", label: "家事按分", icon: SplitSquareHorizontal, modes: ["sole"] },
+      {
+        href: "/assets",
+        label: "資産管理",
+        icon: TrendingUp,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/bank-accounts",
+        label: "銀行管理",
+        icon: Landmark,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/bank-transactions",
+        label: "入出金管理",
+        icon: ArrowLeftRight,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/loans",
+        label: "借入金管理",
+        icon: CreditCard,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/integrations",
+        label: "外部サービス連携",
+        icon: Plug,
+        modes: ["sole", "corporate"],
+      },
     ],
   },
   {
     group: "決算・申告",
     items: [
-      { href: "/closing",          label: "決算処理",         icon: FileBarChart2,          modes: ["sole", "corporate"] },
+      { href: "/closing", label: "決算処理", icon: FileBarChart2, modes: ["sole", "corporate"] },
     ],
   },
   {
     group: "法人管理",
     items: [
-      { href: "/corporate",        label: "法人・事業者情報", icon: Building,               modes: ["corporate"] },
-      { href: "/fiscal-years",     label: "会計年度管理",     icon: CalendarDays,           modes: ["sole", "corporate"] },
-      { href: "/governance",       label: "ガバナンス管理",   icon: ShieldCheck,            modes: ["corporate"] },
+      { href: "/corporate", label: "法人・事業者情報", icon: Building, modes: ["corporate"] },
+      {
+        href: "/fiscal-years",
+        label: "会計年度管理",
+        icon: CalendarDays,
+        modes: ["sole", "corporate"],
+      },
+      { href: "/governance", label: "ガバナンス管理", icon: ShieldCheck, modes: ["corporate"] },
     ],
   },
   {
     group: "設定・管理",
     items: [
-      { href: "/settings",         label: "設定",             icon: Settings,               modes: ["household", "sole", "corporate"] },
-      { href: "/admin/users",      label: "ユーザー管理",     icon: Users,                  modes: ["household", "sole", "corporate"] },
-      { href: "/admin/audit",      label: "監査ログ",         icon: ScrollText,             modes: ["household", "sole", "corporate"] },
-      { href: "/portal",           label: "税理士ポータル",   icon: ExternalLink,           modes: ["sole", "corporate"] },
+      {
+        href: "/settings",
+        label: "設定",
+        icon: Settings,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/admin/users",
+        label: "ユーザー管理",
+        icon: Users,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/admin/audit",
+        label: "監査ログ",
+        icon: ScrollText,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/portal",
+        label: "税理士ポータル",
+        icon: ExternalLink,
+        modes: ["sole", "corporate"],
+      },
     ],
   },
 ];
 
 const TITLE: Record<ViewMode, string> = {
-  household:  "家計管理システム",
-  sole:       "個人会計システム",
-  corporate:  "法人会計システム",
+  household: "家計管理システム",
+  sole: "個人会計システム",
+  corporate: "法人会計システム",
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [viewMode,    setViewMode]    = useState<ViewMode>("sole");
+  const [viewMode, setViewMode] = useState<ViewMode>("sole");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { locale, changeLocale } = useLocale();
 
@@ -136,8 +239,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-expanded={sidebarOpen}
         aria-controls="app-sidebar"
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        <svg
+          className="w-4 h-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 6h16M4 12h16M4 18h16"
+          />
         </svg>
       </button>
 
@@ -174,11 +288,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <nav className="flex-1 px-3 py-3 overflow-y-auto">
           {NAV_GROUPS.map(({ group, items }) => {
-            const visible = items.filter(i => i.modes.includes(viewMode));
+            const visible = items.filter((i) => i.modes.includes(viewMode));
             if (visible.length === 0) return null;
             return (
               <div key={group} className="mb-3">
-                <p className="px-3 mb-1 text-xs font-semibold text-slate-500 uppercase tracking-wider">{group}</p>
+                <p className="px-3 mb-1 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  {group}
+                </p>
                 {visible.map(({ href, label, icon: Icon }) => (
                   <Link
                     key={href}

@@ -41,7 +41,8 @@ export async function POST(req: NextRequest) {
   let accountId: number | undefined;
   if (accountCode) {
     const acct = await prisma.account.findUnique({ where: { code: accountCode } });
-    if (!acct) return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
+    if (!acct)
+      return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
     accountId = acct.id;
   }
 

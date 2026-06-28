@@ -37,10 +37,7 @@ export function KpiCards({ mode = "sole" }: { mode?: string }) {
   });
 
   const kpi = data?.kpi;
-  if (!kpi)
-    return (
-      <p className="text-sm text-slate-400 py-4">KPI データがありません。</p>
-    );
+  if (!kpi) return <p className="text-sm text-slate-400 py-4">KPI データがありません。</p>;
 
   if (mode === "household") {
     const expenses = kpi.revenue - kpi.operatingProfit;
@@ -50,7 +47,11 @@ export function KpiCards({ mode = "sole" }: { mode?: string }) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <KpiCard label="収入" value={yen(kpi.revenue)} />
           <KpiCard label="支出" value={yen(expenses)} />
-          <KpiCard label="貯蓄額" value={yen(kpi.operatingProfit)} sub={`貯蓄率 ${pct(kpi.operatingMargin)}`} />
+          <KpiCard
+            label="貯蓄額"
+            value={yen(kpi.operatingProfit)}
+            sub={`貯蓄率 ${pct(kpi.operatingMargin)}`}
+          />
           <KpiCard label="当年累計 (YTD)" value={yen(kpi.ytd)} />
           <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} />
           <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} />
@@ -64,8 +65,16 @@ export function KpiCards({ mode = "sole" }: { mode?: string }) {
       <p className="text-xs text-slate-400 mb-3">対象月: {kpi.period}</p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard label="売上高" value={yen(kpi.revenue)} />
-        <KpiCard label="売上総利益" value={yen(kpi.grossProfit)} sub={`粗利率 ${pct(kpi.grossMargin)}`} />
-        <KpiCard label="営業利益" value={yen(kpi.operatingProfit)} sub={`営業利益率 ${pct(kpi.operatingMargin)}`} />
+        <KpiCard
+          label="売上総利益"
+          value={yen(kpi.grossProfit)}
+          sub={`粗利率 ${pct(kpi.grossMargin)}`}
+        />
+        <KpiCard
+          label="営業利益"
+          value={yen(kpi.operatingProfit)}
+          sub={`営業利益率 ${pct(kpi.operatingMargin)}`}
+        />
         <KpiCard label="当年累計 (YTD)" value={yen(kpi.ytd)} />
         <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} />
         <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} />

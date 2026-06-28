@@ -17,12 +17,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
-  const body = await req.json() as {
-    tenantId: number; name: string; title: string;
-    termStart: string; termEnd: string; salary?: number;
+  const body = (await req.json()) as {
+    tenantId: number;
+    name: string;
+    title: string;
+    termStart: string;
+    termEnd: string;
+    salary?: number;
   };
   if (!body.tenantId || !body.name || !body.title || !body.termStart || !body.termEnd) {
-    return NextResponse.json({ error: "tenantId, name, title, termStart, termEnd are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "tenantId, name, title, termStart, termEnd are required" },
+      { status: 400 },
+    );
   }
   const officer = await prisma.officer.create({
     data: {

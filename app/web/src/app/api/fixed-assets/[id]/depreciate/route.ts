@@ -21,11 +21,15 @@ export async function POST(req: NextRequest, { params }: Params) {
   const existing = await prisma.depreciation.findUnique({
     where: { fixedAssetId_fiscalYear: { fixedAssetId: asset.id, fiscalYear } },
   });
-  if (existing) return NextResponse.json({ error: `${fiscalYear}年度の償却は既に計上済みです` }, { status: 400 });
+  if (existing)
+    return NextResponse.json(
+      { error: `${fiscalYear}年度の償却は既に計上済みです` },
+      { status: 400 },
+    );
 
-  const cost        = Number(asset.acquisitionCost);
-  const bookValue   = Number(asset.bookValue);
-  const usefulLife  = asset.usefulLife;
+  const cost = Number(asset.acquisitionCost);
+  const bookValue = Number(asset.bookValue);
+  const usefulLife = asset.usefulLife;
 
   let amount: number;
   if (asset.method === "straight") {
@@ -47,7 +51,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     }),
     prisma.fixedAsset.update({
       where: { id: asset.id },
-      data:  { bookValue: { decrement: amount } },
+      data: { bookValue: { decrement: amount } },
     }),
   ]);
 
@@ -55,7 +59,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const deprAccount = await prisma.account.findFirst({ where: { code: "H3400" } });
   if (deprAccount) {
     const period = await prisma.period.upsert({
-      where:  { fiscalYear_month: { fiscalYear, month: 12 } },
+      where: { fiscalYear_month: { fiscalYear, month: 12 } },
       update: {},
       create: { fiscalYear, month: 12, quarter: 4 },
     });

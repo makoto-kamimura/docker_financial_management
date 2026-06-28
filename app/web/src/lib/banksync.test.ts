@@ -8,7 +8,10 @@ describe("getBankSyncProvider", () => {
   });
 
   it("モックは入出金（+入金/-出金）と一意IDを返す", async () => {
-    const txns = await new MockBankSyncProvider().fetchTransactions({ id: 1, bankName: "テスト銀行" });
+    const txns = await new MockBankSyncProvider().fetchTransactions({
+      id: 1,
+      bankName: "テスト銀行",
+    });
     expect(txns.length).toBeGreaterThan(0);
     expect(txns.some((t) => t.amount > 0)).toBe(true); // 入金
     expect(txns.some((t) => t.amount < 0)).toBe(true); // 出金
@@ -19,7 +22,8 @@ describe("getBankSyncProvider", () => {
 
 describe("parseBankCsv", () => {
   it("CSV を入出金明細に変換し、決定的な externalId を付与する", () => {
-    const csv = "date,description,amount,balance\n2025-01-25,給与振込,450000,520000\n2025-01-27,カード引落,-120000,400000";
+    const csv =
+      "date,description,amount,balance\n2025-01-25,給与振込,450000,520000\n2025-01-27,カード引落,-120000,400000";
     const { rows, errors } = parseBankCsv(csv, 1);
     expect(errors).toHaveLength(0);
     expect(rows).toHaveLength(2);

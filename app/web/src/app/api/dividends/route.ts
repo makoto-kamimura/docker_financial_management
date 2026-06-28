@@ -17,12 +17,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
-  const body = await req.json() as {
-    tenantId: number; resolutionDate: string; paymentDate: string;
-    perShareAmount: number; totalAmount: number; note?: string;
+  const body = (await req.json()) as {
+    tenantId: number;
+    resolutionDate: string;
+    paymentDate: string;
+    perShareAmount: number;
+    totalAmount: number;
+    note?: string;
   };
   if (!body.tenantId || !body.resolutionDate || !body.paymentDate || !body.totalAmount) {
-    return NextResponse.json({ error: "tenantId, resolutionDate, paymentDate, totalAmount are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "tenantId, resolutionDate, paymentDate, totalAmount are required" },
+      { status: 400 },
+    );
   }
   const div = await prisma.dividend.create({
     data: {

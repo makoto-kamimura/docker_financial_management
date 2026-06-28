@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 interface AuditOptions {
   before?: unknown;
-  after?:  unknown;
+  after?: unknown;
 }
 
 // 監査ログを記録する。before/after を渡すと変更差分も保存する。
@@ -19,7 +19,7 @@ export async function writeAudit(
         action,
         target,
         before: options?.before != null ? JSON.stringify(options.before) : null,
-        after:  options?.after  != null ? JSON.stringify(options.after)  : null,
+        after: options?.after != null ? JSON.stringify(options.after) : null,
       },
     });
   } catch {

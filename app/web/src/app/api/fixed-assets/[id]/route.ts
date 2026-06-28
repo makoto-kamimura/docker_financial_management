@@ -24,16 +24,20 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (auth.error) return auth.error;
 
   const { id } = await params;
-  const body = await req.json() as Partial<{
-    name: string; category: string; disposedOn: string | null;
+  const body = (await req.json()) as Partial<{
+    name: string;
+    category: string;
+    disposedOn: string | null;
   }>;
 
   const asset = await prisma.fixedAsset.update({
     where: { id: Number(id) },
     data: {
-      ...(body.name     !== undefined && { name: body.name }),
+      ...(body.name !== undefined && { name: body.name }),
       ...(body.category !== undefined && { category: body.category }),
-      ...(body.disposedOn !== undefined && { disposedOn: body.disposedOn ? new Date(body.disposedOn) : null }),
+      ...(body.disposedOn !== undefined && {
+        disposedOn: body.disposedOn ? new Date(body.disposedOn) : null,
+      }),
     },
   });
   return NextResponse.json({ data: asset });

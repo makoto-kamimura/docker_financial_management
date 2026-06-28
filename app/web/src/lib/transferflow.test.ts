@@ -29,7 +29,9 @@ describe("buildTransferFlow", () => {
   });
 
   it("カード引き落とし（口座→外部）は外部ノードを生成する", () => {
-    const graph = buildTransferFlow([T(2, "引き落とし口座", null, null, 120000, "CARD_PAYMENT", "楽天カード")]);
+    const graph = buildTransferFlow([
+      T(2, "引き落とし口座", null, null, 120000, "CARD_PAYMENT", "楽天カード"),
+    ]);
     expect(graph.nodes.map((n) => n.name)).toEqual(["引き落とし口座", "外部（楽天カード）"]);
   });
 
@@ -47,6 +49,8 @@ describe("hasCycle", () => {
     expect(hasCycle([T(1, "A", 2, "B", 100), T(2, "B", 1, "A", 50)])).toBe(true);
   });
   it("外部端点は循環に含めない", () => {
-    expect(hasCycle([T(null, null, 1, "A", 100), T(1, "A", null, null, 50, "EXPENSE")])).toBe(false);
+    expect(hasCycle([T(null, null, 1, "A", 100), T(1, "A", null, null, 50, "EXPENSE")])).toBe(
+      false,
+    );
   });
 });

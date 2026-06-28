@@ -29,19 +29,31 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
-    customerName: string; customerAddress?: string;
-    issueDate: string; dueDate: string; note?: string;
+  const body = (await req.json()) as {
+    customerName: string;
+    customerAddress?: string;
+    issueDate: string;
+    dueDate: string;
+    note?: string;
     lines: { description: string; quantity: number; unitPrice: number; taxRate?: number }[];
   };
   if (!body.customerName || !body.issueDate || !body.dueDate || !body.lines?.length) {
-    return NextResponse.json({ error: "customerName, issueDate, dueDate, lines are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "customerName, issueDate, dueDate, lines are required" },
+      { status: 400 },
+    );
   }
 
-  const lineData = body.lines.map(l => {
-    const taxRate = l.taxRate ?? 0.10;
-    const amount  = Math.round(l.quantity * l.unitPrice);
-    return { description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate, amount };
+  const lineData = body.lines.map((l) => {
+    const taxRate = l.taxRate ?? 0.1;
+    const amount = Math.round(l.quantity * l.unitPrice);
+    return {
+      description: l.description,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      taxRate,
+      amount,
+    };
   });
   const subtotal = lineData.reduce((s, l) => s + l.amount, 0);
   const taxAmount = Math.round(lineData.reduce((s, l) => s + l.amount * l.taxRate, 0));

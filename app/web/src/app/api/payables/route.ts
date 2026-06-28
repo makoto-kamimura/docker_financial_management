@@ -7,16 +7,16 @@ export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
-  const sp     = req.nextUrl.searchParams;
+  const sp = req.nextUrl.searchParams;
   const status = sp.get("status");
-  const year   = sp.get("year") ? Number(sp.get("year")) : undefined;
+  const year = sp.get("year") ? Number(sp.get("year")) : undefined;
 
   const where: Record<string, unknown> = {};
   if (status && status !== "all") where.status = status;
   if (year) {
     where.issueDate = {
       gte: new Date(`${year}-01-01`),
-      lt:  new Date(`${year + 1}-01-01`),
+      lt: new Date(`${year + 1}-01-01`),
     };
   }
 
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     supplierName: string;
     description: string;
     amount: number;
@@ -43,18 +43,21 @@ export async function POST(req: NextRequest) {
   };
 
   if (!body.supplierName || !body.description || !body.amount || !body.issueDate || !body.dueDate) {
-    return NextResponse.json({ error: "supplierName, description, amount, issueDate, dueDate are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "supplierName, description, amount, issueDate, dueDate are required" },
+      { status: 400 },
+    );
   }
 
   const record = await prisma.payable.create({
     data: {
       supplierName: body.supplierName,
-      description:  body.description,
-      amount:       body.amount,
-      taxAmount:    body.taxAmount ?? 0,
-      issueDate:    new Date(body.issueDate),
-      dueDate:      new Date(body.dueDate),
-      note:         body.note ?? null,
+      description: body.description,
+      amount: body.amount,
+      taxAmount: body.taxAmount ?? 0,
+      issueDate: new Date(body.issueDate),
+      dueDate: new Date(body.dueDate),
+      note: body.note ?? null,
     },
   });
 
@@ -62,12 +65,17 @@ export async function POST(req: NextRequest) {
   const apAccount = await prisma.account.findFirst({ where: { code: "3000" } });
   if (apAccount) {
     const period = await prisma.period.upsert({
-      where:  { fiscalYear_month: { fiscalYear: record.issueDate.getFullYear(), month: record.issueDate.getMonth() + 1 } },
+      where: {
+        fiscalYear_month: {
+          fiscalYear: record.issueDate.getFullYear(),
+          month: record.issueDate.getMonth() + 1,
+        },
+      },
       update: {},
       create: {
         fiscalYear: record.issueDate.getFullYear(),
-        month:      record.issueDate.getMonth() + 1,
-        quarter:    Math.ceil((record.issueDate.getMonth() + 1) / 3),
+        month: record.issueDate.getMonth() + 1,
+        quarter: Math.ceil((record.issueDate.getMonth() + 1) / 3),
       },
     });
     await prisma.financialRecord.create({

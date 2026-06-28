@@ -8,23 +8,23 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     account: {
-      findMany:  vi.fn().mockResolvedValue([]),
+      findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
-      create:    vi.fn(),
-      update:    vi.fn(),
-      delete:    vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
     },
     taxSetting: {
-      findMany:  vi.fn().mockResolvedValue([]),
+      findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
-      upsert:    vi.fn(),
+      upsert: vi.fn(),
     },
     journalEntry: {
-      findMany:  vi.fn().mockResolvedValue([]),
+      findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
-      create:    vi.fn(),
-      delete:    vi.fn(),
-      update:    vi.fn(),
+      create: vi.fn(),
+      delete: vi.fn(),
+      update: vi.fn(),
     },
     journalDetail: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -34,15 +34,15 @@ vi.mock("@/lib/prisma", () => ({
     },
     businessProfile: {
       findFirst: vi.fn().mockResolvedValue(null),
-      upsert:    vi.fn(),
+      upsert: vi.fn(),
     },
     inventory: {
       findMany: vi.fn().mockResolvedValue([]),
-      create:   vi.fn(),
+      create: vi.fn(),
     },
     loan: {
-      findMany:   vi.fn().mockResolvedValue([]),
-      create:     vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
       findUnique: vi.fn().mockResolvedValue(null),
     },
     loanRepayment: {
@@ -50,11 +50,11 @@ vi.mock("@/lib/prisma", () => ({
     },
     tenant: {
       findMany: vi.fn().mockResolvedValue([]),
-      create:   vi.fn(),
+      create: vi.fn(),
     },
     officer: {
       findMany: vi.fn().mockResolvedValue([]),
-      create:   vi.fn(),
+      create: vi.fn(),
     },
     financialRecord: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -66,7 +66,7 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: vi.fn().mockResolvedValue(null),
     },
     $transaction: vi.fn().mockImplementation(async (ops: unknown[]) => {
-      return Promise.all(ops.map(op => (typeof op === "function" ? op() : op)));
+      return Promise.all(ops.map((op) => (typeof op === "function" ? op() : op)));
     }),
   },
 }));
@@ -80,7 +80,9 @@ vi.mock("@/lib/authz", () => ({
 
 // ── Redis モック（キャッシュ無効化）──────────────────────────────────────
 vi.mock("@/lib/redis", () => ({
-  withCache: vi.fn().mockImplementation(async (_key: string, _ttl: number, fn: () => unknown) => fn()),
+  withCache: vi
+    .fn()
+    .mockImplementation(async (_key: string, _ttl: number, fn: () => unknown) => fn()),
   invalidateCache: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -122,11 +124,15 @@ describe("PUT /api/tax-settings", () => {
   it("有効なボディで upsert を呼ぶ", async () => {
     const { prisma } = await import("@/lib/prisma");
     (prisma.taxSetting.upsert as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: 1, taxYear: 2026, taxationType: "general", simplifiedRate: null,
+      id: 1,
+      taxYear: 2026,
+      taxationType: "general",
+      simplifiedRate: null,
     });
     const { PUT } = await import("@/app/api/tax-settings/route");
     const req = makeReq("PUT", "http://localhost:3000/api/tax-settings", {
-      taxYear: 2026, taxationType: "general",
+      taxYear: 2026,
+      taxationType: "general",
     });
     const res = await PUT(req);
     expect(res.status).toBe(200);
@@ -156,11 +162,17 @@ describe("POST /api/inventories", () => {
   it("valuationMethod が保存される", async () => {
     const { prisma } = await import("@/lib/prisma");
     (prisma.inventory.create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: 1, name: "test", valuationMethod: "average", items: [],
+      id: 1,
+      name: "test",
+      valuationMethod: "average",
+      items: [],
     });
     const { POST } = await import("@/app/api/inventories/route");
     const req = makeReq("POST", "http://localhost:3000/api/inventories", {
-      name: "テスト棚卸", inventoryDate: "2026-06-01", valuationMethod: "average", items: [],
+      name: "テスト棚卸",
+      inventoryDate: "2026-06-01",
+      valuationMethod: "average",
+      items: [],
     });
     const res = await POST(req);
     expect(res.status).toBe(201);
@@ -203,7 +215,8 @@ describe("POST /api/journals/approve", () => {
   it("無効な action は 400 を返す", async () => {
     const { POST } = await import("@/app/api/journals/approve/route");
     const req = makeReq("POST", "http://localhost:3000/api/journals/approve", {
-      journalEntryId: 1, action: "invalid",
+      journalEntryId: 1,
+      action: "invalid",
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
@@ -217,7 +230,8 @@ describe("POST /api/journals/approve", () => {
     ]);
     const { POST } = await import("@/app/api/journals/approve/route");
     const req = makeReq("POST", "http://localhost:3000/api/journals/approve", {
-      journalEntryId: 1, action: "submit",
+      journalEntryId: 1,
+      action: "submit",
     });
     const res = await POST(req);
     expect(res.status).toBe(201);

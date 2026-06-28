@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const entry = await prisma.journalEntry.findUnique({
-    where:   { id: Number(id) },
+    where: { id: Number(id) },
     include: INCLUDE_DETAILS,
   });
   if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });

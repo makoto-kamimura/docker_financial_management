@@ -24,7 +24,7 @@ export async function PUT(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     taxYear: number;
     taxationType: string;
     simplifiedRate?: number | null;
@@ -35,9 +35,13 @@ export async function PUT(req: NextRequest) {
   }
 
   const setting = await prisma.taxSetting.upsert({
-    where:  { taxYear: body.taxYear },
+    where: { taxYear: body.taxYear },
     update: { taxationType: body.taxationType, simplifiedRate: body.simplifiedRate ?? null },
-    create: { taxYear: body.taxYear, taxationType: body.taxationType, simplifiedRate: body.simplifiedRate ?? null },
+    create: {
+      taxYear: body.taxYear,
+      taxationType: body.taxationType,
+      simplifiedRate: body.simplifiedRate ?? null,
+    },
   });
 
   return NextResponse.json({ data: setting });

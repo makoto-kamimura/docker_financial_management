@@ -6,7 +6,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
   const { id } = await params;
-  const body = await req.json() as { name?: string; title?: string; termStart?: string; termEnd?: string; salary?: number };
+  const body = (await req.json()) as {
+    name?: string;
+    title?: string;
+    termStart?: string;
+    termEnd?: string;
+    salary?: number;
+  };
   const officer = await prisma.officer.update({
     where: { id: Number(id) },
     data: {

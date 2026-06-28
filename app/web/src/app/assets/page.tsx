@@ -71,11 +71,12 @@ async function fetchAssets(): Promise<AssetsResponse> {
 export default function AssetsPage() {
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const toggle = (id: number) => setExpandedIds((prev) => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  });
+  const toggle = (id: number) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   const { data, isLoading } = useQuery({
     queryKey: ["assets"],
@@ -89,8 +90,14 @@ export default function AssetsPage() {
   const topAssets = accounts.filter((a) => a.category === "ASSET" && a.parentId === null);
   const topLiabs = accounts.filter((a) => a.category === "LIABILITY" && a.parentId === null);
 
-  const totalAsset = leafOf(accounts, "ASSET").reduce((s, a) => s + latestBalance(a.balances, year), 0);
-  const totalLiab = leafOf(accounts, "LIABILITY").reduce((s, a) => s + latestBalance(a.balances, year), 0);
+  const totalAsset = leafOf(accounts, "ASSET").reduce(
+    (s, a) => s + latestBalance(a.balances, year),
+    0,
+  );
+  const totalLiab = leafOf(accounts, "LIABILITY").reduce(
+    (s, a) => s + latestBalance(a.balances, year),
+    0,
+  );
   const netWorth = totalAsset - totalLiab;
 
   const trendData = buildTrendData(accounts, years);
@@ -114,7 +121,9 @@ export default function AssetsPage() {
               className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {years.map((y) => (
-                <option key={y} value={y}>{y}年</option>
+                <option key={y} value={y}>
+                  {y}年
+                </option>
               ))}
             </select>
           </div>
@@ -144,7 +153,9 @@ export default function AssetsPage() {
             </div>
             <div className="card text-center">
               <p className="text-xs text-slate-500 mb-1">純資産</p>
-              <p className={`text-2xl font-bold ${netWorth >= 0 ? "text-indigo-600" : "text-red-600"}`}>
+              <p
+                className={`text-2xl font-bold ${netWorth >= 0 ? "text-indigo-600" : "text-red-600"}`}
+              >
                 {yen(netWorth)}
               </p>
             </div>
@@ -161,9 +172,27 @@ export default function AssetsPage() {
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: number) => `${v.toLocaleString()}万円`} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="資産合計" stroke="#10b981" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="負債合計" stroke="#f43f5e" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="純資産" stroke="#6366f1" strokeWidth={2.5} dot={false} />
+                  <Line
+                    type="monotone"
+                    dataKey="資産合計"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="負債合計"
+                    stroke="#f43f5e"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="純資産"
+                    stroke="#6366f1"
+                    strokeWidth={2.5}
+                    dot={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -184,7 +213,10 @@ export default function AssetsPage() {
                 <tbody className="divide-y divide-slate-50">
                   {topAssets.map((a) => {
                     const children = childrenOf(a.id);
-                    const subtotal = children.reduce((s, c) => s + latestBalance(c.balances, year), 0);
+                    const subtotal = children.reduce(
+                      (s, c) => s + latestBalance(c.balances, year),
+                      0,
+                    );
                     const open = expandedIds.has(a.id);
                     return (
                       <>
@@ -195,24 +227,40 @@ export default function AssetsPage() {
                         >
                           <td className="py-2 text-slate-800">
                             <span className="inline-flex items-center gap-1">
-                              <svg className="w-3 h-3 text-slate-400 shrink-0 transition-transform" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
-                              <span className="text-xs font-mono text-slate-400 mr-1">{a.code}</span>
+                              <svg
+                                className="w-3 h-3 text-slate-400 shrink-0 transition-transform"
+                                style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                              <span className="text-xs font-mono text-slate-400 mr-1">
+                                {a.code}
+                              </span>
                               {a.name}
                             </span>
                           </td>
                           <td className="py-2 text-right text-emerald-700">{yen(subtotal)}</td>
                         </tr>
-                        {open && children.map((c) => (
-                          <tr key={c.id} className="text-slate-600">
-                            <td className="py-1.5 pl-6">
-                              <span className="text-xs font-mono text-slate-300 mr-2">{c.code}</span>
-                              {c.name}
-                            </td>
-                            <td className="py-1.5 text-right">
-                              {yen(latestBalance(c.balances, year))}
-                            </td>
-                          </tr>
-                        ))}
+                        {open &&
+                          children.map((c) => (
+                            <tr key={c.id} className="text-slate-600">
+                              <td className="py-1.5 pl-6">
+                                <span className="text-xs font-mono text-slate-300 mr-2">
+                                  {c.code}
+                                </span>
+                                {c.name}
+                              </td>
+                              <td className="py-1.5 text-right">
+                                {yen(latestBalance(c.balances, year))}
+                              </td>
+                            </tr>
+                          ))}
                       </>
                     );
                   })}
@@ -238,7 +286,10 @@ export default function AssetsPage() {
                   <tbody className="divide-y divide-slate-50">
                     {topLiabs.map((a) => {
                       const children = childrenOf(a.id);
-                      const subtotal = children.reduce((s, c) => s + latestBalance(c.balances, year), 0);
+                      const subtotal = children.reduce(
+                        (s, c) => s + latestBalance(c.balances, year),
+                        0,
+                      );
                       const open = expandedIds.has(a.id);
                       return (
                         <>
@@ -249,24 +300,40 @@ export default function AssetsPage() {
                           >
                             <td className="py-2 text-slate-800">
                               <span className="inline-flex items-center gap-1">
-                                <svg className="w-3 h-3 text-slate-400 shrink-0 transition-transform" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
-                                <span className="text-xs font-mono text-slate-400 mr-1">{a.code}</span>
+                                <svg
+                                  className="w-3 h-3 text-slate-400 shrink-0 transition-transform"
+                                  style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
+                                  viewBox="0 0 20 20"
+                                  fill="currentColor"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                                <span className="text-xs font-mono text-slate-400 mr-1">
+                                  {a.code}
+                                </span>
                                 {a.name}
                               </span>
                             </td>
                             <td className="py-2 text-right text-rose-700">{yen(subtotal)}</td>
                           </tr>
-                          {open && children.map((c) => (
-                            <tr key={c.id} className="text-slate-600">
-                              <td className="py-1.5 pl-6">
-                                <span className="text-xs font-mono text-slate-300 mr-2">{c.code}</span>
-                                {c.name}
-                              </td>
-                              <td className="py-1.5 text-right">
-                                {yen(latestBalance(c.balances, year))}
-                              </td>
-                            </tr>
-                          ))}
+                          {open &&
+                            children.map((c) => (
+                              <tr key={c.id} className="text-slate-600">
+                                <td className="py-1.5 pl-6">
+                                  <span className="text-xs font-mono text-slate-300 mr-2">
+                                    {c.code}
+                                  </span>
+                                  {c.name}
+                                </td>
+                                <td className="py-1.5 text-right">
+                                  {yen(latestBalance(c.balances, year))}
+                                </td>
+                              </tr>
+                            ))}
                         </>
                       );
                     })}

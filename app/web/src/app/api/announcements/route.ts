@@ -17,12 +17,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
-  const body = await req.json() as {
-    tenantId: number; announcementDate: string; method?: string;
-    content?: string; fiscalYear: number;
+  const body = (await req.json()) as {
+    tenantId: number;
+    announcementDate: string;
+    method?: string;
+    content?: string;
+    fiscalYear: number;
   };
   if (!body.tenantId || !body.announcementDate || !body.fiscalYear) {
-    return NextResponse.json({ error: "tenantId, announcementDate, fiscalYear are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "tenantId, announcementDate, fiscalYear are required" },
+      { status: 400 },
+    );
   }
   const ann = await prisma.announcement.create({
     data: {

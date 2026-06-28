@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  base32Decode,
-  base32Encode,
-  generateTotpSecret,
-  otpauthUri,
-  verifyTotp,
-} from "@/lib/totp";
+import { base32Decode, base32Encode, generateTotpSecret, otpauthUri, verifyTotp } from "@/lib/totp";
 
 describe("base32", () => {
   it("エンコード→デコードで元のバイト列に戻る", () => {

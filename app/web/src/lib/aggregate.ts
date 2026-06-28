@@ -15,7 +15,10 @@ export type AggregateBucket = {
 };
 
 // 指定した粒度で期間ごとに金額を合計する
-export function aggregate(records: RecordWithPeriod[], granularity: Granularity): AggregateBucket[] {
+export function aggregate(
+  records: RecordWithPeriod[],
+  granularity: Granularity,
+): AggregateBucket[] {
   const byKey = new Map<string, number>();
 
   for (const r of records) {

@@ -8,12 +8,14 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const year = req.nextUrl.searchParams.get("year");
-  const where = year ? {
-    inventoryDate: {
-      gte: new Date(`${year}-01-01`),
-      lt:  new Date(`${Number(year) + 1}-01-01`),
-    },
-  } : {};
+  const where = year
+    ? {
+        inventoryDate: {
+          gte: new Date(`${year}-01-01`),
+          lt: new Date(`${Number(year) + 1}-01-01`),
+        },
+      }
+    : {};
 
   const inventories = await prisma.inventory.findMany({
     where,
@@ -28,15 +30,15 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
-    name:             string;
-    inventoryDate:    string;
+  const body = (await req.json()) as {
+    name: string;
+    inventoryDate: string;
     valuationMethod?: string;
     items?: {
-      itemName:  string;
+      itemName: string;
       itemType?: string;
-      quantity:  number;
-      unit?:     string;
+      quantity: number;
+      unit?: string;
       unitPrice: number;
     }[];
   };
@@ -45,12 +47,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "name and inventoryDate are required" }, { status: 400 });
   }
 
-  const items = (body.items ?? []).map(i => ({
-    itemName:    i.itemName,
-    itemType:    i.itemType ?? "product",
-    quantity:    i.quantity,
-    unit:        i.unit ?? "個",
-    unitPrice:   i.unitPrice,
+  const items = (body.items ?? []).map((i) => ({
+    itemName: i.itemName,
+    itemType: i.itemType ?? "product",
+    quantity: i.quantity,
+    unit: i.unit ?? "個",
+    unitPrice: i.unitPrice,
     totalAmount: i.quantity * i.unitPrice,
   }));
 
@@ -58,8 +60,8 @@ export async function POST(req: NextRequest) {
 
   const inventory = await prisma.inventory.create({
     data: {
-      name:            body.name,
-      inventoryDate:   new Date(body.inventoryDate),
+      name: body.name,
+      inventoryDate: new Date(body.inventoryDate),
       valuationMethod: body.valuationMethod ?? "last_purchase",
       totalAmount,
       items: items.length > 0 ? { create: items } : undefined,

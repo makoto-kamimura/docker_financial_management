@@ -9,11 +9,11 @@ export type FlowGraph = {
 };
 
 // ── レイアウト定数 ─────────────────────────────────────────────────────
-const NW  = 118;   // ノード幅
-const NH  = 48;    // ノード高さ
-const RG  = 14;    // 同列ノード間の縦ギャップ
-const CG  = 96;    // 列間水平ギャップ
-const PAD = 22;    // 外側余白
+const NW = 118; // ノード幅
+const NH = 48; // ノード高さ
+const RG = 14; // 同列ノード間の縦ギャップ
+const CG = 96; // 列間水平ギャップ
+const PAD = 22; // 外側余白
 
 // ── ユーティリティ ────────────────────────────────────────────────────
 function manFmt(v: number) {
@@ -23,8 +23,8 @@ function manFmt(v: number) {
 
 /** トポロジカル順 + 最長パス深さ */
 function computeDepths(N: number, links: FlowGraph["links"]): number[] {
-  const depth   = Array(N).fill(0);
-  const adj     = Array.from({ length: N }, (): number[] => []);
+  const depth = Array(N).fill(0);
+  const adj = Array.from({ length: N }, (): number[] => []);
   const indegree = Array(N).fill(0);
   for (const { source, target } of links) {
     adj[source].push(target);
@@ -43,14 +43,17 @@ function computeDepths(N: number, links: FlowGraph["links"]): number[] {
 }
 
 /** 外部ノード（名前が 外部（…）形式）かどうか */
-function isExternal(name: string) { return name.startsWith("外部（"); }
+function isExternal(name: string) {
+  return name.startsWith("外部（");
+}
 
 // ── メインコンポーネント ──────────────────────────────────────────────
 export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
   if (!data || data.nodes.length === 0) {
     return (
       <p className="text-sm text-slate-400 py-10 text-center">
-        口座間の資金移動が登録されていません。<br />
+        口座間の資金移動が登録されていません。
+        <br />
         「カレンダー」タブで口座間フローを設定してください。
       </p>
     );
@@ -76,7 +79,7 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
   const nodePos: { x: number; y: number }[] = Array(N);
   for (let ci = 0; ci < cols.length; ci++) {
     const col = cols[ci];
-    const h   = colH(col);
+    const h = colH(col);
     let y = PAD + (maxColH - h) / 2;
     for (const ni of col) {
       nodePos[ni] = { x: colX[ci], y };
@@ -90,17 +93,17 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
   // ノードカラー
   function nodeColors(ni: number) {
     const name = nodes[ni].name;
-    const d    = depth[ni];
+    const d = depth[ni];
     if (isExternal(name)) {
       return d === 0
-        ? { fill: "#d1fae5", stroke: "#34d399", text: "#065f46" }  // 入金元 = 緑
+        ? { fill: "#d1fae5", stroke: "#34d399", text: "#065f46" } // 入金元 = 緑
         : { fill: "#fee2e2", stroke: "#f87171", text: "#991b1b" }; // 支出先 = 赤
     }
     return { fill: "#eef2ff", stroke: "#818cf8", text: "#3730a3" }; // 銀行口座 = インディゴ
   }
 
   // エッジの最大値（ストローク幅スケール用）
-  const maxVal = Math.max(...links.map(l => l.value), 1);
+  const maxVal = Math.max(...links.map((l) => l.value), 1);
 
   // ノードごとの出力リンクを y 順にソートして、開始点をノード内でオフセット
   const outByNode: Map<number, { target: number; value: number }[]> = new Map();
@@ -114,14 +117,14 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
 
   // エッジ描画パラメータ計算
   const edgeParams = links.map(({ source, target, value }) => {
-    const outs  = outByNode.get(source) ?? [];
-    const idx   = outs.findIndex(o => o.target === target);
+    const outs = outByNode.get(source) ?? [];
+    const idx = outs.findIndex((o) => o.target === target);
     const total = outs.length;
 
     const s = nodePos[source];
     const t = nodePos[target];
     // 出発点: ノード右端、Y はリンク数で均等割り
-    const y1 = s.y + NH * (idx + 1) / (total + 1);
+    const y1 = s.y + (NH * (idx + 1)) / (total + 1);
     const y2 = t.y + NH / 2;
     const x1 = s.x + NW;
     const x2 = t.x;
@@ -162,8 +165,10 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
             />
             {/* 金額ラベル（背景付き） */}
             <rect
-              x={lx - 18} y={ly - 10}
-              width={36} height={14}
+              x={lx - 18}
+              y={ly - 10}
+              width={36}
+              height={14}
               rx={3}
               fill="white"
               opacity={0.85}
@@ -191,15 +196,12 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
           return (
             <g key={ni}>
               {/* ドロップシャドウ */}
+              <rect x={x + 1} y={y + 2} width={NW} height={NH} rx={8} fill="rgba(0,0,0,0.07)" />
               <rect
-                x={x + 1} y={y + 2}
-                width={NW} height={NH}
-                rx={8}
-                fill="rgba(0,0,0,0.07)"
-              />
-              <rect
-                x={x} y={y}
-                width={NW} height={NH}
+                x={x}
+                y={y}
+                width={NW}
+                height={NH}
                 rx={8}
                 fill={c.fill}
                 stroke={c.stroke}
@@ -223,17 +225,21 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
 
       {/* 凡例 */}
       <div className="flex gap-4 mt-3 px-1 flex-wrap">
-        {([
-          { fill: "#d1fae5", stroke: "#34d399", text: "#065f46", label: "入金元（外部）" },
-          { fill: "#eef2ff", stroke: "#818cf8", text: "#3730a3", label: "銀行口座" },
-          { fill: "#fee2e2", stroke: "#f87171", text: "#991b1b", label: "支出先（外部）" },
-        ] as const).map(({ fill, stroke, text, label }) => (
+        {(
+          [
+            { fill: "#d1fae5", stroke: "#34d399", text: "#065f46", label: "入金元（外部）" },
+            { fill: "#eef2ff", stroke: "#818cf8", text: "#3730a3", label: "銀行口座" },
+            { fill: "#fee2e2", stroke: "#f87171", text: "#991b1b", label: "支出先（外部）" },
+          ] as const
+        ).map(({ fill, stroke, text, label }) => (
           <div key={label} className="flex items-center gap-1.5 text-xs text-slate-600">
             <span
               className="w-4 h-4 rounded"
               style={{ background: fill, border: `1.5px solid ${stroke}` }}
             />
-            <span style={{ color: text }} className="font-medium">{label}</span>
+            <span style={{ color: text }} className="font-medium">
+              {label}
+            </span>
           </div>
         ))}
         <span className="text-xs text-slate-400 ml-auto">矢印の太さ ∝ 金額</span>

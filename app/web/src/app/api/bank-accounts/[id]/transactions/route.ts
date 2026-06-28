@@ -16,7 +16,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     take: 200,
   });
   return NextResponse.json({
-    data: txns.map((t) => ({ ...t, amount: Number(t.amount), balance: t.balance ? Number(t.balance) : null })),
+    data: txns.map((t) => ({
+      ...t,
+      amount: Number(t.amount),
+      balance: t.balance ? Number(t.balance) : null,
+    })),
   });
 }
 
@@ -34,22 +38,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const ct = req.headers.get("content-type") ?? "";
 
   if (ct.includes("application/json")) {
-    const body = await req.json() as { date: string; description: string; amount: number; balance?: number | null };
+    const body = (await req.json()) as {
+      date: string;
+      description: string;
+      amount: number;
+      balance?: number | null;
+    };
     if (!body.date || !body.description || body.amount == null) {
       return NextResponse.json({ error: "date, description, amount は必須です" }, { status: 400 });
     }
     const txn = await prisma.bankTransaction.create({
       data: {
         accountId,
-        date:        new Date(body.date),
+        date: new Date(body.date),
         description: body.description,
-        amount:      body.amount,
-        balance:     body.balance ?? null,
-        source:      "MANUAL",
+        amount: body.amount,
+        balance: body.balance ?? null,
+        source: "MANUAL",
       },
     });
     await writeAudit(auth.user.id, "create_txn", `bank_account:${accountId}:${txn.id}`);
-    return NextResponse.json({ data: { ...txn, amount: Number(txn.amount), balance: txn.balance ? Number(txn.balance) : null } }, { status: 201 });
+    return NextResponse.json(
+      {
+        data: {
+          ...txn,
+          amount: Number(txn.amount),
+          balance: txn.balance ? Number(txn.balance) : null,
+        },
+      },
+      { status: 201 },
+    );
   }
 
   const csv = await req.text();
@@ -63,12 +81,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       update: {},
       create: {
         accountId,
-        date:        new Date(r.date),
+        date: new Date(r.date),
         description: r.description,
-        amount:      r.amount,
-        balance:     r.balance,
-        source:      "CSV",
-        externalId:  r.externalId,
+        amount: r.amount,
+        balance: r.balance,
+        source: "CSV",
+        externalId: r.externalId,
       },
     });
     if (created) inserted++;
@@ -83,7 +101,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (auth.error) return auth.error;
 
   const accountId = Number((await params).id);
-  const txnId    = Number(req.nextUrl.searchParams.get("txnId"));
+  const txnId = Number(req.nextUrl.searchParams.get("txnId"));
   if (!txnId) return NextResponse.json({ error: "txnId が必要です" }, { status: 400 });
 
   await prisma.bankTransaction.delete({ where: { id: txnId, accountId } });

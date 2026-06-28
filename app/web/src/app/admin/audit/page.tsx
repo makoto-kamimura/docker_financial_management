@@ -35,7 +35,10 @@ export default function AuditPage() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 {["日時", "ユーザー ID", "操作", "対象"].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                  <th
+                    key={h}
+                    className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide"
+                  >
                     {h}
                   </th>
                 ))}

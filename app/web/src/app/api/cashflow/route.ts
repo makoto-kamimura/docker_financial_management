@@ -13,10 +13,9 @@ export async function GET(req: NextRequest) {
 
   const yearParam = req.nextUrl.searchParams.get("year");
   const modeParam = req.nextUrl.searchParams.get("mode") as SysMode | null;
-  const year  = yearParam ? Number(yearParam) : undefined;
-  const mode: SysMode = modeParam && ["household", "sole", "corporate"].includes(modeParam)
-    ? modeParam
-    : "sole";
+  const year = yearParam ? Number(yearParam) : undefined;
+  const mode: SysMode =
+    modeParam && ["household", "sole", "corporate"].includes(modeParam) ? modeParam : "sole";
 
   const records = await prisma.financialRecord.findMany({
     where: year ? { period: { fiscalYear: year } } : undefined,

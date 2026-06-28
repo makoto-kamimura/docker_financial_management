@@ -6,29 +6,33 @@ export type CashFlowGraph = { nodes: CashFlowNode[]; links: CashFlowLink[] };
 export type SysMode = "household" | "sole" | "corporate";
 
 export type CashFlowLabels = {
-  revenue: string; cogs: string; grossProfit: string; expense: string; operatingProfit: string;
+  revenue: string;
+  cogs: string;
+  grossProfit: string;
+  expense: string;
+  operatingProfit: string;
 };
 
 export const MODE_LABELS: Record<SysMode, CashFlowLabels> = {
   household: {
-    revenue:         "収入",
-    cogs:            "変動費",
-    grossProfit:     "収支差額",
-    expense:         "固定費",
+    revenue: "収入",
+    cogs: "変動費",
+    grossProfit: "収支差額",
+    expense: "固定費",
     operatingProfit: "手残り",
   },
   sole: {
-    revenue:         "売上",
-    cogs:            "仕入・変動費",
-    grossProfit:     "粗利",
-    expense:         "経費",
+    revenue: "売上",
+    cogs: "仕入・変動費",
+    grossProfit: "粗利",
+    expense: "経費",
     operatingProfit: "事業利益",
   },
   corporate: {
-    revenue:         "売上高",
-    cogs:            "売上原価",
-    grossProfit:     "売上総利益",
-    expense:         "販管費",
+    revenue: "売上高",
+    cogs: "売上原価",
+    grossProfit: "売上総利益",
+    expense: "販管費",
     operatingProfit: "営業利益",
   },
 };
@@ -69,14 +73,14 @@ function graphFromEdges(edges: { from: string; to: string; value: number }[]): C
 // 収入・支出から資金フロー図を組み立てる。モードに応じてノード名を切り替える。
 export function buildCashFlow(input: CashFlowInput, mode: SysMode = "sole"): CashFlowResult {
   const L = MODE_LABELS[mode];
-  const grossProfit    = input.revenue - input.cogs;
+  const grossProfit = input.revenue - input.cogs;
   const operatingProfit = grossProfit - input.expense;
 
   const graph = graphFromEdges([
-    { from: L.revenue,    to: L.cogs,            value: input.cogs },
-    { from: L.revenue,    to: L.grossProfit,      value: grossProfit },
-    { from: L.grossProfit, to: L.expense,          value: input.expense },
-    { from: L.grossProfit, to: L.operatingProfit,  value: operatingProfit },
+    { from: L.revenue, to: L.cogs, value: input.cogs },
+    { from: L.revenue, to: L.grossProfit, value: grossProfit },
+    { from: L.grossProfit, to: L.expense, value: input.expense },
+    { from: L.grossProfit, to: L.operatingProfit, value: operatingProfit },
   ]);
 
   return { graph, grossProfit, operatingProfit, labels: L };

@@ -15,9 +15,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
   const { id } = await params;
-  const body = await req.json() as {
-    type?: string; name?: string; corporateNumber?: string;
-    capitalAmount?: number; establishedOn?: string; closingMonth?: number;
+  const body = (await req.json()) as {
+    type?: string;
+    name?: string;
+    corporateNumber?: string;
+    capitalAmount?: number;
+    establishedOn?: string;
+    closingMonth?: number;
   };
   const tenant = await prisma.tenant.update({
     where: { id: Number(id) },

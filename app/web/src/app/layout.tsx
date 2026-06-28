@@ -17,9 +17,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           メインコンテンツへスキップ
         </a>
         <Providers>
-          <div id="main-content">
-            {children}
-          </div>
+          <div id="main-content">{children}</div>
         </Providers>
       </body>
     </html>

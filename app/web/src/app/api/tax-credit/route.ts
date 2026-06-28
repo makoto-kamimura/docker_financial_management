@@ -17,34 +17,34 @@ export async function GET(req: NextRequest) {
       journalEntry: {
         transactionDate: {
           gte: new Date(`${year}-01-01`),
-          lt:  new Date(`${year + 1}-01-01`),
+          lt: new Date(`${year + 1}-01-01`),
         },
       },
     },
     select: {
-      amount:           true,
-      taxRate:          true,
+      amount: true,
+      taxRate: true,
       taxCreditEligible: true,
-      account:          { select: { code: true, name: true, category: true } },
-      journalEntry:     { select: { transactionDate: true, description: true } },
+      account: { select: { code: true, name: true, category: true } },
+      journalEntry: { select: { transactionDate: true, description: true } },
     },
   });
 
-  let eligibleTax    = 0;
-  let ineligibleTax  = 0;
-  let eligibleBase   = 0;
+  let eligibleTax = 0;
+  let ineligibleTax = 0;
+  let eligibleBase = 0;
   let ineligibleBase = 0;
 
   for (const d of details) {
-    const rate   = Number(d.taxRate);
-    const base   = Number(d.amount);
+    const rate = Number(d.taxRate);
+    const base = Number(d.amount);
     const taxAmt = Math.floor(base * rate);
     if (d.taxCreditEligible) {
       eligibleBase += base;
-      eligibleTax  += taxAmt;
+      eligibleTax += taxAmt;
     } else {
       ineligibleBase += base;
-      ineligibleTax  += taxAmt;
+      ineligibleTax += taxAmt;
     }
   }
 
@@ -55,8 +55,8 @@ export async function GET(req: NextRequest) {
       eligibleTax,
       ineligibleBase,
       ineligibleTax,
-      totalPurchaseTax:   eligibleTax + ineligibleTax,
-      creditableTax:      eligibleTax,
+      totalPurchaseTax: eligibleTax + ineligibleTax,
+      creditableTax: eligibleTax,
       details: details.length,
     },
   });

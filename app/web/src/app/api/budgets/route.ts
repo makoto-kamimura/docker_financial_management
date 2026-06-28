@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
   const { accountCode, fiscalYear, month, amount } = parsed.data;
 
   const account = await prisma.account.findUnique({ where: { code: accountCode } });
-  if (!account) return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
+  if (!account)
+    return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
 
   const period = await prisma.period.upsert({
     where: { fiscalYear_month: { fiscalYear, month } },

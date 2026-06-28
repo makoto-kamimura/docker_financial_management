@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
-import { buildTransferFlow, hasCycle, CHANNEL_LABELS, type TransferInput, type TransferChannel } from "@/lib/transferflow";
+import {
+  buildTransferFlow,
+  hasCycle,
+  CHANNEL_LABELS,
+  type TransferInput,
+  type TransferChannel,
+} from "@/lib/transferflow";
 
 // GET /api/transfers/flow … 登録済みの資金移動から口座間フロー図(Sankey)を自動生成する。
 export async function GET() {

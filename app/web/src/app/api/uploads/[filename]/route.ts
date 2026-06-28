@@ -20,7 +20,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const ext = safe.split(".").pop()?.toLowerCase() ?? "";
   const contentTypes: Record<string, string> = {
     pdf: "application/pdf",
-    jpg: "image/jpeg", jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
     png: "image/png",
     gif: "image/gif",
     webp: "image/webp",

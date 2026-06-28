@@ -16,17 +16,28 @@ type BudgetResponse = { data: BudgetRow[]; years: number[] };
 type ImportResult = { imported: number; errors: string[] };
 type Tab = "manual" | "csv";
 
-const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
+const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const yen = (v: number) => Math.round(v).toLocaleString("ja-JP");
-const CATEGORY_ORDER = ["REVENUE","COGS","EXPENSE","PROFIT","OTHER","ASSET","LIABILITY"] as const;
+const CATEGORY_ORDER = [
+  "REVENUE",
+  "COGS",
+  "EXPENSE",
+  "PROFIT",
+  "OTHER",
+  "ASSET",
+  "LIABILITY",
+] as const;
 
 const now = new Date();
 const THIS_YEAR = now.getFullYear();
 
-function groupByAccount(rows: BudgetRow[]): Map<string, { account: BudgetRow["account"]; byMonth: Map<number, BudgetRow> }> {
+function groupByAccount(
+  rows: BudgetRow[],
+): Map<string, { account: BudgetRow["account"]; byMonth: Map<number, BudgetRow> }> {
   const map = new Map<string, { account: BudgetRow["account"]; byMonth: Map<number, BudgetRow> }>();
   for (const r of rows) {
-    if (!map.has(r.account.code)) map.set(r.account.code, { account: r.account, byMonth: new Map() });
+    if (!map.has(r.account.code))
+      map.set(r.account.code, { account: r.account, byMonth: new Map() });
     map.get(r.account.code)!.byMonth.set(r.period.month, r);
   }
   return map;
@@ -45,10 +56,10 @@ export default function BudgetPage() {
 
   // CSV インポート
   const fileRef = useRef<HTMLInputElement>(null);
-  const [importing, setImporting]       = useState(false);
+  const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [importError, setImportError]   = useState<string | null>(null);
-  const [dragOver, setDragOver]         = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["budgets", selectedYear],
@@ -70,8 +81,17 @@ export default function BudgetPage() {
   const sortedAccounts = accounts
     ? accounts
         .filter((a) => grouped.has(a.code))
-        .sort((a, b) => CATEGORY_ORDER.indexOf(a.category as never) - CATEGORY_ORDER.indexOf(b.category as never))
-    : Array.from(grouped.values()).map((g) => ({ id: 0, code: g.account.code, name: g.account.name, category: "" }));
+        .sort(
+          (a, b) =>
+            CATEGORY_ORDER.indexOf(a.category as never) -
+            CATEGORY_ORDER.indexOf(b.category as never),
+        )
+    : Array.from(grouped.values()).map((g) => ({
+        id: 0,
+        code: g.account.code,
+        name: g.account.name,
+        category: "",
+      }));
 
   async function addBudget(e: { preventDefault(): void }) {
     e.preventDefault();
@@ -118,7 +138,7 @@ export default function BudgetPage() {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch("/api/budgets/import", { method: "POST", body: fd });
-      setImportResult(await res.json() as ImportResult);
+      setImportResult((await res.json()) as ImportResult);
       qc.invalidateQueries({ queryKey: ["budgets"] });
     } catch {
       setImportError("ファイルの送信中にエラーが発生しました。");
@@ -156,7 +176,11 @@ export default function BudgetPage() {
               onChange={(e) => setSelectedYear(Number(e.target.value))}
               className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              {data?.years.map((y) => <option key={y} value={y}>{y}年度</option>)}
+              {data?.years.map((y) => (
+                <option key={y} value={y}>
+                  {y}年度
+                </option>
+              ))}
             </select>
           </div>
         )}
@@ -194,7 +218,11 @@ export default function BudgetPage() {
                 className="input-field"
               >
                 <option value="">選択してください</option>
-                {accounts?.map((a) => <option key={a.code} value={a.code}>{a.code} {a.name}</option>)}
+                {accounts?.map((a) => (
+                  <option key={a.code} value={a.code}>
+                    {a.code} {a.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex flex-col gap-1 w-24">
@@ -204,7 +232,11 @@ export default function BudgetPage() {
                 onChange={(e) => setForm({ ...form, month: Number(e.target.value) })}
                 className="input-field"
               >
-                {MONTHS.map((m) => <option key={m} value={m}>{m}月</option>)}
+                {MONTHS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}月
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex flex-col gap-1 w-40">
@@ -218,7 +250,9 @@ export default function BudgetPage() {
                 className="input-field"
               />
             </div>
-            <button type="submit" className="btn-primary px-5 py-2 self-end ml-auto">登録</button>
+            <button type="submit" className="btn-primary px-5 py-2 self-end ml-auto">
+              登録
+            </button>
           </form>
         </div>
       )}
@@ -228,15 +262,26 @@ export default function BudgetPage() {
         <div className="max-w-2xl space-y-6 mb-6">
           {/* ドロップゾーン */}
           <div
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
             onDragLeave={() => setDragOver(false)}
             onDrop={onDrop}
             onClick={() => fileRef.current?.click()}
             className={`card cursor-pointer border-2 border-dashed transition-colors text-center py-12 ${
-              dragOver ? "border-indigo-400 bg-indigo-50" : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
+              dragOver
+                ? "border-indigo-400 bg-indigo-50"
+                : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
             }`}
           >
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={onFileChange} />
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={onFileChange}
+            />
             {importing ? (
               <div className="space-y-2">
                 <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
@@ -245,7 +290,9 @@ export default function BudgetPage() {
             ) : (
               <div className="space-y-2">
                 <p className="text-3xl">📂</p>
-                <p className="text-sm font-medium text-slate-700">クリックしてファイルを選択 または ドラッグ＆ドロップ</p>
+                <p className="text-sm font-medium text-slate-700">
+                  クリックしてファイルを選択 または ドラッグ＆ドロップ
+                </p>
                 <p className="text-xs text-slate-400">CSV ファイル (.csv) に対応</p>
               </div>
             )}
@@ -253,20 +300,28 @@ export default function BudgetPage() {
 
           {/* インポート結果 */}
           {importResult && (
-            <div className={`card border ${importResult.errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}>
+            <div
+              className={`card border ${importResult.errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}
+            >
               <div className="flex items-center gap-3 mb-2">
                 <span className="text-2xl">{importResult.errors.length === 0 ? "✅" : "⚠️"}</span>
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">{importResult.imported.toLocaleString()} 件をインポートしました</p>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {importResult.imported.toLocaleString()} 件をインポートしました
+                  </p>
                   {importResult.errors.length > 0 && (
-                    <p className="text-xs text-amber-700">{importResult.errors.length} 件のエラーがあります</p>
+                    <p className="text-xs text-amber-700">
+                      {importResult.errors.length} 件のエラーがあります
+                    </p>
                   )}
                 </div>
               </div>
               {importResult.errors.length > 0 && (
                 <ul className="mt-2 max-h-40 overflow-y-auto space-y-1">
                   {importResult.errors.map((e, i) => (
-                    <li key={i} className="text-xs text-amber-800 bg-amber-100 rounded px-2 py-1">{e}</li>
+                    <li key={i} className="text-xs text-amber-800 bg-amber-100 rounded px-2 py-1">
+                      {e}
+                    </li>
                   ))}
                 </ul>
               )}
@@ -286,10 +341,19 @@ H1000,${THIS_YEAR},1,400000
 H2000,${THIS_YEAR},1,65000
 H3000,${THIS_YEAR},1,115000`}</pre>
             <ul className="mt-3 space-y-1 text-xs text-slate-500">
-              <li><span className="font-medium">accountCode</span>：勘定科目コード（マスタに登録済みのもの）</li>
-              <li><span className="font-medium">fiscalYear</span>：会計年度（例: {THIS_YEAR}）</li>
-              <li><span className="font-medium">month</span>：月（1〜12）</li>
-              <li><span className="font-medium">amount</span>：予算金額（円）</li>
+              <li>
+                <span className="font-medium">accountCode</span>
+                ：勘定科目コード（マスタに登録済みのもの）
+              </li>
+              <li>
+                <span className="font-medium">fiscalYear</span>：会計年度（例: {THIS_YEAR}）
+              </li>
+              <li>
+                <span className="font-medium">month</span>：月（1〜12）
+              </li>
+              <li>
+                <span className="font-medium">amount</span>：予算金額（円）
+              </li>
             </ul>
           </div>
         </div>
@@ -299,7 +363,10 @@ H3000,${THIS_YEAR},1,115000`}</pre>
       {isLoading && <LoadingSpinner />}
 
       {!isLoading && sortedAccounts.length === 0 && (
-        <EmptyState title="予算データがありません" description="手入力またはCSVインポートで予算を登録してください。" />
+        <EmptyState
+          title="予算データがありません"
+          description="手入力またはCSVインポートで予算を登録してください。"
+        />
       )}
 
       {sortedAccounts.length > 0 && (
@@ -308,18 +375,30 @@ H3000,${THIS_YEAR},1,115000`}</pre>
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="sticky left-0 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-600 min-w-44">勘定科目</th>
+                  <th className="sticky left-0 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-600 min-w-44">
+                    勘定科目
+                  </th>
                   {MONTHS.map((m) => (
-                    <th key={m} className="px-3 py-3 text-right text-xs font-semibold text-slate-600 whitespace-nowrap min-w-24">{m}月</th>
+                    <th
+                      key={m}
+                      className="px-3 py-3 text-right text-xs font-semibold text-slate-600 whitespace-nowrap min-w-24"
+                    >
+                      {m}月
+                    </th>
                   ))}
-                  <th className="px-3 py-3 text-right text-xs font-semibold text-slate-600 min-w-28">年間合計</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold text-slate-600 min-w-28">
+                    年間合計
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {sortedAccounts.map((acct) => {
                   const g = grouped.get(acct.code);
                   if (!g) return null;
-                  const annual = MONTHS.reduce((s, m) => s + (Number(g.byMonth.get(m)?.amount) || 0), 0);
+                  const annual = MONTHS.reduce(
+                    (s, m) => s + (Number(g.byMonth.get(m)?.amount) || 0),
+                    0,
+                  );
                   return (
                     <tr key={acct.code} className="hover:bg-slate-50 group">
                       <td className="sticky left-0 bg-white group-hover:bg-slate-50 px-4 py-2 font-medium">
@@ -336,24 +415,37 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                 <input
                                   type="number"
                                   value={editCell.amount}
-                                  onChange={(e) => setEditCell({ ...editCell, amount: e.target.value })}
-                                  onKeyDown={(e) => { if (e.key === "Enter") saveCell(); if (e.key === "Escape") setEditCell(null); }}
+                                  onChange={(e) =>
+                                    setEditCell({ ...editCell, amount: e.target.value })
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") saveCell();
+                                    if (e.key === "Escape") setEditCell(null);
+                                  }}
                                   autoFocus
                                   className="w-24 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
                                 />
-                                <button onClick={saveCell} className="text-xs text-indigo-600">✓</button>
+                                <button onClick={saveCell} className="text-xs text-indigo-600">
+                                  ✓
+                                </button>
                               </div>
                             ) : cell ? (
                               <div className="flex items-center justify-end gap-1 group/cell">
                                 <span>{yen(Number(cell.amount))}</span>
                                 <button
-                                  onClick={() => setEditCell({ id: cell.id, amount: String(cell.amount) })}
+                                  onClick={() =>
+                                    setEditCell({ id: cell.id, amount: String(cell.amount) })
+                                  }
                                   className="text-xs text-slate-300 hover:text-indigo-500 opacity-0 group-hover/cell:opacity-100"
-                                >✏️</button>
+                                >
+                                  ✏️
+                                </button>
                                 <button
                                   onClick={() => deleteBudget(cell.id)}
                                   className="text-xs text-slate-300 hover:text-red-500 opacity-0 group-hover/cell:opacity-100"
-                                >✕</button>
+                                >
+                                  ✕
+                                </button>
                               </div>
                             ) : (
                               <span className="text-slate-300">—</span>

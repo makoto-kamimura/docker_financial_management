@@ -27,43 +27,60 @@ export async function GET(req: NextRequest) {
     totals[cat] = (totals[cat] ?? 0) + Number(r.amount);
   }
 
-  const revenue  = totals["REVENUE"]  ?? 0;
-  const cogs     = totals["COGS"]     ?? 0;
-  const expense  = totals["EXPENSE"]  ?? 0;
+  const revenue = totals["REVENUE"] ?? 0;
+  const cogs = totals["COGS"] ?? 0;
+  const expense = totals["EXPENSE"] ?? 0;
   const grossProfit = revenue - cogs;
-  const netIncome   = grossProfit - expense;
+  const netIncome = grossProfit - expense;
 
-  const now      = new Date();
+  const now = new Date();
   const submitAt = now.toISOString().slice(0, 10);
   const ownerName = profile?.ownerName ?? "";
   const tradeName = profile?.tradeName ?? profile?.ownerName ?? "";
-  const taxType   = taxSetting?.taxationType ?? "exempt";
-  const taxRate   = taxType === "simplified" ? 0.02 : 0.1;
+  const taxType = taxSetting?.taxationType ?? "exempt";
+  const taxRate = taxType === "simplified" ? 0.02 : 0.1;
   const taxAmount = taxType === "exempt" ? 0 : Math.floor(revenue * taxRate);
 
   let xml: string;
 
   if (type === "blue_return") {
     xml = buildBlueReturnXml({
-      fiscalYear, submitAt, ownerName, tradeName,
-      revenue, cogs, grossProfit, expense, netIncome,
+      fiscalYear,
+      submitAt,
+      ownerName,
+      tradeName,
+      revenue,
+      cogs,
+      grossProfit,
+      expense,
+      netIncome,
     });
   } else if (type === "corporate") {
     xml = buildCorporateTaxXml({
-      fiscalYear, submitAt, tradeName,
-      revenue, expense, netIncome,
+      fiscalYear,
+      submitAt,
+      tradeName,
+      revenue,
+      expense,
+      netIncome,
     });
   } else {
     xml = buildConsumptionTaxXml({
-      fiscalYear, submitAt, ownerName, tradeName,
-      revenue, taxType, taxRate, taxAmount,
+      fiscalYear,
+      submitAt,
+      ownerName,
+      tradeName,
+      revenue,
+      taxType,
+      taxRate,
+      taxAmount,
     });
   }
 
   return new NextResponse(xml, {
     status: 200,
     headers: {
-      "Content-Type":        "application/xml; charset=utf-8",
+      "Content-Type": "application/xml; charset=utf-8",
       "Content-Disposition": `attachment; filename="etax_${type}_${fiscalYear}.xml"`,
     },
   });
@@ -80,8 +97,15 @@ function esc(s: string | number): string {
 }
 
 function buildBlueReturnXml(p: {
-  fiscalYear: number; submitAt: string; ownerName: string; tradeName: string;
-  revenue: number; cogs: number; grossProfit: number; expense: number; netIncome: number;
+  fiscalYear: number;
+  submitAt: string;
+  ownerName: string;
+  tradeName: string;
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  expense: number;
+  netIncome: number;
 }): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- e-Tax 青色申告決算書 (第一表) -->
@@ -104,14 +128,18 @@ function buildBlueReturnXml(p: {
 }
 
 function buildCorporateTaxXml(p: {
-  fiscalYear: number; submitAt: string; tradeName: string;
-  revenue: number; expense: number; netIncome: number;
+  fiscalYear: number;
+  submitAt: string;
+  tradeName: string;
+  revenue: number;
+  expense: number;
+  netIncome: number;
 }): string {
-  const taxBase    = Math.max(0, p.netIncome);
+  const taxBase = Math.max(0, p.netIncome);
   // 法人税率 (中小法人 800万円以下部分: 15%, 超過部分: 23.2%)
-  const threshold  = 8_000_000;
-  const taxLow     = Math.min(taxBase, threshold) * 0.15;
-  const taxHigh    = Math.max(0, taxBase - threshold) * 0.232;
+  const threshold = 8_000_000;
+  const taxLow = Math.min(taxBase, threshold) * 0.15;
+  const taxHigh = Math.max(0, taxBase - threshold) * 0.232;
   const corporateTax = Math.floor(taxLow + taxHigh);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -139,11 +167,19 @@ function buildCorporateTaxXml(p: {
 }
 
 function buildConsumptionTaxXml(p: {
-  fiscalYear: number; submitAt: string; ownerName: string; tradeName: string;
-  revenue: number; taxType: string; taxRate: number; taxAmount: number;
+  fiscalYear: number;
+  submitAt: string;
+  ownerName: string;
+  tradeName: string;
+  revenue: number;
+  taxType: string;
+  taxRate: number;
+  taxAmount: number;
 }): string {
   const typeLabel: Record<string, string> = {
-    exempt: "免税", general: "原則課税", simplified: "簡易課税",
+    exempt: "免税",
+    general: "原則課税",
+    simplified: "簡易課税",
   };
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- e-Tax 消費税申告書 -->

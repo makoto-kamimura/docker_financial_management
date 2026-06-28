@@ -59,7 +59,11 @@ describe("simulateBalances", () => {
       { fromId: null, toId: 1, amount: 450_000, day: 25 }, // 入金
       { fromId: 1, toId: null, amount: 120_000, day: 27 }, // カード/支出
     ];
-    const { timeline } = simulateBalances(accts, transfers, { startYear: 2025, startMonth: 1, months: 1 });
+    const { timeline } = simulateBalances(accts, transfers, {
+      startYear: 2025,
+      startMonth: 1,
+      months: 1,
+    });
     const last = timeline[timeline.length - 1];
     expect(last.balances[1]).toBe(330_000); // 0 + 450,000 - 120,000
   });

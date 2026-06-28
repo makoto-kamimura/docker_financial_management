@@ -17,12 +17,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
-  const body = await req.json() as {
-    lenderName: string; amount: number; interestRate: number;
-    borrowedOn: string; repaymentDate: string; note?: string;
+  const body = (await req.json()) as {
+    lenderName: string;
+    amount: number;
+    interestRate: number;
+    borrowedOn: string;
+    repaymentDate: string;
+    note?: string;
   };
   if (!body.lenderName || !body.amount || !body.borrowedOn || !body.repaymentDate) {
-    return NextResponse.json({ error: "lenderName, amount, borrowedOn, repaymentDate are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "lenderName, amount, borrowedOn, repaymentDate are required" },
+      { status: 400 },
+    );
   }
   const loan = await prisma.loan.create({
     data: {

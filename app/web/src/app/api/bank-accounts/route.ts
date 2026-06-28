@@ -28,10 +28,10 @@ export async function GET() {
     }),
   ]);
 
-  const balanceMap = new Map(balances.map(b => [b.accountId, b._sum.amount?.toNumber() ?? 0]));
+  const balanceMap = new Map(balances.map((b) => [b.accountId, b._sum.amount?.toNumber() ?? 0]));
 
   return NextResponse.json({
-    data: accounts.map(a => ({ ...a, balance: balanceMap.get(a.id) ?? 0 })),
+    data: accounts.map((a) => ({ ...a, balance: balanceMap.get(a.id) ?? 0 })),
   });
 }
 

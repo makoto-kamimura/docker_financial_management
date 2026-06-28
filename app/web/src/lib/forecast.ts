@@ -131,10 +131,10 @@ export function forecastHoltWinters(
 }
 
 export interface ForecastParams {
-  window?:       number; // moving_average: 移動平均ウィンドウ幅（デフォルト 3）
-  alpha?:        number; // holt / holt_winters: レベル平滑化係数（0〜1）
-  beta?:         number; // holt / holt_winters: トレンド平滑化係数（0〜1）
-  gamma?:        number; // holt_winters: 季節平滑化係数（0〜1）
+  window?: number; // moving_average: 移動平均ウィンドウ幅（デフォルト 3）
+  alpha?: number; // holt / holt_winters: レベル平滑化係数（0〜1）
+  beta?: number; // holt / holt_winters: トレンド平滑化係数（0〜1）
+  gamma?: number; // holt_winters: 季節平滑化係数（0〜1）
   seasonLength?: number; // holt_winters: 季節周期（デフォルト 12）
 }
 

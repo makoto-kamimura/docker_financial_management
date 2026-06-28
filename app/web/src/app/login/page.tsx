@@ -23,7 +23,9 @@ export default function LoginPage() {
     } else if (res.status === 401) {
       setError("メールアドレスまたはパスワードが正しくありません。");
     } else {
-      setError(`サーバーエラーが発生しました（HTTP ${res.status}）。DB が起動しているか確認してください。`);
+      setError(
+        `サーバーエラーが発生しました（HTTP ${res.status}）。DB が起動しているか確認してください。`,
+      );
     }
   }
 

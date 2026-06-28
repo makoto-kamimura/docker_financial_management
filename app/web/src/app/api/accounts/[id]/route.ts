@@ -7,9 +7,9 @@ import { writeAudit } from "@/lib/audit";
 const CATEGORIES = ["REVENUE", "COGS", "EXPENSE", "PROFIT", "ASSET", "LIABILITY", "OTHER"] as const;
 
 const UpdateSchema = z.object({
-  code:       z.string().min(1).max(20).optional(),
-  name:       z.string().min(1).optional(),
-  category:   z.enum(CATEGORIES).optional(),
+  code: z.string().min(1).max(20).optional(),
+  name: z.string().min(1).optional(),
+  category: z.enum(CATEGORIES).optional(),
   parentCode: z.string().optional().nullable(),
 });
 
@@ -33,7 +33,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // コード変更時の重複チェック
   if (code && code !== before.code) {
     const dup = await prisma.account.findUnique({ where: { code } });
-    if (dup) return NextResponse.json({ error: `コード「${code}」は既に使用されています` }, { status: 409 });
+    if (dup)
+      return NextResponse.json(
+        { error: `コード「${code}」は既に使用されています` },
+        { status: 409 },
+      );
   }
 
   let parentId: number | null | undefined;
@@ -41,8 +45,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     parentId = null;
   } else if (parentCode) {
     const parent = await prisma.account.findUnique({ where: { code: parentCode } });
-    if (!parent) return NextResponse.json({ error: `unknown parentCode: ${parentCode}` }, { status: 400 });
-    if (parent.id === accountId) return NextResponse.json({ error: "cannot self-reference" }, { status: 400 });
+    if (!parent)
+      return NextResponse.json({ error: `unknown parentCode: ${parentCode}` }, { status: 400 });
+    if (parent.id === accountId)
+      return NextResponse.json({ error: "cannot self-reference" }, { status: 400 });
     parentId = parent.id;
   }
 

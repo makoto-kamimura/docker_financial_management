@@ -9,14 +9,14 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const status = req.nextUrl.searchParams.get("status") ?? "pending";
-  const year   = req.nextUrl.searchParams.get("year");
-  const q      = req.nextUrl.searchParams.get("q");
+  const year = req.nextUrl.searchParams.get("year");
+  const q = req.nextUrl.searchParams.get("q");
 
   const where: Prisma.JournalEntryWhereInput = { approvalStatus: status };
   if (year) {
     where.transactionDate = {
       gte: new Date(`${year}-01-01`),
-      lt:  new Date(`${Number(year) + 1}-01-01`),
+      lt: new Date(`${Number(year) + 1}-01-01`),
     };
   }
   if (q) {
@@ -45,9 +45,9 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("accountant");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     journalEntryId: number;
-    action:  "submit" | "approve" | "reject";
+    action: "submit" | "approve" | "reject";
     comment?: string;
   };
 
@@ -56,9 +56,9 @@ export async function POST(req: NextRequest) {
   }
 
   const statusMap: Record<string, string> = {
-    submit:  "pending",
+    submit: "pending",
     approve: "approved",
-    reject:  "rejected",
+    reject: "rejected",
   };
 
   const newStatus = statusMap[body.action];
@@ -69,14 +69,19 @@ export async function POST(req: NextRequest) {
   const [, approval] = await prisma.$transaction([
     prisma.journalEntry.update({
       where: { id: body.journalEntryId },
-      data:  { approvalStatus: newStatus },
+      data: { approvalStatus: newStatus },
     }),
     prisma.journalApproval.create({
       data: {
         journalEntryId: body.journalEntryId,
-        action:         body.action === "submit" ? "submitted" : body.action === "approve" ? "approved" : "rejected",
-        actorId:        auth.user!.id,
-        comment:        body.comment ?? null,
+        action:
+          body.action === "submit"
+            ? "submitted"
+            : body.action === "approve"
+              ? "approved"
+              : "rejected",
+        actorId: auth.user!.id,
+        comment: body.comment ?? null,
       },
     }),
   ]);

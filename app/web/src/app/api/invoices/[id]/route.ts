@@ -6,7 +6,10 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
   const { id } = await params;
-  const invoice = await prisma.invoice.findUnique({ where: { id: Number(id) }, include: { lines: true } });
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: Number(id) },
+    include: { lines: true },
+  });
   if (!invoice) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ data: invoice });
 }
@@ -15,7 +18,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
   const { id } = await params;
-  const body = await req.json() as { status?: string; note?: string };
+  const body = (await req.json()) as { status?: string; note?: string };
   const invoice = await prisma.invoice.update({
     where: { id: Number(id) },
     data: {

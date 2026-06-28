@@ -12,14 +12,20 @@ import {
 } from "recharts";
 
 export type TrendPoint = {
-  key: string;      // 期間ラベル
-  actual?: number;  // 実績
+  key: string; // 期間ラベル
+  actual?: number; // 実績
   forecast?: number; // 予測
-  budget?: number;  // 予算
+  budget?: number; // 予算
 };
 
 // 実績・予算・予測を 1 つの折れ線グラフに重ねて表示する推移グラフ
-export function TrendChart({ data, showBudget = false }: { data: TrendPoint[]; showBudget?: boolean }) {
+export function TrendChart({
+  data,
+  showBudget = false,
+}: {
+  data: TrendPoint[];
+  showBudget?: boolean;
+}) {
   return (
     <ResponsiveContainer width="100%" height={360}>
       <LineChart data={data} margin={{ top: 16, right: 24, bottom: 8, left: 24 }}>

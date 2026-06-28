@@ -19,11 +19,17 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
-    tenantId: number; year: number; startDate: string; endDate: string;
+  const body = (await req.json()) as {
+    tenantId: number;
+    year: number;
+    startDate: string;
+    endDate: string;
   };
   if (!body.tenantId || !body.year || !body.startDate || !body.endDate) {
-    return NextResponse.json({ error: "tenantId, year, startDate, endDate are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "tenantId, year, startDate, endDate are required" },
+      { status: 400 },
+    );
   }
 
   const fy = await prisma.fiscalYear.create({

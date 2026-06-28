@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const sp     = req.nextUrl.searchParams;
+  const sp = req.nextUrl.searchParams;
   const action = sp.get("action") ?? "accounts";
   const apiKey = process.env.OPENBANKING_API_KEY;
 
@@ -31,30 +31,34 @@ export async function GET(req: NextRequest) {
 
     // 口座ごとの最新残高：最新トランザクションの balance or 取引合計
     const latestTxns = await prisma.bankTransaction.findMany({
-      where: { accountId: { in: accounts.map(a => a.id) } },
+      where: { accountId: { in: accounts.map((a) => a.id) } },
       orderBy: [{ date: "desc" }, { id: "desc" }],
       distinct: ["accountId"],
       select: { accountId: true, balance: true },
     });
-    const balanceMap = new Map(latestTxns.map(t => [t.accountId, t.balance != null ? Number(t.balance) : null]));
+    const balanceMap = new Map(
+      latestTxns.map((t) => [t.accountId, t.balance != null ? Number(t.balance) : null]),
+    );
 
     return NextResponse.json({
       configured: !!apiKey,
-      message:    apiKey ? undefined : "OPENBANKING_API_KEY が未設定です。環境変数を設定してください。",
-      accounts:   accounts.map((a) => ({
-        id:          a.id,
-        bankName:    a.bankName,
+      message: apiKey
+        ? undefined
+        : "OPENBANKING_API_KEY が未設定です。環境変数を設定してください。",
+      accounts: accounts.map((a) => ({
+        id: a.id,
+        bankName: a.bankName,
         accountName: a.name,
         accountType: a.accountType,
-        balance:     balanceMap.get(a.id) ?? null,
+        balance: balanceMap.get(a.id) ?? null,
       })),
     });
   }
 
   if (action === "transactions") {
     const accountId = sp.get("accountId");
-    const from      = sp.get("from");
-    const to        = sp.get("to");
+    const from = sp.get("from");
+    const to = sp.get("to");
 
     if (!accountId) {
       return NextResponse.json({ error: "accountId が必要です" }, { status: 400 });
@@ -74,27 +78,36 @@ export async function GET(req: NextRequest) {
 
     const params = new URLSearchParams({ accountId });
     if (from) params.set("from", from);
-    if (to)   params.set("to",   to);
+    if (to) params.set("to", to);
 
     const txRes = await fetch(`${OPENBANKING_API_BASE}/transactions?${params}`, {
       headers: {
         "X-API-Key": apiKey,
-        Accept:      "application/json",
+        Accept: "application/json",
       },
     });
 
     if (!txRes.ok) {
-      return NextResponse.json({ error: "オープンバンキング API の呼び出しに失敗しました" }, { status: 502 });
+      return NextResponse.json(
+        { error: "オープンバンキング API の呼び出しに失敗しました" },
+        { status: 502 },
+      );
     }
 
-    const txData = await txRes.json() as { transactions: Array<{
-      id: string; date: string; amount: number; description: string; balance: number | null;
-    }> };
+    const txData = (await txRes.json()) as {
+      transactions: Array<{
+        id: string;
+        date: string;
+        amount: number;
+        description: string;
+        balance: number | null;
+      }>;
+    };
 
     return NextResponse.json({
-      source:       "openbanking",
-      accountId:    Number(accountId),
-      count:        txData.transactions?.length ?? 0,
+      source: "openbanking",
+      accountId: Number(accountId),
+      count: txData.transactions?.length ?? 0,
       transactions: txData.transactions,
     });
   }
@@ -109,9 +122,15 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     accountId: number;
-    transactions: Array<{ id: string; date: string; amount: number; description: string; balance: number | null }>;
+    transactions: Array<{
+      id: string;
+      date: string;
+      amount: number;
+      description: string;
+      balance: number | null;
+    }>;
   };
 
   if (!body.accountId || !Array.isArray(body.transactions)) {
@@ -124,7 +143,7 @@ export async function POST(req: NextRequest) {
   }
 
   let inserted = 0;
-  let skipped  = 0;
+  let skipped = 0;
 
   for (const tx of body.transactions) {
     const txDate = new Date(tx.date);
@@ -132,16 +151,19 @@ export async function POST(req: NextRequest) {
     const existing = await prisma.bankTransaction.findFirst({
       where: { accountId: account.id, externalId },
     });
-    if (existing) { skipped++; continue; }
+    if (existing) {
+      skipped++;
+      continue;
+    }
 
     await prisma.bankTransaction.create({
       data: {
-        account:     { connect: { id: account.id } },
-        date:        txDate,
-        amount:      tx.amount,
+        account: { connect: { id: account.id } },
+        date: txDate,
+        amount: tx.amount,
         description: tx.description,
-        balance:     tx.balance,
-        source:      "SYNC",
+        balance: tx.balance,
+        source: "SYNC",
         externalId,
       },
     });

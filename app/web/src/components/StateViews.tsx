@@ -18,13 +18,7 @@ export function ErrorBanner({ message }: { message: string }) {
   );
 }
 
-export function EmptyState({
-  title,
-  description,
-}: {
-  title: string;
-  description?: string;
-}) {
+export function EmptyState({ title, description }: { title: string; description?: string }) {
   return (
     <div className="card text-center py-14 text-slate-500">
       <p className="text-3xl mb-3">📭</p>

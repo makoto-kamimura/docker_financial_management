@@ -50,10 +50,10 @@ export async function GET(req: NextRequest) {
   const method = (sp.get("method") ?? "linear_regression") as ForecastMethod;
   const scenario = (sp.get("scenario") ?? "base") as Scenario;
   const params = {
-    window:       sp.get("window")       ? Number(sp.get("window"))       : undefined,
-    alpha:        sp.get("alpha")        ? Number(sp.get("alpha"))        : undefined,
-    beta:         sp.get("beta")         ? Number(sp.get("beta"))         : undefined,
-    gamma:        sp.get("gamma")        ? Number(sp.get("gamma"))        : undefined,
+    window: sp.get("window") ? Number(sp.get("window")) : undefined,
+    alpha: sp.get("alpha") ? Number(sp.get("alpha")) : undefined,
+    beta: sp.get("beta") ? Number(sp.get("beta")) : undefined,
+    gamma: sp.get("gamma") ? Number(sp.get("gamma")) : undefined,
     seasonLength: sp.get("seasonLength") ? Number(sp.get("seasonLength")) : undefined,
   };
 
@@ -88,8 +88,8 @@ export async function GET(req: NextRequest) {
     const actualHoldout = history.slice(history.length - holdout);
     const predictedHoldout = forecast(trainHistory, holdout, method, params);
     accuracy = {
-      mape:          calcMape(actualHoldout, predictedHoldout),
-      rmse:          calcRmse(actualHoldout, predictedHoldout),
+      mape: calcMape(actualHoldout, predictedHoldout),
+      rmse: calcRmse(actualHoldout, predictedHoldout),
       holdoutMonths: holdout,
     };
   }
@@ -110,9 +110,13 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
-    accountCode: string; method: string; scenario: string;
-    startYear: number; startMonth: number; values: number[];
+  const body = (await req.json()) as {
+    accountCode: string;
+    method: string;
+    scenario: string;
+    startYear: number;
+    startMonth: number;
+    values: number[];
   };
 
   if (!body.accountCode || !body.values?.length) {
@@ -125,24 +129,35 @@ export async function POST(req: NextRequest) {
   }
 
   const methodMap: Record<string, string> = {
-    moving_average: "MOVING_AVERAGE", linear_regression: "LINEAR_REGRESSION", growth_rate: "GROWTH_RATE",
-    holt: "LINEAR_REGRESSION", holt_winters: "LINEAR_REGRESSION",
+    moving_average: "MOVING_AVERAGE",
+    linear_regression: "LINEAR_REGRESSION",
+    growth_rate: "GROWTH_RATE",
+    holt: "LINEAR_REGRESSION",
+    holt_winters: "LINEAR_REGRESSION",
   };
   const scenarioMap: Record<string, string> = {
-    base: "BASE", optimistic: "OPTIMISTIC", pessimistic: "PESSIMISTIC",
+    base: "BASE",
+    optimistic: "OPTIMISTIC",
+    pessimistic: "PESSIMISTIC",
   };
 
-  const dbMethod   = (methodMap[body.method]   ?? "LINEAR_REGRESSION") as "MOVING_AVERAGE" | "LINEAR_REGRESSION" | "GROWTH_RATE";
-  const dbScenario = (scenarioMap[body.scenario] ?? "BASE") as "BASE" | "OPTIMISTIC" | "PESSIMISTIC";
+  const dbMethod = (methodMap[body.method] ?? "LINEAR_REGRESSION") as
+    | "MOVING_AVERAGE"
+    | "LINEAR_REGRESSION"
+    | "GROWTH_RATE";
+  const dbScenario = (scenarioMap[body.scenario] ?? "BASE") as
+    | "BASE"
+    | "OPTIMISTIC"
+    | "PESSIMISTIC";
 
-  let year  = body.startYear;
+  let year = body.startYear;
   let month = body.startMonth ?? 1;
 
   const created: number[] = [];
   for (const amount of body.values) {
     // Period を upsert
     const period = await prisma.period.upsert({
-      where:  { fiscalYear_month: { fiscalYear: year, month } },
+      where: { fiscalYear_month: { fiscalYear: year, month } },
       update: {},
       create: { fiscalYear: year, month, quarter: Math.ceil(month / 3) },
     });
@@ -150,16 +165,19 @@ export async function POST(req: NextRequest) {
     const snapshot = await prisma.forecast.create({
       data: {
         accountId: account.id,
-        periodId:  period.id,
-        method:    dbMethod,
-        scenario:  dbScenario,
-        amount:    amount,
+        periodId: period.id,
+        method: dbMethod,
+        scenario: dbScenario,
+        amount: amount,
       },
     });
     created.push(snapshot.id);
 
     month++;
-    if (month > 12) { month = 1; year++; }
+    if (month > 12) {
+      month = 1;
+      year++;
+    }
   }
 
   return NextResponse.json({ created: created.length, ids: created }, { status: 201 });

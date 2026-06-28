@@ -14,9 +14,13 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
-  const body = await req.json() as {
-    type?: string; name: string; corporateNumber?: string;
-    capitalAmount?: number; establishedOn?: string; closingMonth?: number;
+  const body = (await req.json()) as {
+    type?: string;
+    name: string;
+    corporateNumber?: string;
+    capitalAmount?: number;
+    establishedOn?: string;
+    closingMonth?: number;
   };
   if (!body.name) return NextResponse.json({ error: "name is required" }, { status: 400 });
 

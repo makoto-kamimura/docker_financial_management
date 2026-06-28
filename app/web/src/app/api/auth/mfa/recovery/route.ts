@@ -7,7 +7,10 @@ import { writeAudit } from "@/lib/audit";
 const RECOVERY_CODE_COUNT = 8;
 
 function generateCode(): string {
-  return randomBytes(5).toString("hex").toUpperCase().replace(/(.{4})(.{4})(.{2})/, "$1-$2-$3");
+  return randomBytes(5)
+    .toString("hex")
+    .toUpperCase()
+    .replace(/(.{4})(.{4})(.{2})/, "$1-$2-$3");
 }
 
 function hashCode(code: string): string {
@@ -20,7 +23,7 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
-  const body = await req.json().catch(() => ({})) as { totp?: string };
+  const body = (await req.json().catch(() => ({}))) as { totp?: string };
 
   const user = await prisma.user.findUnique({ where: { id: auth.user.id } });
   if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });

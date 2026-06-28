@@ -2,7 +2,13 @@
 
 @layer base {
   body {
-    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      "Hiragino Sans",
+      "Yu Gothic UI",
+      sans-serif;
     @apply text-slate-900 bg-slate-50;
   }
   input,
@@ -89,9 +95,19 @@
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
   }
-  .badge-green  { @apply bg-green-100 text-green-700; }
-  .badge-amber  { @apply bg-amber-100 text-amber-700; }
-  .badge-red    { @apply bg-red-100 text-red-700; }
-  .badge-blue   { @apply bg-blue-100 text-blue-700; }
-  .badge-slate  { @apply bg-slate-100 text-slate-600; }
+  .badge-green {
+    @apply bg-green-100 text-green-700;
+  }
+  .badge-amber {
+    @apply bg-amber-100 text-amber-700;
+  }
+  .badge-red {
+    @apply bg-red-100 text-red-700;
+  }
+  .badge-blue {
+    @apply bg-blue-100 text-blue-700;
+  }
+  .badge-slate {
+    @apply bg-slate-100 text-slate-600;
+  }
 }

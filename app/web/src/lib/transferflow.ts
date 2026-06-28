@@ -1,6 +1,11 @@
 import type { SankeyData } from "@/components/CashFlowSankey";
 
-export type TransferChannel = "BANK_TRANSFER" | "AUTO_DEBIT" | "CARD_PAYMENT" | "INCOME" | "EXPENSE";
+export type TransferChannel =
+  | "BANK_TRANSFER"
+  | "AUTO_DEBIT"
+  | "CARD_PAYMENT"
+  | "INCOME"
+  | "EXPENSE";
 
 export const CHANNEL_LABELS: Record<TransferChannel, string> = {
   BANK_TRANSFER: "口座間振込",
@@ -52,7 +57,11 @@ export function buildTransferFlow(transfers: TransferInput[]): SankeyData {
         t.toId != null
           ? { key: `acc:${t.toId}`, name: t.toName ?? `口座${t.toId}` }
           : externalKey("out", t.channel, t.label);
-      return { source: idx(src.key, src.name), target: idx(dst.key, dst.name), value: Math.round(t.amount) };
+      return {
+        source: idx(src.key, src.name),
+        target: idx(dst.key, dst.name),
+        value: Math.round(t.amount),
+      };
     });
 
   return { nodes: keys.map((k) => ({ name: nameByKey[k] })), links };

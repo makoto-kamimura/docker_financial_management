@@ -4,6 +4,7 @@
 フロントエンド（ダッシュボード・グラフ）と **バックエンド API**（Route Handlers）を提供する。
 
 ## 構成
+
 - `src/app/` … 画面
   - `/` トップ、`/login` ログイン、`/dashboard` 推移グラフ、`/entry` 実績入力
 - `src/app/api/` … バックエンド API（Route Handlers）
@@ -19,6 +20,7 @@
 - `sample-data/financials.csv` … インポート用サンプル
 
 ## 開発
+
 ```bash
 npm install
 npm run db:generate          # Prisma Client 生成
@@ -32,6 +34,7 @@ DB は `platform/docker-compose.yml` で起動できる（PostgreSQL）。
 接続情報は環境変数 `DATABASE_URL` で設定する。
 
 ### CSV インポート例
+
 ```bash
 curl -X POST http://localhost:3000/api/financials/import \
   -H "Content-Type: text/csv" --data-binary @sample-data/financials.csv

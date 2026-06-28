@@ -98,8 +98,8 @@ export default function ReportsPage() {
     queryFn: async (): Promise<AccountItem[]> => {
       const res = await fetch("/api/accounts");
       const json = await res.json();
-      return (json.data as AccountItem[]).filter(
-        (a) => ["REVENUE", "COGS", "EXPENSE", "PROFIT"].includes(a.category),
+      return (json.data as AccountItem[]).filter((a) =>
+        ["REVENUE", "COGS", "EXPENSE", "PROFIT"].includes(a.category),
       );
     },
   });
@@ -126,11 +126,7 @@ export default function ReportsPage() {
   });
 
   const csvUrl = `/api/reports/budget-actual/export?accountCode=${accountCode}&year=${year}&method=${method}`;
-  const displayRows = data
-    ? viewMode === "annual"
-      ? toAnnualRows(data.rows)
-      : data.rows
-    : [];
+  const displayRows = data ? (viewMode === "annual" ? toAnnualRows(data.rows) : data.rows) : [];
 
   const yearForComp = compYear ?? comp?.years.at(-1) ?? new Date().getFullYear();
 
@@ -171,9 +167,13 @@ export default function ReportsPage() {
                   onChange={(e) => setYear(Number(e.target.value))}
                   className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  {Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-                    <option key={y} value={y}>{y}年</option>
-                  ))}
+                  {Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - 2 + i).map(
+                    (y) => (
+                      <option key={y} value={y}>
+                        {y}年
+                      </option>
+                    ),
+                  )}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 flex-1">
@@ -359,17 +359,11 @@ export default function ReportsPage() {
                       }
                     >
                       {comp.totals.map((entry) => (
-                        <Cell
-                          key={entry.name}
-                          fill={CAT_COLORS[entry.name] ?? "#cbd5e1"}
-                        />
+                        <Cell key={entry.name} fill={CAT_COLORS[entry.name] ?? "#cbd5e1"} />
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(v: number, name: string) => [
-                        man(v),
-                        CAT_LABEL[name] ?? name,
-                      ]}
+                      formatter={(v: number, name: string) => [man(v), CAT_LABEL[name] ?? name]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -394,12 +388,14 @@ export default function ReportsPage() {
                   <BarChart data={comp.monthly} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                    <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}`} tick={{ fontSize: 10 }} />
-                    <Tooltip formatter={(v: number, name: string) => [man(v), CAT_LABEL[name] ?? name]} />
-                    <Legend
-                      formatter={(v) => CAT_LABEL[v] ?? v}
-                      wrapperStyle={{ fontSize: 11 }}
+                    <YAxis
+                      tickFormatter={(v) => `${Math.round(v / 10000)}`}
+                      tick={{ fontSize: 10 }}
                     />
+                    <Tooltip
+                      formatter={(v: number, name: string) => [man(v), CAT_LABEL[name] ?? name]}
+                    />
+                    <Legend formatter={(v) => CAT_LABEL[v] ?? v} wrapperStyle={{ fontSize: 11 }} />
                     {Object.keys(CAT_COLORS).map((cat) => (
                       <Bar key={cat} dataKey={cat} stackId="a" fill={CAT_COLORS[cat]} />
                     ))}

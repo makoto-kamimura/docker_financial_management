@@ -16,7 +16,7 @@ async function loadDict(locale: Locale): Promise<Dictionary> {
 
 export function useLocale() {
   const [locale, setLocaleState] = useState<Locale>("ja");
-  const [dict,   setDict]        = useState<Dictionary | null>(null);
+  const [dict, setDict] = useState<Dictionary | null>(null);
 
   useEffect(() => {
     const saved = (localStorage.getItem("locale") as Locale | null) ?? "ja";

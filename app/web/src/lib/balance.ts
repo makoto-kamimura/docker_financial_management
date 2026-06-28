@@ -5,7 +5,12 @@
 export type SimAccount = { id: number; name: string; opening: number };
 // fromId/toId は口座(number)または外部(null)。
 // 入金: fromId=null, 支出/引き落とし: toId=null, 口座間振替: 両方指定。
-export type SimTransfer = { fromId: number | null; toId: number | null; amount: number; day: number };
+export type SimTransfer = {
+  fromId: number | null;
+  toId: number | null;
+  amount: number;
+  day: number;
+};
 
 export type BalancePoint = { date: string; balances: Record<number, number> };
 export type Shortfall = { date: string; accountId: number; accountName: string; balance: number };

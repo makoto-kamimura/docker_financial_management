@@ -28,7 +28,9 @@ test.describe("認証ガード", () => {
     await expect(page.getByText(/正しくありません/)).toBeVisible();
   });
 
-  test("トップページにアクセスすると未ログイン時はログインページへリダイレクトされる", async ({ page }) => {
+  test("トップページにアクセスすると未ログイン時はログインページへリダイレクトされる", async ({
+    page,
+  }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/login/);
     await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();

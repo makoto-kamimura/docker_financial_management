@@ -40,7 +40,8 @@ export async function POST(req: NextRequest) {
 
   const { password, ...fields } = parsed.data;
   const exists = await prisma.user.findUnique({ where: { email: fields.email } });
-  if (exists) return NextResponse.json({ error: "メールアドレスが既に使用されています" }, { status: 409 });
+  if (exists)
+    return NextResponse.json({ error: "メールアドレスが既に使用されています" }, { status: 409 });
 
   const user = await prisma.user.create({
     data: { ...fields, passwordHash: hashPassword(password) },

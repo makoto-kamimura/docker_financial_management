@@ -11,7 +11,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (auth.error) return auth.error;
 
   const { id } = await params;
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     paidOn: string;
     paidAmount: number;
     paymentAccountCode?: string; // "1100" 普通預金 or "1000" 現金
@@ -34,7 +34,10 @@ export async function POST(req: NextRequest, { params }: Params) {
   ]);
 
   if (!paymentAccount || !arAccount) {
-    return NextResponse.json({ error: "勘定科目が見つかりません（1300/入金科目）" }, { status: 500 });
+    return NextResponse.json(
+      { error: "勘定科目が見つかりません（1300/入金科目）" },
+      { status: 500 },
+    );
   }
 
   const paidDate = new Date(body.paidOn);
@@ -43,13 +46,13 @@ export async function POST(req: NextRequest, { params }: Params) {
   await prisma.journalEntry.create({
     data: {
       transactionDate: paidDate,
-      description:     `${receivable.customerName} 売掛金入金`,
-      paymentMethod:   paymentCode === "1100" ? "bank" : "cash",
-      taxCategory:     "non_taxable",
+      description: `${receivable.customerName} 売掛金入金`,
+      paymentMethod: paymentCode === "1100" ? "bank" : "cash",
+      taxCategory: "non_taxable",
       details: {
         create: [
-          { side: "debit",  accountId: paymentAccount.id, amount: body.paidAmount },
-          { side: "credit", accountId: arAccount.id,      amount: body.paidAmount },
+          { side: "debit", accountId: paymentAccount.id, amount: body.paidAmount },
+          { side: "credit", accountId: arAccount.id, amount: body.paidAmount },
         ],
       },
     },
@@ -58,8 +61,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   const updated = await prisma.receivable.update({
     where: { id: Number(id) },
     data: {
-      status:    "paid",
-      paidOn:    paidDate,
+      status: "paid",
+      paidOn: paidDate,
       paidAmount: body.paidAmount,
     },
   });
