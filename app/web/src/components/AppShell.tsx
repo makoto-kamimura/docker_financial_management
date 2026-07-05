@@ -33,6 +33,7 @@ import {
   ScrollText,
   ExternalLink,
   Repeat,
+  Bug,
 } from "lucide-react";
 
 export type ViewMode = "household" | "sole" | "corporate";
@@ -353,6 +354,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             ))}
           </div>
+          <a
+            href="https://github.com/makoto-kamimura/docker_financial_management/issues/new"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+          >
+            <Bug size={14} strokeWidth={1.8} className="flex-shrink-0 opacity-80" />
+            {locale === "en" ? "Report a bug" : "バグ報告"}
+          </a>
           <button
             type="button"
             onClick={logout}

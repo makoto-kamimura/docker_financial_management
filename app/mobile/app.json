@@ -14,6 +14,8 @@
         "backgroundColor": "#ffffff"
       }
     },
-    "extra": {}
+    "extra": {
+      "apiBaseUrl": "https://financial.makoto-kamimura.com/api"
+    }
   }
 }

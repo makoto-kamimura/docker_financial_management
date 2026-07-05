@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { ViewMode } from "../api";
 
@@ -65,6 +65,19 @@ export function MoreScreen({ viewMode, onNavigate }: Props) {
           </View>
         );
       })}
+      <View style={s.group}>
+        <Text style={s.groupLabel}>サポート</Text>
+        <TouchableOpacity
+          style={s.row}
+          onPress={() => Linking.openURL("https://github.com/makoto-kamimura/docker_financial_management/issues/new")}
+        >
+          <View style={[s.iconWrap, { backgroundColor: "#fef2f2" }]}>
+            <Ionicons name="bug-outline" size={20} color="#dc2626" />
+          </View>
+          <Text style={s.label}>バグ報告</Text>
+          <Ionicons name="open-outline" size={16} color="#cbd5e1" />
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }
