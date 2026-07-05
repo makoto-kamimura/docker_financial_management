@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-// GET /api/financials/recent?limit=20
-// 最近登録・更新された実績データを返す（モバイル・履歴ウィジェット用）
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const limit = parseInt(req.nextUrl.searchParams.get("limit") ?? "20", 10);
 
   const histories = await prisma.financialRecordHistory.findMany({
+    where: { record: { tenantId } },
     orderBy: { changedAt: "desc" },
     take: limit,
     include: {

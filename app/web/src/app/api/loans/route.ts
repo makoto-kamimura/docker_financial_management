@@ -5,9 +5,11 @@ import { requireRole } from "@/lib/authz";
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
+
+  const { tenantId } = auth.user;
   const status = req.nextUrl.searchParams.get("status");
   const loans = await prisma.loan.findMany({
-    where: status ? { status } : undefined,
+    where: { tenantId, ...(status ? { status } : {}) },
     include: { repayments: { orderBy: { repaidOn: "desc" } } },
     orderBy: { borrowedOn: "desc" },
   });
@@ -17,6 +19,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
+
+  const { tenantId } = auth.user;
   const body = (await req.json()) as {
     lenderName: string;
     amount: number;
@@ -33,6 +37,7 @@ export async function POST(req: NextRequest) {
   }
   const loan = await prisma.loan.create({
     data: {
+      tenantId,
       lenderName: body.lenderName,
       amount: body.amount,
       interestRate: body.interestRate ?? 0,

@@ -2,16 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-// GET /api/receivables?status=open&year=2026
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const sp = req.nextUrl.searchParams;
   const status = sp.get("status");
   const year = sp.get("year") ? Number(sp.get("year")) : undefined;
 
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = { tenantId };
   if (status && status !== "all") where.status = status;
   if (year) {
     where.issueDate = {
@@ -20,18 +20,15 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  const list = await prisma.receivable.findMany({
-    where,
-    orderBy: { dueDate: "asc" },
-  });
+  const list = await prisma.receivable.findMany({ where, orderBy: { dueDate: "asc" } });
   return NextResponse.json({ data: list });
 }
 
-// POST /api/receivables
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const body = (await req.json()) as {
     customerName: string;
     description: string;
@@ -52,6 +49,7 @@ export async function POST(req: NextRequest) {
 
   const record = await prisma.receivable.create({
     data: {
+      tenantId,
       customerName: body.customerName,
       description: body.description,
       amount: body.amount,
@@ -63,25 +61,17 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // FinancialRecord に売掛金として反映
-  const arAccount = await prisma.account.findFirst({ where: { code: "1300" } });
+  const arAccount = await prisma.account.findFirst({ where: { tenantId, code: "1300" } });
   if (arAccount) {
+    const fiscalYear = record.issueDate.getFullYear();
+    const month = record.issueDate.getMonth() + 1;
     const period = await prisma.period.upsert({
-      where: {
-        fiscalYear_month: {
-          fiscalYear: record.issueDate.getFullYear(),
-          month: record.issueDate.getMonth() + 1,
-        },
-      },
+      where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
       update: {},
-      create: {
-        fiscalYear: record.issueDate.getFullYear(),
-        month: record.issueDate.getMonth() + 1,
-        quarter: Math.ceil((record.issueDate.getMonth() + 1) / 3),
-      },
+      create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
     });
     await prisma.financialRecord.create({
-      data: { accountId: arAccount.id, periodId: period.id, amount: body.amount },
+      data: { tenantId, accountId: arAccount.id, periodId: period.id, amount: body.amount },
     });
   }
 

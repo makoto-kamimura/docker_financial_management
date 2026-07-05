@@ -112,7 +112,7 @@ Web とモバイルの両方から利用できる。
 
 | 機能 | テーブル / エンドポイント |
 |---|---|
-| マルチテナント | `tenants` (SOLE_PROPRIETOR / CORPORATION) / `/api/tenants` |
+| マルチテナント | `tenants` (SOLE_PROPRIETOR / CORPORATION) / `/api/tenants`。全財務データをテナント単位で分離（詳細は「11. マルチテナント方式（データ分離）」参照） |
 | 会計年度管理 | `fiscal_years` / `/api/fiscal-years` |
 | 銀行・資金管理 | `bank_accounts` + `bank_transactions` / `/api/bank-accounts` |
 | 借入金管理 | `loans` + `loan_repayments` / `/api/loans` |
@@ -136,6 +136,19 @@ Web とモバイルの両方から利用できる。
 | 監査ログ | ログイン・データ変更を `audit_logs` に記録 |
 | ユーザー管理 | `/admin/users`（ロール変更・パスワードリセット・新規作成） |
 | キャッシュ | Redis TTL 1h（statements / general-ledger） |
+
+### 4.5 勘定科目変換（家庭 ↔ 法人モード）
+
+家庭モード（`H-` prefix）の勘定科目を法人モードの勘定科目へ変換する機能。詳細仕様は [`account-conversion-system.md`](account-conversion-system.md) を参照。有料 AI 変換・課金・PDF 報告書生成（同ドキュメントの Phase 6）は未実装。
+
+| 機能 | テーブル / エンドポイント |
+|---|---|
+| 変換マッピングマスタ | `account_mapping_rules`（システム定義 + ユーザー独自ルール） |
+| 自動変換候補提案 | `GET /api/account-conversion/preview` |
+| マッピング編集・学習 | `GET/PUT /api/account-conversion/mappings` |
+| 変換確定・反映 | `POST /api/account-conversion/confirm` → `account_conversion_sessions` / `account_conversion_logs` |
+| 変換履歴閲覧・CSV出力 | `GET /api/account-conversion/history`、`GET /api/account-conversion/history/[id]`、`GET /api/account-conversion/history/[id]/export` |
+| 画面 | `/account-conversion`（変換確認）、`/account-conversion/history`（変換履歴） |
 
 ---
 
@@ -438,3 +451,105 @@ Web とモバイルの両方から利用できる。
 貯蓄（PROFIT）
   H9000  貯蓄・投資積立
 ```
+
+---
+
+## 11. マルチテナント方式（データ分離）
+
+`tenants` を財務データの分離単位とする。**1 テナントに複数ユーザーを所属させられる（Users : Tenant = N : 1）**。各ユーザーは自分の所属テナント配下のデータのみ参照・操作できる。
+
+| 項目 | 内容 |
+|---|---|
+| モデル | `users.tenantId Int`（非ユニーク、`@@index` 付き）。`POST /api/admin/users` は既定で作成者と同じテナントへ追加し、`newTenant: true` 指定時のみ空の新規テナントをトランザクションで自動作成する |
+| ユーザー管理の分離 | `/api/admin/users`（GET/POST/PATCH/DELETE）は**自テナントのユーザーのみ**対象。他テナントのユーザーは一覧に表示されず、ID 指定の変更・削除も 404 を返す |
+| セッション | `lib/auth.ts` のセッションユーザーオブジェクトに `tenantId` を含める |
+| 分離対象テーブル | `accounts` / `periods` / `budgets` / `financial_records` / `departments` / `bank_accounts` / `transfers` / `journal_entries` / `journal_templates` / `invoices` / `loans` / `receivables` / `payables` / `fixed_assets` / `inventories` / `apportionments` / `linked_accounts` / `business_profiles` / `tax_settings` / `fiscal_years` / `fiscal_year_closes` / `officers` / `shareholder_meetings` / `dividends` / `announcements` / `accrued_revenues` / `accrued_expenses` に `tenantId Int` を付与 |
+| API 側の強制 | 全 API ルート（約 45 ファイル）で `where: { tenantId: session.user.tenantId }` を必須化。ID 指定の GET/PUT/DELETE も所有テナント確認後に処理し、他テナントのリソースは 403 / 404 を返す（例: `/api/tenants/[id]`） |
+| 複合ユニークキー | 単体ユニーク制約から `tenantId` を含む複合キーに変更。テナントを跨いで同じ科目コード・会計期間・予算行を独立管理できる |
+
+### 複合ユニークキー一覧
+
+| `@@unique` 定義 | 対象テーブル | Prisma `where` キー名 |
+|---|---|---|
+| `[tenantId, code]` | `accounts` | `tenantId_code` |
+| `[tenantId, fiscalYear, month]` | `periods` | `tenantId_fiscalYear_month` |
+| `[tenantId, accountId, periodId]` | `budgets` | `tenantId_accountId_periodId` |
+| `[tenantId, fiscalYear]` | `fiscal_year_closes` | `tenantId_fiscalYear` |
+| `[tenantId, accountId]` | `apportionments` | `tenantId_accountId` |
+| `[tenantId]` | `business_profiles` | `tenantId` |
+| `[tenantId, taxYear]` | `tax_settings` | `tenantId_taxYear` |
+| `[tenantId, invoiceNumber]` | `invoices` | `tenantId_invoiceNumber` |
+
+### Seed データ
+
+`prisma/seed.ts` は**デモテナント**（id=1, 株式会社テックソリューション / CORPORATION）を 1 つ作成し、デモの財務データ（勘定科目・実績・予算・仕訳・請求書等）をすべてそこへ投入する。デモユーザー 4 名（`admin@example.com` / `editor@example.com` / `viewer@example.com` / `demo@example.com`、パスワードはいずれも `password`）は全員このデモテナントに所属する。テナント id を明示指定して upsert するため、seed 末尾で `tenants_id_seq` を実データに同期させている（ずれたままだと以降の `tenant.create` が id 重複で失敗する）。
+
+### 移行時の注意
+
+- 開発 DB に既存データがある状態でこの変更を適用する場合、`tenantId` は必須列でデフォルト値を持たないため通常の `prisma migrate dev` では適用できない（既存行に値を埋められないため）。ローカル開発では `prisma migrate reset` で DB を初期化してから新しいマイグレーションを適用し、`npm run db:seed` で再投入する（本番相当データがある環境には適用しないこと）。
+
+---
+
+## 12. 勘定科目変換方式（家庭 ↔ 法人モード）
+
+詳細な UI・課金設計は [`account-conversion-system.md`](account-conversion-system.md) を参照。ここでは実装済み範囲（Phase 1〜5 の無料部分）の要点のみ記す。
+
+### スコープ
+
+| 項目 | 内容 |
+|---|---|
+| 対象 | テナント内の家庭モード科目（`accounts.code` が `H-` で始まるもの）を、同一テナント内の法人/個人事業主科目（`H-` 以外のコード）へ変換 |
+| 未実装 | Phase 6（AI 有料変換・キャッシュ課金・PDF 報告書）。`ai_conversion_results` / `ai_conversion_usages` テーブルはスキーマのみ存在し、書き込みロジックは未実装 |
+| データ分離 | `account_mapping_rules` / `account_conversion_sessions` / `account_conversion_logs` は `tenantId` を持たず、`userId` で所有者を識別する（変換ルール・履歴は実行ユーザー個人に帰属） |
+
+### 自動変換の判定ロジック（`lib/account-conversion.ts`）
+
+仕様書の 5 段階判定のうち、無料 AI 推論ステップ（Step 4）は実際の LLM 呼び出しではなく、ルールベースの疑似 AI（カテゴリ別フォールバック）で代替している。
+
+| 優先度 | 判定方法 | matchType | 信頼度 |
+|---|---|---|---|
+| 1 | `account_mapping_rules` 直引き（ユーザー独自ルール優先、次にシステム定義） | `TABLE` / `MANUAL` | ルールの値（既定 1.0） |
+| 2 | キーワード一致（科目名に「税」「保険」等を含む） | `KEYWORD` | 0.9 |
+| 3 | あいまい一致（科目名の bigram Dice 係数、閾値 0.5） | `FUZZY` | 類似度スコア |
+| 4 | カテゴリ別フォールバック（疑似 AI。REVENUE→売上高、COGS→仕入高、EXPENSE→雑費） | `AI_FREE` | 0.4 固定 |
+| 5 | 候補なし | `MANUAL`（`corporateAccountId: null`） | — |
+
+バッジ判定（`badgeFor`）: `isConvertible=false` → 変換不可 / 変換先未確定 → 手動 / 信頼度 0.8 以上 → 自動 / 0.5〜0.79 → 要確認 / それ未満 → 手動。
+
+### 変換の確定・反映（`POST /api/account-conversion/confirm`）
+
+- `AccountConversionSession` + `AccountConversionLog` を作成して結果を保存する。
+- ユーザーが手動で変換先を変更した行（`isManuallyOverridden: true`）は、`account_mapping_rules` に自分専用ルール（`userId` 指定、`matchType: MANUAL`）として upsert され、次回以降の自動変換に反映される（学習）。
+- **注意**: 既存の `financial_records` / `journal_details` 等が参照している家庭モード科目 ID を法人科目 ID へ一括で付け替える処理は行わない（データ整合性・巻き戻しの設計が仕様書側で未確定のため、意図的にスコープ外としている）。本機能は「変換マッピングの提案・記録」までを担い、実データの一括移行は別途の仕組みが必要。
+
+### Seed
+
+- `npm run db:seed:business-accounts` / `db:seed:home-accounts`: それぞれ法人向け・家庭向けの勘定科目マスタを投入するスタンドアロンスクリプト（`tenantId: 1` 固定、主に開発用）。
+- `npm run db:seed:account-mapping`: `account_mapping_rules` にシステム定義の変換ルール（76 件、`userId: null`）を投入する。`homeCode_userId` の複合ユニークキーは `userId` が `null` の場合 Prisma の `upsert` で直接指定できないため、`findFirst` + `create`/`update` で代用している。
+
+---
+
+## 13. モード別 科目表示名（`Account.soleName` / `Account.corporateName`）
+
+勘定科目は**家庭モードの科目名**（`Account.name`）を既定として登録し、個人事業主モード・法人モードで表示する際の科目名を科目レコード上のエイリアスとして保持する。§12 の変換機能（家庭科目→別の法人科目レコードへの変換提案）とは別軸で、「同一科目を各モードでどう呼ぶか」を管理する。
+
+| 項目 | 内容 |
+|---|---|
+| モデル | `Account.soleName String?`（個人事業主モード表示名）、`Account.corporateName String?`（法人モード表示名）。いずれも `null` の場合は `name`（家庭科目名）にフォールバック |
+| 既定値 | `prisma/account-display-names.ts`（[`account-master-mapping.md`](account-master-mapping.md) の「個人事業主科目名」「法人科目名」列を転記）を出典とする。マッピング表対象外の経過勘定（H-5001〜H-5004）は家庭科目名と同一 |
+| 管理画面 | `/settings` の「科目名設定」タブ。全科目の個人事業主/法人モード表示名を一括編集し保存する（空欄で保存すると `null` = 家庭科目名フォールバック） |
+| API | `GET /api/accounts`（`soleName`/`corporateName` を含めて返す）、`PUT /api/accounts/display-names`（`{ items: [{ id, soleName?, corporateName? }] }` の一括更新、editor 以上、自テナントの科目のみ）。単体の `POST`/`PATCH /api/accounts[/id]` も両フィールドを受け付ける |
+| データ分離 | `PUT /api/accounts/display-names` は対象 `id` が全て自テナントに属することを検証し、他テナントの科目が含まれる場合は 403 |
+
+> 表示名はあくまで表示用エイリアスであり、`accounts.code` や集計・仕訳のリレーションには影響しない。各画面での表示切り替え（現在の閲覧モードに応じて `name`/`soleName`/`corporateName` のどれを出すか）は今後の画面側対応の余地がある（現時点ではマスタとして保持・管理まで）。
+
+### 新規テナント作成時の自動登録
+
+テナントが作成されるたびに、家庭モードの既定勘定科目一式（76 科目、モード別表示名込み）を自動登録する。
+
+| 項目 | 内容 |
+|---|---|
+| 実装 | `src/lib/default-accounts.ts` の `HOME_ACCOUNTS_SEED`（既定科目一覧）と `seedDefaultAccountsForTenant(db, tenantId)`（未登録のコードのみ作成、既存科目は上書きしない） |
+| 呼び出し元 | `POST /api/admin/users`（`newTenant: true` でテナントを新規作成する場合。`$transaction` 内でテナント作成直後に実行）、`POST /api/tenants` |
+| `prisma/seed-home-accounts.ts` との関係 | 同じ `HOME_ACCOUNTS_SEED` を参照するデモテナント（id=1）専用の再投入スクリプト。ロジックの重複を避けるため実データは `src/lib/default-accounts.ts` 側に一本化している |
+| 既存テナントへの後付け投入 | 本機能導入前に作成されたテナントには自動投入されないため、`seedDefaultAccountsForTenant(prisma, tenantId)` を一度呼び出して個別に投入する（[`account-setup.md`](account-setup.md) 参照） |

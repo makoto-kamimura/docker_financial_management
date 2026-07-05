@@ -15,12 +15,13 @@ const LinkedAccountSchema = z.object({
   note: z.string().optional(),
 });
 
-// GET /api/linked-accounts … 連携口座一覧
 export async function GET() {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const items = await prisma.linkedAccount.findMany({
+    where: { tenantId },
     orderBy: [{ type: "asc" }, { institution: "asc" }],
     include: {
       account: { select: { id: true, code: true, name: true, category: true } },
@@ -29,7 +30,6 @@ export async function GET() {
   return NextResponse.json({ data: items });
 }
 
-// POST /api/linked-accounts … 連携口座を登録
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -38,15 +38,19 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const { accountCode, ...fields } = parsed.data;
+  const { tenantId } = auth.user;
+
   let accountId: number | undefined;
   if (accountCode) {
-    const acct = await prisma.account.findUnique({ where: { code: accountCode } });
+    const acct = await prisma.account.findUnique({
+      where: { tenantId_code: { tenantId, code: accountCode } },
+    });
     if (!acct)
       return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
     accountId = acct.id;
   }
 
-  const item = await prisma.linkedAccount.create({ data: { ...fields, accountId } });
+  const item = await prisma.linkedAccount.create({ data: { tenantId, ...fields, accountId } });
   await writeAudit(auth.user.id, "create", `linked_account:${item.id}`);
   return NextResponse.json({ data: item }, { status: 201 });
 }

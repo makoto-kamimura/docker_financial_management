@@ -19,7 +19,10 @@
     "screenshot": "tsx scripts/screenshot.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed:business-accounts": "tsx prisma/seed-business-accounts.ts",
+    "db:seed:home-accounts": "tsx prisma/seed-home-accounts.ts",
+    "db:seed:account-mapping": "tsx prisma/seed-account-mapping.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

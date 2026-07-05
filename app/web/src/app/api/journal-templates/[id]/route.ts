@@ -12,11 +12,10 @@ const INCLUDE = {
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
+
   const { id } = await params;
-  const t = await prisma.journalTemplate.findUnique({
-    where: { id: Number(id) },
-    include: INCLUDE,
-  });
+  const { tenantId } = auth.user;
+  const t = await prisma.journalTemplate.findUnique({ where: { id: Number(id), tenantId }, include: INCLUDE });
   if (!t) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ data: t });
 }
@@ -24,17 +23,16 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
+
   const { id } = await params;
+  const { tenantId } = auth.user;
+  const existing = await prisma.journalTemplate.findUnique({ where: { id: Number(id), tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const body = (await req.json()) as {
     name?: string;
     description?: string;
-    lines?: {
-      side: string;
-      accountId: number;
-      amount?: number;
-      note?: string;
-      sortOrder?: number;
-    }[];
+    lines?: { side: string; accountId: number; amount?: number; note?: string; sortOrder?: number }[];
   };
 
   await prisma.$transaction(async (tx) => {
@@ -57,17 +55,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
   });
 
-  const updated = await prisma.journalTemplate.findUnique({
-    where: { id: Number(id) },
-    include: INCLUDE,
-  });
+  const updated = await prisma.journalTemplate.findUnique({ where: { id: Number(id) }, include: INCLUDE });
   return NextResponse.json({ data: updated });
 }
 
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
+
   const { id } = await params;
+  const { tenantId } = auth.user;
+  const existing = await prisma.journalTemplate.findUnique({ where: { id: Number(id), tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   await prisma.journalTemplate.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }

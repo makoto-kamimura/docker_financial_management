@@ -32,6 +32,7 @@ import {
   Users,
   ScrollText,
   ExternalLink,
+  Repeat,
 } from "lucide-react";
 
 export type ViewMode = "household" | "sole" | "corporate";
@@ -161,6 +162,12 @@ const NAV_GROUPS: NavGroup[] = [
     group: "設定・管理",
     items: [
       {
+        href: "/account-conversion",
+        label: "勘定科目変換",
+        icon: Repeat,
+        modes: ["sole", "corporate"],
+      },
+      {
         href: "/settings",
         label: "設定",
         icon: Settings,
@@ -209,9 +216,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   function changeViewMode(mode: ViewMode) {
+    const previous = viewMode;
     setViewMode(mode);
     localStorage.setItem("viewMode", mode);
     window.dispatchEvent(new CustomEvent("viewmode-change", { detail: mode }));
+
+    // 家庭 → 法人 への切替時は、勘定科目の変換確認画面を案内する
+    // （docs/account-conversion-system.md「モード切替トリガー」）
+    if (previous === "household" && mode === "corporate") {
+      if (window.confirm("家庭モードの勘定科目を法人科目へ変換しますか？変換確認画面を開きます。")) {
+        router.push("/account-conversion");
+      }
+    }
   }
 
   async function logout() {

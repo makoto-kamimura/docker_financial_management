@@ -131,11 +131,14 @@ function DashboardContent() {
 
   const { data, isLoading: budgetLoading } = useQuery({
     queryKey: ["budget-actual", accountCode, year, method],
-    queryFn: async (): Promise<Report> => {
+    queryFn: async (): Promise<Report | null> => {
       const res = await fetch(
         `/api/reports/budget-actual?accountCode=${accountCode}&year=${year}&method=${method}`,
       );
-      return res.json();
+      // 科目未登録のテナント等ではエラーレスポンス（rows なし）が返るため null に落とす
+      if (!res.ok) return null;
+      const json = (await res.json()) as Report;
+      return json.rows ? json : null;
     },
   });
 

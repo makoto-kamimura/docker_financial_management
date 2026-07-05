@@ -45,7 +45,7 @@ const TYPE_BADGE = {
 } as const;
 
 // ── タブ型 ──────────────────────────────────────────────────────
-type Tab = "profile" | "tax" | "security" | "accounts";
+type Tab = "profile" | "tax" | "security" | "accounts" | "accountNames";
 
 // ── 事業者情報セクション ─────────────────────────────────────────
 function BusinessProfileSection() {
@@ -773,10 +773,181 @@ function LinkedAccountsSection() {
   );
 }
 
+// ── 科目名設定セクション（モード別表示名の管理）──────────────────
+type AccountNameRow = {
+  id: number;
+  code: string;
+  name: string;
+  soleName: string | null;
+  corporateName: string | null;
+  category: string;
+};
+
+const CATEGORY_LABEL: Record<string, string> = {
+  REVENUE: "収入",
+  COGS: "変動費",
+  EXPENSE: "固定費・経費",
+  PROFIT: "利益",
+  ASSET: "資産",
+  LIABILITY: "負債",
+  OTHER: "その他",
+};
+
+function AccountNamesSection() {
+  const [rows, setRows] = useState<AccountNameRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [dirty, setDirty] = useState<Record<number, { soleName: string; corporateName: string }>>(
+    {},
+  );
+
+  const load = () => {
+    setLoading(true);
+    fetch("/api/accounts")
+      .then((r) => r.json())
+      .then((j) => {
+        setRows(j.data ?? []);
+        setDirty({});
+        setLoading(false);
+      });
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const setField = (id: number, key: "soleName" | "corporateName", value: string) => {
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [key]: value } : r)));
+    setDirty((d) => {
+      const row = rows.find((r) => r.id === id)!;
+      const base = d[id] ?? {
+        soleName: row.soleName ?? "",
+        corporateName: row.corporateName ?? "",
+      };
+      return { ...d, [id]: { ...base, [key]: value } };
+    });
+  };
+
+  const save = async () => {
+    const items = Object.entries(dirty).map(([id, v]) => ({
+      id: Number(id),
+      soleName: v.soleName,
+      corporateName: v.corporateName,
+    }));
+    if (items.length === 0) {
+      setMsg({ ok: false, text: "変更がありません。" });
+      return;
+    }
+    setSaving(true);
+    setMsg(null);
+    const res = await fetch("/api/accounts/display-names", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      const j = await res.json();
+      setRows(j.data ?? []);
+      setDirty({});
+      setMsg({ ok: true, text: `${items.length} 件の科目名を保存しました。` });
+    } else {
+      setMsg({ ok: false, text: "保存に失敗しました。" });
+    }
+  };
+
+  const dirtyCount = Object.keys(dirty).length;
+
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <h2 className="section-title">科目名設定（モード別表示名）</h2>
+          <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+            各勘定科目は家庭モードの科目名で登録されています。個人事業主モード・法人モードで表示する際の科目名をここで設定できます。
+            空欄にすると家庭科目名がそのまま使われます。既定値は勘定科目変換マスタ（account-master-mapping.md）に基づきます。
+          </p>
+        </div>
+        <button
+          onClick={save}
+          disabled={saving || dirtyCount === 0}
+          className="btn-primary px-4 py-2 whitespace-nowrap disabled:opacity-50"
+        >
+          {saving ? "保存中…" : dirtyCount > 0 ? `変更を保存 (${dirtyCount})` : "変更を保存"}
+        </button>
+      </div>
+
+      {msg && (
+        <p
+          className={`text-xs rounded px-2 py-1.5 mb-3 border ${
+            msg.ok
+              ? "text-green-700 bg-green-50 border-green-200"
+              : "text-red-600 bg-red-50 border-red-200"
+          }`}
+        >
+          {msg.text}
+        </p>
+      )}
+
+      {loading ? (
+        <p className="text-slate-400 text-sm">読み込み中…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-slate-400 text-sm">
+          勘定科目が登録されていません。マスタ管理から登録してください。
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-slate-500 border-b border-slate-200">
+              <tr>
+                <th className="text-left py-2 pr-3 whitespace-nowrap">コード</th>
+                <th className="text-left py-2 pr-3 whitespace-nowrap">家庭科目名</th>
+                <th className="text-left py-2 pr-3 whitespace-nowrap">区分</th>
+                <th className="text-left py-2 pr-3">個人事業主モード表示名</th>
+                <th className="text-left py-2">法人モード表示名</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="py-1.5 pr-3 text-slate-400 tabular-nums whitespace-nowrap">
+                    {r.code}
+                  </td>
+                  <td className="py-1.5 pr-3 whitespace-nowrap">{r.name}</td>
+                  <td className="py-1.5 pr-3 text-xs text-slate-500 whitespace-nowrap">
+                    {CATEGORY_LABEL[r.category] ?? r.category}
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <input
+                      value={r.soleName ?? ""}
+                      placeholder={r.name}
+                      onChange={(e) => setField(r.id, "soleName", e.target.value)}
+                      className="input-field w-full min-w-[12rem]"
+                    />
+                  </td>
+                  <td className="py-1.5">
+                    <input
+                      value={r.corporateName ?? ""}
+                      placeholder={r.name}
+                      onChange={(e) => setField(r.id, "corporateName", e.target.value)}
+                      className="input-field w-full min-w-[12rem]"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── メインページ ─────────────────────────────────────────────────
 const TABS: { id: Tab; label: string }[] = [
   { id: "profile", label: "基本設定" },
   { id: "tax", label: "消費税設定" },
+  { id: "accountNames", label: "科目名設定" },
   { id: "accounts", label: "口座・カード管理" },
   { id: "security", label: "セキュリティ" },
 ];
@@ -809,6 +980,7 @@ export default function SettingsPage() {
 
       {tab === "profile" && <BusinessProfileSection />}
       {tab === "tax" && <TaxSettingsSection />}
+      {tab === "accountNames" && <AccountNamesSection />}
       {tab === "security" && <SecuritySection />}
       {tab === "accounts" && <LinkedAccountsSection />}
     </AppShell>

@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-// GET /api/inventories?year=2026
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const year = req.nextUrl.searchParams.get("year");
-  const where = year
+  const dateFilter = year
     ? {
         inventoryDate: {
           gte: new Date(`${year}-01-01`),
@@ -18,18 +18,18 @@ export async function GET(req: NextRequest) {
     : {};
 
   const inventories = await prisma.inventory.findMany({
-    where,
+    where: { tenantId, ...dateFilter },
     include: { items: true },
     orderBy: { inventoryDate: "desc" },
   });
   return NextResponse.json({ data: inventories });
 }
 
-// POST /api/inventories
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const body = (await req.json()) as {
     name: string;
     inventoryDate: string;
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
 
   const inventory = await prisma.inventory.create({
     data: {
+      tenantId,
       name: body.name,
       inventoryDate: new Date(body.inventoryDate),
       valuationMethod: body.valuationMethod ?? "last_purchase",

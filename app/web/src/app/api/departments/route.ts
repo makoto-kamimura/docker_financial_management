@@ -10,16 +10,18 @@ const DepartmentSchema = z.object({
   parentId: z.number().int().optional(),
 });
 
-// GET /api/departments … 部門一覧（要ログイン）
 export async function GET() {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
-  const departments = await prisma.department.findMany({ orderBy: { id: "asc" } });
+  const { tenantId } = auth.user;
+  const departments = await prisma.department.findMany({
+    where: { tenantId },
+    orderBy: { id: "asc" },
+  });
   return NextResponse.json({ data: departments });
 }
 
-// POST /api/departments … 部門の登録（editor 以上）
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -28,7 +30,8 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const department = await prisma.department.create({ data: parsed.data });
+  const { tenantId } = auth.user;
+  const department = await prisma.department.create({ data: { tenantId, ...parsed.data } });
   await writeAudit(auth.user.id, "create", `department:${department.id}`);
   return NextResponse.json({ data: department }, { status: 201 });
 }

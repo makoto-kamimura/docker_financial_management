@@ -34,6 +34,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     businessProfile: {
       findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(null),
       upsert: vi.fn(),
     },
     inventory: {
@@ -50,6 +51,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     tenant: {
       findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn(),
     },
     officer: {
@@ -74,7 +76,7 @@ vi.mock("@/lib/prisma", () => ({
 // ── 認証モック（常に admin として通過）────────────────────────────────────
 vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn().mockResolvedValue({
-    user: { id: 1, email: "admin@example.com", name: "Admin", role: "admin" },
+    user: { id: 1, email: "admin@example.com", name: "Admin", role: "admin", tenantId: 1 },
   }),
 }));
 
@@ -213,6 +215,11 @@ describe("POST /api/journals/approve", () => {
   });
 
   it("無効な action は 400 を返す", async () => {
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.journalEntry.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 1,
+      tenantId: 1,
+    });
     const { POST } = await import("@/app/api/journals/approve/route");
     const req = makeReq("POST", "http://localhost:3000/api/journals/approve", {
       journalEntryId: 1,
@@ -224,6 +231,10 @@ describe("POST /api/journals/approve", () => {
 
   it("submit アクションで approvalStatus が pending になる", async () => {
     const { prisma } = await import("@/lib/prisma");
+    (prisma.journalEntry.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 1,
+      tenantId: 1,
+    });
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { id: 1, approvalStatus: "pending" },
       { id: 1, action: "submitted" },

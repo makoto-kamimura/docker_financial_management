@@ -3,21 +3,18 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
-// POST /api/budgets/import
-// multipart/form-data: file=<CSV>
-// CSV フォーマット（1行目ヘッダー）: accountCode,fiscalYear,month,amount
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   if (!file) return NextResponse.json({ error: "file が必要です" }, { status: 400 });
 
   const text = await file.text();
   const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2)
-    return NextResponse.json({ error: "データ行がありません" }, { status: 400 });
+  if (lines.length < 2) return NextResponse.json({ error: "データ行がありません" }, { status: 400 });
 
   const errors: string[] = [];
   let imported = 0;
@@ -29,34 +26,29 @@ export async function POST(req: NextRequest) {
     const month = parseInt(monthStr, 10);
     const amount = parseFloat(amountStr);
 
-    if (
-      !accountCode ||
-      isNaN(fiscalYear) ||
-      isNaN(month) ||
-      month < 1 ||
-      month > 12 ||
-      isNaN(amount)
-    ) {
+    if (!accountCode || isNaN(fiscalYear) || isNaN(month) || month < 1 || month > 12 || isNaN(amount)) {
       errors.push(`行${i + 1}: 無効なデータ (${lines[i]})`);
       continue;
     }
 
-    const account = await prisma.account.findUnique({ where: { code: accountCode } });
+    const account = await prisma.account.findUnique({
+      where: { tenantId_code: { tenantId, code: accountCode } },
+    });
     if (!account) {
       errors.push(`行${i + 1}: 不明な勘定科目コード "${accountCode}"`);
       continue;
     }
 
     const period = await prisma.period.upsert({
-      where: { fiscalYear_month: { fiscalYear, month } },
+      where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
       update: {},
-      create: { fiscalYear, month, quarter: Math.ceil(month / 3) },
+      create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
     });
 
     await prisma.budget.upsert({
-      where: { accountId_periodId: { accountId: account.id, periodId: period.id } },
+      where: { tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id } },
       update: { amount },
-      create: { accountId: account.id, periodId: period.id, amount },
+      create: { tenantId, accountId: account.id, periodId: period.id, amount },
     });
 
     imported++;

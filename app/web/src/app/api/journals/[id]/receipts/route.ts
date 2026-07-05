@@ -10,12 +10,15 @@ type Params = { params: Promise<{ id: string }> };
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads");
 
-// GET /api/journals/[id]/receipts
 export async function GET(_req: NextRequest, { params }: Params) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
   const { id } = await params;
+  const { tenantId } = auth.user;
+  const entry = await prisma.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
+  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const receipts = await prisma.receipt.findMany({
     where: { journalEntryId: Number(id) },
     orderBy: { uploadedAt: "desc" },
@@ -23,12 +26,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
   return NextResponse.json({ data: receipts });
 }
 
-// POST /api/journals/[id]/receipts — multipart upload
 export async function POST(req: NextRequest, { params }: Params) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
   const { id } = await params;
+  const { tenantId } = auth.user;
+  const entry = await prisma.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
+  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   if (!file) return NextResponse.json({ error: "file is required" }, { status: 400 });
@@ -42,11 +48,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const bytes = await file.arrayBuffer();
   await writeFile(path.join(UPLOAD_DIR, savedName), Buffer.from(bytes));
 
-  const fileType = file.type.startsWith("image/")
-    ? "image"
-    : file.type === "application/pdf"
-      ? "pdf"
-      : "other";
+  const fileType = file.type.startsWith("image/") ? "image" : file.type === "application/pdf" ? "pdf" : "other";
 
   const receipt = await prisma.receipt.create({
     data: {

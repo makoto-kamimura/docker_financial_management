@@ -5,14 +5,13 @@ import { requireRole } from "@/lib/authz";
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
+
   const { id } = await params;
-  const body = (await req.json()) as {
-    name?: string;
-    title?: string;
-    termStart?: string;
-    termEnd?: string;
-    salary?: number;
-  };
+  const { tenantId } = auth.user;
+  const existing = await prisma.officer.findUnique({ where: { id: Number(id), tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  const body = (await req.json()) as { name?: string; title?: string; termStart?: string; termEnd?: string; salary?: number };
   const officer = await prisma.officer.update({
     where: { id: Number(id) },
     data: {
@@ -29,7 +28,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
+
   const { id } = await params;
+  const { tenantId } = auth.user;
+  const existing = await prisma.officer.findUnique({ where: { id: Number(id), tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   await prisma.officer.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }

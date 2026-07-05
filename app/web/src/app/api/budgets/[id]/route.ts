@@ -6,7 +6,6 @@ import { writeAudit } from "@/lib/audit";
 
 const UpdateSchema = z.object({ amount: z.number() });
 
-// PATCH /api/budgets/[id]
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -14,6 +13,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const budgetId = parseInt(id, 10);
   if (isNaN(budgetId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+
+  const { tenantId } = auth.user;
+  const existing = await prisma.budget.findUnique({ where: { id: budgetId, tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const parsed = UpdateSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -26,7 +29,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   return NextResponse.json({ data: budget });
 }
 
-// DELETE /api/budgets/[id]
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -34,6 +36,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const budgetId = parseInt(id, 10);
   if (isNaN(budgetId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+
+  const { tenantId } = auth.user;
+  const existing = await prisma.budget.findUnique({ where: { id: budgetId, tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   await prisma.budget.delete({ where: { id: budgetId } });
   await writeAudit(auth.user.id, "delete", `budget:${budgetId}`);

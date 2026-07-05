@@ -24,19 +24,19 @@ const TransferSchema = z
     message: "出金元と入金先が同じです",
   });
 
-// GET /api/transfers … 資金移動ルール一覧（口座名を含む）
 export async function GET() {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const transfers = await prisma.transfer.findMany({
+    where: { tenantId },
     include: { fromAccount: true, toAccount: true },
     orderBy: [{ day: "asc" }, { id: "asc" }],
   });
   return NextResponse.json({ data: transfers });
 }
 
-// POST /api/transfers … 資金移動ルールの登録（editor 以上）
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -45,7 +45,8 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const transfer = await prisma.transfer.create({ data: parsed.data });
+  const { tenantId } = auth.user;
+  const transfer = await prisma.transfer.create({ data: { tenantId, ...parsed.data } });
   await writeAudit(auth.user.id, "create", `transfer:${transfer.id}`);
   return NextResponse.json({ data: transfer }, { status: 201 });
 }

@@ -16,11 +16,12 @@ export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const yearParam = req.nextUrl.searchParams.get("year");
   const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
 
   const budgets = await prisma.budget.findMany({
-    where: { period: { fiscalYear: year } },
+    where: { tenantId, period: { fiscalYear: year } },
     include: {
       account: { select: { id: true, code: true, name: true, category: true } },
       period: { select: { fiscalYear: true, month: true } },
@@ -28,8 +29,8 @@ export async function GET(req: NextRequest) {
     orderBy: [{ account: { code: "asc" } }, { period: { month: "asc" } }],
   });
 
-  // 年度一覧
   const years = await prisma.period.findMany({
+    where: { tenantId },
     select: { fiscalYear: true },
     distinct: ["fiscalYear"],
     orderBy: { fiscalYear: "asc" },
@@ -47,21 +48,24 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const { accountCode, fiscalYear, month, amount } = parsed.data;
+  const { tenantId } = auth.user;
 
-  const account = await prisma.account.findUnique({ where: { code: accountCode } });
+  const account = await prisma.account.findUnique({
+    where: { tenantId_code: { tenantId, code: accountCode } },
+  });
   if (!account)
     return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
 
   const period = await prisma.period.upsert({
-    where: { fiscalYear_month: { fiscalYear, month } },
+    where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
     update: {},
-    create: { fiscalYear, month, quarter: Math.ceil(month / 3) },
+    create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
   });
 
   const budget = await prisma.budget.upsert({
-    where: { accountId_periodId: { accountId: account.id, periodId: period.id } },
+    where: { tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id } },
     update: { amount },
-    create: { accountId: account.id, periodId: period.id, amount },
+    create: { tenantId, accountId: account.id, periodId: period.id, amount },
     include: {
       account: { select: { id: true, code: true, name: true } },
       period: { select: { fiscalYear: true, month: true } },

@@ -11,6 +11,8 @@ const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
   category: z.enum(CATEGORIES).optional(),
   parentCode: z.string().optional().nullable(),
+  soleName: z.string().max(255).nullable().optional(),
+  corporateName: z.string().max(255).nullable().optional(),
 });
 
 // PATCH /api/accounts/[id] … 勘定科目の更新（editor 以上）
@@ -26,13 +28,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const { parentCode, code, ...fields } = parsed.data;
+  const { tenantId } = auth.user;
 
-  const before = await prisma.account.findUnique({ where: { id: accountId } });
+  const before = await prisma.account.findUnique({ where: { id: accountId, tenantId } });
   if (!before) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  // コード変更時の重複チェック
   if (code && code !== before.code) {
-    const dup = await prisma.account.findUnique({ where: { code } });
+    const dup = await prisma.account.findUnique({
+      where: { tenantId_code: { tenantId, code } },
+    });
     if (dup)
       return NextResponse.json(
         { error: `コード「${code}」は既に使用されています` },
@@ -44,7 +48,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (parentCode === null || parentCode === "") {
     parentId = null;
   } else if (parentCode) {
-    const parent = await prisma.account.findUnique({ where: { code: parentCode } });
+    const parent = await prisma.account.findUnique({
+      where: { tenantId_code: { tenantId, code: parentCode } },
+    });
     if (!parent)
       return NextResponse.json({ error: `unknown parentCode: ${parentCode}` }, { status: 400 });
     if (parent.id === accountId)
@@ -69,16 +75,19 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const accountId = parseInt(id, 10);
   if (isNaN(accountId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
-  const hasRecords = await prisma.financialRecord.findFirst({ where: { accountId } });
+  const { tenantId } = auth.user;
+  const before = await prisma.account.findUnique({ where: { id: accountId, tenantId } });
+  if (!before) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  const hasRecords = await prisma.financialRecord.findFirst({ where: { accountId, tenantId } });
   if (hasRecords) {
     return NextResponse.json({ error: "実績データが存在するため削除できません" }, { status: 409 });
   }
-  const hasChildren = await prisma.account.findFirst({ where: { parentId: accountId } });
+  const hasChildren = await prisma.account.findFirst({ where: { parentId: accountId, tenantId } });
   if (hasChildren) {
     return NextResponse.json({ error: "子勘定科目が存在するため削除できません" }, { status: 409 });
   }
 
-  const before = await prisma.account.findUnique({ where: { id: accountId } });
   await prisma.account.delete({ where: { id: accountId } });
   await writeAudit(auth.user.id, "delete", `account:${accountId}`, { before });
   return new NextResponse(null, { status: 204 });

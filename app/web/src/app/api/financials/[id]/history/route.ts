@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-// GET /api/financials/[id]/history … 個別実績データの変更履歴一覧
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
@@ -10,6 +9,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const recordId = parseInt(id, 10);
   if (isNaN(recordId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+
+  const { tenantId } = auth.user;
+  const record = await prisma.financialRecord.findUnique({ where: { id: recordId, tenantId } });
+  if (!record) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const histories = await prisma.financialRecordHistory.findMany({
     where: { recordId },

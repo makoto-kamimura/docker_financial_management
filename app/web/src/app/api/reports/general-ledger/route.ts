@@ -3,17 +3,16 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 import { withCache } from "@/lib/redis";
 
-// GET /api/reports/general-ledger?accountId=&year=&format=json|csv
-// 勘定科目別の取引一覧（前期繰越残・当期借方・当期貸方・次期繰越残）
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const sp = req.nextUrl.searchParams;
   const accountId = sp.get("accountId") ? Number(sp.get("accountId")) : undefined;
   const year = Number(sp.get("year") ?? new Date().getFullYear());
   const format = sp.get("format") ?? "json";
-  const cacheKey = format === "json" ? `reports:ledger:${year}:${accountId ?? "all"}` : null;
+  const cacheKey = format === "json" ? `reports:ledger:${tenantId}:${year}:${accountId ?? "all"}` : null;
 
   const startDate = new Date(`${year}-01-01T00:00:00.000Z`);
   const endDate = new Date(`${year}-12-31T23:59:59.999Z`);
@@ -22,7 +21,7 @@ export async function GET(req: NextRequest) {
     const details = await prisma.journalDetail.findMany({
       where: {
         ...(accountId ? { accountId } : {}),
-        journalEntry: { transactionDate: { gte: startDate, lte: endDate } },
+        journalEntry: { tenantId, transactionDate: { gte: startDate, lte: endDate } },
       },
       include: {
         account: { select: { id: true, code: true, name: true } },
@@ -31,7 +30,6 @@ export async function GET(req: NextRequest) {
       orderBy: [{ journalEntry: { transactionDate: "asc" } }, { id: "asc" }],
     });
 
-    // 科目別集計
     type LedgerRow = {
       date: string;
       journalId: number;
@@ -53,14 +51,7 @@ export async function GET(req: NextRequest) {
     for (const d of details) {
       const aid = d.accountId;
       if (!ledgers.has(aid)) {
-        ledgers.set(aid, {
-          accountId: aid,
-          code: d.account.code,
-          name: d.account.name,
-          rows: [],
-          totalDebit: 0,
-          totalCredit: 0,
-        });
+        ledgers.set(aid, { accountId: aid, code: d.account.code, name: d.account.name, rows: [], totalDebit: 0, totalCredit: 0 });
       }
       const l = ledgers.get(aid)!;
       const amt = Number(d.amount);
@@ -68,7 +59,6 @@ export async function GET(req: NextRequest) {
       if (d.side === "credit") l.totalCredit += amt;
     }
 
-    // 各科目の行を余残計算付きで構築
     for (const l of ledgers.values()) {
       let balance = 0;
       const rows = details
@@ -90,7 +80,7 @@ export async function GET(req: NextRequest) {
     }
 
     return [...ledgers.values()];
-  }; // end computeLedger
+  };
 
   const result = cacheKey ? await withCache(cacheKey, 3600, computeLedger) : await computeLedger();
 

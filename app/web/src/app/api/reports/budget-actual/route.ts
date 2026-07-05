@@ -5,28 +5,27 @@ import { forecast, type ForecastMethod } from "@/lib/forecast";
 import { buildBudgetActual } from "@/lib/report";
 import { requireRole } from "@/lib/authz";
 
-// 月キーを生成
 const keyOf = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
-// GET /api/reports/budget-actual?accountCode=4000&year=2025&method=linear_regression
-// 予算 vs 実績 vs 予測の予実対比レポートを返す。
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const sp = req.nextUrl.searchParams;
   const accountCode = sp.get("accountCode") ?? "4000";
   const year = Number(sp.get("year") ?? new Date().getFullYear());
   const method = (sp.get("method") ?? "linear_regression") as ForecastMethod;
 
-  const account = await prisma.account.findUnique({ where: { code: accountCode } });
+  const account = await prisma.account.findUnique({
+    where: { tenantId_code: { tenantId, code: accountCode } },
+  });
   if (!account) {
     return NextResponse.json({ error: `unknown account code: ${accountCode}` }, { status: 400 });
   }
 
-  // 予算（対象年）
   const budgetRecords = await prisma.budget.findMany({
-    where: { accountId: account.id, period: { fiscalYear: year } },
+    where: { tenantId, accountId: account.id, period: { fiscalYear: year } },
     include: { period: true },
   });
   const budgets = budgetRecords.map((b) => ({
@@ -34,9 +33,8 @@ export async function GET(req: NextRequest) {
     amount: Number(b.amount),
   }));
 
-  // 実績（対象年）
   const actualRecords = await prisma.financialRecord.findMany({
-    where: { accountId: account.id, period: { fiscalYear: year } },
+    where: { tenantId, accountId: account.id, period: { fiscalYear: year } },
     include: { period: true },
   });
   const actuals = actualRecords.map((r) => ({
@@ -44,7 +42,6 @@ export async function GET(req: NextRequest) {
     amount: Number(r.amount),
   }));
 
-  // 予測（実績の続きとして残りの月を埋める）
   const monthlyActual = aggregate(
     actualRecords.map((r) => ({
       amount: Number(r.amount),

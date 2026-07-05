@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
-  const tenantId = req.nextUrl.searchParams.get("tenantId");
+
+  const { tenantId } = auth.user;
   const officers = await prisma.officer.findMany({
-    where: tenantId ? { tenantId: Number(tenantId) } : undefined,
+    where: { tenantId },
     include: { tenant: { select: { id: true, name: true } } },
     orderBy: { termStart: "asc" },
   });
@@ -17,23 +18,16 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
-  const body = (await req.json()) as {
-    tenantId: number;
-    name: string;
-    title: string;
-    termStart: string;
-    termEnd: string;
-    salary?: number;
-  };
-  if (!body.tenantId || !body.name || !body.title || !body.termStart || !body.termEnd) {
-    return NextResponse.json(
-      { error: "tenantId, name, title, termStart, termEnd are required" },
-      { status: 400 },
-    );
+
+  const { tenantId } = auth.user;
+  const body = (await req.json()) as { name: string; title: string; termStart: string; termEnd: string; salary?: number };
+  if (!body.name || !body.title || !body.termStart || !body.termEnd) {
+    return NextResponse.json({ error: "name, title, termStart, termEnd are required" }, { status: 400 });
   }
+
   const officer = await prisma.officer.create({
     data: {
-      tenantId: body.tenantId,
+      tenantId,
       name: body.name,
       title: body.title,
       termStart: new Date(body.termStart),

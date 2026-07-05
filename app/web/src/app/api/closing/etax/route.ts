@@ -2,22 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-// GET /api/closing/etax?fiscalYear=2025&type=blue_return
-// 青色申告決算書 / 法人税申告書の e-Tax 提出用 XML を生成して返す。
-// type: "blue_return" (青色申告) | "corporate" (法人税) | "consumption_tax" (消費税)
 export async function GET(req: NextRequest) {
   const auth = await requireRole("accountant");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const sp = req.nextUrl.searchParams;
   const fiscalYear = Number(sp.get("fiscalYear") ?? new Date().getFullYear());
   const type = (sp.get("type") ?? "blue_return") as "blue_return" | "corporate" | "consumption_tax";
 
-  const profile = await prisma.businessProfile.findFirst();
-  const taxSetting = await prisma.taxSetting.findFirst({ orderBy: { createdAt: "desc" } });
+  const profile = await prisma.businessProfile.findUnique({ where: { tenantId } });
+  const taxSetting = await prisma.taxSetting.findFirst({
+    where: { tenantId },
+    orderBy: { createdAt: "desc" },
+  });
 
   const records = await prisma.financialRecord.findMany({
-    where: { period: { fiscalYear } },
+    where: { tenantId, period: { fiscalYear } },
     include: { account: true, period: true },
   });
 
@@ -44,37 +45,11 @@ export async function GET(req: NextRequest) {
   let xml: string;
 
   if (type === "blue_return") {
-    xml = buildBlueReturnXml({
-      fiscalYear,
-      submitAt,
-      ownerName,
-      tradeName,
-      revenue,
-      cogs,
-      grossProfit,
-      expense,
-      netIncome,
-    });
+    xml = buildBlueReturnXml({ fiscalYear, submitAt, ownerName, tradeName, revenue, cogs, grossProfit, expense, netIncome });
   } else if (type === "corporate") {
-    xml = buildCorporateTaxXml({
-      fiscalYear,
-      submitAt,
-      tradeName,
-      revenue,
-      expense,
-      netIncome,
-    });
+    xml = buildCorporateTaxXml({ fiscalYear, submitAt, tradeName, revenue, expense, netIncome });
   } else {
-    xml = buildConsumptionTaxXml({
-      fiscalYear,
-      submitAt,
-      ownerName,
-      tradeName,
-      revenue,
-      taxType,
-      taxRate,
-      taxAmount,
-    });
+    xml = buildConsumptionTaxXml({ fiscalYear, submitAt, ownerName, tradeName, revenue, taxType, taxRate, taxAmount });
   }
 
   return new NextResponse(xml, {
@@ -86,27 +61,11 @@ export async function GET(req: NextRequest) {
   });
 }
 
-// ── XML ビルダ ──────────────────────────────────────────────────────────
-
 function esc(s: string | number): string {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function buildBlueReturnXml(p: {
-  fiscalYear: number;
-  submitAt: string;
-  ownerName: string;
-  tradeName: string;
-  revenue: number;
-  cogs: number;
-  grossProfit: number;
-  expense: number;
-  netIncome: number;
-}): string {
+function buildBlueReturnXml(p: { fiscalYear: number; submitAt: string; ownerName: string; tradeName: string; revenue: number; cogs: number; grossProfit: number; expense: number; netIncome: number }): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- e-Tax 青色申告決算書 (第一表) -->
 <AoiroReturn xmlns="urn:jp:go:nta:etax:bluereturndecl:1.0" version="1.0">
@@ -127,21 +86,12 @@ function buildBlueReturnXml(p: {
 </AoiroReturn>`;
 }
 
-function buildCorporateTaxXml(p: {
-  fiscalYear: number;
-  submitAt: string;
-  tradeName: string;
-  revenue: number;
-  expense: number;
-  netIncome: number;
-}): string {
+function buildCorporateTaxXml(p: { fiscalYear: number; submitAt: string; tradeName: string; revenue: number; expense: number; netIncome: number }): string {
   const taxBase = Math.max(0, p.netIncome);
-  // 法人税率 (中小法人 800万円以下部分: 15%, 超過部分: 23.2%)
   const threshold = 8_000_000;
   const taxLow = Math.min(taxBase, threshold) * 0.15;
   const taxHigh = Math.max(0, taxBase - threshold) * 0.232;
   const corporateTax = Math.floor(taxLow + taxHigh);
-
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- e-Tax 法人税申告書 (別表一) -->
 <CorporateTaxReturn xmlns="urn:jp:go:nta:etax:corptaxdecl:1.0" version="1.0">
@@ -166,21 +116,8 @@ function buildCorporateTaxXml(p: {
 </CorporateTaxReturn>`;
 }
 
-function buildConsumptionTaxXml(p: {
-  fiscalYear: number;
-  submitAt: string;
-  ownerName: string;
-  tradeName: string;
-  revenue: number;
-  taxType: string;
-  taxRate: number;
-  taxAmount: number;
-}): string {
-  const typeLabel: Record<string, string> = {
-    exempt: "免税",
-    general: "原則課税",
-    simplified: "簡易課税",
-  };
+function buildConsumptionTaxXml(p: { fiscalYear: number; submitAt: string; ownerName: string; tradeName: string; revenue: number; taxType: string; taxRate: number; taxAmount: number }): string {
+  const typeLabel: Record<string, string> = { exempt: "免税", general: "原則課税", simplified: "簡易課税" };
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- e-Tax 消費税申告書 -->
 <ConsumptionTaxReturn xmlns="urn:jp:go:nta:etax:consumptaxdecl:1.0" version="1.0">

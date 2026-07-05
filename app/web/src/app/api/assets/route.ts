@@ -3,27 +3,16 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
 // GET /api/assets?year=2025
-// ASSET/LIABILITY カテゴリの勘定科目について、指定年の月次残高を返す。
-// 指定年が省略された場合は全年を返す。
-//
-// レスポンス:
-// {
-//   years: number[],
-//   accounts: {
-//     id, code, name, category, parentId,
-//     parent: { code, name } | null,
-//     balances: { fiscalYear, month, amount }[]
-//   }[]
-// }
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const yearParam = req.nextUrl.searchParams.get("year");
   const year = yearParam ? parseInt(yearParam, 10) : undefined;
 
   const accounts = await prisma.account.findMany({
-    where: { category: { in: ["ASSET", "LIABILITY"] } },
+    where: { tenantId, category: { in: ["ASSET", "LIABILITY"] } },
     orderBy: { code: "asc" },
     include: {
       parent: { select: { id: true, code: true, name: true } },
@@ -35,9 +24,9 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  // 利用可能な年一覧（全 ASSET/LIABILITY レコードから収集）
   const allYears = await prisma.period.findMany({
     where: {
+      tenantId,
       records: {
         some: { account: { category: { in: ["ASSET", "LIABILITY"] } } },
       },

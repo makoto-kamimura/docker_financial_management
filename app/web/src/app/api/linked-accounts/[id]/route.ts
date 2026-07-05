@@ -15,7 +15,6 @@ const UpdateSchema = z.object({
   note: z.string().optional().nullable(),
 });
 
-// PATCH /api/linked-accounts/[id]
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -23,6 +22,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const itemId = parseInt(id, 10);
   if (isNaN(itemId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+
+  const { tenantId } = auth.user;
+  const existing = await prisma.linkedAccount.findUnique({ where: { id: itemId, tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const parsed = UpdateSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -32,9 +35,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (accountCode === null || accountCode === "") {
     accountId = null;
   } else if (accountCode) {
-    const acct = await prisma.account.findUnique({ where: { code: accountCode } });
-    if (!acct)
-      return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
+    const acct = await prisma.account.findUnique({
+      where: { tenantId_code: { tenantId, code: accountCode } },
+    });
+    if (!acct) return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
     accountId = acct.id;
   }
 
@@ -47,7 +51,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   return NextResponse.json({ data: item });
 }
 
-// DELETE /api/linked-accounts/[id]
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -55,6 +58,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const itemId = parseInt(id, 10);
   if (isNaN(itemId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+
+  const { tenantId } = auth.user;
+  const existing = await prisma.linkedAccount.findUnique({ where: { id: itemId, tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   await prisma.linkedAccount.delete({ where: { id: itemId } });
   await writeAudit(auth.user.id, "delete", `linked_account:${itemId}`);

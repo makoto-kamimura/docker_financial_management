@@ -16,9 +16,11 @@ function generateInvoiceNumber(): string {
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
+
+  const { tenantId } = auth.user;
   const status = req.nextUrl.searchParams.get("status");
   const invoices = await prisma.invoice.findMany({
-    where: status ? { status } : undefined,
+    where: { tenantId, ...(status ? { status } : {}) },
     include: INCLUDE,
     orderBy: { issueDate: "desc" },
   });
@@ -29,6 +31,7 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const body = (await req.json()) as {
     customerName: string;
     customerAddress?: string;
@@ -47,13 +50,7 @@ export async function POST(req: NextRequest) {
   const lineData = body.lines.map((l) => {
     const taxRate = l.taxRate ?? 0.1;
     const amount = Math.round(l.quantity * l.unitPrice);
-    return {
-      description: l.description,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      taxRate,
-      amount,
-    };
+    return { description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate, amount };
   });
   const subtotal = lineData.reduce((s, l) => s + l.amount, 0);
   const taxAmount = Math.round(lineData.reduce((s, l) => s + l.amount * l.taxRate, 0));
@@ -61,6 +58,7 @@ export async function POST(req: NextRequest) {
 
   const invoice = await prisma.invoice.create({
     data: {
+      tenantId,
       invoiceNumber: generateInvoiceNumber(),
       customerName: body.customerName,
       customerAddress: body.customerAddress ?? null,

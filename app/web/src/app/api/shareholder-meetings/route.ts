@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
-  const tenantId = req.nextUrl.searchParams.get("tenantId");
+
+  const { tenantId } = auth.user;
   const meetings = await prisma.shareholderMeeting.findMany({
-    where: tenantId ? { tenantId: Number(tenantId) } : undefined,
+    where: { tenantId },
     include: { tenant: { select: { id: true, name: true } } },
     orderBy: { meetingDate: "desc" },
   });
@@ -17,22 +18,16 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
-  const body = (await req.json()) as {
-    tenantId: number;
-    meetingDate: string;
-    meetingType?: string;
-    agenda: string;
-    resolution?: string;
-  };
-  if (!body.tenantId || !body.meetingDate || !body.agenda) {
-    return NextResponse.json(
-      { error: "tenantId, meetingDate, agenda are required" },
-      { status: 400 },
-    );
+
+  const { tenantId } = auth.user;
+  const body = (await req.json()) as { meetingDate: string; meetingType?: string; agenda: string; resolution?: string };
+  if (!body.meetingDate || !body.agenda) {
+    return NextResponse.json({ error: "meetingDate, agenda are required" }, { status: 400 });
   }
+
   const meeting = await prisma.shareholderMeeting.create({
     data: {
-      tenantId: body.tenantId,
+      tenantId,
       meetingDate: new Date(body.meetingDate),
       meetingType: body.meetingType ?? "regular",
       agenda: body.agenda,

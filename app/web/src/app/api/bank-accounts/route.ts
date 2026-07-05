@@ -12,19 +12,21 @@ const BankAccountSchema = z.object({
   role: z.enum(["SALARY", "WITHDRAWAL", "SAVINGS", "OTHER"]).default("OTHER"),
 });
 
-// GET /api/bank-accounts … 銀行口座一覧（残高はトランザクション合計から算出）
 export async function GET() {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const [accounts, balances] = await Promise.all([
     prisma.bankAccount.findMany({
+      where: { tenantId },
       orderBy: { id: "asc" },
       include: { _count: { select: { transactions: true } } },
     }),
     prisma.bankTransaction.groupBy({
       by: ["accountId"],
       _sum: { amount: true },
+      where: { account: { tenantId } },
     }),
   ]);
 
@@ -35,7 +37,6 @@ export async function GET() {
   });
 }
 
-// POST /api/bank-accounts … 銀行口座の登録（editor 以上）
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
@@ -44,7 +45,8 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const account = await prisma.bankAccount.create({ data: parsed.data });
+  const { tenantId } = auth.user;
+  const account = await prisma.bankAccount.create({ data: { tenantId, ...parsed.data } });
   await writeAudit(auth.user.id, "create", `bank_account:${account.id}`);
   return NextResponse.json({ data: account }, { status: 201 });
 }

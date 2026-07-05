@@ -22,8 +22,20 @@ const ROLE_BADGE: Record<string, string> = {
 const ROLE_LABEL: Record<string, string> = { admin: "管理者", editor: "編集者", viewer: "閲覧者" };
 
 type RoleType = "admin" | "editor" | "viewer";
-type UserForm = { email: string; name: string; role: RoleType; password: string };
-const BLANK_FORM: UserForm = { email: "", name: "", role: "viewer", password: "" };
+type UserForm = {
+  email: string;
+  name: string;
+  role: RoleType;
+  password: string;
+  newTenant: boolean;
+};
+const BLANK_FORM: UserForm = {
+  email: "",
+  name: "",
+  role: "viewer",
+  password: "",
+  newTenant: false,
+};
 
 export default function AdminUsersPage() {
   const qc = useQueryClient();
@@ -241,6 +253,20 @@ export default function AdminUsersPage() {
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
             </div>
+            <label className="flex items-start gap-2 text-xs text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={form.newTenant}
+                onChange={(e) => setForm({ ...form, newTenant: e.target.checked })}
+              />
+              <span>
+                専用の新規テナントを作成する
+                <span className="block text-slate-400">
+                  未チェックの場合は自分と同じテナントに追加され、同じデータを共有します。チェックすると独立した空のテナントで作成されます（作成後は自分のユーザー管理には表示されません）。
+                </span>
+              </span>
+            </label>
             {formError && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
                 {formError}

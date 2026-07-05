@@ -12,7 +12,10 @@ const INCLUDE = {
 export async function GET(_req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
+
+  const { tenantId } = auth.user;
   const templates = await prisma.journalTemplate.findMany({
+    where: { tenantId },
     include: INCLUDE,
     orderBy: { id: "asc" },
   });
@@ -23,16 +26,11 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const body = (await req.json()) as {
     name: string;
     description?: string;
-    lines: {
-      side: string;
-      accountId: number;
-      amount?: number;
-      note?: string;
-      sortOrder?: number;
-    }[];
+    lines: { side: string; accountId: number; amount?: number; note?: string; sortOrder?: number }[];
   };
   if (!body.name || !body.lines?.length) {
     return NextResponse.json({ error: "name and lines are required" }, { status: 400 });
@@ -40,6 +38,7 @@ export async function POST(req: NextRequest) {
 
   const template = await prisma.journalTemplate.create({
     data: {
+      tenantId,
       name: body.name,
       description: body.description ?? null,
       lines: {

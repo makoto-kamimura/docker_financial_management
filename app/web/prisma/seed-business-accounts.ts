@@ -54,12 +54,13 @@ const ACCOUNTS = [
 
 async function main() {
   console.log("🌱 F003: 個人事業主向け初期勘定科目 seed 開始...");
+  const tid = 1; // 管理者テナント（seed.ts の adminTenant）
   let added = 0;
   for (const acc of ACCOUNTS) {
     const result = await prisma.account.upsert({
-      where: { code: acc.code },
+      where: { tenantId_code: { tenantId: tid, code: acc.code } },
       update: { name: acc.name, category: acc.category },
-      create: { code: acc.code, name: acc.name, category: acc.category as never },
+      create: { tenantId: tid, code: acc.code, name: acc.name, category: acc.category as never },
     });
     if (result) added++;
   }

@@ -5,26 +5,25 @@ import { requireRole } from "@/lib/authz";
 import { simulateBalances, type SimAccount, type SimTransfer } from "@/lib/balance";
 
 const Schema = z.object({
-  // 口座ごとの期首残高（未指定の口座は 0）
   openings: z.record(z.string(), z.number()).optional(),
   months: z.number().int().min(1).max(24).default(3),
   startYear: z.number().int(),
   startMonth: z.number().int().min(1).max(12),
 });
 
-// POST /api/transfers/simulate … 期首残高と登録済みの資金移動から残高推移をシミュレートする。
 export async function POST(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const parsed = Schema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { openings = {}, months, startYear, startMonth } = parsed.data;
 
-  const bankAccounts = await prisma.bankAccount.findMany({ orderBy: { id: "asc" } });
-  const transfers = await prisma.transfer.findMany();
+  const bankAccounts = await prisma.bankAccount.findMany({ where: { tenantId }, orderBy: { id: "asc" } });
+  const transfers = await prisma.transfer.findMany({ where: { tenantId } });
 
   const accounts: SimAccount[] = bankAccounts.map((a) => ({
     id: a.id,

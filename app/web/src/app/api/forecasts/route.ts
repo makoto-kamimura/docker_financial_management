@@ -12,11 +12,9 @@ const METHODS: ForecastMethod[] = [
   "holt_winters",
 ];
 
-// シナリオ係数: 楽観 / 標準 / 悲観
 const SCENARIO_FACTOR = { optimistic: 1.1, base: 1.0, pessimistic: 0.9 } as const;
 type Scenario = keyof typeof SCENARIO_FACTOR;
 
-// MAPE (Mean Absolute Percentage Error)
 function calcMape(actual: number[], predicted: number[]): number | null {
   const n = Math.min(actual.length, predicted.length);
   if (n === 0) return null;
@@ -26,10 +24,9 @@ function calcMape(actual: number[], predicted: number[]): number | null {
     if (a === 0) return s;
     return s + Math.abs((a - predicted[i]) / a);
   }, 0);
-  return Math.round((sum / nonZero.length) * 10000) / 100; // パーセント
+  return Math.round((sum / nonZero.length) * 10000) / 100;
 }
 
-// RMSE (Root Mean Squared Error)
 function calcRmse(actual: number[], predicted: number[]): number | null {
   const n = Math.min(actual.length, predicted.length);
   if (n === 0) return null;
@@ -38,12 +35,11 @@ function calcRmse(actual: number[], predicted: number[]): number | null {
 }
 
 // GET /api/forecasts?accountCode=4000&months=6&method=linear_regression&scenario=base
-// DB の実績（月次）を元に将来 N か月の推移を予測して返す。
-// 後半 3 ヶ月をホールドアウトしてバックテスト精度（MAPE / RMSE）を算出。
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const sp = req.nextUrl.searchParams;
   const months = Number(sp.get("months") ?? "6");
   const accountCode = sp.get("accountCode") ?? "4000";
@@ -62,7 +58,7 @@ export async function GET(req: NextRequest) {
   }
 
   const records = await prisma.financialRecord.findMany({
-    where: { account: { code: accountCode } },
+    where: { tenantId, account: { code: accountCode } },
     include: { period: true },
   });
 
@@ -80,7 +76,6 @@ export async function GET(req: NextRequest) {
   const factor = SCENARIO_FACTOR[scenario] ?? 1;
   const forecasted = forecast(history, months, method, params).map((v) => Math.round(v * factor));
 
-  // バックテスト精度評価: 最後の 3 ヶ月をホールドアウト
   let accuracy: { mape: number | null; rmse: number | null; holdoutMonths: number } | null = null;
   const holdout = 3;
   if (history.length > holdout + 2) {
@@ -105,11 +100,11 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/forecasts — 予測結果をスナップショットとして保存
-// body: { accountCode, method, scenario, startYear, startMonth, values: number[] }
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const body = (await req.json()) as {
     accountCode: string;
     method: string;
@@ -123,7 +118,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "accountCode and values are required" }, { status: 400 });
   }
 
-  const account = await prisma.account.findUnique({ where: { code: body.accountCode } });
+  const account = await prisma.account.findUnique({
+    where: { tenantId_code: { tenantId, code: body.accountCode } },
+  });
   if (!account) {
     return NextResponse.json({ error: `account not found: ${body.accountCode}` }, { status: 404 });
   }
@@ -155,29 +152,26 @@ export async function POST(req: NextRequest) {
 
   const created: number[] = [];
   for (const amount of body.values) {
-    // Period を upsert
     const period = await prisma.period.upsert({
-      where: { fiscalYear_month: { fiscalYear: year, month } },
+      where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
       update: {},
-      create: { fiscalYear: year, month, quarter: Math.ceil(month / 3) },
+      create: { tenantId, fiscalYear: year, month, quarter: Math.ceil(month / 3) },
     });
 
     const snapshot = await prisma.forecast.create({
       data: {
+        tenantId,
         accountId: account.id,
         periodId: period.id,
         method: dbMethod,
         scenario: dbScenario,
-        amount: amount,
+        amount,
       },
     });
     created.push(snapshot.id);
 
     month++;
-    if (month > 12) {
-      month = 1;
-      year++;
-    }
+    if (month > 12) { month = 1; year++; }
   }
 
   return NextResponse.json({ created: created.length, ids: created }, { status: 201 });

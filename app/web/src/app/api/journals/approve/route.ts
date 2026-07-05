@@ -3,16 +3,16 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-// GET /api/journals/approve?status=pending&year=2026 — 承認待ち仕訳一覧
 export async function GET(req: NextRequest) {
   const auth = await requireRole("accountant");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const status = req.nextUrl.searchParams.get("status") ?? "pending";
   const year = req.nextUrl.searchParams.get("year");
   const q = req.nextUrl.searchParams.get("q");
 
-  const where: Prisma.JournalEntryWhereInput = { approvalStatus: status };
+  const where: Prisma.JournalEntryWhereInput = { tenantId, approvalStatus: status };
   if (year) {
     where.transactionDate = {
       gte: new Date(`${year}-01-01`),
@@ -40,11 +40,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ data: journals });
 }
 
-// POST /api/journals/approve — 仕訳を承認申請 or 承認 or 差戻し
 export async function POST(req: NextRequest) {
   const auth = await requireRole("accountant");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const body = (await req.json()) as {
     journalEntryId: number;
     action: "submit" | "approve" | "reject";
@@ -55,16 +55,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "journalEntryId and action are required" }, { status: 400 });
   }
 
+  const entry = await prisma.journalEntry.findUnique({
+    where: { id: body.journalEntryId, tenantId },
+  });
+  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const statusMap: Record<string, string> = {
     submit: "pending",
     approve: "approved",
     reject: "rejected",
   };
-
   const newStatus = statusMap[body.action];
-  if (!newStatus) {
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  }
+  if (!newStatus) return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 
   const [, approval] = await prisma.$transaction([
     prisma.journalEntry.update({

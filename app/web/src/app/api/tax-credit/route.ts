@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-// GET /api/tax-credit?year=2026
-// 仕入税額控除集計: 適格/非適格 別に消費税額を集計
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const year = Number(req.nextUrl.searchParams.get("year") ?? new Date().getFullYear());
 
   const details = await prisma.journalDetail.findMany({
@@ -15,6 +14,7 @@ export async function GET(req: NextRequest) {
       side: "debit",
       taxRate: { not: null },
       journalEntry: {
+        tenantId,
         transactionDate: {
           gte: new Date(`${year}-01-01`),
           lt: new Date(`${year + 1}-01-01`),

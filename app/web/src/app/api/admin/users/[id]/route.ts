@@ -29,6 +29,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const parsed = UpdateSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
+  // 自テナントのユーザーのみ操作可能
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.tenantId !== auth.user.tenantId)
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const { password, ...fields } = parsed.data;
   const data: Record<string, unknown> = { ...fields };
   if (password) data.passwordHash = hashPassword(password);
@@ -52,6 +57,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (isNaN(userId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
   if (userId === auth.user.id)
     return NextResponse.json({ error: "自分自身は削除できません" }, { status: 400 });
+
+  // 自テナントのユーザーのみ操作可能
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.tenantId !== auth.user.tenantId)
+    return NextResponse.json({ error: "not found" }, { status: 404 });
 
   await prisma.session.deleteMany({ where: { userId } });
   await prisma.user.delete({ where: { id: userId } });

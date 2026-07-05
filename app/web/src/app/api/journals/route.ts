@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const sp = req.nextUrl.searchParams;
   const year = sp.get("year") ? Number(sp.get("year")) : undefined;
   const month = sp.get("month") ? Number(sp.get("month")) : undefined;
@@ -32,7 +33,10 @@ export async function GET(req: NextRequest) {
     dateTo = new Date(year + 1, 0, 1);
   }
 
-  const where = dateFrom ? { transactionDate: { gte: dateFrom, lt: dateTo } } : {};
+  const where = {
+    tenantId,
+    ...(dateFrom ? { transactionDate: { gte: dateFrom, lt: dateTo } } : {}),
+  };
 
   const [total, entries] = await Promise.all([
     prisma.journalEntry.count({ where }),
@@ -55,6 +59,7 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const body = (await req.json()) as {
     transactionDate: string;
     description: string;
@@ -85,6 +90,7 @@ export async function POST(req: NextRequest) {
 
   const entry = await prisma.journalEntry.create({
     data: {
+      tenantId,
       transactionDate: new Date(body.transactionDate),
       description: body.description,
       paymentMethod: body.paymentMethod ?? "cash",
@@ -101,13 +107,12 @@ export async function POST(req: NextRequest) {
     include: INCLUDE_DETAILS,
   });
 
-  // FinancialRecord への自動反映
   await syncToFinancialRecords(
+    tenantId,
     entry.transactionDate,
     entry.details.map((d) => ({ accountId: d.accountId, amount: Number(d.amount) })),
   );
 
-  // 当該年度のキャッシュを無効化
   const year = entry.transactionDate.getFullYear();
   await invalidateCache(`closing:statements:${year}`);
   await invalidateCache(`reports:ledger:${year}:*`);
@@ -115,8 +120,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ data: entry }, { status: 201 });
 }
 
-// 仕訳 → FinancialRecord 自動同期
 async function syncToFinancialRecords(
+  tenantId: number,
   transactionDate: Date,
   details: { accountId: number; amount: number }[],
 ) {
@@ -124,12 +129,17 @@ async function syncToFinancialRecords(
   const month = transactionDate.getMonth() + 1;
 
   const period = await prisma.period.upsert({
-    where: { fiscalYear_month: { fiscalYear, month } },
+    where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
     update: {},
-    create: { fiscalYear, month, quarter: Math.ceil(month / 3) },
+    create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
   });
 
   await prisma.financialRecord.createMany({
-    data: details.map((d) => ({ accountId: d.accountId, periodId: period.id, amount: d.amount })),
+    data: details.map((d) => ({
+      tenantId,
+      accountId: d.accountId,
+      periodId: period.id,
+      amount: d.amount,
+    })),
   });
 }

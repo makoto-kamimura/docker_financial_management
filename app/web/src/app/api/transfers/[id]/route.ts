@@ -15,12 +15,15 @@ const PatchSchema = z.object({
   note: z.string().optional(),
 });
 
-// PATCH /api/transfers/:id
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
   const id = Number((await params).id);
+  const { tenantId } = auth.user;
+  const existing = await prisma.transfer.findUnique({ where: { id, tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const parsed = PatchSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
@@ -29,12 +32,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   return NextResponse.json({ data: transfer });
 }
 
-// DELETE /api/transfers/:id
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
   const id = Number((await params).id);
+  const { tenantId } = auth.user;
+  const existing = await prisma.transfer.findUnique({ where: { id, tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   await prisma.transfer.delete({ where: { id } });
   await writeAudit(auth.user.id, "delete", `transfer:${id}`);
   return NextResponse.json({ ok: true });

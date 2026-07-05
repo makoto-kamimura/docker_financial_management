@@ -4,13 +4,11 @@ import { requireRole } from "@/lib/authz";
 import { categoryBucket } from "@/lib/kpi";
 import { buildCashFlow, type SysMode } from "@/lib/cashflow";
 
-// GET /api/cashflow?year=2025&mode=household
-// 勘定科目カテゴリ別の合計から資金フロー図（Sankey）データを自動生成して返す。
-// year 未指定なら全期間を集計する。mode により Sankey ノード名が切り替わる。
 export async function GET(req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const yearParam = req.nextUrl.searchParams.get("year");
   const modeParam = req.nextUrl.searchParams.get("mode") as SysMode | null;
   const year = yearParam ? Number(yearParam) : undefined;
@@ -18,7 +16,7 @@ export async function GET(req: NextRequest) {
     modeParam && ["household", "sole", "corporate"].includes(modeParam) ? modeParam : "sole";
 
   const records = await prisma.financialRecord.findMany({
-    where: year ? { period: { fiscalYear: year } } : undefined,
+    where: { tenantId, ...(year ? { period: { fiscalYear: year } } : {}) },
     include: { account: true },
   });
 

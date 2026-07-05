@@ -9,12 +9,13 @@ import {
   type TransferChannel,
 } from "@/lib/transferflow";
 
-// GET /api/transfers/flow … 登録済みの資金移動から口座間フロー図(Sankey)を自動生成する。
 export async function GET() {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const transfers = await prisma.transfer.findMany({
+    where: { tenantId },
     include: { fromAccount: true, toAccount: true },
     orderBy: [{ day: "asc" }, { id: "asc" }],
   });

@@ -4,70 +4,46 @@ import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { parseBankCsv } from "@/lib/banktxn-import";
 
-// GET /api/bank-accounts/:id/transactions … 入出金明細（新しい順）
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const accountId = Number((await params).id);
+  const account = await prisma.bankAccount.findUnique({ where: { id: accountId, tenantId } });
+  if (!account) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const txns = await prisma.bankTransaction.findMany({
     where: { accountId },
     orderBy: { date: "desc" },
     take: 200,
   });
   return NextResponse.json({
-    data: txns.map((t) => ({
-      ...t,
-      amount: Number(t.amount),
-      balance: t.balance ? Number(t.balance) : null,
-    })),
+    data: txns.map((t) => ({ ...t, amount: Number(t.amount), balance: t.balance ? Number(t.balance) : null })),
   });
 }
 
-// POST /api/bank-accounts/:id/transactions
-//   application/json → 手動1件登録 { date, description, amount, balance? }
-//   text/csv         → CSV一括取込  ヘッダ: date,description,amount[,balance]
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const accountId = Number((await params).id);
-  const account = await prisma.bankAccount.findUnique({ where: { id: accountId } });
+  const account = await prisma.bankAccount.findUnique({ where: { id: accountId, tenantId } });
   if (!account) return NextResponse.json({ error: "account not found" }, { status: 404 });
 
   const ct = req.headers.get("content-type") ?? "";
 
   if (ct.includes("application/json")) {
-    const body = (await req.json()) as {
-      date: string;
-      description: string;
-      amount: number;
-      balance?: number | null;
-    };
+    const body = (await req.json()) as { date: string; description: string; amount: number; balance?: number | null };
     if (!body.date || !body.description || body.amount == null) {
       return NextResponse.json({ error: "date, description, amount は必須です" }, { status: 400 });
     }
     const txn = await prisma.bankTransaction.create({
-      data: {
-        accountId,
-        date: new Date(body.date),
-        description: body.description,
-        amount: body.amount,
-        balance: body.balance ?? null,
-        source: "MANUAL",
-      },
+      data: { accountId, date: new Date(body.date), description: body.description, amount: body.amount, balance: body.balance ?? null, source: "MANUAL" },
     });
     await writeAudit(auth.user.id, "create_txn", `bank_account:${accountId}:${txn.id}`);
-    return NextResponse.json(
-      {
-        data: {
-          ...txn,
-          amount: Number(txn.amount),
-          balance: txn.balance ? Number(txn.balance) : null,
-        },
-      },
-      { status: 201 },
-    );
+    return NextResponse.json({ data: { ...txn, amount: Number(txn.amount), balance: txn.balance ? Number(txn.balance) : null } }, { status: 201 });
   }
 
   const csv = await req.text();
@@ -76,31 +52,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { rows, errors } = parseBankCsv(csv, accountId);
   let inserted = 0;
   for (const r of rows) {
-    const created = await prisma.bankTransaction.upsert({
+    await prisma.bankTransaction.upsert({
       where: { accountId_externalId: { accountId, externalId: r.externalId } },
       update: {},
-      create: {
-        accountId,
-        date: new Date(r.date),
-        description: r.description,
-        amount: r.amount,
-        balance: r.balance,
-        source: "CSV",
-        externalId: r.externalId,
-      },
+      create: { accountId, date: new Date(r.date), description: r.description, amount: r.amount, balance: r.balance, source: "CSV", externalId: r.externalId },
     });
-    if (created) inserted++;
+    inserted++;
   }
   await writeAudit(auth.user.id, "import_txn", `bank_account:${accountId}:${inserted}`);
   return NextResponse.json({ inserted, errors }, { status: errors.length ? 207 : 201 });
 }
 
-// DELETE /api/bank-accounts/:id/transactions?txnId=123
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
   const accountId = Number((await params).id);
+  const account = await prisma.bankAccount.findUnique({ where: { id: accountId, tenantId } });
+  if (!account) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const txnId = Number(req.nextUrl.searchParams.get("txnId"));
   if (!txnId) return NextResponse.json({ error: "txnId が必要です" }, { status: 400 });
 

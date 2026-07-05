@@ -57,7 +57,7 @@ export async function getCurrentUser() {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { passwordHash: _passwordHash, ...user } = session.user;
-  return user;
+  return user; // includes tenantId
 }
 
 // ログアウト: セッションを削除し Cookie をクリアする

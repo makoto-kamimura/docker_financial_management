@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
-  const tenantId = req.nextUrl.searchParams.get("tenantId");
+
+  const { tenantId } = auth.user;
   const announcements = await prisma.announcement.findMany({
-    where: tenantId ? { tenantId: Number(tenantId) } : undefined,
+    where: { tenantId },
     include: { tenant: { select: { id: true, name: true } } },
     orderBy: { announcementDate: "desc" },
   });
@@ -17,22 +18,16 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
-  const body = (await req.json()) as {
-    tenantId: number;
-    announcementDate: string;
-    method?: string;
-    content?: string;
-    fiscalYear: number;
-  };
-  if (!body.tenantId || !body.announcementDate || !body.fiscalYear) {
-    return NextResponse.json(
-      { error: "tenantId, announcementDate, fiscalYear are required" },
-      { status: 400 },
-    );
+
+  const { tenantId } = auth.user;
+  const body = (await req.json()) as { announcementDate: string; method?: string; content?: string; fiscalYear: number };
+  if (!body.announcementDate || !body.fiscalYear) {
+    return NextResponse.json({ error: "announcementDate, fiscalYear are required" }, { status: 400 });
   }
+
   const ann = await prisma.announcement.create({
     data: {
-      tenantId: body.tenantId,
+      tenantId,
       announcementDate: new Date(body.announcementDate),
       method: body.method ?? "WEBSITE",
       content: body.content ?? null,

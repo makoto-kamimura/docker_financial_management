@@ -11,26 +11,29 @@ const INCLUDE_DETAILS = {
   },
 };
 
-// GET /api/journals/[id]
 export async function GET(_req: NextRequest, { params }: Params) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
   const { id } = await params;
+  const { tenantId } = auth.user;
   const entry = await prisma.journalEntry.findUnique({
-    where: { id: Number(id) },
+    where: { id: Number(id), tenantId },
     include: INCLUDE_DETAILS,
   });
   if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ data: entry });
 }
 
-// DELETE /api/journals/[id]
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
   const { id } = await params;
+  const { tenantId } = auth.user;
+  const entry = await prisma.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
+  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   await prisma.journalEntry.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }

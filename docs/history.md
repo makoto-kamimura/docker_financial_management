@@ -2,6 +2,72 @@
 
 決算管理システムの変更履歴を新しい順に記録する。
 
+## 2026-07-05（新規テナント作成時の勘定科目自動登録）
+
+- **テナントが作成されるたびに、家庭モードの既定勘定科目一式（76科目、個人事業主/法人モード表示名込み）を自動登録するようにした。**
+  - `src/lib/default-accounts.ts` を新規作成。`HOME_ACCOUNTS_SEED`（既定科目データ、従来 `prisma/seed-home-accounts.ts` にハードコードしていたものを一本化）と `seedDefaultAccountsForTenant(db, tenantId)`（未登録コードのみ作成し既存データは上書きしない）を実装。
+  - `POST /api/admin/users`（`newTenant: true` でテナント新規作成時）と `POST /api/tenants` の両方から呼び出すよう変更。
+  - `prisma/seed-home-accounts.ts` は `HOME_ACCOUNTS_SEED` を参照する形にリファクタリング（デモテナント id=1 専用の再投入スクリプトとして存続）。
+  - **既存の実アカウント（`mkmk38x4@gmail.com`、テナント id=2）は本機能導入前に作成され科目 0 件だったため、`seedDefaultAccountsForTenant` を手動で一度実行しバックフィル**（76科目を登録）。
+  - 動作確認: `POST /api/admin/users`（`newTenant: true`）で新規作成したテナントに76科目が即座に登録されることを確認（検証用テナントは確認後に削除）。
+  - design.md「13. モード別 科目表示名」に「新規テナント作成時の自動登録」小節を追加。account-setup.md の「4. 作成後の初期設定」を更新。
+
+## 2026-07-05（モード別 科目表示名の管理）
+
+- 勘定科目を**家庭モードの科目名で登録**し、個人事業主モード・法人モードでの表示科目名を科目レコード上で管理できるようにした。
+  - `Account` に `soleName String?`（個人事業主モード表示名）・`corporateName String?`（法人モード表示名）を追加。`null` は `name`（家庭科目名）にフォールバック。マイグレーション `20260705125738_account_mode_display_names`。
+  - `prisma/account-display-names.ts` を新規作成（[`account-master-mapping.md`](account-master-mapping.md) の個人事業主科目名・法人科目名を転記した既定値マスタ）。`db:seed:home-accounts` が家庭科目名で科目を登録しつつ両表示名を投入するよう更新。
+  - `/settings` に「科目名設定」タブを追加。全科目の個人事業主/法人モード表示名を一括編集・保存できる（空欄で家庭科目名フォールバック）。
+  - API: `PUT /api/accounts/display-names`（一括更新、editor 以上、自テナントの科目のみ・他テナント混在時は 403）を追加。`GET /api/accounts` は両フィールドを返し、単体 `POST`/`PATCH /api/accounts[/id]` も受け付ける。
+  - 変換のデフォルト設定（`account_mapping_rules`）も `db:seed:account-mapping` でマッピングマスタ由来の 76 件を投入。
+  - design.md「13. モード別 科目表示名」を追加。
+
+## 2026-07-05（ユーザー管理のテナント分離）
+
+- **ユーザー管理（`/api/admin/users`）を自テナントのユーザーのみ対象に変更**。
+  - GET: 自テナントのユーザーのみ一覧表示。
+  - PATCH / DELETE: 他テナントのユーザーへの操作は 404。
+  - POST: 既定で作成者と同じテナントに追加（同じ財務データを共有）。従来の `tenantId` パラメータは廃止し、独立テナントの新規立ち上げ用に `newTenant: true` フラグを追加。
+  - `/admin/users` 画面の新規作成フォームに「専用の新規テナントを作成する」チェックボックスを追加（既定は自テナントへの追加）。
+- design.md「11. マルチテナント方式」・operation.md・account-setup.md を新仕様に更新。
+
+## 2026-07-05（実アカウント作成手順ドキュメント・空テナントのダッシュボード修正）
+
+- **空テナントでダッシュボード・レポート画面がクラッシュする不具合を修正**。`/api/reports/budget-actual` は既定科目コード（4000）が存在しないテナントでエラーレスポンス（`rows` なし）を返すが、`/dashboard` と `/reports` がガードせず `data.rows.map` で `TypeError: Cannot read properties of undefined (reading 'map')` になっていた。クエリ側で `res.ok` と `rows` の有無を確認し `null` に落とすよう修正（既存の `data &&` ガードが機能する）。Playwright（headless Chromium）で空テナントの実アカウントによるダッシュボード描画にランタイムエラーがないことを確認。
+- **`docs/account-setup.md` を新規作成**。実アカウントの作成手順（管理画面 / API、既存テナントへの参加）、作成後の初期設定（テナント情報・勘定科目・MFA 等）、パスワードリセット、トラブルシューティング（テナント ID シーケンスずれによる 500 等）をまとめた。operation.md から導線を追加。
+
+## 2026-07-05（マルチユーザーテナント化・デモテナント集約）
+
+- **1 テナントに複数ユーザーを所属可能に**（Users : Tenant = N : 1）。`User.tenantId` の `@unique` を撤廃し `@@index` に変更、`Tenant.user User?` → `users User[]`。マイグレーション `20260705061727_multi_user_tenant`。
+- デモユーザーを**デモテナント**（id=1, 株式会社テックソリューション、全デモデータ保有）に集約。`admin@example.com` / `editor@example.com` / `viewer@example.com` に加え、デモ用の `demo@example.com`（editor、パスワード `password`）を新設。旧 編集者テナント（id=2）・閲覧者テナント（id=3）は空のため削除。
+- `POST /api/admin/users` に任意の `tenantId` パラメータを追加（指定時は既存テナントへ参加、省略時は従来通り新規テナントを自動作成）。※同日の「ユーザー管理のテナント分離」で `newTenant` フラグ方式に変更。
+- 実利用アカウント `mkmk38x4@gmail.com`（admin、専用の空テナント）を作成（seed には含めない。DB リセット後は `/admin/users` から再作成する）。
+- seed が明示 ID でテナントを upsert した後に `tenants_id_seq` を同期する処理を追加（ずれたままだと以降の `tenant.create` が id 重複の一意制約違反で失敗する不具合の修正）。
+- design.md「11. マルチテナント方式」・operation.md「6. 初期ログインアカウント」を更新。
+
+## 2026-07-05（勘定科目変換機能: 家庭 ↔ 法人モード、Phase 1〜5）
+
+- スキーマにのみ存在し未実装だった勘定科目変換機能（`account_mapping_rules` / `account_conversion_sessions` / `account_conversion_logs` / `ai_conversion_results` / `ai_conversion_usages`）のうち、無料部分（`docs/account-conversion-system.md` の Phase 1〜5）を実装。Phase 6（AI 有料変換・課金・PDF 報告書）は対象外。
+  - `lib/account-conversion.ts`: 自動変換の判定ロジック（システムルール/ユーザー独自ルール直引き → キーワード一致 → あいまい一致（bigram Dice 係数）→ カテゴリ別フォールバック（無料 AI 推論の代替として、実際の LLM 呼び出しではなくルールベースの疑似 AI で実装）→ 手動マッピング必須）。
+  - API: `GET /api/account-conversion/preview`（変換候補提案）、`GET/PUT /api/account-conversion/mappings`（マッピング一覧・手動登録）、`POST /api/account-conversion/confirm`（変換確定・セッション保存・手動変更の学習保存）、`GET /api/account-conversion/history`・`/history/[id]`・`/history/[id]/export`（履歴一覧・詳細・CSV出力）。
+  - 画面: `/account-conversion`（変換確認画面）、`/account-conversion/history`（変換履歴画面）。AppShell のモード切替（家庭→法人）に変換確認画面への導線を追加。
+  - `prisma/seed-account-mapping.ts` の `upsert`（`userId: null` を複合ユニークキーで指定）が Prisma の制約でエラーになる不具合を修正（`findFirst` + `create`/`update` に変更）。`prisma/seed-business-accounts.ts` / `seed-home-accounts.ts` もテナント分離対応（`tenantId` 付与）。
+  - `package.json` に `db:seed:business-accounts` / `db:seed:home-accounts` / `db:seed:account-mapping` を追加（いずれも未配線のスタンドアロンスクリプトだったものを手動実行可能に）。
+  - 単体テスト `lib/account-conversion.test.ts` を追加（TABLE/KEYWORD/FUZZY/AI_FREE/MANUAL の各分岐、ユーザー優先ルール、バッジ判定）。
+  - 既存の `financial_records` / `journal_details` 等が参照する科目 ID の一括付け替えは対象外（提案・記録までを担当）。
+
+## 2026-07-05（マルチテナント方式によるデータ分離）
+
+- **User = Tenant（1 ユーザー = 1 テナント）** モデルを導入し、財務データをテナント単位で完全に分離。
+  - `User.tenantId Int @unique` を追加、`Tenant` に `user` リレーションを追加。
+  - `accounts` / `periods` / `budgets` / `financial_records` / `departments` / `bank_accounts` / `transfers` / `journal_entries` / `journal_templates` / `invoices` / `loans` / `receivables` / `payables` / `fixed_assets` / `inventories` / `apportionments` / `linked_accounts` / `business_profiles` / `tax_settings` / `fiscal_years` / `fiscal_year_closes` / `officers` / `shareholder_meetings` / `dividends` / `announcements` / `accrued_revenues` / `accrued_expenses` に `tenantId` を追加し、単体ユニーク制約を `tenantId` を含む複合ユニークキーに変更（例: `accounts` → `@@unique([tenantId, code])`）。
+  - `lib/auth.ts` のセッションに `tenantId` を追加。約 45 の API ルート全てで `tenantId` によるフィルタ・所有確認を必須化し、他テナントのリソースへのアクセスを 403/404 に。
+  - `lib/import.ts` の `importRows` に `tenantId` パラメータを追加。
+  - `POST /api/admin/users` はユーザー作成時にテナントをトランザクションで自動生成するよう変更。
+  - `prisma/seed.ts` を全面書き換え。`adminTenant`（id=1, 株式会社テックソリューション）/ `editorTenant`（id=2）/ `viewerTenant`（id=3）の 3 テナントを作成し、デモ財務データは `adminTenant` に投入。
+  - マイグレーション `20260705035448_add_tenant_isolation`。ローカル開発 DB は既存データに `tenantId` のデフォルト値がなく通常のマイグレーションを適用できないため、`prisma migrate reset` でリセットしてから適用（本番相当データがある環境では別途データ移行が必要）。
+  - design.md に「11. マルチテナント方式（データ分離）」を新規追加。operation.md のマイグレーション手順を更新。
+
 ## 2026-06-24 (外部入出金・カード引落・銀行入出金の自動取得)
 - 資金移動（Transfer）を一般化。出金元/入金先を null 許容にし、`channel`（口座間振込/口座引落/**カード引落**/入金/支出）と `label` を追加。
   - 入金（外部→口座）・支出/カード/口座引落（口座→外部）を同じ仕組みで扱え、フロー図・残高シミュレーションに反映。

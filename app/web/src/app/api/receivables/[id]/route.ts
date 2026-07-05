@@ -4,32 +4,29 @@ import { requireRole } from "@/lib/authz";
 
 type Params = { params: Promise<{ id: string }> };
 
-// GET /api/receivables/[id]
 export async function GET(_req: NextRequest, { params }: Params) {
   const auth = await requireRole("viewer");
   if (auth.error) return auth.error;
 
   const { id } = await params;
-  const record = await prisma.receivable.findUnique({ where: { id: Number(id) } });
+  const { tenantId } = auth.user;
+  const record = await prisma.receivable.findUnique({ where: { id: Number(id), tenantId } });
   if (!record) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ data: record });
 }
 
-// PUT /api/receivables/[id]
 export async function PUT(req: NextRequest, { params }: Params) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
   const { id } = await params;
+  const { tenantId } = auth.user;
+  const existing = await prisma.receivable.findUnique({ where: { id: Number(id), tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   const body = (await req.json()) as Partial<{
-    customerName: string;
-    description: string;
-    amount: number;
-    taxAmount: number;
-    issueDate: string;
-    dueDate: string;
-    invoiceNumber: string;
-    note: string;
+    customerName: string; description: string; amount: number; taxAmount: number;
+    issueDate: string; dueDate: string; invoiceNumber: string; note: string;
   }>;
 
   const record = await prisma.receivable.update({
@@ -48,12 +45,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
   return NextResponse.json({ data: record });
 }
 
-// DELETE /api/receivables/[id]
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
   const { id } = await params;
+  const { tenantId } = auth.user;
+  const existing = await prisma.receivable.findUnique({ where: { id: Number(id), tenantId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
   await prisma.receivable.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }
