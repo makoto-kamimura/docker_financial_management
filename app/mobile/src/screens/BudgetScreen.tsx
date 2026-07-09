@@ -92,6 +92,12 @@ export function BudgetScreen({ viewMode }: Props) {
     return sum + (v !== "" ? Number(v) : budgetOf(a.code));
   }, 0);
 
+  const revenueTotal = accounts.reduce((sum, a) => {
+    if (a.category !== "REVENUE") return sum;
+    const v = valFor(a.code);
+    return sum + (v !== "" ? Number(v) : budgetOf(a.code));
+  }, 0);
+
   const grouped = (["REVENUE", "COGS", "EXPENSE"] as const).flatMap(cat => {
     const items = accounts.filter(a => a.category === cat);
     return items.length > 0 ? [{ cat, items }] : [];
@@ -138,8 +144,15 @@ export function BudgetScreen({ viewMode }: Props) {
         >
           {/* 月次合計カード */}
           <View style={s.totalCard}>
-            <Text style={s.totalLabel}>{year}年{month}月 予算合計</Text>
-            <Text style={s.totalValue}>{yen(monthTotal)}</Text>
+            <View style={s.totalCol}>
+              <Text style={s.totalLabel}>{year}年{month}月 予算合計</Text>
+              <Text style={s.totalValue}>{yen(monthTotal)}</Text>
+            </View>
+            <View style={s.totalDivider} />
+            <View style={s.totalCol}>
+              <Text style={s.totalLabel}>収入・売上</Text>
+              <Text style={s.totalValueSub}>{yen(revenueTotal)}</Text>
+            </View>
           </View>
 
           {/* 勘定科目別入力 */}
@@ -220,9 +233,12 @@ const s = StyleSheet.create({
   center:        { flex: 1, alignItems: "center", justifyContent: "center" },
   scroll:        { flex: 1 },
   scrollContent: { padding: 14 },
-  totalCard:     { backgroundColor: "#4f46e5", borderRadius: 12, padding: 16, marginBottom: 14 },
+  totalCard:     { flexDirection: "row", alignItems: "center", backgroundColor: "#4f46e5", borderRadius: 12, padding: 16, marginBottom: 14 },
+  totalCol:      { flex: 1 },
+  totalDivider:  { width: 1, alignSelf: "stretch", backgroundColor: "rgba(255,255,255,0.25)", marginHorizontal: 14 },
   totalLabel:    { fontSize: 11, color: "#c7d2fe", marginBottom: 4 },
   totalValue:    { fontSize: 24, fontWeight: "700", color: "#fff" },
+  totalValueSub: { fontSize: 18, fontWeight: "700", color: "#fff" },
   group:         { marginBottom: 12 },
   groupLabel:    { fontSize: 11, fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6, paddingLeft: 2 },
   row:           { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 6, borderWidth: 1, borderColor: "#e2e8f0" },
