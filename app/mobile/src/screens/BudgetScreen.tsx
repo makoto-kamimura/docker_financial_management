@@ -7,6 +7,7 @@ import {
   fetchAccounts, fetchBudgets, postBudget,
   type Account, type BudgetRow, type ViewMode,
 } from "../api";
+import { RevenueAllocationModal } from "../components/RevenueAllocationModal";
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const BUDGETABLE = ["REVENUE", "COGS", "EXPENSE"];
@@ -39,6 +40,7 @@ export function BudgetScreen({ viewMode }: Props) {
   const [loading,  setLoading]  = useState(true);
   const [edits,    setEdits]    = useState<Record<string, string>>({});
   const [saving,   setSaving]   = useState(false);
+  const [showRevenueModal, setShowRevenueModal] = useState(false);
 
   async function load(y: number) {
     setLoading(true);
@@ -98,6 +100,14 @@ export function BudgetScreen({ viewMode }: Props) {
     return sum + (v !== "" ? Number(v) : budgetOf(a.code));
   }, 0);
 
+  const revenueLines = accounts
+    .filter(a => a.category === "REVENUE")
+    .map(a => {
+      const v = valFor(a.code);
+      return { code: a.code, name: a.name, amount: v !== "" ? Number(v) : budgetOf(a.code) };
+    })
+    .filter(l => l.amount > 0);
+
   const grouped = (["REVENUE", "COGS", "EXPENSE"] as const).flatMap(cat => {
     const items = accounts.filter(a => a.category === cat);
     return items.length > 0 ? [{ cat, items }] : [];
@@ -149,10 +159,10 @@ export function BudgetScreen({ viewMode }: Props) {
               <Text style={s.totalValue}>{yen(monthTotal)}</Text>
             </View>
             <View style={s.totalDivider} />
-            <View style={s.totalCol}>
-              <Text style={s.totalLabel}>収入・売上</Text>
+            <TouchableOpacity style={s.totalCol} onPress={() => setShowRevenueModal(true)}>
+              <Text style={s.totalLabel}>収入・売上 ›</Text>
               <Text style={s.totalValueSub}>{yen(revenueTotal)}</Text>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* 勘定科目別入力 */}
@@ -214,6 +224,16 @@ export function BudgetScreen({ viewMode }: Props) {
           </TouchableOpacity>
         </View>
       )}
+
+      <RevenueAllocationModal
+        visible={showRevenueModal}
+        onClose={() => setShowRevenueModal(false)}
+        year={year}
+        month={month}
+        items={revenueLines}
+        total={revenueTotal}
+        viewMode={viewMode}
+      />
     </View>
   );
 }
