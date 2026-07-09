@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { parseBankCsv } from "@/lib/banktxn-import";
@@ -9,11 +9,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const accountId = Number((await params).id);
-  const account = await prisma.bankAccount.findUnique({ where: { id: accountId, tenantId } });
+  const account = await db.bankAccount.findUnique({ where: { id: accountId, tenantId } });
   if (!account) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const txns = await prisma.bankTransaction.findMany({
+  const txns = await db.bankTransaction.findMany({
     where: { accountId },
     orderBy: { date: "desc" },
     take: 200,
@@ -28,8 +29,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const accountId = Number((await params).id);
-  const account = await prisma.bankAccount.findUnique({ where: { id: accountId, tenantId } });
+  const account = await db.bankAccount.findUnique({ where: { id: accountId, tenantId } });
   if (!account) return NextResponse.json({ error: "account not found" }, { status: 404 });
 
   const ct = req.headers.get("content-type") ?? "";
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!body.date || !body.description || body.amount == null) {
       return NextResponse.json({ error: "date, description, amount は必須です" }, { status: 400 });
     }
-    const txn = await prisma.bankTransaction.create({
+    const txn = await db.bankTransaction.create({
       data: { accountId, date: new Date(body.date), description: body.description, amount: body.amount, balance: body.balance ?? null, source: "MANUAL" },
     });
     await writeAudit(auth.user.id, "create_txn", `bank_account:${accountId}:${txn.id}`);
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { rows, errors } = parseBankCsv(csv, accountId);
   let inserted = 0;
   for (const r of rows) {
-    await prisma.bankTransaction.upsert({
+    await db.bankTransaction.upsert({
       where: { accountId_externalId: { accountId, externalId: r.externalId } },
       update: {},
       create: { accountId, date: new Date(r.date), description: r.description, amount: r.amount, balance: r.balance, source: "CSV", externalId: r.externalId },
@@ -68,14 +70,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const accountId = Number((await params).id);
-  const account = await prisma.bankAccount.findUnique({ where: { id: accountId, tenantId } });
+  const account = await db.bankAccount.findUnique({ where: { id: accountId, tenantId } });
   if (!account) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const txnId = Number(req.nextUrl.searchParams.get("txnId"));
   if (!txnId) return NextResponse.json({ error: "txnId が必要です" }, { status: 400 });
 
-  await prisma.bankTransaction.delete({ where: { id: txnId, accountId } });
+  await db.bankTransaction.delete({ where: { id: txnId, accountId } });
   await writeAudit(auth.user.id, "delete_txn", `bank_account:${accountId}:${txnId}`);
   return NextResponse.json({ ok: true });
 }

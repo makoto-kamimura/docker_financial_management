@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { aggregate } from "@/lib/aggregate";
 import { forecast, type ForecastMethod } from "@/lib/forecast";
 import { buildBudgetActual } from "@/lib/report";
@@ -12,23 +12,24 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const accountCode = sp.get("accountCode") ?? "4000";
   const year = Number(sp.get("year") ?? new Date().getFullYear());
   const method = (sp.get("method") ?? "linear_regression") as ForecastMethod;
 
-  const account = await prisma.account.findUnique({
+  const account = await db.account.findUnique({
     where: { tenantId_code: { tenantId, code: accountCode } },
   });
   if (!account) {
     return NextResponse.json({ error: `unknown account code: ${accountCode}` }, { status: 400 });
   }
 
-  const budgetRecords = await prisma.budget.findMany({
+  const budgetRecords = await db.budget.findMany({
     where: { tenantId, accountId: account.id, period: { fiscalYear: year } },
     include: { period: true },
   });
-  const actualRecords = await prisma.financialRecord.findMany({
+  const actualRecords = await db.financialRecord.findMany({
     where: { tenantId, accountId: account.id, period: { fiscalYear: year } },
     include: { period: true },
   });

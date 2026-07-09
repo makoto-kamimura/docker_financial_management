@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { getBankSyncProvider } from "@/lib/banksync";
@@ -9,8 +9,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const accountId = Number((await params).id);
-  const account = await prisma.bankAccount.findUnique({ where: { id: accountId, tenantId } });
+  const account = await db.bankAccount.findUnique({ where: { id: accountId, tenantId } });
   if (!account) return NextResponse.json({ error: "account not found" }, { status: 404 });
 
   const provider = getBankSyncProvider();
@@ -18,7 +19,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
   let inserted = 0;
   for (const t of fetched) {
-    await prisma.bankTransaction.upsert({
+    await db.bankTransaction.upsert({
       where: { accountId_externalId: { accountId, externalId: t.externalId } },
       update: {},
       create: { accountId, date: new Date(t.date), description: t.description, amount: t.amount, balance: t.balance, source: "SYNC", externalId: t.externalId },

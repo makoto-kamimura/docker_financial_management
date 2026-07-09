@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { withCache } from "@/lib/redis";
 
@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const fiscalYear = Number(sp.get("year") ?? new Date().getFullYear());
   const departmentId = sp.get("departmentId") ? Number(sp.get("departmentId")) : undefined;
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
     : `closing:statements:${tenantId}:${fiscalYear}`;
 
   const payload = await withCache(cacheKey, 3600, async () => {
-    const records = await prisma.financialRecord.findMany({
+    const records = await db.financialRecord.findMany({
       where: {
         tenantId,
         period: { fiscalYear },
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
       include: { account: true, period: true },
     });
 
-    const apportionments = await prisma.apportionment.findMany({
+    const apportionments = await db.apportionment.findMany({
       where: { tenantId },
       include: { account: true },
     });
@@ -88,11 +89,11 @@ export async function GET(req: NextRequest) {
 
     const trialBalance = all.sort((a, b) => a.code.localeCompare(b.code));
 
-    const closeStatus = await prisma.fiscalYearClose.findUnique({
+    const closeStatus = await db.fiscalYearClose.findUnique({
       where: { tenantId_fiscalYear: { tenantId, fiscalYear } },
     });
 
-    const businessProfile = await prisma.businessProfile.findUnique({ where: { tenantId } });
+    const businessProfile = await db.businessProfile.findUnique({ where: { tenantId } });
 
     const currentAssets = assets.filter((a) => a.code < "1500").reduce((s, a) => s + a.total, 0);
     const currentLiabilities = liabilities.filter((a) => a.code < "3400").reduce((s, a) => s + a.total, 0);

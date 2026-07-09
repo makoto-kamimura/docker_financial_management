@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 const INCLUDE = {
@@ -14,7 +14,8 @@ export async function GET(_req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const templates = await prisma.journalTemplate.findMany({
+  const db = tenantDb(tenantId);
+  const templates = await db.journalTemplate.findMany({
     where: { tenantId },
     include: INCLUDE,
     orderBy: { id: "asc" },
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     name: string;
     description?: string;
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "name and lines are required" }, { status: 400 });
   }
 
-  const template = await prisma.journalTemplate.create({
+  const template = await db.journalTemplate.create({
     data: {
       tenantId,
       name: body.name,

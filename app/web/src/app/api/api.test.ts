@@ -73,6 +73,13 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+// tenantDb() は本来 prisma.$extends() でテナント自動スコープを行うが、
+// ここではモック済み prisma をそのまま返す（拡張ロジック自体の検証は tenant-db.ts 側で行う）。
+vi.mock("@/lib/tenant-db", async () => {
+  const { prisma } = await import("@/lib/prisma");
+  return { tenantDb: () => prisma };
+});
+
 // ── 認証モック（常に admin として通過）────────────────────────────────────
 vi.mock("@/lib/authz", () => ({
   requireRole: vi.fn().mockResolvedValue({

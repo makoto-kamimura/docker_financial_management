@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -8,7 +8,8 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const invoice = await prisma.invoice.findUnique({
+  const db = tenantDb(tenantId);
+  const invoice = await db.invoice.findUnique({
     where: { id: Number(id), tenantId },
     include: { lines: true },
   });
@@ -22,11 +23,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const existing = await prisma.invoice.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.invoice.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const body = (await req.json()) as { status?: string; note?: string };
-  const invoice = await prisma.invoice.update({
+  const invoice = await db.invoice.update({
     where: { id: Number(id) },
     data: {
       ...(body.status && { status: body.status }),
@@ -43,9 +45,10 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const existing = await prisma.invoice.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.invoice.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.invoice.delete({ where: { id: Number(id) } });
+  await db.invoice.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }

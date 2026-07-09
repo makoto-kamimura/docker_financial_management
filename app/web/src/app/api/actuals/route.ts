@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const year = Number(sp.get("year") ?? new Date().getFullYear());
   const month = Number(sp.get("month") ?? new Date().getMonth() + 1);
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
   const from = new Date(year, month - 1, 1);
   const to = new Date(year, month, 1);
 
-  const entries = await prisma.journalEntry.findMany({
+  const entries = await db.journalEntry.findMany({
     where: { tenantId, transactionDate: { gte: from, lt: to } },
     include: DETAIL_INCLUDE,
     orderBy: { transactionDate: "asc" },
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     date: string;
     description: string;
@@ -53,8 +55,8 @@ export async function POST(req: NextRequest) {
   }
 
   const [account, counter] = await Promise.all([
-    prisma.account.findUnique({ where: { tenantId_code: { tenantId, code: body.accountCode } } }),
-    prisma.account.findUnique({ where: { tenantId_code: { tenantId, code: body.counterAccountCode } } }),
+    db.account.findUnique({ where: { tenantId_code: { tenantId, code: body.accountCode } } }),
+    db.account.findUnique({ where: { tenantId_code: { tenantId, code: body.counterAccountCode } } }),
   ]);
   if (!account)
     return NextResponse.json({ error: `勘定科目 "${body.accountCode}" が見つかりません` }, { status: 400 });
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
   const [debitId, creditId] =
     body.direction === "income" ? [counter.id, account.id] : [account.id, counter.id];
 
-  const entry = await prisma.journalEntry.create({
+  const entry = await db.journalEntry.create({
     data: {
       tenantId,
       transactionDate: new Date(body.date),
@@ -90,13 +92,14 @@ export async function DELETE(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const id = Number(req.nextUrl.searchParams.get("id"));
   if (!id) return NextResponse.json({ error: "id が必要です" }, { status: 400 });
 
-  const entry = await prisma.journalEntry.findUnique({ where: { id, tenantId } });
+  const entry = await db.journalEntry.findUnique({ where: { id, tenantId } });
   if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.journalEntry.delete({ where: { id } });
+  await db.journalEntry.delete({ where: { id } });
   await writeAudit(auth.user.id, "delete", `journal_entry:${id}`);
   return NextResponse.json({ ok: true });
 }

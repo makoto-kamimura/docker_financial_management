@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { aggregate, type Granularity, type RecordWithPeriod } from "@/lib/aggregate";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
@@ -19,10 +19,11 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const granularity = (req.nextUrl.searchParams.get("granularity") ?? "month") as Granularity;
   const accountCode = req.nextUrl.searchParams.get("accountCode") ?? undefined;
 
-  const records = await prisma.financialRecord.findMany({
+  const records = await db.financialRecord.findMany({
     where: {
       tenantId,
       ...(accountCode ? { account: { code: accountCode } } : {}),
@@ -51,24 +52,25 @@ export async function POST(req: NextRequest) {
   }
   const { accountCode, departmentId, fiscalYear, month, amount } = parsed.data;
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
 
-  const account = await prisma.account.findUnique({
+  const account = await db.account.findUnique({
     where: { tenantId_code: { tenantId, code: accountCode } },
   });
   if (!account) {
     return NextResponse.json({ error: `unknown account code: ${accountCode}` }, { status: 400 });
   }
 
-  const period = await prisma.period.upsert({
+  const period = await db.period.upsert({
     where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
     update: {},
     create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
   });
 
-  const record = await prisma.financialRecord.create({
+  const record = await db.financialRecord.create({
     data: { tenantId, accountId: account.id, departmentId, periodId: period.id, amount },
   });
-  await prisma.financialRecordHistory.create({
+  await db.financialRecordHistory.create({
     data: { recordId: record.id, userId: auth.user.id, action: "create", amount },
   });
   await writeAudit(auth.user.id, "create", `financial_record:${record.id}`);

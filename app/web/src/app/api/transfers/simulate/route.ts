@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { simulateBalances, type SimAccount, type SimTransfer } from "@/lib/balance";
 
@@ -16,14 +16,15 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const parsed = Schema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { openings = {}, months, startYear, startMonth } = parsed.data;
 
-  const bankAccounts = await prisma.bankAccount.findMany({ where: { tenantId }, orderBy: { id: "asc" } });
-  const transfers = await prisma.transfer.findMany({ where: { tenantId } });
+  const bankAccounts = await db.bankAccount.findMany({ where: { tenantId }, orderBy: { id: "asc" } });
+  const transfers = await db.transfer.findMany({ where: { tenantId } });
 
   const accounts: SimAccount[] = bankAccounts.map((a) => ({
     id: a.id,

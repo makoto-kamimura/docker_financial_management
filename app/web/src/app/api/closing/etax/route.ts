@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
@@ -7,17 +7,18 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const fiscalYear = Number(sp.get("fiscalYear") ?? new Date().getFullYear());
   const type = (sp.get("type") ?? "blue_return") as "blue_return" | "corporate" | "consumption_tax";
 
-  const profile = await prisma.businessProfile.findUnique({ where: { tenantId } });
-  const taxSetting = await prisma.taxSetting.findFirst({
+  const profile = await db.businessProfile.findUnique({ where: { tenantId } });
+  const taxSetting = await db.taxSetting.findFirst({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
   });
 
-  const records = await prisma.financialRecord.findMany({
+  const records = await db.financialRecord.findMany({
     where: { tenantId, period: { fiscalYear } },
     include: { account: true, period: true },
   });

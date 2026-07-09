@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -34,10 +34,11 @@ export async function PUT(req: NextRequest) {
   }
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const ids = parsed.data.items.map((i) => i.id);
 
   // 対象科目がすべて自テナントに属することを確認（他テナントの科目名は変更不可）
-  const owned = await prisma.account.findMany({
+  const owned = await db.account.findMany({
     where: { id: { in: ids }, tenantId },
     select: { id: true },
   });
@@ -46,9 +47,9 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "一部の科目が存在しないか、権限がありません" }, { status: 403 });
   }
 
-  await prisma.$transaction(
+  await db.$transaction(
     parsed.data.items.map((item) =>
-      prisma.account.update({
+      db.account.update({
         where: { id: item.id },
         data: {
           ...(item.soleName !== undefined ? { soleName: norm(item.soleName) } : {}),
@@ -59,7 +60,7 @@ export async function PUT(req: NextRequest) {
   );
   await writeAudit(auth.user.id, "update", `account-display-names:${ids.length}`);
 
-  const accounts = await prisma.account.findMany({
+  const accounts = await db.account.findMany({
     where: { tenantId },
     orderBy: { code: "asc" },
     select: { id: true, code: true, name: true, soleName: true, corporateName: true, category: true },

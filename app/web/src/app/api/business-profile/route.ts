@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET() {
@@ -7,7 +7,8 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const profile = await prisma.businessProfile.findUnique({ where: { tenantId } });
+  const db = tenantDb(tenantId);
+  const profile = await db.businessProfile.findUnique({ where: { tenantId } });
   return NextResponse.json({ data: profile });
 }
 
@@ -16,6 +17,7 @@ export async function PUT(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     tradeName?: string;
     ownerName?: string;
@@ -34,7 +36,7 @@ export async function PUT(req: NextRequest) {
     taxationType: body.taxationType ?? "exempt",
   };
 
-  const profile = await prisma.businessProfile.upsert({
+  const profile = await db.businessProfile.upsert({
     where: { tenantId },
     update: data,
     create: { tenantId, ...data },

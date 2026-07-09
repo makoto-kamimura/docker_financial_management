@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { invalidateCache } from "@/lib/redis";
 
@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const year = sp.get("year") ? Number(sp.get("year")) : undefined;
   const month = sp.get("month") ? Number(sp.get("month")) : undefined;
@@ -39,8 +40,8 @@ export async function GET(req: NextRequest) {
   };
 
   const [total, entries] = await Promise.all([
-    prisma.journalEntry.count({ where }),
-    prisma.journalEntry.findMany({
+    db.journalEntry.count({ where }),
+    db.journalEntry.findMany({
       where,
       include: INCLUDE_DETAILS,
       orderBy: { transactionDate: "desc" },
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     transactionDate: string;
     description: string;
@@ -88,7 +90,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const entry = await prisma.journalEntry.create({
+  const entry = await db.journalEntry.create({
     data: {
       tenantId,
       transactionDate: new Date(body.transactionDate),
@@ -127,14 +129,15 @@ async function syncToFinancialRecords(
 ) {
   const fiscalYear = transactionDate.getFullYear();
   const month = transactionDate.getMonth() + 1;
+  const db = tenantDb(tenantId);
 
-  const period = await prisma.period.upsert({
+  const period = await db.period.upsert({
     where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
     update: {},
     create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
   });
 
-  await prisma.financialRecord.createMany({
+  await db.financialRecord.createMany({
     data: details.map((d) => ({
       tenantId,
       accountId: d.accountId,

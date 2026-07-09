@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
@@ -7,8 +7,9 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const status = req.nextUrl.searchParams.get("status");
-  const loans = await prisma.loan.findMany({
+  const loans = await db.loan.findMany({
     where: { tenantId, ...(status ? { status } : {}) },
     include: { repayments: { orderBy: { repaidOn: "desc" } } },
     orderBy: { borrowedOn: "desc" },
@@ -21,6 +22,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     lenderName: string;
     amount: number;
@@ -35,7 +37,7 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const loan = await prisma.loan.create({
+  const loan = await db.loan.create({
     data: {
       tenantId,
       lenderName: body.lenderName,

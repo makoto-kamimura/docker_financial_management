@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -24,7 +24,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (isNaN(itemId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
   const { tenantId } = auth.user;
-  const existing = await prisma.linkedAccount.findUnique({ where: { id: itemId, tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.linkedAccount.findUnique({ where: { id: itemId, tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const parsed = UpdateSchema.safeParse(await req.json());
@@ -35,14 +36,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (accountCode === null || accountCode === "") {
     accountId = null;
   } else if (accountCode) {
-    const acct = await prisma.account.findUnique({
+    const acct = await db.account.findUnique({
       where: { tenantId_code: { tenantId, code: accountCode } },
     });
     if (!acct) return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
     accountId = acct.id;
   }
 
-  const item = await prisma.linkedAccount.update({
+  const item = await db.linkedAccount.update({
     where: { id: itemId },
     data: { ...fields, ...(accountId !== undefined ? { accountId } : {}) },
     include: { account: { select: { id: true, code: true, name: true } } },
@@ -60,10 +61,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (isNaN(itemId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
   const { tenantId } = auth.user;
-  const existing = await prisma.linkedAccount.findUnique({ where: { id: itemId, tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.linkedAccount.findUnique({ where: { id: itemId, tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.linkedAccount.delete({ where: { id: itemId } });
+  await db.linkedAccount.delete({ where: { id: itemId } });
   await writeAudit(auth.user.id, "delete", `linked_account:${itemId}`);
   return new NextResponse(null, { status: 204 });
 }

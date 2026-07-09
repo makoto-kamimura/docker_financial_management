@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 // GET /api/portal
@@ -9,12 +9,13 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const fiscalYear = Number(sp.get("fiscalYear") ?? new Date().getFullYear());
 
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const tenant = await db.tenant.findUnique({ where: { id: tenantId } });
 
-  const records = await prisma.financialRecord.findMany({
+  const records = await db.financialRecord.findMany({
     where: { tenantId, period: { fiscalYear } },
     include: { account: true },
   });
@@ -30,11 +31,11 @@ export async function GET(req: NextRequest) {
   const cogs = totals["COGS"] ?? 0;
   const netIncome = revenue - cogs - expense;
 
-  const closeStatus = await prisma.fiscalYearClose.findUnique({
+  const closeStatus = await db.fiscalYearClose.findUnique({
     where: { tenantId_fiscalYear: { tenantId, fiscalYear } },
   });
 
-  const pendingApprovals = await prisma.journalApproval.count({
+  const pendingApprovals = await db.journalApproval.count({
     where: { action: "submitted", journalEntry: { tenantId } },
   });
 

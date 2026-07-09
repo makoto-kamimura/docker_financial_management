@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const status = sp.get("status");
   const year = sp.get("year") ? Number(sp.get("year")) : undefined;
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  const list = await prisma.payable.findMany({ where, orderBy: { dueDate: "asc" } });
+  const list = await db.payable.findMany({ where, orderBy: { dueDate: "asc" } });
   return NextResponse.json({ data: list });
 }
 
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     supplierName: string;
     description: string;
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const record = await prisma.payable.create({
+  const record = await db.payable.create({
     data: {
       tenantId,
       supplierName: body.supplierName,
@@ -59,16 +61,16 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  const apAccount = await prisma.account.findFirst({ where: { tenantId, code: "3000" } });
+  const apAccount = await db.account.findFirst({ where: { tenantId, code: "3000" } });
   if (apAccount) {
     const fiscalYear = record.issueDate.getFullYear();
     const month = record.issueDate.getMonth() + 1;
-    const period = await prisma.period.upsert({
+    const period = await db.period.upsert({
       where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
       update: {},
       create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
     });
-    await prisma.financialRecord.create({
+    await db.financialRecord.create({
       data: { tenantId, accountId: apAccount.id, periodId: period.id, amount: body.amount },
     });
   }

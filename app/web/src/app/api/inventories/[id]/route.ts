@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 type Params = { params: Promise<{ id: string }> };
@@ -10,7 +10,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const inventory = await prisma.inventory.findUnique({
+  const db = tenantDb(tenantId);
+  const inventory = await db.inventory.findUnique({
     where: { id: Number(id), tenantId },
     include: { items: { orderBy: { id: "asc" } } },
   });
@@ -24,9 +25,10 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const existing = await prisma.inventory.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.inventory.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.inventory.delete({ where: { id: Number(id) } });
+  await db.inventory.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }

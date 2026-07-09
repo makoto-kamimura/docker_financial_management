@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const year = Number(sp.get("year") ?? new Date().getFullYear());
   const month = sp.get("month") ? Number(sp.get("month")) : undefined;
@@ -20,13 +21,13 @@ export async function GET(req: NextRequest) {
     ? new Date(new Date(startDate).setMonth(startDate.getMonth() + 1) - 1)
     : new Date(`${year}-12-31T23:59:59.999Z`);
 
-  const allAccounts = await prisma.account.findMany({
+  const allAccounts = await db.account.findMany({
     where: { tenantId },
     select: { id: true, code: true, name: true, category: true, parentId: true },
   });
   const accountById = new Map(allAccounts.map((a) => [a.id, a]));
 
-  const details = await prisma.journalDetail.findMany({
+  const details = await db.journalDetail.findMany({
     where: { journalEntry: { tenantId, transactionDate: { gte: startDate, lte: endDate } } },
     include: {
       account: { select: { id: true, code: true, name: true, category: true, parentId: true } },

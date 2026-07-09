@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -17,13 +17,14 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const [accounts, balances] = await Promise.all([
-    prisma.bankAccount.findMany({
+    db.bankAccount.findMany({
       where: { tenantId },
       orderBy: { id: "asc" },
       include: { _count: { select: { transactions: true } } },
     }),
-    prisma.bankTransaction.groupBy({
+    db.bankTransaction.groupBy({
       by: ["accountId"],
       _sum: { amount: true },
       where: { account: { tenantId } },
@@ -46,7 +47,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { tenantId } = auth.user;
-  const account = await prisma.bankAccount.create({ data: { tenantId, ...parsed.data } });
+  const db = tenantDb(tenantId);
+  const account = await db.bankAccount.create({ data: { tenantId, ...parsed.data } });
   await writeAudit(auth.user.id, "create", `bank_account:${account.id}`);
   return NextResponse.json({ data: account }, { status: 201 });
 }

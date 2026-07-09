@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { aggregate } from "@/lib/aggregate";
 import { forecast, type ForecastMethod } from "@/lib/forecast";
 import { requireRole } from "@/lib/authz";
@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const months = Number(sp.get("months") ?? "6");
   const accountCode = sp.get("accountCode") ?? "4000";
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: `unknown method: ${method}` }, { status: 400 });
   }
 
-  const records = await prisma.financialRecord.findMany({
+  const records = await db.financialRecord.findMany({
     where: { tenantId, account: { code: accountCode } },
     include: { period: true },
   });
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     accountCode: string;
     method: string;
@@ -118,7 +120,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "accountCode and values are required" }, { status: 400 });
   }
 
-  const account = await prisma.account.findUnique({
+  const account = await db.account.findUnique({
     where: { tenantId_code: { tenantId, code: body.accountCode } },
   });
   if (!account) {
@@ -152,13 +154,13 @@ export async function POST(req: NextRequest) {
 
   const created: number[] = [];
   for (const amount of body.values) {
-    const period = await prisma.period.upsert({
+    const period = await db.period.upsert({
       where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
       update: {},
       create: { tenantId, fiscalYear: year, month, quarter: Math.ceil(month / 3) },
     });
 
-    const snapshot = await prisma.forecast.create({
+    const snapshot = await db.forecast.create({
       data: {
         tenantId,
         accountId: account.id,

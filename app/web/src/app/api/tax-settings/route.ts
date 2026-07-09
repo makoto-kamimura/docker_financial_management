@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
@@ -7,15 +7,16 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const yearParam = req.nextUrl.searchParams.get("year");
   if (yearParam) {
-    const setting = await prisma.taxSetting.findUnique({
+    const setting = await db.taxSetting.findUnique({
       where: { tenantId_taxYear: { tenantId, taxYear: Number(yearParam) } },
     });
     return NextResponse.json({ data: setting });
   }
 
-  const settings = await prisma.taxSetting.findMany({
+  const settings = await db.taxSetting.findMany({
     where: { tenantId },
     orderBy: { taxYear: "desc" },
   });
@@ -27,6 +28,7 @@ export async function PUT(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     taxYear: number;
     taxationType: string;
@@ -37,7 +39,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "taxYear and taxationType are required" }, { status: 400 });
   }
 
-  const setting = await prisma.taxSetting.upsert({
+  const setting = await db.taxSetting.upsert({
     where: { tenantId_taxYear: { tenantId, taxYear: body.taxYear } },
     update: { taxationType: body.taxationType, simplifiedRate: body.simplifiedRate ?? null },
     create: {

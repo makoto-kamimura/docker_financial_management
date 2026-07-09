@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(_req: NextRequest) {
@@ -7,7 +7,8 @@ export async function GET(_req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const dividends = await prisma.dividend.findMany({
+  const db = tenantDb(tenantId);
+  const dividends = await db.dividend.findMany({
     where: { tenantId },
     include: { tenant: { select: { id: true, name: true } } },
     orderBy: { resolutionDate: "desc" },
@@ -20,12 +21,13 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as { resolutionDate: string; paymentDate: string; perShareAmount: number; totalAmount: number; note?: string };
   if (!body.resolutionDate || !body.paymentDate || !body.totalAmount) {
     return NextResponse.json({ error: "resolutionDate, paymentDate, totalAmount are required" }, { status: 400 });
   }
 
-  const div = await prisma.dividend.create({
+  const div = await db.dividend.create({
     data: {
       tenantId,
       resolutionDate: new Date(body.resolutionDate),

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -21,13 +21,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const id = Number((await params).id);
   const { tenantId } = auth.user;
-  const existing = await prisma.transfer.findUnique({ where: { id, tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.transfer.findUnique({ where: { id, tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const parsed = PatchSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const transfer = await prisma.transfer.update({ where: { id }, data: parsed.data });
+  const transfer = await db.transfer.update({ where: { id }, data: parsed.data });
   await writeAudit(auth.user.id, "update", `transfer:${id}`);
   return NextResponse.json({ data: transfer });
 }
@@ -38,10 +39,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   const id = Number((await params).id);
   const { tenantId } = auth.user;
-  const existing = await prisma.transfer.findUnique({ where: { id, tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.transfer.findUnique({ where: { id, tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.transfer.delete({ where: { id } });
+  await db.transfer.delete({ where: { id } });
   await writeAudit(auth.user.id, "delete", `transfer:${id}`);
   return NextResponse.json({ ok: true });
 }

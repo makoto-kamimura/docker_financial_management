@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AccountConversionMode, AccountMappingMatchType } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 type MappingInput = {
@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId, id: userId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     fromMode: AccountConversionMode;
     toMode: AccountConversionMode;
@@ -39,17 +40,17 @@ export async function POST(req: NextRequest) {
       body.mappings.flatMap((m) => [m.homeAccountId, m.corporateAccountId]).filter((x): x is number => x != null),
     ),
   ];
-  const accounts = await prisma.account.findMany({ where: { id: { in: accountIds }, tenantId } });
+  const accounts = await db.account.findMany({ where: { id: { in: accountIds }, tenantId } });
   const byId = new Map(accounts.map((a) => [a.id, a]));
   if (accountIds.some((id) => !byId.has(id))) {
     return NextResponse.json({ error: "one or more accounts do not belong to this tenant" }, { status: 403 });
   }
 
-  const session = await prisma.accountConversionSession.create({
+  const session = await db.accountConversionSession.create({
     data: { userId, fromMode: body.fromMode, toMode: body.toMode, status: "COMPLETED" },
   });
 
-  await prisma.accountConversionLog.createMany({
+  await db.accountConversionLog.createMany({
     data: body.mappings.map((m) => ({
       sessionId: session.id,
       homeAccountId: m.homeAccountId,
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
     const home = byId.get(m.homeAccountId);
     const corp = byId.get(m.corporateAccountId!);
     if (!home || !corp) continue;
-    await prisma.accountMappingRule.upsert({
+    await db.accountMappingRule.upsert({
       where: { homeCode_userId: { homeCode: home.code, userId } },
       update: { corporateCode: corp.code, isConvertible: true, matchType: "MANUAL", confidenceScore: 1.0 },
       create: {

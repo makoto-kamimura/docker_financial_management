@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function POST(req: NextRequest) {
@@ -7,6 +7,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as { description: string };
   if (!body.description) {
     return NextResponse.json({ error: "description is required" }, { status: 400 });
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   const q = body.description.toLowerCase();
 
-  const pastEntries = await prisma.journalEntry.findMany({
+  const pastEntries = await db.journalEntry.findMany({
     where: { tenantId, description: { contains: body.description, mode: "insensitive" } },
     include: {
       details: {
@@ -65,8 +66,8 @@ export async function POST(req: NextRequest) {
   for (const rule of rules) {
     if (rule.keywords.some((k) => q.includes(k))) {
       const [debitAcc, creditAcc] = await Promise.all([
-        prisma.account.findFirst({ where: { tenantId, code: rule.debitCode } }),
-        prisma.account.findFirst({ where: { tenantId, code: rule.creditCode } }),
+        db.account.findFirst({ where: { tenantId, code: rule.debitCode } }),
+        db.account.findFirst({ where: { tenantId, code: rule.creditCode } }),
       ]);
       if (debitAcc && creditAcc) {
         return NextResponse.json({

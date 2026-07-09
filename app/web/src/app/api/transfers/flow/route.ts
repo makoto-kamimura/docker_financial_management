@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import {
   buildTransferFlow,
@@ -14,7 +14,8 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const transfers = await prisma.transfer.findMany({
+  const db = tenantDb(tenantId);
+  const transfers = await db.transfer.findMany({
     where: { tenantId },
     include: { fromAccount: true, toAccount: true },
     orderBy: [{ day: "asc" }, { id: "asc" }],

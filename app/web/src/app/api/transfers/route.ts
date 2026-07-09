@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -29,7 +29,8 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const transfers = await prisma.transfer.findMany({
+  const db = tenantDb(tenantId);
+  const transfers = await db.transfer.findMany({
     where: { tenantId },
     include: { fromAccount: true, toAccount: true },
     orderBy: [{ day: "asc" }, { id: "asc" }],
@@ -46,7 +47,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { tenantId } = auth.user;
-  const transfer = await prisma.transfer.create({ data: { tenantId, ...parsed.data } });
+  const db = tenantDb(tenantId);
+  const transfer = await db.transfer.create({ data: { tenantId, ...parsed.data } });
   await writeAudit(auth.user.id, "create", `transfer:${transfer.id}`);
   return NextResponse.json({ data: transfer }, { status: 201 });
 }

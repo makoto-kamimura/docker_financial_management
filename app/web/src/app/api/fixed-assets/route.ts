@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(_req: NextRequest) {
@@ -7,7 +7,8 @@ export async function GET(_req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const assets = await prisma.fixedAsset.findMany({
+  const db = tenantDb(tenantId);
+  const assets = await db.fixedAsset.findMany({
     where: { tenantId },
     include: { depreciations: { orderBy: { fiscalYear: "asc" } } },
     orderBy: { acquiredOn: "desc" },
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     name: string;
     category?: string;
@@ -37,7 +39,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const asset = await prisma.fixedAsset.create({
+  const asset = await db.fixedAsset.create({
     data: {
       tenantId,
       name: body.name,

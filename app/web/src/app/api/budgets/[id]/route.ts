@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -15,13 +15,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (isNaN(budgetId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
   const { tenantId } = auth.user;
-  const existing = await prisma.budget.findUnique({ where: { id: budgetId, tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.budget.findUnique({ where: { id: budgetId, tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const parsed = UpdateSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const budget = await prisma.budget.update({
+  const budget = await db.budget.update({
     where: { id: budgetId },
     data: { amount: parsed.data.amount },
   });
@@ -38,10 +39,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (isNaN(budgetId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
   const { tenantId } = auth.user;
-  const existing = await prisma.budget.findUnique({ where: { id: budgetId, tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.budget.findUnique({ where: { id: budgetId, tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.budget.delete({ where: { id: budgetId } });
+  await db.budget.delete({ where: { id: budgetId } });
   await writeAudit(auth.user.id, "delete", `budget:${budgetId}`);
   return new NextResponse(null, { status: 204 });
 }

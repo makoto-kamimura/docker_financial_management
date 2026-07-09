@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -8,6 +8,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
   if (!file) return NextResponse.json({ error: "file が必要です" }, { status: 400 });
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    const account = await prisma.account.findUnique({
+    const account = await db.account.findUnique({
       where: { tenantId_code: { tenantId, code: accountCode } },
     });
     if (!account) {
@@ -39,13 +40,13 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    const period = await prisma.period.upsert({
+    const period = await db.period.upsert({
       where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
       update: {},
       create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
     });
 
-    await prisma.budget.upsert({
+    await db.budget.upsert({
       where: { tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id } },
       update: { amount },
       create: { tenantId, accountId: account.id, periodId: period.id, amount },

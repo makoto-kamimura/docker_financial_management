@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(_req: NextRequest) {
@@ -7,7 +7,8 @@ export async function GET(_req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const list = await prisma.apportionment.findMany({
+  const db = tenantDb(tenantId);
+  const list = await db.apportionment.findMany({
     where: { tenantId },
     include: { account: { select: { id: true, code: true, name: true, category: true } } },
     orderBy: { account: { code: "asc" } },
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     accountId: number;
     businessRate: number;
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "businessRate must be 0-100" }, { status: 400 });
   }
 
-  const record = await prisma.apportionment.upsert({
+  const record = await db.apportionment.upsert({
     where: { tenantId_accountId: { tenantId, accountId: body.accountId } },
     update: { businessRate: body.businessRate, description: body.description ?? null },
     create: {
@@ -52,10 +54,11 @@ export async function DELETE(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const accountId = Number(req.nextUrl.searchParams.get("accountId"));
   if (!accountId) return NextResponse.json({ error: "accountId is required" }, { status: 400 });
 
-  await prisma.apportionment.delete({
+  await db.apportionment.delete({
     where: { tenantId_accountId: { tenantId, accountId } },
   });
   return NextResponse.json({ ok: true });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
@@ -7,10 +7,11 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const yearParam = req.nextUrl.searchParams.get("year");
   const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
 
-  const records = await prisma.financialRecord.findMany({
+  const records = await db.financialRecord.findMany({
     where: { tenantId, period: { fiscalYear: year } },
     include: {
       account: { select: { category: true, name: true, code: true } },
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
     value: byCategory.get(cat) ?? 0,
   })).filter((d) => d.value > 0);
 
-  const years = await prisma.period.findMany({
+  const years = await db.period.findMany({
     where: { tenantId },
     select: { fiscalYear: true },
     distinct: ["fiscalYear"],

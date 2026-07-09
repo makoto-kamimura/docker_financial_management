@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 type Params = { params: Promise<{ id: string }> };
@@ -10,7 +10,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const record = await prisma.payable.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const record = await db.payable.findUnique({ where: { id: Number(id), tenantId } });
   if (!record) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ data: record });
 }
@@ -21,7 +22,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const existing = await prisma.payable.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.payable.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const body = (await req.json()) as Partial<{
@@ -29,7 +31,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     issueDate: string; dueDate: string; note: string;
   }>;
 
-  const record = await prisma.payable.update({
+  const record = await db.payable.update({
     where: { id: Number(id) },
     data: {
       ...(body.supplierName !== undefined && { supplierName: body.supplierName }),
@@ -50,9 +52,10 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const existing = await prisma.payable.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.payable.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.payable.delete({ where: { id: Number(id) } });
+  await db.payable.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }

@@ -3,7 +3,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 type Params = { params: Promise<{ id: string }> };
@@ -16,10 +16,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const entry = await prisma.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const entry = await db.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
   if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const receipts = await prisma.receipt.findMany({
+  const receipts = await db.receipt.findMany({
     where: { journalEntryId: Number(id) },
     orderBy: { uploadedAt: "desc" },
   });
@@ -32,7 +33,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const entry = await prisma.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const entry = await db.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
   if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const formData = await req.formData();
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const fileType = file.type.startsWith("image/") ? "image" : file.type === "application/pdf" ? "pdf" : "other";
 
-  const receipt = await prisma.receipt.create({
+  const receipt = await db.receipt.create({
     data: {
       journalEntryId: Number(id),
       fileName: file.name,

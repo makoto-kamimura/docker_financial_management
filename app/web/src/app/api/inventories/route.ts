@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const year = req.nextUrl.searchParams.get("year");
   const dateFilter = year
     ? {
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
       }
     : {};
 
-  const inventories = await prisma.inventory.findMany({
+  const inventories = await db.inventory.findMany({
     where: { tenantId, ...dateFilter },
     include: { items: true },
     orderBy: { inventoryDate: "desc" },
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     name: string;
     inventoryDate: string;
@@ -58,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   const totalAmount = items.reduce((s, i) => s + Number(i.totalAmount), 0);
 
-  const inventory = await prisma.inventory.create({
+  const inventory = await db.inventory.create({
     data: {
       tenantId,
       name: body.name,

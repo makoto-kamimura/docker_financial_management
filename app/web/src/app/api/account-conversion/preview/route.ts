@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { isHomeAccountCode, suggestConversions } from "@/lib/account-conversion";
 
@@ -10,7 +10,8 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId, id: userId } = auth.user;
-  const accounts = await prisma.account.findMany({ where: { tenantId } });
+  const db = tenantDb(tenantId);
+  const accounts = await db.account.findMany({ where: { tenantId } });
   const homeAccounts = accounts.filter((a) => isHomeAccountCode(a.code));
   const corporateAccounts = accounts.filter((a) => !isHomeAccountCode(a.code));
 

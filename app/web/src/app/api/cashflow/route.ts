@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { categoryBucket } from "@/lib/kpi";
 import { buildCashFlow, type SysMode } from "@/lib/cashflow";
@@ -9,13 +9,14 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const yearParam = req.nextUrl.searchParams.get("year");
   const modeParam = req.nextUrl.searchParams.get("mode") as SysMode | null;
   const year = yearParam ? Number(yearParam) : undefined;
   const mode: SysMode =
     modeParam && ["household", "sole", "corporate"].includes(modeParam) ? modeParam : "sole";
 
-  const records = await prisma.financialRecord.findMany({
+  const records = await db.financialRecord.findMany({
     where: { tenantId, ...(year ? { period: { fiscalYear: year } } : {}) },
     include: { account: true },
   });

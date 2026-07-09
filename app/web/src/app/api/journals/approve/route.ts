@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(req: NextRequest) {
@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const status = req.nextUrl.searchParams.get("status") ?? "pending";
   const year = req.nextUrl.searchParams.get("year");
   const q = req.nextUrl.searchParams.get("q");
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
     where.description = { contains: q, mode: "insensitive" };
   }
 
-  const journals = await prisma.journalEntry.findMany({
+  const journals = await db.journalEntry.findMany({
     where,
     include: {
       details: { include: { account: { select: { code: true, name: true } } } },
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     journalEntryId: number;
     action: "submit" | "approve" | "reject";
@@ -55,7 +57,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "journalEntryId and action are required" }, { status: 400 });
   }
 
-  const entry = await prisma.journalEntry.findUnique({
+  const entry = await db.journalEntry.findUnique({
     where: { id: body.journalEntryId, tenantId },
   });
   if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -68,12 +70,12 @@ export async function POST(req: NextRequest) {
   const newStatus = statusMap[body.action];
   if (!newStatus) return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 
-  const [, approval] = await prisma.$transaction([
-    prisma.journalEntry.update({
+  const [, approval] = await db.$transaction([
+    db.journalEntry.update({
       where: { id: body.journalEntryId },
       data: { approvalStatus: newStatus },
     }),
-    prisma.journalApproval.create({
+    db.journalApproval.create({
       data: {
         journalEntryId: body.journalEntryId,
         action:

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 const INCLUDE = {
@@ -15,7 +15,8 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const t = await prisma.journalTemplate.findUnique({ where: { id: Number(id), tenantId }, include: INCLUDE });
+  const db = tenantDb(tenantId);
+  const t = await db.journalTemplate.findUnique({ where: { id: Number(id), tenantId }, include: INCLUDE });
   if (!t) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ data: t });
 }
@@ -26,7 +27,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const existing = await prisma.journalTemplate.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.journalTemplate.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const body = (await req.json()) as {
@@ -35,7 +37,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     lines?: { side: string; accountId: number; amount?: number; note?: string; sortOrder?: number }[];
   };
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.journalTemplate.update({
       where: { id: Number(id) },
       data: { ...(body.name && { name: body.name }), description: body.description ?? undefined },
@@ -55,7 +57,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
   });
 
-  const updated = await prisma.journalTemplate.findUnique({ where: { id: Number(id) }, include: INCLUDE });
+  const updated = await db.journalTemplate.findUnique({ where: { id: Number(id) }, include: INCLUDE });
   return NextResponse.json({ data: updated });
 }
 
@@ -65,9 +67,10 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const existing = await prisma.journalTemplate.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const existing = await db.journalTemplate.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.journalTemplate.delete({ where: { id: Number(id) } });
+  await db.journalTemplate.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }

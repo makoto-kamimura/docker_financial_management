@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -15,17 +15,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (isNaN(recordId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
   const { tenantId } = auth.user;
-  const before = await prisma.financialRecord.findUnique({ where: { id: recordId, tenantId } });
+  const db = tenantDb(tenantId);
+  const before = await db.financialRecord.findUnique({ where: { id: recordId, tenantId } });
   if (!before) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const parsed = UpdateSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const record = await prisma.financialRecord.update({
+  const record = await db.financialRecord.update({
     where: { id: recordId },
     data: { amount: parsed.data.amount },
   });
-  await prisma.financialRecordHistory.create({
+  await db.financialRecordHistory.create({
     data: { recordId, userId: auth.user.id, action: "update", amount: parsed.data.amount },
   });
   await writeAudit(auth.user.id, "update", `financial_record:${recordId}`);
@@ -41,13 +42,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (isNaN(recordId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
   const { tenantId } = auth.user;
-  const record = await prisma.financialRecord.findUnique({ where: { id: recordId, tenantId } });
+  const db = tenantDb(tenantId);
+  const record = await db.financialRecord.findUnique({ where: { id: recordId, tenantId } });
   if (!record) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.financialRecordHistory.create({
+  await db.financialRecordHistory.create({
     data: { recordId, userId: auth.user.id, action: "delete", amount: record.amount },
   });
-  await prisma.financialRecord.delete({ where: { id: recordId } });
+  await db.financialRecord.delete({ where: { id: recordId } });
   await writeAudit(auth.user.id, "delete", `financial_record:${recordId}`);
   return new NextResponse(null, { status: 204 });
 }

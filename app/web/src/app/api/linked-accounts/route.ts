@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -20,7 +20,8 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const items = await prisma.linkedAccount.findMany({
+  const db = tenantDb(tenantId);
+  const items = await db.linkedAccount.findMany({
     where: { tenantId },
     orderBy: [{ type: "asc" }, { institution: "asc" }],
     include: {
@@ -39,10 +40,11 @@ export async function POST(req: NextRequest) {
 
   const { accountCode, ...fields } = parsed.data;
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
 
   let accountId: number | undefined;
   if (accountCode) {
-    const acct = await prisma.account.findUnique({
+    const acct = await db.account.findUnique({
       where: { tenantId_code: { tenantId, code: accountCode } },
     });
     if (!acct)
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
     accountId = acct.id;
   }
 
-  const item = await prisma.linkedAccount.create({ data: { tenantId, ...fields, accountId } });
+  const item = await db.linkedAccount.create({ data: { tenantId, ...fields, accountId } });
   await writeAudit(auth.user.id, "create", `linked_account:${item.id}`);
   return NextResponse.json({ data: item }, { status: 201 });
 }

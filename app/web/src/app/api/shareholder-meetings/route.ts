@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 export async function GET(_req: NextRequest) {
@@ -7,7 +7,8 @@ export async function GET(_req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const meetings = await prisma.shareholderMeeting.findMany({
+  const db = tenantDb(tenantId);
+  const meetings = await db.shareholderMeeting.findMany({
     where: { tenantId },
     include: { tenant: { select: { id: true, name: true } } },
     orderBy: { meetingDate: "desc" },
@@ -20,12 +21,13 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as { meetingDate: string; meetingType?: string; agenda: string; resolution?: string };
   if (!body.meetingDate || !body.agenda) {
     return NextResponse.json({ error: "meetingDate, agenda are required" }, { status: 400 });
   }
 
-  const meeting = await prisma.shareholderMeeting.create({
+  const meeting = await db.shareholderMeeting.create({
     data: {
       tenantId,
       meetingDate: new Date(body.meetingDate),

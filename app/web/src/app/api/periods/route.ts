@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -15,7 +15,8 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const periods = await prisma.period.findMany({
+  const db = tenantDb(tenantId);
+  const periods = await db.period.findMany({
     where: { tenantId },
     orderBy: [{ fiscalYear: "asc" }, { month: "asc" }],
   });
@@ -33,7 +34,8 @@ export async function POST(req: NextRequest) {
   }
   const { fiscalYear, month } = parsed.data;
   const { tenantId } = auth.user;
-  const period = await prisma.period.create({
+  const db = tenantDb(tenantId);
+  const period = await db.period.create({
     data: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
   });
   await writeAudit(auth.user.id, "create", `period:${period.id}`);

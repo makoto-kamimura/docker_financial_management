@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { categoryBucket, computeLatestKpi, type MonthlyByCategory } from "@/lib/kpi";
 import { requireRole } from "@/lib/authz";
 
@@ -9,11 +9,12 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
 
-  const records = await prisma.financialRecord.findMany({
+  const records = await db.financialRecord.findMany({
     where: {
       tenantId,
       period: {

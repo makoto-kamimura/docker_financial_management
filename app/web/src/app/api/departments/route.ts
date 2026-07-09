@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -15,7 +15,8 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
-  const departments = await prisma.department.findMany({
+  const db = tenantDb(tenantId);
+  const departments = await db.department.findMany({
     where: { tenantId },
     orderBy: { id: "asc" },
   });
@@ -31,7 +32,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { tenantId } = auth.user;
-  const department = await prisma.department.create({ data: { tenantId, ...parsed.data } });
+  const db = tenantDb(tenantId);
+  const department = await db.department.create({ data: { tenantId, ...parsed.data } });
   await writeAudit(auth.user.id, "create", `department:${department.id}`);
   return NextResponse.json({ data: department }, { status: 201 });
 }

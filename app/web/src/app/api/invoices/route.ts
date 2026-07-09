@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 const INCLUDE = { lines: true };
@@ -18,8 +18,9 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const status = req.nextUrl.searchParams.get("status");
-  const invoices = await prisma.invoice.findMany({
+  const invoices = await db.invoice.findMany({
     where: { tenantId, ...(status ? { status } : {}) },
     include: INCLUDE,
     orderBy: { issueDate: "desc" },
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     customerName: string;
     customerAddress?: string;
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
   const taxAmount = Math.round(lineData.reduce((s, l) => s + l.amount * l.taxRate, 0));
   const total = subtotal + taxAmount;
 
-  const invoice = await prisma.invoice.create({
+  const invoice = await db.invoice.create({
     data: {
       tenantId,
       invoiceNumber: generateInvoiceNumber(),

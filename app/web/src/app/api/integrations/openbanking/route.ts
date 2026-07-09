@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 // 全銀 API / オープンバンキング API 設定（環境変数から取得）
@@ -20,17 +20,20 @@ export async function GET(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const sp = req.nextUrl.searchParams;
   const action = sp.get("action") ?? "accounts";
   const apiKey = process.env.OPENBANKING_API_KEY;
 
   if (action === "accounts") {
-    const accounts = await prisma.bankAccount.findMany({
+    const accounts = await db.bankAccount.findMany({
+      where: { tenantId },
       orderBy: { bankName: "asc" },
     });
 
     // 口座ごとの最新残高：最新トランザクションの balance or 取引合計
-    const latestTxns = await prisma.bankTransaction.findMany({
+    const latestTxns = await db.bankTransaction.findMany({
       where: { accountId: { in: accounts.map((a) => a.id) } },
       orderBy: [{ date: "desc" }, { id: "desc" }],
       distinct: ["accountId"],
@@ -71,7 +74,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const account = await prisma.bankAccount.findUnique({ where: { id: Number(accountId) } });
+    const account = await db.bankAccount.findUnique({ where: { id: Number(accountId), tenantId } });
     if (!account) {
       return NextResponse.json({ error: "口座が見つかりません" }, { status: 404 });
     }
@@ -122,6 +125,8 @@ export async function POST(req: NextRequest) {
   const auth = await requireRole("editor");
   if (auth.error) return auth.error;
 
+  const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const body = (await req.json()) as {
     accountId: number;
     transactions: Array<{
@@ -137,7 +142,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "accountId と transactions が必要です" }, { status: 400 });
   }
 
-  const account = await prisma.bankAccount.findUnique({ where: { id: body.accountId } });
+  const account = await db.bankAccount.findUnique({ where: { id: body.accountId, tenantId } });
   if (!account) {
     return NextResponse.json({ error: "口座が見つかりません" }, { status: 404 });
   }
@@ -148,7 +153,7 @@ export async function POST(req: NextRequest) {
   for (const tx of body.transactions) {
     const txDate = new Date(tx.date);
     const externalId = tx.id;
-    const existing = await prisma.bankTransaction.findFirst({
+    const existing = await db.bankTransaction.findFirst({
       where: { accountId: account.id, externalId },
     });
     if (existing) {
@@ -156,7 +161,7 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    await prisma.bankTransaction.create({
+    await db.bankTransaction.create({
       data: {
         account: { connect: { id: account.id } },
         date: txDate,

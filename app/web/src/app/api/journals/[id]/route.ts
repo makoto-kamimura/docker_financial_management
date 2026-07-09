@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 
 type Params = { params: Promise<{ id: string }> };
@@ -17,7 +17,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const entry = await prisma.journalEntry.findUnique({
+  const db = tenantDb(tenantId);
+  const entry = await db.journalEntry.findUnique({
     where: { id: Number(id), tenantId },
     include: INCLUDE_DETAILS,
   });
@@ -31,9 +32,10 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const { tenantId } = auth.user;
-  const entry = await prisma.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
+  const db = tenantDb(tenantId);
+  const entry = await db.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
   if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  await prisma.journalEntry.delete({ where: { id: Number(id) } });
+  await db.journalEntry.delete({ where: { id: Number(id) } });
   return NextResponse.json({ ok: true });
 }

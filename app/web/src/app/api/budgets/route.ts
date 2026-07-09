@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 
@@ -17,10 +17,11 @@ export async function GET(req: NextRequest) {
   if (auth.error) return auth.error;
 
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
   const yearParam = req.nextUrl.searchParams.get("year");
   const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
 
-  const budgets = await prisma.budget.findMany({
+  const budgets = await db.budget.findMany({
     where: { tenantId, period: { fiscalYear: year } },
     include: {
       account: { select: { id: true, code: true, name: true, category: true } },
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
     orderBy: [{ account: { code: "asc" } }, { period: { month: "asc" } }],
   });
 
-  const years = await prisma.period.findMany({
+  const years = await db.period.findMany({
     where: { tenantId },
     select: { fiscalYear: true },
     distinct: ["fiscalYear"],
@@ -49,20 +50,21 @@ export async function POST(req: NextRequest) {
 
   const { accountCode, fiscalYear, month, amount } = parsed.data;
   const { tenantId } = auth.user;
+  const db = tenantDb(tenantId);
 
-  const account = await prisma.account.findUnique({
+  const account = await db.account.findUnique({
     where: { tenantId_code: { tenantId, code: accountCode } },
   });
   if (!account)
     return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
 
-  const period = await prisma.period.upsert({
+  const period = await db.period.upsert({
     where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
     update: {},
     create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
   });
 
-  const budget = await prisma.budget.upsert({
+  const budget = await db.budget.upsert({
     where: { tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id } },
     update: { amount },
     create: { tenantId, accountId: account.id, periodId: period.id, amount },
