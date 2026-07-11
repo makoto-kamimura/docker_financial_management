@@ -4,7 +4,7 @@ import {
   TextInput, TouchableOpacity, View,
 } from "react-native";
 import {
-  fetchAccounts, fetchBudgets, postBudget,
+  fetchAccounts, fetchBudgets, matchesViewMode, postBudget,
   type Account, type BudgetRow, type HousingLoanOverlayRow, type ViewMode,
 } from "../api";
 import { RevenueAllocationModal } from "../components/RevenueAllocationModal";
@@ -16,12 +16,6 @@ const CAT_LABEL: Record<string, string> = {
   COGS:    "売上原価",
   EXPENSE: "費用・支出",
 };
-
-function prefixOf(vm: ViewMode): (code: string) => boolean {
-  if (vm === "household") return c => c.startsWith("H");
-  if (vm === "corporate") return c => c.startsWith("C");
-  return c => /^\d/.test(c);
-}
 
 const yen = (v: number) =>
   v === 0 ? "¥0"
@@ -48,8 +42,8 @@ export function BudgetScreen({ viewMode }: Props) {
     setEdits({});
     try {
       const [accs, { budgets: buds, housingLoanOverlay }] = await Promise.all([fetchAccounts(), fetchBudgets(y)]);
-      const match = prefixOf(viewMode);
-      setAccounts(accs.filter(a => BUDGETABLE.includes(a.category) && match(a.code)));
+      setAccounts(accs.filter(a =>
+        BUDGETABLE.includes(a.category) && matchesViewMode(a.code, viewMode)));
       setBudgets(buds);
       setOverlay(housingLoanOverlay);
     } catch {

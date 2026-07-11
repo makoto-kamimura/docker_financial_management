@@ -30,6 +30,13 @@ export const VIEW_MODES: { value: ViewMode; label: string; short: string }[] = [
   { value: "corporate", label: "法人",     short: "法人" },
 ];
 
+// 勘定科目コードが表示モードに属するか（家計: H*, 法人: C*, 個人: 数字始まり）
+export function matchesViewMode(code: string, vm: ViewMode): boolean {
+  if (vm === "household") return code.startsWith("H");
+  if (vm === "corporate") return code.startsWith("C");
+  return /^\d/.test(code);
+}
+
 function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string> ?? {}),
@@ -108,7 +115,7 @@ export type ForecastResponse = {
   forecast: number[];
 };
 
-export async function fetchForecast(accountCode = "H1000", months = 6): Promise<ForecastResponse> {
+export async function fetchForecast(accountCode: string, months = 6): Promise<ForecastResponse> {
   const res = await apiFetch(`/forecasts?accountCode=${accountCode}&months=${months}`);
   if (!res.ok) throw new Error("予測データの取得に失敗しました");
   return res.json();
@@ -122,7 +129,7 @@ export type BudgetActualRow = {
 };
 
 export async function fetchBudgetActual(
-  accountCode = "H1000",
+  accountCode: string,
   year = new Date().getFullYear(),
   method = "moving_average",
 ): Promise<{ rows: BudgetActualRow[] }> {

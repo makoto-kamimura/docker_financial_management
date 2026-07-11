@@ -26,7 +26,14 @@ export function buildBudgetActual(
   forecasts: Map<string, number>,
 ): BudgetActualReport {
   const actualMap = new Map(actuals.map((a) => [a.period, a.amount]));
-  const periods = [...new Set([...budgets.map((b) => b.period), ...forecasts.keys()])].sort();
+  // 予算・実績のどちらか一方しか入力されていない月も行に含める
+  const periods = [
+    ...new Set([
+      ...budgets.map((b) => b.period),
+      ...actuals.map((a) => a.period),
+      ...forecasts.keys(),
+    ]),
+  ].sort();
   const budgetMap = new Map(budgets.map((b) => [b.period, b.amount]));
 
   let tB = 0;

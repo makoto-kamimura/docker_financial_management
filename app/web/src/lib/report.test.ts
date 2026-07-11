@@ -47,4 +47,16 @@ describe("buildBudgetActual", () => {
       variance: -1000, // 2000-3000
     });
   });
+
+  it("予算が無く実績のみの月も行に含める", () => {
+    const r = buildBudgetActual([], actuals, new Map());
+    expect(r.rows.map((row) => row.period)).toEqual(["2025-01", "2025-02"]);
+    expect(r.rows[0]).toMatchObject({ budget: 0, actual: 1100, achievementRate: null });
+  });
+
+  it("実績が無く予算のみの月も行に含める", () => {
+    const r = buildBudgetActual(budgets, [], new Map());
+    expect(r.rows.map((row) => row.period)).toEqual(["2025-01", "2025-02", "2025-03"]);
+    expect(r.rows[0]).toMatchObject({ budget: 1000, actual: null, variance: null });
+  });
 });
