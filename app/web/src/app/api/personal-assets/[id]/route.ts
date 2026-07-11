@@ -32,7 +32,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     where: { id: Number(id) },
     data: {
       ...(body.name !== undefined && { name: body.name }),
-      ...(body.category !== undefined && { category: body.category as (typeof CATEGORIES)[number] }),
+      ...(body.category !== undefined && {
+        category: body.category as (typeof CATEGORIES)[number],
+      }),
       ...(body.acquiredOn !== undefined && {
         acquiredOn: body.acquiredOn ? new Date(body.acquiredOn) : null,
       }),

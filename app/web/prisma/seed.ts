@@ -223,7 +223,13 @@ async function main() {
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA101" } },
       update: {},
-      create: { tenantId: tid, code: "HA101", name: "積立預金", category: "ASSET", parentId: ha100.id },
+      create: {
+        tenantId: tid,
+        code: "HA101",
+        name: "積立預金",
+        category: "ASSET",
+        parentId: ha100.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA102" } },
@@ -233,52 +239,112 @@ async function main() {
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA103" } },
       update: {},
-      create: { tenantId: tid, code: "HA103", name: "普通預金", category: "ASSET", parentId: ha100.id },
+      create: {
+        tenantId: tid,
+        code: "HA103",
+        name: "普通預金",
+        category: "ASSET",
+        parentId: ha100.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA104" } },
       update: {},
-      create: { tenantId: tid, code: "HA104", name: "定期預金", category: "ASSET", parentId: ha100.id },
+      create: {
+        tenantId: tid,
+        code: "HA104",
+        name: "定期預金",
+        category: "ASSET",
+        parentId: ha100.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA201" } },
       update: {},
-      create: { tenantId: tid, code: "HA201", name: "国内株式", category: "ASSET", parentId: ha200.id },
+      create: {
+        tenantId: tid,
+        code: "HA201",
+        name: "国内株式",
+        category: "ASSET",
+        parentId: ha200.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA202" } },
       update: {},
-      create: { tenantId: tid, code: "HA202", name: "外国株式", category: "ASSET", parentId: ha200.id },
+      create: {
+        tenantId: tid,
+        code: "HA202",
+        name: "外国株式",
+        category: "ASSET",
+        parentId: ha200.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA203" } },
       update: {},
-      create: { tenantId: tid, code: "HA203", name: "国内債券", category: "ASSET", parentId: ha200.id },
+      create: {
+        tenantId: tid,
+        code: "HA203",
+        name: "国内債券",
+        category: "ASSET",
+        parentId: ha200.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA204" } },
       update: {},
-      create: { tenantId: tid, code: "HA204", name: "外国債券", category: "ASSET", parentId: ha200.id },
+      create: {
+        tenantId: tid,
+        code: "HA204",
+        name: "外国債券",
+        category: "ASSET",
+        parentId: ha200.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA301" } },
       update: {},
-      create: { tenantId: tid, code: "HA301", name: "生命保険（終身）", category: "ASSET", parentId: ha300.id },
+      create: {
+        tenantId: tid,
+        code: "HA301",
+        name: "生命保険（終身）",
+        category: "ASSET",
+        parentId: ha300.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA302" } },
       update: {},
-      create: { tenantId: tid, code: "HA302", name: "学資保険", category: "ASSET", parentId: ha300.id },
+      create: {
+        tenantId: tid,
+        code: "HA302",
+        name: "学資保険",
+        category: "ASSET",
+        parentId: ha300.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA401" } },
       update: {},
-      create: { tenantId: tid, code: "HA401", name: "厚生年金", category: "ASSET", parentId: ha400.id },
+      create: {
+        tenantId: tid,
+        code: "HA401",
+        name: "厚生年金",
+        category: "ASSET",
+        parentId: ha400.id,
+      },
     }),
     prisma.account.upsert({
       where: { tenantId_code: { tenantId: tid, code: "HA402" } },
       update: {},
-      create: { tenantId: tid, code: "HA402", name: "退職金（見込）", category: "ASSET", parentId: ha400.id },
+      create: {
+        tenantId: tid,
+        code: "HA402",
+        name: "退職金（見込）",
+        category: "ASSET",
+        parentId: ha400.id,
+      },
     }),
   ]);
   const [ha101, ha102, ha103, ha104, ha201, ha202, ha203, ha204, ha301, ha302, ha401, ha402] =
@@ -314,7 +380,13 @@ async function main() {
       const p = periodMap.get(`${row.fiscalYear}-${row.month}`);
       if (!p) continue;
       await prisma.financialRecord.create({
-        data: { tenantId: tid, accountId, departmentId: dept.id, periodId: p.id, amount: row.amount },
+        data: {
+          tenantId: tid,
+          accountId,
+          departmentId: dept.id,
+          periodId: p.id,
+          amount: row.amount,
+        },
       });
     }
   }
@@ -473,9 +545,16 @@ async function main() {
       if (!p) continue;
       for (const [accId, annual] of budgetDef) {
         await prisma.budget.upsert({
-          where: { tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id } },
+          where: {
+            tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id },
+          },
           update: { amount: Math.round(annual / 12) },
-          create: { tenantId: tid, accountId: accId, periodId: p.id, amount: Math.round(annual / 12) },
+          create: {
+            tenantId: tid,
+            accountId: accId,
+            periodId: p.id,
+            amount: Math.round(annual / 12),
+          },
         });
       }
     }
@@ -832,7 +911,9 @@ async function main() {
       for (const [accId, monthly] of soleBudgetDef) {
         const amount = accId === s4000.id ? revTarget : monthly;
         await prisma.budget.upsert({
-          where: { tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id } },
+          where: {
+            tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id },
+          },
           update: { amount },
           create: { tenantId: tid, accountId: accId, periodId: p.id, amount },
         });
@@ -857,7 +938,13 @@ async function main() {
   const soleTaxAcc = await prisma.bankAccount.upsert({
     where: { id: 5 },
     update: {},
-    create: { id: 5, tenantId: tid, name: "納税積立口座", bankName: "ゆうちょ銀行", role: "SAVINGS" },
+    create: {
+      id: 5,
+      tenantId: tid,
+      name: "納税積立口座",
+      bankName: "ゆうちょ銀行",
+      role: "SAVINGS",
+    },
   });
 
   const soleTxnCount = await prisma.bankTransaction.count({ where: { accountId: { in: [4, 5] } } });
@@ -2202,7 +2289,9 @@ async function main() {
       if (!p) continue;
       for (const [accId, amount] of corpBudgetDef) {
         await prisma.budget.upsert({
-          where: { tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id } },
+          where: {
+            tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id },
+          },
           update: { amount },
           create: { tenantId: tid, accountId: accId, periodId: p.id, amount },
         });
@@ -2227,7 +2316,13 @@ async function main() {
   const corpSavingsAcc = await prisma.bankAccount.upsert({
     where: { id: 7 },
     update: {},
-    create: { id: 7, tenantId: tid, name: "法人積立口座", bankName: "住信SBIネット銀行", role: "SAVINGS" },
+    create: {
+      id: 7,
+      tenantId: tid,
+      name: "法人積立口座",
+      bankName: "住信SBIネット銀行",
+      role: "SAVINGS",
+    },
   });
 
   const corpTxnCount = await prisma.bankTransaction.count({ where: { accountId: { in: [6, 7] } } });
@@ -3077,7 +3172,11 @@ async function main() {
     });
 
     const tmpl6 = await prisma.journalTemplate.create({
-      data: { tenantId: tid, name: "会議費（現金払い）", description: "打ち合わせ時の飲食・会議費用" },
+      data: {
+        tenantId: tid,
+        name: "会議費（現金払い）",
+        description: "打ち合わせ時の飲食・会議費用",
+      },
     });
     await prisma.journalTemplateLine.createMany({
       data: [

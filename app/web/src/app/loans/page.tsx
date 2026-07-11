@@ -169,7 +169,8 @@ export default function LoansPage() {
         ...newLoan,
         amount: Number(newLoan.amount),
         interestRate: Number(newLoan.interestRate),
-        linkedAccountCode: newLoan.loanType === "housing" ? newLoan.linkedAccountCode || undefined : undefined,
+        linkedAccountCode:
+          newLoan.loanType === "housing" ? newLoan.linkedAccountCode || undefined : undefined,
         monthlyPayment:
           newLoan.loanType === "housing" && newLoan.monthlyPayment
             ? Number(newLoan.monthlyPayment)
@@ -372,7 +373,9 @@ export default function LoansPage() {
                   </div>
                   {l.loanType === "housing" && (
                     <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-xs text-indigo-600 mt-1 pl-4">
-                      {l.monthlyPayment && <span>月々の返済額: {yen(Number(l.monthlyPayment))}</span>}
+                      {l.monthlyPayment && (
+                        <span>月々の返済額: {yen(Number(l.monthlyPayment))}</span>
+                      )}
                       {l.linkedAccount && (
                         <span>
                           予算連携先: {l.linkedAccount.code} {l.linkedAccount.name}（自動加算）
@@ -501,7 +504,9 @@ export default function LoansPage() {
                     </label>
                     <select
                       value={newLoan.linkedAccountCode}
-                      onChange={(e) => setNewLoan((f) => ({ ...f, linkedAccountCode: e.target.value }))}
+                      onChange={(e) =>
+                        setNewLoan((f) => ({ ...f, linkedAccountCode: e.target.value }))
+                      }
                       className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                     >
                       <option value="">選択してください</option>
@@ -521,7 +526,9 @@ export default function LoansPage() {
                     <input
                       type="number"
                       value={newLoan.monthlyPayment}
-                      onChange={(e) => setNewLoan((f) => ({ ...f, monthlyPayment: e.target.value }))}
+                      onChange={(e) =>
+                        setNewLoan((f) => ({ ...f, monthlyPayment: e.target.value }))
+                      }
                       className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                     />
                     <p className="text-xs text-slate-400 mt-1">
@@ -580,7 +587,9 @@ export default function LoansPage() {
                 </label>
                 <select
                   value={editForm.linkedAccountCode}
-                  onChange={(e) => setEditForm((f) => ({ ...f, linkedAccountCode: e.target.value }))}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, linkedAccountCode: e.target.value }))
+                  }
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 >
                   <option value="">連携なし</option>

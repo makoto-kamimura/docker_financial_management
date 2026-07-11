@@ -12,8 +12,17 @@ type BudgetRow = {
   account: { id: number; code: string; name: string };
   period: { fiscalYear: number; month: number };
 };
-type HousingLoanOverlayRow = { accountId: number; accountCode: string; month: number; amount: number };
-type BudgetResponse = { data: BudgetRow[]; years: number[]; housingLoanOverlay?: HousingLoanOverlayRow[] };
+type HousingLoanOverlayRow = {
+  accountId: number;
+  accountCode: string;
+  month: number;
+  amount: number;
+};
+type BudgetResponse = {
+  data: BudgetRow[];
+  years: number[];
+  housingLoanOverlay?: HousingLoanOverlayRow[];
+};
 type ImportResult = { imported: number; errors: string[] };
 type Tab = "manual" | "csv";
 
@@ -467,13 +476,17 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                   </button>
                                 </div>
                                 {auto > 0 && (
-                                  <div className="text-[10px] text-indigo-500">内 住宅ローン {yen(auto)}</div>
+                                  <div className="text-[10px] text-indigo-500">
+                                    内 住宅ローン {yen(auto)}
+                                  </div>
                                 )}
                               </div>
                             ) : auto > 0 ? (
                               <div className="text-indigo-600">
                                 {yen(auto)}
-                                <div className="text-[10px] text-indigo-400">住宅ローン自動反映</div>
+                                <div className="text-[10px] text-indigo-400">
+                                  住宅ローン自動反映
+                                </div>
                               </div>
                             ) : (
                               <span className="text-slate-300">—</span>

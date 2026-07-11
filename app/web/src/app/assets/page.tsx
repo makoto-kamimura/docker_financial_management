@@ -237,7 +237,9 @@ function PersonalAssetsSection() {
                 </div>
                 <div className="text-xs text-slate-400 mt-1">
                   {a.acquiredOn && <span>取得日: {a.acquiredOn.slice(0, 10)} ・ </span>}
-                  {a.acquisitionCost !== null && <span>取得価格: {yen(Number(a.acquisitionCost))}</span>}
+                  {a.acquisitionCost !== null && (
+                    <span>取得価格: {yen(Number(a.acquisitionCost))}</span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-3">

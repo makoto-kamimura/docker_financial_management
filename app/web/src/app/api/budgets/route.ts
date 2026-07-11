@@ -54,7 +54,12 @@ async function computeHousingLoanOverlay(
   year: number,
 ): Promise<{ accountId: number; accountCode: string; month: number; amount: number }[]> {
   const housingLoans = await db.loan.findMany({
-    where: { tenantId, loanType: "housing", linkedAccountId: { not: null }, monthlyPayment: { not: null } },
+    where: {
+      tenantId,
+      loanType: "housing",
+      linkedAccountId: { not: null },
+      monthlyPayment: { not: null },
+    },
     include: { linkedAccount: { select: { id: true, code: true } } },
   });
 
@@ -102,7 +107,9 @@ export async function POST(req: NextRequest) {
   });
 
   const budget = await db.budget.upsert({
-    where: { tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id } },
+    where: {
+      tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
+    },
     update: { amount },
     create: { tenantId, accountId: account.id, periodId: period.id, amount },
     include: {
