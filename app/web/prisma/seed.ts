@@ -2435,6 +2435,23 @@ async function main() {
       note: "短期運転資金",
     },
   });
+  // 住宅ローン: 家賃（H3000）に月々の返済額を自動反映
+  const loan4 = await prisma.loan.create({
+    data: {
+      tenantId: tid,
+      lenderName: "住宅金融支援機構",
+      amount: 30_000_000,
+      interestRate: 0.008,
+      borrowedOn: new Date("2020-04-01"),
+      repaymentDate: new Date("2050-03-31"),
+      remainingAmount: 26_000_000,
+      status: "active",
+      note: "住宅ローン（自宅マンション購入）",
+      loanType: "housing",
+      linkedAccountId: h3000.id,
+      monthlyPayment: 89_000,
+    },
+  });
   // 返済履歴（loan1: 月8万、loan2: 月10万、loan3: 完済）
   const loan1Repayments = [
     { repaidOn: "2024-05-01", principal: 75000, interest: 3750 },
@@ -2509,6 +2526,20 @@ async function main() {
         principal: 27000,
         interest: Math.max(100, 1667 - m * 45),
         totalAmount: 27000 + Math.max(100, 1667 - m * 45),
+      },
+    });
+  }
+  // loan4（住宅ローン）返済履歴（2020-04〜直近、月8.9万）
+  for (let m = 0; m < 24; m++) {
+    const d = new Date("2024-08-01");
+    d.setMonth(d.getMonth() + m);
+    await prisma.loanRepayment.create({
+      data: {
+        loanId: loan4.id,
+        repaidOn: d,
+        principal: 71_000,
+        interest: 18_000,
+        totalAmount: 89_000,
       },
     });
   }
@@ -3344,6 +3375,51 @@ async function main() {
     ],
   });
   console.log("  ✓ Created shareholder meetings & dividends");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── 23. 実物資産（土地・建物・車・金）─────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  await prisma.personalAsset.deleteMany({});
+  await prisma.personalAsset.createMany({
+    data: [
+      {
+        tenantId: tid,
+        name: "自宅土地",
+        category: "LAND",
+        acquiredOn: new Date("2020-04-01"),
+        acquisitionCost: 15_000_000,
+        currentValue: 16_200_000,
+        note: "住宅ローン（住宅金融支援機構）の担保",
+      },
+      {
+        tenantId: tid,
+        name: "自宅建物",
+        category: "BUILDING",
+        acquiredOn: new Date("2020-04-01"),
+        acquisitionCost: 18_000_000,
+        currentValue: 14_500_000,
+        note: "木造・築5年",
+      },
+      {
+        tenantId: tid,
+        name: "自家用車（プリウス）",
+        category: "VEHICLE",
+        acquiredOn: new Date("2023-03-01"),
+        acquisitionCost: 3_200_000,
+        currentValue: 2_100_000,
+      },
+      {
+        tenantId: tid,
+        name: "金地金（インゴット100g）",
+        category: "GOLD",
+        acquiredOn: new Date("2022-09-01"),
+        acquisitionCost: 700_000,
+        currentValue: 1_050_000,
+        note: "現物保管",
+      },
+    ],
+  });
+  console.log("  ✓ Created personal assets");
 
   console.log("🎉 Seed completed!");
 }

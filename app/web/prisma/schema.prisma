@@ -59,6 +59,7 @@ model Account {
   journalTemplateLines JournalTemplateLine[]
   accruedRevenues      AccruedRevenue[]
   accruedExpenses      AccruedExpense[]
+  loans                Loan[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -433,6 +434,32 @@ model Depreciation {
   @@map("depreciations")
 }
 
+// 実物資産の分類（土地・建物・車・金など）
+enum PersonalAssetCategory {
+  LAND      // 土地
+  BUILDING  // 建物
+  VEHICLE   // 車
+  GOLD      // 金・貴金属
+  OTHER
+}
+
+// 実物資産台帳（家計の資産管理: 土地・建物・車・金など）
+model PersonalAsset {
+  id              Int                   @id @default(autoincrement())
+  tenantId        Int
+  name            String                            // 資産名（例: 自宅土地）
+  category        PersonalAssetCategory @default(OTHER)
+  acquiredOn      DateTime?                         // 取得日
+  acquisitionCost Decimal?              @db.Decimal(18, 2) // 取得価格
+  currentValue    Decimal               @db.Decimal(18, 2) // 現在評価額
+  note            String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([tenantId])
+  @@map("personal_assets")
+}
+
 // F009 家事按分設定
 model Apportionment {
   id           Int      @id @default(autoincrement())
@@ -641,16 +668,21 @@ model Loan {
   amount          Decimal   @db.Decimal(18, 2)
   interestRate    Decimal   @db.Decimal(5, 4)
   borrowedOn      DateTime
-  repaymentDate   DateTime
+  repaymentDate   DateTime                       // 完済予定/支払い完了年月
   remainingAmount Decimal   @db.Decimal(18, 2)
   status          String    @default("active") // active / repaid
   note            String?
+  loanType        String    @default("business") // business（事業性）/ housing（住宅ローン）
+  linkedAccountId Int?                            // 住宅ローン: 返済額を自動反映する予算科目（例: 家賃）
+  linkedAccount   Account?  @relation(fields: [linkedAccountId], references: [id])
+  monthlyPayment  Decimal?  @db.Decimal(18, 2)    // 住宅ローン: 月々の返済額（予算に自動加算）
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   repayments LoanRepayment[]
 
   @@index([tenantId])
+  @@index([linkedAccountId])
   @@map("loans")
 }
 

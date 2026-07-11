@@ -32,8 +32,13 @@ type Loan = {
   remainingAmount: string;
   status: string;
   note: string | null;
+  loanType: string;
+  linkedAccountId: number | null;
+  linkedAccount: { id: number; code: string; name: string } | null;
+  monthlyPayment: string | null;
   repayments: Repayment[];
 };
+type AccountRef = { id: number; code: string; name: string; category: string };
 
 // ── グラフ用スケジュール計算 ───────────────────────────────────
 const COLORS = ["#2563eb", "#f97316", "#16a34a", "#9333ea", "#dc2626", "#0891b2"];
@@ -107,6 +112,7 @@ const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", curren
 // ── ページ ──────────────────────────────────────────────────────
 export default function LoansPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
+  const [accounts, setAccounts] = useState<AccountRef[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [payForm, setPayForm] = useState<{
@@ -127,7 +133,16 @@ export default function LoansPage() {
     borrowedOn: "",
     repaymentDate: "",
     note: "",
+    loanType: "business",
+    linkedAccountCode: "",
+    monthlyPayment: "",
   });
+  const [editForm, setEditForm] = useState<{
+    loanId: number | null;
+    repaymentDate: string;
+    monthlyPayment: string;
+    linkedAccountCode: string;
+  }>({ loanId: null, repaymentDate: "", monthlyPayment: "", linkedAccountCode: "" });
 
   const load = () => {
     setLoading(true);
@@ -141,6 +156,9 @@ export default function LoansPage() {
 
   useEffect(() => {
     load();
+    fetch("/api/accounts")
+      .then((r) => r.json())
+      .then((j) => setAccounts(j.data ?? []));
   }, []);
 
   const saveLoan = async () => {
@@ -151,6 +169,11 @@ export default function LoansPage() {
         ...newLoan,
         amount: Number(newLoan.amount),
         interestRate: Number(newLoan.interestRate),
+        linkedAccountCode: newLoan.loanType === "housing" ? newLoan.linkedAccountCode || undefined : undefined,
+        monthlyPayment:
+          newLoan.loanType === "housing" && newLoan.monthlyPayment
+            ? Number(newLoan.monthlyPayment)
+            : undefined,
       }),
     });
     if (r.ok) {
@@ -172,6 +195,32 @@ export default function LoansPage() {
     });
     if (r.ok) {
       setPayForm((f) => ({ ...f, loanId: null }));
+      load();
+    }
+  };
+
+  const openEdit = (l: Loan) => {
+    setEditForm({
+      loanId: l.id,
+      repaymentDate: l.repaymentDate.slice(0, 10),
+      monthlyPayment: l.monthlyPayment ?? "",
+      linkedAccountCode: l.linkedAccount?.code ?? "",
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editForm.loanId) return;
+    const r = await fetch(`/api/loans/${editForm.loanId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repaymentDate: editForm.repaymentDate,
+        monthlyPayment: editForm.monthlyPayment ? Number(editForm.monthlyPayment) : null,
+        linkedAccountCode: editForm.linkedAccountCode || null,
+      }),
+    });
+    if (r.ok) {
+      setEditForm((f) => ({ ...f, loanId: null }));
       load();
     }
   };
@@ -306,6 +355,11 @@ export default function LoansPage() {
                     >
                       {l.status === "active" ? "返済中" : "完済"}
                     </span>
+                    {l.loanType === "housing" && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                        🏠 住宅ローン
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-sm text-slate-600 mt-1 pl-4">
                     <span>借入額: {yen(Number(l.amount))}</span>
@@ -314,8 +368,18 @@ export default function LoansPage() {
                       残高:{" "}
                       <strong className="text-red-600">{yen(Number(l.remainingAmount))}</strong>
                     </span>
-                    <span>返済期限: {l.repaymentDate.slice(0, 10)}</span>
+                    <span>支払い完了年月: {l.repaymentDate.slice(0, 7)}</span>
                   </div>
+                  {l.loanType === "housing" && (
+                    <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-xs text-indigo-600 mt-1 pl-4">
+                      {l.monthlyPayment && <span>月々の返済額: {yen(Number(l.monthlyPayment))}</span>}
+                      {l.linkedAccount && (
+                        <span>
+                          予算連携先: {l.linkedAccount.code} {l.linkedAccount.name}（自動加算）
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {/* 返済進捗バー */}
                   {Number(l.amount) > 0 && (
                     <div className="mt-2 ml-4 flex items-center gap-2">
@@ -335,21 +399,29 @@ export default function LoansPage() {
                     </div>
                   )}
                 </div>
-                {l.status === "active" && (
+                <div className="flex items-center gap-2 shrink-0">
                   <button
-                    onClick={() =>
-                      setPayForm({
-                        loanId: l.id,
-                        principal: "",
-                        interest: "0",
-                        repaidOn: new Date().toISOString().slice(0, 10),
-                      })
-                    }
-                    className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 shrink-0"
+                    onClick={() => openEdit(l)}
+                    className="px-3 py-1.5 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
                   >
-                    返済登録
+                    編集
                   </button>
-                )}
+                  {l.status === "active" && (
+                    <button
+                      onClick={() =>
+                        setPayForm({
+                          loanId: l.id,
+                          principal: "",
+                          interest: "0",
+                          repaidOn: new Date().toISOString().slice(0, 10),
+                        })
+                      }
+                      className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+                    >
+                      返済登録
+                    </button>
+                  )}
+                </div>
               </div>
 
               {l.repayments.length > 0 && (
@@ -397,8 +469,7 @@ export default function LoansPage() {
                   ["amount", "借入金額（円）*"],
                   ["interestRate", "年利率（例: 0.03）"],
                   ["borrowedOn", "借入日 *", "date"],
-                  ["repaymentDate", "返済期限 *", "date"],
-                  ["note", "備考"],
+                  ["repaymentDate", "支払い完了年月（完済予定日）*", "date"],
                 ] as [keyof typeof newLoan, string, string?][]
               ).map(([k, label, type]) => (
                 <div key={k}>
@@ -411,6 +482,62 @@ export default function LoansPage() {
                   />
                 </div>
               ))}
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">借入種別</label>
+                <select
+                  value={newLoan.loanType}
+                  onChange={(e) => setNewLoan((f) => ({ ...f, loanType: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="business">事業性借入</option>
+                  <option value="housing">住宅ローン</option>
+                </select>
+              </div>
+              {newLoan.loanType === "housing" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">
+                      予算連携先科目（例: 家賃）
+                    </label>
+                    <select
+                      value={newLoan.linkedAccountCode}
+                      onChange={(e) => setNewLoan((f) => ({ ...f, linkedAccountCode: e.target.value }))}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    >
+                      <option value="">選択してください</option>
+                      {accounts
+                        .filter((a) => a.category === "EXPENSE")
+                        .map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.code} {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">
+                      月々の返済額（円）
+                    </label>
+                    <input
+                      type="number"
+                      value={newLoan.monthlyPayment}
+                      onChange={(e) => setNewLoan((f) => ({ ...f, monthlyPayment: e.target.value }))}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      支払い完了年月まで、連携先科目の予算に毎月自動加算されます。
+                    </p>
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">備考</label>
+                <input
+                  value={newLoan.note}
+                  onChange={(e) => setNewLoan((f) => ({ ...f, note: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <button
@@ -421,6 +548,75 @@ export default function LoansPage() {
               </button>
               <button
                 onClick={saveLoan}
+                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 借入編集モーダル（支払い完了年月・月々の返済額・予算連携先） */}
+      {editForm.loanId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+            <h2 className="text-lg font-bold text-slate-800 mb-4">借入条件の編集</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  支払い完了年月（完済予定日）*
+                </label>
+                <input
+                  type="date"
+                  value={editForm.repaymentDate}
+                  onChange={(e) => setEditForm((f) => ({ ...f, repaymentDate: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  予算連携先科目（例: 家賃）
+                </label>
+                <select
+                  value={editForm.linkedAccountCode}
+                  onChange={(e) => setEditForm((f) => ({ ...f, linkedAccountCode: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">連携なし</option>
+                  {accounts
+                    .filter((a) => a.category === "EXPENSE")
+                    .map((a) => (
+                      <option key={a.code} value={a.code}>
+                        {a.code} {a.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  月々の返済額（円）
+                </label>
+                <input
+                  type="number"
+                  value={editForm.monthlyPayment}
+                  onChange={(e) => setEditForm((f) => ({ ...f, monthlyPayment: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  連携先科目を設定すると、支払い完了年月まで予算に毎月自動加算されます。
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setEditForm((f) => ({ ...f, loanId: null }))}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={saveEdit}
                 className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
               >
                 保存

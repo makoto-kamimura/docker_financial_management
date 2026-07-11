@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   LineChart,
@@ -14,6 +14,291 @@ import {
 } from "recharts";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
+
+type PersonalAssetCategory = "LAND" | "BUILDING" | "VEHICLE" | "GOLD" | "OTHER";
+type PersonalAsset = {
+  id: number;
+  name: string;
+  category: PersonalAssetCategory;
+  acquiredOn: string | null;
+  acquisitionCost: number | string | null;
+  currentValue: number | string;
+  note: string | null;
+};
+
+const PERSONAL_ASSET_CATEGORY_LABEL: Record<PersonalAssetCategory, string> = {
+  LAND: "土地",
+  BUILDING: "建物",
+  VEHICLE: "車",
+  GOLD: "金・貴金属",
+  OTHER: "その他",
+};
+
+function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    name: "",
+    category: "LAND" as PersonalAssetCategory,
+    acquiredOn: "",
+    acquisitionCost: "",
+    currentValue: "",
+    note: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const f = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  async function submit() {
+    if (!form.name || !form.currentValue) {
+      setError("資産名と現在評価額は必須です。");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const res = await fetch("/api/personal-assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: form.name,
+        category: form.category,
+        acquiredOn: form.acquiredOn || undefined,
+        acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : undefined,
+        currentValue: Number(form.currentValue),
+        note: form.note || undefined,
+      }),
+    });
+    if (res.ok) {
+      qc.invalidateQueries({ queryKey: ["personal-assets"] });
+      onClose();
+    } else {
+      const j = await res.json().catch(() => ({}));
+      setError((j as { error?: string }).error ?? "保存に失敗しました");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl w-[480px] p-6">
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">実物資産 登録</h2>
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-xs font-medium text-slate-600">資産名 *</span>
+            <input
+              className="input-field mt-1 w-full"
+              value={form.name}
+              onChange={(e) => f("name", e.target.value)}
+              placeholder="自宅土地"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">種別</span>
+              <select
+                className="input-field mt-1 w-full"
+                value={form.category}
+                onChange={(e) => f("category", e.target.value)}
+              >
+                {Object.entries(PERSONAL_ASSET_CATEGORY_LABEL).map(([v, label]) => (
+                  <option key={v} value={v}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">取得日</span>
+              <input
+                type="date"
+                className="input-field mt-1 w-full"
+                value={form.acquiredOn}
+                onChange={(e) => f("acquiredOn", e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">取得価格（円）</span>
+              <input
+                type="number"
+                className="input-field mt-1 w-full"
+                value={form.acquisitionCost}
+                onChange={(e) => f("acquisitionCost", e.target.value)}
+                min={0}
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">現在評価額（円） *</span>
+              <input
+                type="number"
+                className="input-field mt-1 w-full"
+                value={form.currentValue}
+                onChange={(e) => f("currentValue", e.target.value)}
+                min={0}
+              />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-xs font-medium text-slate-600">備考</span>
+            <input
+              className="input-field mt-1 w-full"
+              value={form.note}
+              onChange={(e) => f("note", e.target.value)}
+            />
+          </label>
+        </div>
+        {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+        <div className="mt-4 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={saving}
+            className="btn-primary text-sm px-5 py-2"
+          >
+            {saving ? "保存中…" : "登録"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PersonalAssetsSection() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["personal-assets"],
+    queryFn: () =>
+      fetch("/api/personal-assets")
+        .then((r) => r.json())
+        .then((r) => (r.data ?? []) as PersonalAsset[]),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: (vars: { id: number; currentValue: number }) =>
+      fetch(`/api/personal-assets/${vars.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentValue: vars.currentValue }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-assets"] }),
+  });
+
+  const delMut = useMutation({
+    mutationFn: (id: number) => fetch(`/api/personal-assets/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-assets"] }),
+  });
+
+  const assets = data ?? [];
+  const total = assets.reduce((s, a) => s + Number(a.currentValue), 0);
+
+  return (
+    <div className="card mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="section-title">実物資産（土地・建物・車・金など）</h2>
+          <p className="text-xs text-slate-400 mt-0.5">合計評価額: {yen(total)}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowModal(true)}
+          className="btn-primary text-sm px-4 py-2"
+        >
+          + 資産を登録
+        </button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-slate-400 text-sm">読み込み中…</p>
+      ) : assets.length === 0 ? (
+        <p className="text-sm text-slate-400 py-6 text-center">登録済みの実物資産がありません。</p>
+      ) : (
+        <div className="space-y-2">
+          {assets.map((a) => (
+            <div
+              key={a.id}
+              className="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2"
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                    {PERSONAL_ASSET_CATEGORY_LABEL[a.category]}
+                  </span>
+                  <span className="font-medium text-slate-800 text-sm">{a.name}</span>
+                </div>
+                <div className="text-xs text-slate-400 mt-1">
+                  {a.acquiredOn && <span>取得日: {a.acquiredOn.slice(0, 10)} ・ </span>}
+                  {a.acquisitionCost !== null && <span>取得価格: {yen(Number(a.acquisitionCost))}</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {editId === a.id ? (
+                  <>
+                    <input
+                      type="number"
+                      autoFocus
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          updateMut.mutate({ id: a.id, currentValue: Number(editValue) });
+                          setEditId(null);
+                        }
+                        if (e.key === "Escape") setEditId(null);
+                      }}
+                      className="w-28 text-right text-sm border border-indigo-400 rounded px-2 py-1"
+                    />
+                    <button
+                      onClick={() => {
+                        updateMut.mutate({ id: a.id, currentValue: Number(editValue) });
+                        setEditId(null);
+                      }}
+                      className="text-xs text-indigo-600"
+                    >
+                      ✓
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditId(a.id);
+                      setEditValue(String(a.currentValue));
+                    }}
+                    className="font-bold text-slate-800 text-sm hover:text-indigo-600"
+                    title="クリックして評価額を更新"
+                  >
+                    {yen(Number(a.currentValue))}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm("削除しますか？")) delMut.mutate(a.id);
+                  }}
+                  className="text-xs text-red-400 hover:text-red-600"
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showModal && <NewPersonalAssetModal onClose={() => setShowModal(false)} />}
+    </div>
+  );
+}
 
 type AccountBalance = {
   id: number;
@@ -129,6 +414,8 @@ export default function AssetsPage() {
           </div>
         )}
       </div>
+
+      <PersonalAssetsSection />
 
       {isLoading && <LoadingSpinner />}
 
