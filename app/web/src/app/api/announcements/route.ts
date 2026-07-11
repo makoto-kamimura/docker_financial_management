@@ -22,9 +22,17 @@ export async function POST(req: NextRequest) {
 
   const { tenantId } = auth.user;
   const db = tenantDb(tenantId);
-  const body = (await req.json()) as { announcementDate: string; method?: string; content?: string; fiscalYear: number };
+  const body = (await req.json()) as {
+    announcementDate: string;
+    method?: string;
+    content?: string;
+    fiscalYear: number;
+  };
   if (!body.announcementDate || !body.fiscalYear) {
-    return NextResponse.json({ error: "announcementDate, fiscalYear are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "announcementDate, fiscalYear are required" },
+      { status: 400 },
+    );
   }
 
   const ann = await db.announcement.create({

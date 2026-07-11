@@ -141,13 +141,9 @@ export async function POST(req: NextRequest) {
   };
 
   const dbMethod = (methodMap[body.method] ?? "LINEAR_REGRESSION") as
-    | "MOVING_AVERAGE"
-    | "LINEAR_REGRESSION"
-    | "GROWTH_RATE";
+    "MOVING_AVERAGE" | "LINEAR_REGRESSION" | "GROWTH_RATE";
   const dbScenario = (scenarioMap[body.scenario] ?? "BASE") as
-    | "BASE"
-    | "OPTIMISTIC"
-    | "PESSIMISTIC";
+    "BASE" | "OPTIMISTIC" | "PESSIMISTIC";
 
   let year = body.startYear;
   let month = body.startMonth ?? 1;
@@ -173,7 +169,10 @@ export async function POST(req: NextRequest) {
     created.push(snapshot.id);
 
     month++;
-    if (month > 12) { month = 1; year++; }
+    if (month > 12) {
+      month = 1;
+      year++;
+    }
   }
 
   return NextResponse.json({ created: created.length, ids: created }, { status: 201 });

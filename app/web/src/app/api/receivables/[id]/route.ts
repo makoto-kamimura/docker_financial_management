@@ -27,8 +27,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const body = (await req.json()) as Partial<{
-    customerName: string; description: string; amount: number; taxAmount: number;
-    issueDate: string; dueDate: string; invoiceNumber: string; note: string;
+    customerName: string;
+    description: string;
+    amount: number;
+    taxAmount: number;
+    issueDate: string;
+    dueDate: string;
+    invoiceNumber: string;
+    note: string;
   }>;
 
   const record = await db.receivable.update({

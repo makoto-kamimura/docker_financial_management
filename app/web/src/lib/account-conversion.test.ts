@@ -10,7 +10,8 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-const { badgeFor, isHomeAccountCode, suggestConversions } = await import("@/lib/account-conversion");
+const { badgeFor, isHomeAccountCode, suggestConversions } =
+  await import("@/lib/account-conversion");
 
 function acc(overrides: Partial<Account>): Account {
   return {
@@ -140,7 +141,9 @@ describe("badgeFor", () => {
     );
   });
   it("信頼度80%以上なら auto", () => {
-    expect(badgeFor({ isConvertible: true, confidenceScore: 0.9, corporateAccountId: 1 })).toBe("auto");
+    expect(badgeFor({ isConvertible: true, confidenceScore: 0.9, corporateAccountId: 1 })).toBe(
+      "auto",
+    );
   });
   it("信頼度50〜79%なら review", () => {
     expect(badgeFor({ isConvertible: true, confidenceScore: 0.6, corporateAccountId: 1 })).toBe(

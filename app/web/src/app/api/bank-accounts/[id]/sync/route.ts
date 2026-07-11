@@ -22,10 +22,22 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     await db.bankTransaction.upsert({
       where: { accountId_externalId: { accountId, externalId: t.externalId } },
       update: {},
-      create: { accountId, date: new Date(t.date), description: t.description, amount: t.amount, balance: t.balance, source: "SYNC", externalId: t.externalId },
+      create: {
+        accountId,
+        date: new Date(t.date),
+        description: t.description,
+        amount: t.amount,
+        balance: t.balance,
+        source: "SYNC",
+        externalId: t.externalId,
+      },
     });
     inserted++;
   }
-  await writeAudit(auth.user.id, "sync_txn", `bank_account:${accountId}:${provider.name}:${inserted}`);
+  await writeAudit(
+    auth.user.id,
+    "sync_txn",
+    `bank_account:${accountId}:${provider.name}:${inserted}`,
+  );
   return NextResponse.json({ provider: provider.name, fetched: fetched.length });
 }

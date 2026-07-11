@@ -43,7 +43,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const existing = await db.department.findUnique({ where: { id: deptId, tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const hasRecords = await db.financialRecord.findFirst({ where: { departmentId: deptId, tenantId } });
+  const hasRecords = await db.financialRecord.findFirst({
+    where: { departmentId: deptId, tenantId },
+  });
   if (hasRecords) {
     return NextResponse.json({ error: "実績データが存在するため削除できません" }, { status: 409 });
   }

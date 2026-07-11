@@ -39,7 +39,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const acct = await db.account.findUnique({
       where: { tenantId_code: { tenantId, code: accountCode } },
     });
-    if (!acct) return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
+    if (!acct)
+      return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
     accountId = acct.id;
   }
 

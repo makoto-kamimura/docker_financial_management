@@ -28,7 +28,12 @@ export async function POST(req: NextRequest) {
   }
 
   const fy = await db.fiscalYear.create({
-    data: { tenantId, year: body.year, startDate: new Date(body.startDate), endDate: new Date(body.endDate) },
+    data: {
+      tenantId,
+      year: body.year,
+      startDate: new Date(body.startDate),
+      endDate: new Date(body.endDate),
+    },
     include: { tenant: true },
   });
   return NextResponse.json({ data: fy }, { status: 201 });

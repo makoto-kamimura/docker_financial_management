@@ -16,7 +16,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
     include: { items: true },
   });
   if (!inventory) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (inventory.status === "closed") return NextResponse.json({ error: "already closed" }, { status: 400 });
+  if (inventory.status === "closed")
+    return NextResponse.json({ error: "already closed" }, { status: 400 });
 
   const stockAccount = await db.account.findFirst({ where: { tenantId, code: "1200" } });
   if (stockAccount) {
@@ -29,10 +30,18 @@ export async function POST(_req: NextRequest, { params }: Params) {
       create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
     });
     await db.financialRecord.create({
-      data: { tenantId, accountId: stockAccount.id, periodId: period.id, amount: inventory.totalAmount },
+      data: {
+        tenantId,
+        accountId: stockAccount.id,
+        periodId: period.id,
+        amount: inventory.totalAmount,
+      },
     });
   }
 
-  const updated = await db.inventory.update({ where: { id: Number(id) }, data: { status: "closed" } });
+  const updated = await db.inventory.update({
+    where: { id: Number(id) },
+    data: { status: "closed" },
+  });
   return NextResponse.json({ data: updated });
 }

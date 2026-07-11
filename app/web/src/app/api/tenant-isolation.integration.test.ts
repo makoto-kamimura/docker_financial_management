@@ -40,7 +40,11 @@ import { prisma } from "@/lib/prisma";
 import { tenantDb } from "@/lib/tenant-db";
 
 // 実ルートハンドラ（tenantDb 経由に移行済み）
-import { GET as receivableGet, PUT as receivablePut, DELETE as receivableDelete } from "./receivables/[id]/route";
+import {
+  GET as receivableGet,
+  PUT as receivablePut,
+  DELETE as receivableDelete,
+} from "./receivables/[id]/route";
 import { GET as receivableListGet } from "./receivables/route";
 import { GET as invoiceGet } from "./invoices/[id]/route";
 import { GET as bankTxnGet } from "./bank-accounts/[id]/transactions/route";
@@ -159,14 +163,31 @@ beforeAll(async () => {
     data: { tenantId: tenantB.id, name: "口座B", bankName: "銀行B" },
   });
   await prisma.bankTransaction.create({
-    data: { accountId: bankB.id, date: new Date("2026-01-05"), description: "B社取引", amount: 500 },
+    data: {
+      accountId: bankB.id,
+      date: new Date("2026-01-05"),
+      description: "B社取引",
+      amount: 500,
+    },
   });
 
   seed = {
     tenantAId: tenantA.id,
     tenantBId: tenantB.id,
-    userA: { id: userA.id, email: userA.email, name: userA.name, role: userA.role, tenantId: tenantA.id },
-    userB: { id: userB.id, email: userB.email, name: userB.name, role: userB.role, tenantId: tenantB.id },
+    userA: {
+      id: userA.id,
+      email: userA.email,
+      name: userA.name,
+      role: userA.role,
+      tenantId: tenantA.id,
+    },
+    userB: {
+      id: userB.id,
+      email: userB.email,
+      name: userB.name,
+      role: userB.role,
+      tenantId: tenantB.id,
+    },
     receivableAId: recA.id,
     receivableBId: recB.id,
     invoiceBId: invB.id,

@@ -248,7 +248,9 @@ export async function getSessionDetail(
 
   const accountIds = [
     ...new Set(
-      session.logs.flatMap((l) => [l.homeAccountId, l.corporateAccountId]).filter((x): x is number => x != null),
+      session.logs
+        .flatMap((l) => [l.homeAccountId, l.corporateAccountId])
+        .filter((x): x is number => x != null),
     ),
   ];
   const accounts = await prisma.account.findMany({ where: { id: { in: accountIds }, tenantId } });
@@ -267,7 +269,8 @@ export async function getSessionDetail(
       isConvertible: l.isConvertible,
       isManuallyOverridden: l.isManuallyOverridden,
       homeAccount: byId.get(l.homeAccountId) ?? null,
-      corporateAccount: l.corporateAccountId != null ? (byId.get(l.corporateAccountId) ?? null) : null,
+      corporateAccount:
+        l.corporateAccountId != null ? (byId.get(l.corporateAccountId) ?? null) : null,
     })),
   };
 }

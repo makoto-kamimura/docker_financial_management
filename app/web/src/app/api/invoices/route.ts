@@ -52,7 +52,13 @@ export async function POST(req: NextRequest) {
   const lineData = body.lines.map((l) => {
     const taxRate = l.taxRate ?? 0.1;
     const amount = Math.round(l.quantity * l.unitPrice);
-    return { description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate, amount };
+    return {
+      description: l.description,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      taxRate,
+      amount,
+    };
   });
   const subtotal = lineData.reduce((s, l) => s + l.amount, 0);
   const taxAmount = Math.round(lineData.reduce((s, l) => s + l.amount * l.taxRate, 0));

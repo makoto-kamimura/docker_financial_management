@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
 
   const text = await file.text();
   const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return NextResponse.json({ error: "データ行がありません" }, { status: 400 });
+  if (lines.length < 2)
+    return NextResponse.json({ error: "データ行がありません" }, { status: 400 });
 
   const errors: string[] = [];
   let imported = 0;
@@ -27,7 +28,14 @@ export async function POST(req: NextRequest) {
     const month = parseInt(monthStr, 10);
     const amount = parseFloat(amountStr);
 
-    if (!accountCode || isNaN(fiscalYear) || isNaN(month) || month < 1 || month > 12 || isNaN(amount)) {
+    if (
+      !accountCode ||
+      isNaN(fiscalYear) ||
+      isNaN(month) ||
+      month < 1 ||
+      month > 12 ||
+      isNaN(amount)
+    ) {
       errors.push(`行${i + 1}: 無効なデータ (${lines[i]})`);
       continue;
     }
@@ -47,7 +55,9 @@ export async function POST(req: NextRequest) {
     });
 
     await db.budget.upsert({
-      where: { tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id } },
+      where: {
+        tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
+      },
       update: { amount },
       create: { tenantId, accountId: account.id, periodId: period.id, amount },
     });

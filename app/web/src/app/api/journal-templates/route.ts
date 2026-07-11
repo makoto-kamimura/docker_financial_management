@@ -32,7 +32,13 @@ export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
     name: string;
     description?: string;
-    lines: { side: string; accountId: number; amount?: number; note?: string; sortOrder?: number }[];
+    lines: {
+      side: string;
+      accountId: number;
+      amount?: number;
+      note?: string;
+      sortOrder?: number;
+    }[];
   };
   if (!body.name || !body.lines?.length) {
     return NextResponse.json({ error: "name and lines are required" }, { status: 400 });

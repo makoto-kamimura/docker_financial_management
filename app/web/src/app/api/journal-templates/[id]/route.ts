@@ -16,7 +16,10 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const { tenantId } = auth.user;
   const db = tenantDb(tenantId);
-  const t = await db.journalTemplate.findUnique({ where: { id: Number(id), tenantId }, include: INCLUDE });
+  const t = await db.journalTemplate.findUnique({
+    where: { id: Number(id), tenantId },
+    include: INCLUDE,
+  });
   if (!t) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ data: t });
 }
@@ -34,7 +37,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const body = (await req.json()) as {
     name?: string;
     description?: string;
-    lines?: { side: string; accountId: number; amount?: number; note?: string; sortOrder?: number }[];
+    lines?: {
+      side: string;
+      accountId: number;
+      amount?: number;
+      note?: string;
+      sortOrder?: number;
+    }[];
   };
 
   await db.$transaction(async (tx) => {
@@ -57,7 +66,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
   });
 
-  const updated = await db.journalTemplate.findUnique({ where: { id: Number(id) }, include: INCLUDE });
+  const updated = await db.journalTemplate.findUnique({
+    where: { id: Number(id) },
+    include: INCLUDE,
+  });
   return NextResponse.json({ data: updated });
 }
 

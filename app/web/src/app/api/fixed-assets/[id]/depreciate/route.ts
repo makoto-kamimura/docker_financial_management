@@ -21,7 +21,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   const existing = await db.depreciation.findUnique({
     where: { fixedAssetId_fiscalYear: { fixedAssetId: asset.id, fiscalYear } },
   });
-  if (existing) return NextResponse.json({ error: `${fiscalYear}年度の償却は既に計上済みです` }, { status: 400 });
+  if (existing)
+    return NextResponse.json(
+      { error: `${fiscalYear}年度の償却は既に計上済みです` },
+      { status: 400 },
+    );
 
   const cost = Number(asset.acquisitionCost);
   const bookValue = Number(asset.bookValue);

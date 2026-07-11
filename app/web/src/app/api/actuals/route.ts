@@ -50,18 +50,32 @@ export async function POST(req: NextRequest) {
     paymentMethod?: string;
   };
 
-  if (!body.date || !body.description || !body.accountCode || !body.counterAccountCode || !body.amount) {
+  if (
+    !body.date ||
+    !body.description ||
+    !body.accountCode ||
+    !body.counterAccountCode ||
+    !body.amount
+  ) {
     return NextResponse.json({ error: "必須項目が不足しています" }, { status: 400 });
   }
 
   const [account, counter] = await Promise.all([
     db.account.findUnique({ where: { tenantId_code: { tenantId, code: body.accountCode } } }),
-    db.account.findUnique({ where: { tenantId_code: { tenantId, code: body.counterAccountCode } } }),
+    db.account.findUnique({
+      where: { tenantId_code: { tenantId, code: body.counterAccountCode } },
+    }),
   ]);
   if (!account)
-    return NextResponse.json({ error: `勘定科目 "${body.accountCode}" が見つかりません` }, { status: 400 });
+    return NextResponse.json(
+      { error: `勘定科目 "${body.accountCode}" が見つかりません` },
+      { status: 400 },
+    );
   if (!counter)
-    return NextResponse.json({ error: `対当科目 "${body.counterAccountCode}" が見つかりません` }, { status: 400 });
+    return NextResponse.json(
+      { error: `対当科目 "${body.counterAccountCode}" が見つかりません` },
+      { status: 400 },
+    );
 
   const [debitId, creditId] =
     body.direction === "income" ? [counter.id, account.id] : [account.id, counter.id];

@@ -18,13 +18,22 @@ export async function POST(req: NextRequest) {
     where: { tenantId_fiscalYear: { tenantId, fiscalYear: body.fiscalYear } },
   });
   if (existing?.status === "closed") {
-    return NextResponse.json({ error: `${body.fiscalYear}年度は既に決算確定済みです` }, { status: 400 });
+    return NextResponse.json(
+      { error: `${body.fiscalYear}年度は既に決算確定済みです` },
+      { status: 400 },
+    );
   }
 
   const close = await db.fiscalYearClose.upsert({
     where: { tenantId_fiscalYear: { tenantId, fiscalYear: body.fiscalYear } },
     update: { status: "closed", closedAt: new Date(), netIncome: body.netIncome },
-    create: { tenantId, fiscalYear: body.fiscalYear, status: "closed", closedAt: new Date(), netIncome: body.netIncome },
+    create: {
+      tenantId,
+      fiscalYear: body.fiscalYear,
+      status: "closed",
+      closedAt: new Date(),
+      netIncome: body.netIncome,
+    },
   });
 
   await invalidateCache(`closing:statements:${tenantId}:${body.fiscalYear}`);

@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
   const accountId = sp.get("accountId") ? Number(sp.get("accountId")) : undefined;
   const year = Number(sp.get("year") ?? new Date().getFullYear());
   const format = sp.get("format") ?? "json";
-  const cacheKey = format === "json" ? `reports:ledger:${tenantId}:${year}:${accountId ?? "all"}` : null;
+  const cacheKey =
+    format === "json" ? `reports:ledger:${tenantId}:${year}:${accountId ?? "all"}` : null;
 
   const startDate = new Date(`${year}-01-01T00:00:00.000Z`);
   const endDate = new Date(`${year}-12-31T23:59:59.999Z`);
@@ -51,7 +52,14 @@ export async function GET(req: NextRequest) {
     for (const d of details) {
       const aid = d.accountId;
       if (!ledgers.has(aid)) {
-        ledgers.set(aid, { accountId: aid, code: d.account.code, name: d.account.name, rows: [], totalDebit: 0, totalCredit: 0 });
+        ledgers.set(aid, {
+          accountId: aid,
+          code: d.account.code,
+          name: d.account.name,
+          rows: [],
+          totalDebit: 0,
+          totalCredit: 0,
+        });
       }
       const l = ledgers.get(aid)!;
       const amt = Number(d.amount);

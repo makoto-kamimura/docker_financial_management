@@ -50,7 +50,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   const bytes = await file.arrayBuffer();
   await writeFile(path.join(UPLOAD_DIR, savedName), Buffer.from(bytes));
 
-  const fileType = file.type.startsWith("image/") ? "image" : file.type === "application/pdf" ? "pdf" : "other";
+  const fileType = file.type.startsWith("image/")
+    ? "image"
+    : file.type === "application/pdf"
+      ? "pdf"
+      : "other";
 
   const receipt = await db.receipt.create({
     data: {

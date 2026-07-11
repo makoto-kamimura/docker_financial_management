@@ -46,11 +46,30 @@ export async function GET(req: NextRequest) {
   let xml: string;
 
   if (type === "blue_return") {
-    xml = buildBlueReturnXml({ fiscalYear, submitAt, ownerName, tradeName, revenue, cogs, grossProfit, expense, netIncome });
+    xml = buildBlueReturnXml({
+      fiscalYear,
+      submitAt,
+      ownerName,
+      tradeName,
+      revenue,
+      cogs,
+      grossProfit,
+      expense,
+      netIncome,
+    });
   } else if (type === "corporate") {
     xml = buildCorporateTaxXml({ fiscalYear, submitAt, tradeName, revenue, expense, netIncome });
   } else {
-    xml = buildConsumptionTaxXml({ fiscalYear, submitAt, ownerName, tradeName, revenue, taxType, taxRate, taxAmount });
+    xml = buildConsumptionTaxXml({
+      fiscalYear,
+      submitAt,
+      ownerName,
+      tradeName,
+      revenue,
+      taxType,
+      taxRate,
+      taxAmount,
+    });
   }
 
   return new NextResponse(xml, {
@@ -63,10 +82,24 @@ export async function GET(req: NextRequest) {
 }
 
 function esc(s: string | number): string {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-function buildBlueReturnXml(p: { fiscalYear: number; submitAt: string; ownerName: string; tradeName: string; revenue: number; cogs: number; grossProfit: number; expense: number; netIncome: number }): string {
+function buildBlueReturnXml(p: {
+  fiscalYear: number;
+  submitAt: string;
+  ownerName: string;
+  tradeName: string;
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  expense: number;
+  netIncome: number;
+}): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- e-Tax 青色申告決算書 (第一表) -->
 <AoiroReturn xmlns="urn:jp:go:nta:etax:bluereturndecl:1.0" version="1.0">
@@ -87,7 +120,14 @@ function buildBlueReturnXml(p: { fiscalYear: number; submitAt: string; ownerName
 </AoiroReturn>`;
 }
 
-function buildCorporateTaxXml(p: { fiscalYear: number; submitAt: string; tradeName: string; revenue: number; expense: number; netIncome: number }): string {
+function buildCorporateTaxXml(p: {
+  fiscalYear: number;
+  submitAt: string;
+  tradeName: string;
+  revenue: number;
+  expense: number;
+  netIncome: number;
+}): string {
   const taxBase = Math.max(0, p.netIncome);
   const threshold = 8_000_000;
   const taxLow = Math.min(taxBase, threshold) * 0.15;
@@ -117,8 +157,21 @@ function buildCorporateTaxXml(p: { fiscalYear: number; submitAt: string; tradeNa
 </CorporateTaxReturn>`;
 }
 
-function buildConsumptionTaxXml(p: { fiscalYear: number; submitAt: string; ownerName: string; tradeName: string; revenue: number; taxType: string; taxRate: number; taxAmount: number }): string {
-  const typeLabel: Record<string, string> = { exempt: "免税", general: "原則課税", simplified: "簡易課税" };
+function buildConsumptionTaxXml(p: {
+  fiscalYear: number;
+  submitAt: string;
+  ownerName: string;
+  tradeName: string;
+  revenue: number;
+  taxType: string;
+  taxRate: number;
+  taxAmount: number;
+}): string {
+  const typeLabel: Record<string, string> = {
+    exempt: "免税",
+    general: "原則課税",
+    simplified: "簡易課税",
+  };
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- e-Tax 消費税申告書 -->
 <ConsumptionTaxReturn xmlns="urn:jp:go:nta:etax:consumptaxdecl:1.0" version="1.0">

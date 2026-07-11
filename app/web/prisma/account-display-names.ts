@@ -61,7 +61,10 @@ export const ACCOUNT_DISPLAY_NAMES: Record<string, AccountDisplayNames> = {
   "H-3012": { sole: "租税公課（按分）", corporate: "租税公課" },
   "H-3013": { sole: "租税公課（按分）", corporate: "租税公課" },
   "H-3014": { sole: "❌（個人税負担）", corporate: "法人住民税（法人税等）" },
-  "H-3015": { sole: "消耗品費 / 外注費 / 広告宣伝費 等", corporate: "消耗品費 / 外注費 / 広告宣伝費 等" },
+  "H-3015": {
+    sole: "消耗品費 / 外注費 / 広告宣伝費 等",
+    corporate: "消耗品費 / 外注費 / 広告宣伝費 等",
+  },
   "H-3016": { sole: "消耗品費 / 工具器具備品 / 減価償却費", corporate: "消耗品費 / 工具器具備品" },
   "H-3017": { sole: "❌ 経費不可", corporate: "❌ 経費不可" },
   "H-3018": { sole: "地代家賃（按分）", corporate: "地代家賃" },

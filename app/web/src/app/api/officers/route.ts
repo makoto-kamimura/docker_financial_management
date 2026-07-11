@@ -22,9 +22,18 @@ export async function POST(req: NextRequest) {
 
   const { tenantId } = auth.user;
   const db = tenantDb(tenantId);
-  const body = (await req.json()) as { name: string; title: string; termStart: string; termEnd: string; salary?: number };
+  const body = (await req.json()) as {
+    name: string;
+    title: string;
+    termStart: string;
+    termEnd: string;
+    salary?: number;
+  };
   if (!body.name || !body.title || !body.termStart || !body.termEnd) {
-    return NextResponse.json({ error: "name, title, termStart, termEnd are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "name, title, termStart, termEnd are required" },
+      { status: 400 },
+    );
   }
 
   const officer = await db.officer.create({

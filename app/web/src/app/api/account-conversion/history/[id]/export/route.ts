@@ -11,7 +11,8 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   const detail = await getSessionDetail(Number(id), tenantId, userId);
   if (!detail) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const header = "homeCode,homeName,corporateCode,corporateName,matchType,confidenceScore,isConvertible,isManuallyOverridden";
+  const header =
+    "homeCode,homeName,corporateCode,corporateName,matchType,confidenceScore,isConvertible,isManuallyOverridden";
   const lines = detail.logs.map((l) =>
     [
       l.homeAccount?.code ?? "",

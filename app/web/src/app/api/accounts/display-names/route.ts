@@ -44,7 +44,10 @@ export async function PUT(req: NextRequest) {
   });
   const ownedIds = new Set(owned.map((a) => a.id));
   if (ids.some((id) => !ownedIds.has(id))) {
-    return NextResponse.json({ error: "一部の科目が存在しないか、権限がありません" }, { status: 403 });
+    return NextResponse.json(
+      { error: "一部の科目が存在しないか、権限がありません" },
+      { status: 403 },
+    );
   }
 
   await db.$transaction(
@@ -63,7 +66,14 @@ export async function PUT(req: NextRequest) {
   const accounts = await db.account.findMany({
     where: { tenantId },
     orderBy: { code: "asc" },
-    select: { id: true, code: true, name: true, soleName: true, corporateName: true, category: true },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      soleName: true,
+      corporateName: true,
+      category: true,
+    },
   });
   return NextResponse.json({ data: accounts });
 }

@@ -23,7 +23,10 @@ export async function POST(req: NextRequest) {
   }
   const { openings = {}, months, startYear, startMonth } = parsed.data;
 
-  const bankAccounts = await db.bankAccount.findMany({ where: { tenantId }, orderBy: { id: "asc" } });
+  const bankAccounts = await db.bankAccount.findMany({
+    where: { tenantId },
+    orderBy: { id: "asc" },
+  });
   const transfers = await db.transfer.findMany({ where: { tenantId } });
 
   const accounts: SimAccount[] = bankAccounts.map((a) => ({
