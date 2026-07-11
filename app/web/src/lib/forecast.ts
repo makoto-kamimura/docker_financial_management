@@ -1,5 +1,9 @@
 export type ForecastMethod =
-  "moving_average" | "linear_regression" | "growth_rate" | "holt" | "holt_winters";
+  | "moving_average"
+  | "linear_regression"
+  | "growth_rate"
+  | "holt"
+  | "holt_winters";
 
 // 単純な最小二乗法による線形回帰で将来値を予測する。
 // history: 過去の実績値（時系列順）, months: 予測する先の月数

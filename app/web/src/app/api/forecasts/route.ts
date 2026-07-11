@@ -141,9 +141,13 @@ export async function POST(req: NextRequest) {
   };
 
   const dbMethod = (methodMap[body.method] ?? "LINEAR_REGRESSION") as
-    "MOVING_AVERAGE" | "LINEAR_REGRESSION" | "GROWTH_RATE";
+    | "MOVING_AVERAGE"
+    | "LINEAR_REGRESSION"
+    | "GROWTH_RATE";
   const dbScenario = (scenarioMap[body.scenario] ?? "BASE") as
-    "BASE" | "OPTIMISTIC" | "PESSIMISTIC";
+    | "BASE"
+    | "OPTIMISTIC"
+    | "PESSIMISTIC";
 
   let year = body.startYear;
   let month = body.startMonth ?? 1;

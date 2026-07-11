@@ -95,7 +95,9 @@ function toAnnualRows(rows: Row[]): Row[] {
 function DashboardContent() {
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get("tab") ?? "budget") as
-    "budget" | "composition" | "simulation";
+    | "budget"
+    | "composition"
+    | "simulation";
   const [tab, setTab] = useState<"budget" | "composition" | "simulation">(initialTab);
   const [method, setMethod] = useState("moving_average");
   const [viewMode, setViewMode] = useState<"monthly" | "annual">("monthly");

@@ -1,7 +1,11 @@
 import type { SankeyData } from "@/components/CashFlowSankey";
 
 export type TransferChannel =
-  "BANK_TRANSFER" | "AUTO_DEBIT" | "CARD_PAYMENT" | "INCOME" | "EXPENSE";
+  | "BANK_TRANSFER"
+  | "AUTO_DEBIT"
+  | "CARD_PAYMENT"
+  | "INCOME"
+  | "EXPENSE";
 
 export const CHANNEL_LABELS: Record<TransferChannel, string> = {
   BANK_TRANSFER: "口座間振込",
