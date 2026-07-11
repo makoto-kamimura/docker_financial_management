@@ -23,9 +23,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     acquisitionCost: number | null;
     currentValue: number;
     note: string | null;
+    linkedAccountId: number | null;
   }>;
   if (body.category && !CATEGORIES.includes(body.category as (typeof CATEGORIES)[number])) {
     return NextResponse.json({ error: `invalid category: ${body.category}` }, { status: 400 });
+  }
+  if (body.linkedAccountId !== undefined && body.linkedAccountId !== null) {
+    const account = await db.account.findFirst({ where: { id: body.linkedAccountId, tenantId } });
+    if (!account) {
+      return NextResponse.json({ error: `invalid linkedAccountId: ${body.linkedAccountId}` }, { status: 400 });
+    }
   }
 
   const asset = await db.personalAsset.update({
@@ -41,6 +48,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       ...(body.acquisitionCost !== undefined && { acquisitionCost: body.acquisitionCost }),
       ...(body.currentValue !== undefined && { currentValue: body.currentValue }),
       ...(body.note !== undefined && { note: body.note }),
+      ...(body.linkedAccountId !== undefined && { linkedAccountId: body.linkedAccountId }),
     },
   });
   return NextResponse.json({ data: asset });

@@ -414,6 +414,7 @@ export type PersonalAsset = {
   acquisitionCost: string | null;
   currentValue: string;
   note: string | null;
+  linkedAccountId: number | null;
 };
 
 export async function fetchPersonalAssets(): Promise<PersonalAsset[]> {
@@ -426,6 +427,7 @@ export async function fetchPersonalAssets(): Promise<PersonalAsset[]> {
 export async function postPersonalAsset(data: {
   name: string; category: PersonalAssetCategory;
   acquiredOn?: string; acquisitionCost?: number; currentValue: number; note?: string;
+  linkedAccountId?: number;
 }): Promise<PersonalAsset> {
   const res = await apiFetch("/personal-assets", {
     method: "POST",
@@ -437,7 +439,11 @@ export async function postPersonalAsset(data: {
   return json.data;
 }
 
-export async function patchPersonalAsset(id: number, data: { currentValue: number }): Promise<PersonalAsset> {
+export async function patchPersonalAsset(id: number, data: Partial<{
+  name: string; category: PersonalAssetCategory;
+  acquiredOn: string | null; acquisitionCost: number | null;
+  currentValue: number; note: string | null; linkedAccountId: number | null;
+}>): Promise<PersonalAsset> {
   const res = await apiFetch(`/personal-assets/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

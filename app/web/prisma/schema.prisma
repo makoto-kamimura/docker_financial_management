@@ -60,6 +60,7 @@ model Account {
   accruedRevenues      AccruedRevenue[]
   accruedExpenses      AccruedExpense[]
   loans                Loan[]
+  personalAssets       PersonalAsset[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -453,10 +454,13 @@ model PersonalAsset {
   acquisitionCost Decimal?              @db.Decimal(18, 2) // 取得価格
   currentValue    Decimal               @db.Decimal(18, 2) // 現在評価額
   note            String?
+  linkedAccountId Int?                                      // 紐付く負債科目（例: 住宅ローン）
+  linkedAccount   Account?              @relation(fields: [linkedAccountId], references: [id])
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 
   @@index([tenantId])
+  @@index([linkedAccountId])
   @@map("personal_assets")
 }
 

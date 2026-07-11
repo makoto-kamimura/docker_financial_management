@@ -148,7 +148,8 @@ export function AssetsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [personalAssets, setPersonalAssets] = useState<PersonalAsset[]>([]);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [assetModalAccount, setAssetModalAccount] = useState<AssetAccount | null>(null);
+  const [editingAssetId, setEditingAssetId] = useState<number | null>(null);
   const [form, setForm] = useState({
     name: "", category: "LAND" as PersonalAssetCategory,
     acquisitionCost: "", currentValue: "", note: "",
@@ -156,6 +157,33 @@ export function AssetsScreen() {
   const [saving, setSaving] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  function linkedAssetOf(accountId: number): PersonalAsset | undefined {
+    return personalAssets.find((pa) => pa.linkedAccountId === accountId);
+  }
+
+  function openAssetModalForAccount(account: AssetAccount) {
+    const existing = linkedAssetOf(account.id);
+    if (existing) {
+      setEditingAssetId(existing.id);
+      setForm({
+        name: existing.name,
+        category: existing.category,
+        acquisitionCost: existing.acquisitionCost ?? "",
+        currentValue: existing.currentValue,
+        note: existing.note ?? "",
+      });
+    } else {
+      setEditingAssetId(null);
+      setForm({ name: "", category: "LAND", acquisitionCost: "", currentValue: "", note: "" });
+    }
+    setAssetModalAccount(account);
+  }
+
+  function closeAssetModal() {
+    setAssetModalAccount(null);
+    setEditingAssetId(null);
+  }
 
   async function load() {
     setError(null);
@@ -183,21 +211,33 @@ export function AssetsScreen() {
     setRefreshing(false);
   }
 
-  async function handleAddAsset() {
+  async function handleSaveAsset() {
+    if (!assetModalAccount) return;
     if (!form.name.trim() || !form.currentValue.trim()) {
       Alert.alert("入力エラー", "資産名と現在評価額を入力してください。");
       return;
     }
     setSaving(true);
     try {
-      await postPersonalAsset({
-        name: form.name.trim(),
-        category: form.category,
-        acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : undefined,
-        currentValue: Number(form.currentValue),
-        note: form.note.trim() || undefined,
-      });
-      setShowAddModal(false);
+      if (editingAssetId) {
+        await patchPersonalAsset(editingAssetId, {
+          name: form.name.trim(),
+          category: form.category,
+          acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : null,
+          currentValue: Number(form.currentValue),
+          note: form.note.trim() || null,
+        });
+      } else {
+        await postPersonalAsset({
+          name: form.name.trim(),
+          category: form.category,
+          acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : undefined,
+          currentValue: Number(form.currentValue),
+          note: form.note.trim() || undefined,
+          linkedAccountId: assetModalAccount.id,
+        });
+      }
+      closeAssetModal();
       setForm({ name: "", category: "LAND", acquisitionCost: "", currentValue: "", note: "" });
       await load();
     } catch (e: unknown) {
@@ -205,6 +245,22 @@ export function AssetsScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleUnlinkAsset() {
+    if (!editingAssetId) return;
+    const id = editingAssetId;
+    Alert.alert("登録解除確認", "この実物資産の登録を解除しますか？", [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "解除", style: "destructive",
+        onPress: async () => {
+          await deletePersonalAsset(id);
+          closeAssetModal();
+          await load();
+        },
+      },
+    ]);
   }
 
   async function handleUpdateValue(id: number) {
@@ -254,14 +310,9 @@ export function AssetsScreen() {
         <>
           {/* 実物資産（土地・建物・車・金など） */}
           <View style={s.section}>
-            <View style={s.paHeader}>
-              <Text style={s.sectionTitle}>実物資産（土地・建物・車・金など）</Text>
-              <TouchableOpacity onPress={() => setShowAddModal(true)}>
-                <Text style={s.paAddBtn}>+ 追加</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={s.sectionTitle}>実物資産（土地・建物・車・金など）</Text>
             {personalAssets.length === 0 ? (
-              <Text style={s.emptyText}>登録済みの実物資産がありません</Text>
+              <Text style={s.emptyText}>登録済みの実物資産がありません。下の「負債の部」の項目をタップして登録できます。</Text>
             ) : (
               <>
                 {personalAssets.map((a) => (
@@ -399,34 +450,57 @@ export function AssetsScreen() {
             </View>
           )}
 
-          {/* 負債の部 */}
+          {/* 負債の部（項目をタップすると実物資産を登録・編集できます） */}
           {topLiabs.length > 0 && (
             <View style={s.section}>
               <Text style={s.sectionTitle}>負債の部</Text>
-              {topLiabs.map((a) => (
-                <View key={a.id}>
-                  <View style={[s.row, s.rowParent]}>
-                    <View style={s.rowLeft}>
-                      <Text style={s.rowCode}>{a.code}</Text>
-                      <Text style={s.rowName}>{a.name}</Text>
-                    </View>
-                    <Text style={[s.balance, { color: "#e11d48" }]}>
-                      {yen(latestBalance(a.balances, year))}
-                    </Text>
-                  </View>
-                  {childrenOf(a.id).map((c) => (
-                    <View key={c.id} style={[s.row, s.rowChild]}>
+              {topLiabs.map((a) => {
+                const isLeaf = !accounts.some((c) => c.parentId === a.id);
+                const linked = linkedAssetOf(a.id);
+                return (
+                  <View key={a.id}>
+                    <TouchableOpacity
+                      disabled={!isLeaf}
+                      onPress={() => openAssetModalForAccount(a)}
+                      style={[s.row, s.rowParent]}
+                    >
                       <View style={s.rowLeft}>
-                        <Text style={s.rowCode}>{c.code}</Text>
-                        <Text style={[s.rowName, { color: "#64748b", fontSize: 13 }]}>{c.name}</Text>
+                        <Text style={s.rowCode}>{a.code}</Text>
+                        <Text style={s.rowName}>{a.name}</Text>
+                        {isLeaf && (
+                          <Text style={s.liabAssetHint}>
+                            {linked ? `🏠 ${linked.name}` : "タップして実物資産を登録"}
+                          </Text>
+                        )}
                       </View>
-                      <Text style={[s.balance, { fontSize: 13, color: "#374151" }]}>
-                        {yen(latestBalance(c.balances, year))}
+                      <Text style={[s.balance, { color: "#e11d48" }]}>
+                        {yen(latestBalance(a.balances, year))}
                       </Text>
-                    </View>
-                  ))}
-                </View>
-              ))}
+                    </TouchableOpacity>
+                    {childrenOf(a.id).map((c) => {
+                      const cLinked = linkedAssetOf(c.id);
+                      return (
+                        <TouchableOpacity
+                          key={c.id}
+                          onPress={() => openAssetModalForAccount(c)}
+                          style={[s.row, s.rowChild]}
+                        >
+                          <View style={s.rowLeft}>
+                            <Text style={s.rowCode}>{c.code}</Text>
+                            <Text style={[s.rowName, { color: "#64748b", fontSize: 13 }]}>{c.name}</Text>
+                            <Text style={s.liabAssetHint}>
+                              {cLinked ? `🏠 ${cLinked.name}` : "タップして実物資産を登録"}
+                            </Text>
+                          </View>
+                          <Text style={[s.balance, { fontSize: 13, color: "#374151" }]}>
+                            {yen(latestBalance(c.balances, year))}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })}
               <View style={s.totalRow}>
                 <Text style={s.totalLabel}>負債合計</Text>
                 <Text style={[s.totalValue, { color: "#e11d48" }]}>{yen(totalLiab)}</Text>
@@ -449,10 +523,13 @@ export function AssetsScreen() {
       )}
     </ScrollView>
 
-    <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => setShowAddModal(false)}>
-      <Pressable style={s.modalOverlay} onPress={() => setShowAddModal(false)}>
+    <Modal visible={!!assetModalAccount} transparent animationType="slide" onRequestClose={closeAssetModal}>
+      <Pressable style={s.modalOverlay} onPress={closeAssetModal}>
         <Pressable style={s.modalSheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={s.modalTitle}>実物資産 登録</Text>
+          <Text style={s.modalTitle}>
+            {editingAssetId ? "実物資産 編集" : "実物資産 登録"}
+            {assetModalAccount ? `（${assetModalAccount.name}）` : ""}
+          </Text>
 
           <Text style={s.modalLabel}>資産名 *</Text>
           <TextInput
@@ -507,13 +584,18 @@ export function AssetsScreen() {
           />
 
           <View style={s.modalBtnRow}>
-            <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowAddModal(false)}>
+            <TouchableOpacity style={s.modalCancelBtn} onPress={closeAssetModal}>
               <Text style={s.modalCancelTxt}>キャンセル</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.modalSaveBtn} onPress={handleAddAsset} disabled={saving}>
-              <Text style={s.modalSaveTxt}>{saving ? "保存中…" : "登録"}</Text>
+            <TouchableOpacity style={s.modalSaveBtn} onPress={handleSaveAsset} disabled={saving}>
+              <Text style={s.modalSaveTxt}>{saving ? "保存中…" : editingAssetId ? "更新" : "登録"}</Text>
             </TouchableOpacity>
           </View>
+          {editingAssetId && (
+            <TouchableOpacity style={s.modalUnlinkBtn} onPress={handleUnlinkAsset}>
+              <Text style={s.modalUnlinkTxt}>この資産の登録を解除する</Text>
+            </TouchableOpacity>
+          )}
         </Pressable>
       </Pressable>
     </Modal>
@@ -556,8 +638,7 @@ const s = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: "#e2e8f0" },
   totalLabel: { fontSize: 14, fontWeight: "700", color: "#0f172a" },
   totalValue: { fontSize: 15, fontWeight: "700" },
-  paHeader:    { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  paAddBtn:    { fontSize: 12, fontWeight: "700", color: "#4f46e5" },
+  liabAssetHint: { fontSize: 10, color: "#4f46e5", marginTop: 2 },
   paEditRow:   { flexDirection: "row", alignItems: "center", gap: 10 },
   paEditInput: { width: 90, textAlign: "right", fontSize: 13, fontWeight: "600", color: "#1e293b", borderWidth: 1, borderColor: "#4f46e5", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   paCheck:     { fontSize: 15, color: "#4f46e5", fontWeight: "700" },
@@ -576,4 +657,6 @@ const s = StyleSheet.create({
   modalCancelTxt: { fontSize: 13, fontWeight: "600", color: "#64748b" },
   modalSaveBtn: { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", backgroundColor: "#4f46e5" },
   modalSaveTxt: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  modalUnlinkBtn: { alignItems: "center", paddingVertical: 12, marginTop: 4 },
+  modalUnlinkTxt: { fontSize: 12, fontWeight: "600", color: "#f43f5e" },
 });

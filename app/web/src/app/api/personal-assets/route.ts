@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
     acquisitionCost?: number;
     currentValue: number;
     note?: string;
+    linkedAccountId?: number;
   };
 
   if (!body.name || body.currentValue === undefined) {
@@ -37,6 +38,12 @@ export async function POST(req: NextRequest) {
   }
   if (body.category && !CATEGORIES.includes(body.category as (typeof CATEGORIES)[number])) {
     return NextResponse.json({ error: `invalid category: ${body.category}` }, { status: 400 });
+  }
+  if (body.linkedAccountId !== undefined) {
+    const account = await db.account.findFirst({ where: { id: body.linkedAccountId, tenantId } });
+    if (!account) {
+      return NextResponse.json({ error: `invalid linkedAccountId: ${body.linkedAccountId}` }, { status: 400 });
+    }
   }
 
   const asset = await db.personalAsset.create({
@@ -48,6 +55,7 @@ export async function POST(req: NextRequest) {
       acquisitionCost: body.acquisitionCost ?? null,
       currentValue: body.currentValue,
       note: body.note ?? null,
+      linkedAccountId: body.linkedAccountId ?? null,
     },
   });
   return NextResponse.json({ data: asset }, { status: 201 });
