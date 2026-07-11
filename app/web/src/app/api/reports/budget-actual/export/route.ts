@@ -34,23 +34,43 @@ export async function GET(req: NextRequest) {
     include: { period: true },
   });
 
-  const budgets = budgetRecords.map((b) => ({ period: keyOf(b.period.fiscalYear, b.period.month), amount: Number(b.amount) }));
-  const actuals = actualRecords.map((r) => ({ period: keyOf(r.period.fiscalYear, r.period.month), amount: Number(r.amount) }));
+  const budgets = budgetRecords.map((b) => ({
+    period: keyOf(b.period.fiscalYear, b.period.month),
+    amount: Number(b.amount),
+  }));
+  const actuals = actualRecords.map((r) => ({
+    period: keyOf(r.period.fiscalYear, r.period.month),
+    amount: Number(r.amount),
+  }));
 
   const history = aggregate(
-    actualRecords.map((r) => ({ amount: Number(r.amount), fiscalYear: r.period.fiscalYear, quarter: r.period.quarter, month: r.period.month })),
+    actualRecords.map((r) => ({
+      amount: Number(r.amount),
+      fiscalYear: r.period.fiscalYear,
+      quarter: r.period.quarter,
+      month: r.period.month,
+    })),
     "month",
   ).map((b) => b.total);
 
   const remaining = Math.max(0, 12 - history.length);
   const forecastMap = new Map<string, number>();
-  forecast(history, remaining, method).forEach((v, i) => forecastMap.set(keyOf(year, history.length + i + 1), v));
+  forecast(history, remaining, method).forEach((v, i) =>
+    forecastMap.set(keyOf(year, history.length + i + 1), v),
+  );
 
   const report = buildBudgetActual(budgets, actuals, forecastMap);
 
   const header = "period,budget,actual,forecast,variance,achievementRate";
   const lines = report.rows.map((r) =>
-    [r.period, r.budget, r.actual ?? "", r.forecast ?? "", r.variance ?? "", r.achievementRate != null ? (r.achievementRate * 100).toFixed(1) + "%" : ""].join(","),
+    [
+      r.period,
+      r.budget,
+      r.actual ?? "",
+      r.forecast ?? "",
+      r.variance ?? "",
+      r.achievementRate != null ? (r.achievementRate * 100).toFixed(1) + "%" : "",
+    ].join(","),
   );
   const csv = [header, ...lines].join("\n");
 

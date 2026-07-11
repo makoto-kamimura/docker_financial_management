@@ -22,7 +22,12 @@ export async function POST(req: NextRequest) {
 
   const { tenantId } = auth.user;
   const db = tenantDb(tenantId);
-  const body = (await req.json()) as { meetingDate: string; meetingType?: string; agenda: string; resolution?: string };
+  const body = (await req.json()) as {
+    meetingDate: string;
+    meetingType?: string;
+    agenda: string;
+    resolution?: string;
+  };
   if (!body.meetingDate || !body.agenda) {
     return NextResponse.json({ error: "meetingDate, agenda are required" }, { status: 400 });
   }

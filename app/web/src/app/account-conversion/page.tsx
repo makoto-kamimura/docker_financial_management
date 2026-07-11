@@ -29,7 +29,12 @@ const BADGE: Record<string, { label: string; className: string }> = {
   unconvertible: { label: "変換不可", className: "bg-red-100 text-red-700" },
 };
 
-function badgeKey(s: Pick<Suggestion, "isConvertible" | "corporateAccountId" | "confidenceScore" | "isManuallyOverridden">): keyof typeof BADGE {
+function badgeKey(
+  s: Pick<
+    Suggestion,
+    "isConvertible" | "corporateAccountId" | "confidenceScore" | "isManuallyOverridden"
+  >,
+): keyof typeof BADGE {
   if (!s.isConvertible) return "unconvertible";
   if (s.corporateAccountId === null) return "manualNeeded";
   if (s.isManuallyOverridden) return "manualSet";
@@ -81,7 +86,9 @@ export default function AccountConversionPage() {
 
   const toggleUnconvertible = (homeAccountId: number) => {
     setSuggestions((list) =>
-      list.map((s) => (s.homeAccountId === homeAccountId ? { ...s, isConvertible: !s.isConvertible } : s)),
+      list.map((s) =>
+        s.homeAccountId === homeAccountId ? { ...s, isConvertible: !s.isConvertible } : s,
+      ),
     );
   };
 
@@ -114,7 +121,10 @@ export default function AccountConversionPage() {
     <AppShell>
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-2xl font-bold text-slate-800">勘定科目変換（家庭 → 法人）</h1>
-        <Link href="/account-conversion/history" className="text-sm text-indigo-600 hover:underline">
+        <Link
+          href="/account-conversion/history"
+          className="text-sm text-indigo-600 hover:underline"
+        >
           変換履歴を見る
         </Link>
       </div>
@@ -169,7 +179,9 @@ export default function AccountConversionPage() {
                         )}
                       </td>
                       <td className="py-2 px-3">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.className}`}>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.className}`}
+                        >
                           {badge.label}
                         </span>
                       </td>

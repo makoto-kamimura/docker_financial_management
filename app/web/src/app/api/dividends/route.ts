@@ -22,9 +22,18 @@ export async function POST(req: NextRequest) {
 
   const { tenantId } = auth.user;
   const db = tenantDb(tenantId);
-  const body = (await req.json()) as { resolutionDate: string; paymentDate: string; perShareAmount: number; totalAmount: number; note?: string };
+  const body = (await req.json()) as {
+    resolutionDate: string;
+    paymentDate: string;
+    perShareAmount: number;
+    totalAmount: number;
+    note?: string;
+  };
   if (!body.resolutionDate || !body.paymentDate || !body.totalAmount) {
-    return NextResponse.json({ error: "resolutionDate, paymentDate, totalAmount are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "resolutionDate, paymentDate, totalAmount are required" },
+      { status: 400 },
+    );
   }
 
   const div = await db.dividend.create({

@@ -20,7 +20,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     take: 200,
   });
   return NextResponse.json({
-    data: txns.map((t) => ({ ...t, amount: Number(t.amount), balance: t.balance ? Number(t.balance) : null })),
+    data: txns.map((t) => ({
+      ...t,
+      amount: Number(t.amount),
+      balance: t.balance ? Number(t.balance) : null,
+    })),
   });
 }
 
@@ -37,15 +41,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const ct = req.headers.get("content-type") ?? "";
 
   if (ct.includes("application/json")) {
-    const body = (await req.json()) as { date: string; description: string; amount: number; balance?: number | null };
+    const body = (await req.json()) as {
+      date: string;
+      description: string;
+      amount: number;
+      balance?: number | null;
+    };
     if (!body.date || !body.description || body.amount == null) {
       return NextResponse.json({ error: "date, description, amount は必須です" }, { status: 400 });
     }
     const txn = await db.bankTransaction.create({
-      data: { accountId, date: new Date(body.date), description: body.description, amount: body.amount, balance: body.balance ?? null, source: "MANUAL" },
+      data: {
+        accountId,
+        date: new Date(body.date),
+        description: body.description,
+        amount: body.amount,
+        balance: body.balance ?? null,
+        source: "MANUAL",
+      },
     });
     await writeAudit(auth.user.id, "create_txn", `bank_account:${accountId}:${txn.id}`);
-    return NextResponse.json({ data: { ...txn, amount: Number(txn.amount), balance: txn.balance ? Number(txn.balance) : null } }, { status: 201 });
+    return NextResponse.json(
+      {
+        data: {
+          ...txn,
+          amount: Number(txn.amount),
+          balance: txn.balance ? Number(txn.balance) : null,
+        },
+      },
+      { status: 201 },
+    );
   }
 
   const csv = await req.text();
@@ -57,7 +82,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await db.bankTransaction.upsert({
       where: { accountId_externalId: { accountId, externalId: r.externalId } },
       update: {},
-      create: { accountId, date: new Date(r.date), description: r.description, amount: r.amount, balance: r.balance, source: "CSV", externalId: r.externalId },
+      create: {
+        accountId,
+        date: new Date(r.date),
+        description: r.description,
+        amount: r.amount,
+        balance: r.balance,
+        source: "CSV",
+        externalId: r.externalId,
+      },
     });
     inserted++;
   }

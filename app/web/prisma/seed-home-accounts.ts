@@ -34,7 +34,9 @@ async function main() {
     });
     upserted++;
   }
-  console.log(`✅ ${upserted} 件の家庭モード勘定科目を upsert しました（個人事業主・法人モードの表示名付き）`);
+  console.log(
+    `✅ ${upserted} 件の家庭モード勘定科目を upsert しました（個人事業主・法人モードの表示名付き）`,
+  );
 }
 
 main()

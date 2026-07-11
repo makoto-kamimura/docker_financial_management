@@ -51,12 +51,29 @@ export async function GET(req: NextRequest) {
   for (const d of details) {
     const a = d.account;
     if (!map.has(a.id)) {
-      map.set(a.id, { id: a.id, code: a.code, name: a.name, category: a.category, parentId: a.parentId, depth: 0, totalDebit: 0, totalCredit: 0, balance: 0, isGroup: false });
+      map.set(a.id, {
+        id: a.id,
+        code: a.code,
+        name: a.name,
+        category: a.category,
+        parentId: a.parentId,
+        depth: 0,
+        totalDebit: 0,
+        totalCredit: 0,
+        balance: 0,
+        isGroup: false,
+      });
     }
     const r = map.get(a.id)!;
     const amt = Number(d.amount);
-    if (d.side === "debit") { r.totalDebit += amt; r.balance += amt; }
-    if (d.side === "credit") { r.totalCredit += amt; r.balance -= amt; }
+    if (d.side === "debit") {
+      r.totalDebit += amt;
+      r.balance += amt;
+    }
+    if (d.side === "credit") {
+      r.totalCredit += amt;
+      r.balance -= amt;
+    }
   }
 
   if (rollup) {
@@ -66,7 +83,18 @@ export async function GET(req: NextRequest) {
         const parent = accountById.get(parentId);
         if (!parent) break;
         if (!map.has(parentId)) {
-          map.set(parentId, { id: parentId, code: parent.code, name: parent.name, category: parent.category, parentId: parent.parentId, depth: 0, totalDebit: 0, totalCredit: 0, balance: 0, isGroup: true });
+          map.set(parentId, {
+            id: parentId,
+            code: parent.code,
+            name: parent.name,
+            category: parent.category,
+            parentId: parent.parentId,
+            depth: 0,
+            totalDebit: 0,
+            totalCredit: 0,
+            balance: 0,
+            isGroup: true,
+          });
         }
         const p = map.get(parentId)!;
         p.totalDebit += row.totalDebit;
@@ -98,7 +126,9 @@ export async function GET(req: NextRequest) {
   if (format === "csv") {
     const lines = ["科目コード,科目名,カテゴリ,グループ,借方合計,貸方合計,残高"];
     for (const r of rows) {
-      lines.push(`${r.code},${r.name},${r.category},${r.isGroup ? "Y" : ""},${r.totalDebit},${r.totalCredit},${r.balance}`);
+      lines.push(
+        `${r.code},${r.name},${r.category},${r.isGroup ? "Y" : ""},${r.totalDebit},${r.totalCredit},${r.balance}`,
+      );
     }
     lines.push(`,,合計,,,${grandDebit},${grandCredit},`);
     return new NextResponse(lines.join("\n"), {

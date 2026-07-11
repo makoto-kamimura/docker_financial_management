@@ -11,7 +11,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params;
   const { tenantId } = auth.user;
   const db = tenantDb(tenantId);
-  const body = (await req.json()) as { paidOn: string; paidAmount: number; paymentAccountCode?: string };
+  const body = (await req.json()) as {
+    paidOn: string;
+    paidAmount: number;
+    paymentAccountCode?: string;
+  };
 
   if (!body.paidOn || !body.paidAmount) {
     return NextResponse.json({ error: "paidOn and paidAmount are required" }, { status: 400 });
@@ -19,7 +23,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const payable = await db.payable.findUnique({ where: { id: Number(id), tenantId } });
   if (!payable) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (payable.status === "paid") return NextResponse.json({ error: "already paid" }, { status: 400 });
+  if (payable.status === "paid")
+    return NextResponse.json({ error: "already paid" }, { status: 400 });
 
   const paymentCode = body.paymentAccountCode ?? "1100";
   const [paymentAccount, apAccount] = await Promise.all([
@@ -28,7 +33,10 @@ export async function POST(req: NextRequest, { params }: Params) {
   ]);
 
   if (!paymentAccount || !apAccount) {
-    return NextResponse.json({ error: "勘定科目が見つかりません（3000/支払科目）" }, { status: 500 });
+    return NextResponse.json(
+      { error: "勘定科目が見つかりません（3000/支払科目）" },
+      { status: 500 },
+    );
   }
 
   const paidDate = new Date(body.paidOn);

@@ -224,7 +224,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // 家庭 → 法人 への切替時は、勘定科目の変換確認画面を案内する
     // （docs/account-conversion-system.md「モード切替トリガー」）
     if (previous === "household" && mode === "corporate") {
-      if (window.confirm("家庭モードの勘定科目を法人科目へ変換しますか？変換確認画面を開きます。")) {
+      if (
+        window.confirm("家庭モードの勘定科目を法人科目へ変換しますか？変換確認画面を開きます。")
+      ) {
         router.push("/account-conversion");
       }
     }

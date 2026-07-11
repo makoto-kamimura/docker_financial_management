@@ -12,7 +12,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const existing = await db.officer.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const body = (await req.json()) as { name?: string; title?: string; termStart?: string; termEnd?: string; salary?: number };
+  const body = (await req.json()) as {
+    name?: string;
+    title?: string;
+    termStart?: string;
+    termEnd?: string;
+    salary?: number;
+  };
   const officer = await db.officer.update({
     where: { id: Number(id) },
     data: {

@@ -45,7 +45,14 @@ export async function GET(req: NextRequest) {
     for (const r of records) {
       const key = r.accountId;
       if (!summaryMap.has(key)) {
-        summaryMap.set(key, { accountId: key, code: r.account.code, name: r.account.name, category: r.account.category, parentId: r.account.parentId, total: 0 });
+        summaryMap.set(key, {
+          accountId: key,
+          code: r.account.code,
+          name: r.account.name,
+          category: r.account.category,
+          parentId: r.account.parentId,
+          total: 0,
+        });
       }
       summaryMap.get(key)!.total += Number(r.amount);
     }
@@ -64,9 +71,15 @@ export async function GET(req: NextRequest) {
       if (cat === "EXPENSE") monthly[m].expense += Number(r.amount);
     }
 
-    const revenue = all.filter((a) => a.category === "REVENUE").sort((a, b) => a.code.localeCompare(b.code));
-    const cogs = all.filter((a) => a.category === "COGS").sort((a, b) => a.code.localeCompare(b.code));
-    const expenses = all.filter((a) => a.category === "EXPENSE").sort((a, b) => a.code.localeCompare(b.code));
+    const revenue = all
+      .filter((a) => a.category === "REVENUE")
+      .sort((a, b) => a.code.localeCompare(b.code));
+    const cogs = all
+      .filter((a) => a.category === "COGS")
+      .sort((a, b) => a.code.localeCompare(b.code));
+    const expenses = all
+      .filter((a) => a.category === "EXPENSE")
+      .sort((a, b) => a.code.localeCompare(b.code));
 
     const revenueTotal = revenue.reduce((s, a) => s + a.total, 0);
     const cogsTotal = cogs.reduce((s, a) => s + a.total, 0);
@@ -82,8 +95,12 @@ export async function GET(req: NextRequest) {
     const expenseDeductible = expensesWithApportionment.reduce((s, a) => s + a.deductible, 0);
     const netIncome = grossProfit - expenseDeductible;
 
-    const assets = all.filter((a) => a.category === "ASSET").sort((a, b) => a.code.localeCompare(b.code));
-    const liabilities = all.filter((a) => a.category === "LIABILITY").sort((a, b) => a.code.localeCompare(b.code));
+    const assets = all
+      .filter((a) => a.category === "ASSET")
+      .sort((a, b) => a.code.localeCompare(b.code));
+    const liabilities = all
+      .filter((a) => a.category === "LIABILITY")
+      .sort((a, b) => a.code.localeCompare(b.code));
     const assetTotal = assets.reduce((s, a) => s + a.total, 0);
     const liabilityTotal = liabilities.reduce((s, a) => s + a.total, 0);
 
@@ -96,22 +113,38 @@ export async function GET(req: NextRequest) {
     const businessProfile = await db.businessProfile.findUnique({ where: { tenantId } });
 
     const currentAssets = assets.filter((a) => a.code < "1500").reduce((s, a) => s + a.total, 0);
-    const currentLiabilities = liabilities.filter((a) => a.code < "3400").reduce((s, a) => s + a.total, 0);
+    const currentLiabilities = liabilities
+      .filter((a) => a.code < "3400")
+      .reduce((s, a) => s + a.total, 0);
     const equity = assetTotal - liabilityTotal;
 
     const ratios = {
-      currentRatio: currentLiabilities > 0 ? Math.round((currentAssets / currentLiabilities) * 100) / 100 : null,
+      currentRatio:
+        currentLiabilities > 0
+          ? Math.round((currentAssets / currentLiabilities) * 100) / 100
+          : null,
       equityRatio: assetTotal > 0 ? Math.round((equity / assetTotal) * 1000) / 10 : null,
       roa: assetTotal > 0 ? Math.round((netIncome / assetTotal) * 1000) / 10 : null,
       roe: equity > 0 ? Math.round((netIncome / equity) * 1000) / 10 : null,
-      grossProfitRate: revenueTotal > 0 ? Math.round((grossProfit / revenueTotal) * 1000) / 10 : null,
+      grossProfitRate:
+        revenueTotal > 0 ? Math.round((grossProfit / revenueTotal) * 1000) / 10 : null,
       operatingMargin: revenueTotal > 0 ? Math.round((netIncome / revenueTotal) * 1000) / 10 : null,
     };
 
     return {
       fiscalYear,
       departmentId: departmentId ?? null,
-      pnl: { revenue, revenueTotal, cogs, cogsTotal, grossProfit, expenses: expensesWithApportionment, expenseTotal, expenseDeductible, netIncome },
+      pnl: {
+        revenue,
+        revenueTotal,
+        cogs,
+        cogsTotal,
+        grossProfit,
+        expenses: expensesWithApportionment,
+        expenseTotal,
+        expenseDeductible,
+        netIncome,
+      },
       bs: { assets, assetTotal, liabilities, liabilityTotal, equity },
       ratios,
       trialBalance,

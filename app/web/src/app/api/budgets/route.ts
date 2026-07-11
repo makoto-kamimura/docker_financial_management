@@ -37,7 +37,49 @@ export async function GET(req: NextRequest) {
     orderBy: { fiscalYear: "asc" },
   });
 
-  return NextResponse.json({ data: budgets, years: years.map((y) => y.fiscalYear) });
+  const housingLoanOverlay = await computeHousingLoanOverlay(db, tenantId, year);
+
+  return NextResponse.json({
+    data: budgets,
+    years: years.map((y) => y.fiscalYear),
+    housingLoanOverlay,
+  });
+}
+
+// 住宅ローンの月々の返済額を、連携先科目（例: 家賃）の予算に自動加算するための
+// 上乗せ額を計算する（Budget テーブルは書き換えず、表示側で加算する想定）。
+async function computeHousingLoanOverlay(
+  db: ReturnType<typeof tenantDb>,
+  tenantId: number,
+  year: number,
+): Promise<{ accountId: number; accountCode: string; month: number; amount: number }[]> {
+  const housingLoans = await db.loan.findMany({
+    where: {
+      tenantId,
+      loanType: "housing",
+      linkedAccountId: { not: null },
+      monthlyPayment: { not: null },
+    },
+    include: { linkedAccount: { select: { id: true, code: true } } },
+  });
+
+  const overlay: { accountId: number; accountCode: string; month: number; amount: number }[] = [];
+  for (const loan of housingLoans) {
+    if (!loan.linkedAccount || loan.monthlyPayment === null) continue;
+    const startYm = loan.borrowedOn.getFullYear() * 12 + loan.borrowedOn.getMonth();
+    const endYm = loan.repaymentDate.getFullYear() * 12 + loan.repaymentDate.getMonth();
+    for (let month = 1; month <= 12; month++) {
+      const ym = year * 12 + (month - 1);
+      if (ym < startYm || ym > endYm) continue;
+      overlay.push({
+        accountId: loan.linkedAccount.id,
+        accountCode: loan.linkedAccount.code,
+        month,
+        amount: Number(loan.monthlyPayment),
+      });
+    }
+  }
+  return overlay;
 }
 
 // POST /api/budgets … 予算の登録（editor 以上）
@@ -65,7 +107,9 @@ export async function POST(req: NextRequest) {
   });
 
   const budget = await db.budget.upsert({
-    where: { tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id } },
+    where: {
+      tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
+    },
     update: { amount },
     create: { tenantId, accountId: account.id, periodId: period.id, amount },
     include: {

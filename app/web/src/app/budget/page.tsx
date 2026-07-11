@@ -12,7 +12,17 @@ type BudgetRow = {
   account: { id: number; code: string; name: string };
   period: { fiscalYear: number; month: number };
 };
-type BudgetResponse = { data: BudgetRow[]; years: number[] };
+type HousingLoanOverlayRow = {
+  accountId: number;
+  accountCode: string;
+  month: number;
+  amount: number;
+};
+type BudgetResponse = {
+  data: BudgetRow[];
+  years: number[];
+  housingLoanOverlay?: HousingLoanOverlayRow[];
+};
 type ImportResult = { imported: number; errors: string[] };
 type Tab = "manual" | "csv";
 
@@ -77,10 +87,15 @@ export default function BudgetPage() {
 
   const year = selectedYear ?? currentFiscalYear();
   const grouped = groupByAccount(data?.data ?? []);
+  const overlayMap = new Map<string, number>();
+  for (const o of data?.housingLoanOverlay ?? []) {
+    overlayMap.set(`${o.accountCode}:${o.month}`, o.amount);
+  }
+  const overlayAccountCodes = new Set((data?.housingLoanOverlay ?? []).map((o) => o.accountCode));
 
   const sortedAccounts = accounts
     ? accounts
-        .filter((a) => grouped.has(a.code))
+        .filter((a) => grouped.has(a.code) || overlayAccountCodes.has(a.code))
         .sort(
           (a, b) =>
             CATEGORY_ORDER.indexOf(a.category as never) -
@@ -393,10 +408,13 @@ H3000,${THIS_YEAR},1,115000`}</pre>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {sortedAccounts.map((acct) => {
-                  const g = grouped.get(acct.code);
-                  if (!g) return null;
+                  const g = grouped.get(acct.code) ?? { account: undefined, byMonth: new Map() };
+                  const hasOverlay = overlayAccountCodes.has(acct.code);
                   const annual = MONTHS.reduce(
-                    (s, m) => s + (Number(g.byMonth.get(m)?.amount) || 0),
+                    (s, m) =>
+                      s +
+                      (Number(g.byMonth.get(m)?.amount) || 0) +
+                      (overlayMap.get(`${acct.code}:${m}`) ?? 0),
                     0,
                   );
                   return (
@@ -404,9 +422,18 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                       <td className="sticky left-0 bg-white group-hover:bg-slate-50 px-4 py-2 font-medium">
                         <span className="text-xs font-mono text-slate-400 mr-1.5">{acct.code}</span>
                         <span className="text-slate-800">{acct.name}</span>
+                        {hasOverlay && (
+                          <span
+                            className="ml-1.5 text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded"
+                            title="住宅ローンの月々の返済額が自動加算されています"
+                          >
+                            🏠 自動反映
+                          </span>
+                        )}
                       </td>
                       {MONTHS.map((m) => {
                         const cell = g.byMonth.get(m);
+                        const auto = overlayMap.get(`${acct.code}:${m}`) ?? 0;
                         const isEditing = editCell && cell && editCell.id === cell.id;
                         return (
                           <td key={m} className="px-3 py-1.5 text-right tabular-nums">
@@ -430,22 +457,36 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                 </button>
                               </div>
                             ) : cell ? (
-                              <div className="flex items-center justify-end gap-1 group/cell">
-                                <span>{yen(Number(cell.amount))}</span>
-                                <button
-                                  onClick={() =>
-                                    setEditCell({ id: cell.id, amount: String(cell.amount) })
-                                  }
-                                  className="text-xs text-slate-300 hover:text-indigo-500 opacity-0 group-hover/cell:opacity-100"
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  onClick={() => deleteBudget(cell.id)}
-                                  className="text-xs text-slate-300 hover:text-red-500 opacity-0 group-hover/cell:opacity-100"
-                                >
-                                  ✕
-                                </button>
+                              <div>
+                                <div className="flex items-center justify-end gap-1 group/cell">
+                                  <span>{yen(Number(cell.amount) + auto)}</span>
+                                  <button
+                                    onClick={() =>
+                                      setEditCell({ id: cell.id, amount: String(cell.amount) })
+                                    }
+                                    className="text-xs text-slate-300 hover:text-indigo-500 opacity-0 group-hover/cell:opacity-100"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => deleteBudget(cell.id)}
+                                    className="text-xs text-slate-300 hover:text-red-500 opacity-0 group-hover/cell:opacity-100"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                                {auto > 0 && (
+                                  <div className="text-[10px] text-indigo-500">
+                                    内 住宅ローン {yen(auto)}
+                                  </div>
+                                )}
+                              </div>
+                            ) : auto > 0 ? (
+                              <div className="text-indigo-600">
+                                {yen(auto)}
+                                <div className="text-[10px] text-indigo-400">
+                                  住宅ローン自動反映
+                                </div>
                               </div>
                             ) : (
                               <span className="text-slate-300">—</span>

@@ -16,7 +16,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const loan = await db.loan.findUnique({ where: { id: Number(id), tenantId } });
   if (!loan) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (loan.status === "repaid") return NextResponse.json({ error: "already repaid" }, { status: 400 });
+  if (loan.status === "repaid")
+    return NextResponse.json({ error: "already repaid" }, { status: 400 });
 
   const principal = body.principal;
   const interest = body.interest ?? 0;
@@ -24,11 +25,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const repayment = await db.$transaction(async (tx) => {
     const r = await tx.loanRepayment.create({
-      data: { loanId: Number(id), repaidOn: new Date(body.repaidOn), principal, interest, totalAmount: principal + interest },
+      data: {
+        loanId: Number(id),
+        repaidOn: new Date(body.repaidOn),
+        principal,
+        interest,
+        totalAmount: principal + interest,
+      },
     });
     await tx.loan.update({
       where: { id: Number(id) },
-      data: { remainingAmount: newRemaining < 0 ? 0 : newRemaining, status: newRemaining <= 0 ? "repaid" : "active" },
+      data: {
+        remainingAmount: newRemaining < 0 ? 0 : newRemaining,
+        status: newRemaining <= 0 ? "repaid" : "active",
+      },
     });
     return r;
   });

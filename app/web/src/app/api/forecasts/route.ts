@@ -173,7 +173,10 @@ export async function POST(req: NextRequest) {
     created.push(snapshot.id);
 
     month++;
-    if (month > 12) { month = 1; year++; }
+    if (month > 12) {
+      month = 1;
+      year++;
+    }
   }
 
   return NextResponse.json({ created: created.length, ids: created }, { status: 201 });

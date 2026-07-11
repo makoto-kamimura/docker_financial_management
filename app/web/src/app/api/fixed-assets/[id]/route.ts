@@ -29,13 +29,19 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const existing = await db.fixedAsset.findUnique({ where: { id: Number(id), tenantId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const body = (await req.json()) as Partial<{ name: string; category: string; disposedOn: string | null }>;
+  const body = (await req.json()) as Partial<{
+    name: string;
+    category: string;
+    disposedOn: string | null;
+  }>;
   const asset = await db.fixedAsset.update({
     where: { id: Number(id) },
     data: {
       ...(body.name !== undefined && { name: body.name }),
       ...(body.category !== undefined && { category: body.category }),
-      ...(body.disposedOn !== undefined && { disposedOn: body.disposedOn ? new Date(body.disposedOn) : null }),
+      ...(body.disposedOn !== undefined && {
+        disposedOn: body.disposedOn ? new Date(body.disposedOn) : null,
+      }),
     },
   });
   return NextResponse.json({ data: asset });

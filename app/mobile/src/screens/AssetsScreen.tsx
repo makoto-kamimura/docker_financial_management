@@ -1,15 +1,27 @@
 import { useEffect, useState } from "react";
 import {
+  Alert,
+  Modal,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import Svg, { Line, Polyline, Circle, Text as SvgText } from "react-native-svg";
-import { fetchAssets, type AssetAccount } from "../api";
+import {
+  deletePersonalAsset, fetchAssets, fetchPersonalAssets, patchPersonalAsset, postPersonalAsset,
+  type AssetAccount, type PersonalAsset, type PersonalAssetCategory,
+} from "../api";
 import { LoadingView } from "../components/LoadingView";
+
+const PA_CATEGORY_LABEL: Record<PersonalAssetCategory, string> = {
+  LAND: "土地", BUILDING: "建物", VEHICLE: "車", GOLD: "金", OTHER: "その他",
+};
+const PA_CATEGORIES: PersonalAssetCategory[] = ["LAND", "BUILDING", "VEHICLE", "GOLD", "OTHER"];
 
 const yen = (v: number) =>
   v >= 10_000
@@ -135,16 +147,27 @@ export function AssetsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [personalAssets, setPersonalAssets] = useState<PersonalAsset[]>([]);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [form, setForm] = useState({
+    name: "", category: "LAND" as PersonalAssetCategory,
+    acquisitionCost: "", currentValue: "", note: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
+
   async function load() {
     setError(null);
     try {
       // year パラメータなし → 全年分一括取得（Web と同じ）
-      const data = await fetchAssets();
+      const [data, pa] = await Promise.all([fetchAssets(), fetchPersonalAssets()]);
       setAccounts(data.accounts);
       setYears(data.years);
       if (data.years.length > 0) {
         setSelectedYear((prev) => prev ?? data.years[data.years.length - 1]);
       }
+      setPersonalAssets(pa);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "データの取得に失敗しました");
     } finally {
@@ -160,6 +183,50 @@ export function AssetsScreen() {
     setRefreshing(false);
   }
 
+  async function handleAddAsset() {
+    if (!form.name.trim() || !form.currentValue.trim()) {
+      Alert.alert("入力エラー", "資産名と現在評価額を入力してください。");
+      return;
+    }
+    setSaving(true);
+    try {
+      await postPersonalAsset({
+        name: form.name.trim(),
+        category: form.category,
+        acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : undefined,
+        currentValue: Number(form.currentValue),
+        note: form.note.trim() || undefined,
+      });
+      setShowAddModal(false);
+      setForm({ name: "", category: "LAND", acquisitionCost: "", currentValue: "", note: "" });
+      await load();
+    } catch (e: unknown) {
+      Alert.alert("登録エラー", e instanceof Error ? e.message : "登録に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUpdateValue(id: number) {
+    try {
+      await patchPersonalAsset(id, { currentValue: Number(editValue) || 0 });
+      setEditId(null);
+      await load();
+    } catch (e: unknown) {
+      Alert.alert("更新エラー", e instanceof Error ? e.message : "更新に失敗しました");
+    }
+  }
+
+  function handleDeleteAsset(id: number) {
+    Alert.alert("削除確認", "この資産を削除しますか？", [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "削除", style: "destructive",
+        onPress: async () => { await deletePersonalAsset(id); await load(); },
+      },
+    ]);
+  }
+
   const year = selectedYear ?? years.at(-1) ?? new Date().getFullYear();
   const topAssets = accounts.filter((a) => a.category === "ASSET" && a.parentId === null);
   const topLiabs = accounts.filter((a) => a.category === "LIABILITY" && a.parentId === null);
@@ -171,6 +238,7 @@ export function AssetsScreen() {
   const childrenOf = (parentId: number) => accounts.filter((a) => a.parentId === parentId);
 
   return (
+    <>
     <ScrollView
       style={s.container}
       contentContainerStyle={s.content}
@@ -182,10 +250,65 @@ export function AssetsScreen() {
         <LoadingView />
       ) : error ? (
         <View style={s.errorBox}><Text style={s.errorText}>{error}</Text></View>
-      ) : accounts.length === 0 ? (
-        <View style={s.emptyBox}><Text style={s.emptyText}>資産データがありません。</Text></View>
       ) : (
         <>
+          {/* 実物資産（土地・建物・車・金など） */}
+          <View style={s.section}>
+            <View style={s.paHeader}>
+              <Text style={s.sectionTitle}>実物資産（土地・建物・車・金など）</Text>
+              <TouchableOpacity onPress={() => setShowAddModal(true)}>
+                <Text style={s.paAddBtn}>+ 追加</Text>
+              </TouchableOpacity>
+            </View>
+            {personalAssets.length === 0 ? (
+              <Text style={s.emptyText}>登録済みの実物資産がありません</Text>
+            ) : (
+              <>
+                {personalAssets.map((a) => (
+                  <View key={a.id} style={s.row}>
+                    <View style={s.rowLeft}>
+                      <Text style={s.rowCode}>{PA_CATEGORY_LABEL[a.category]}</Text>
+                      <Text style={s.rowName}>{a.name}</Text>
+                    </View>
+                    {editId === a.id ? (
+                      <View style={s.paEditRow}>
+                        <TextInput
+                          autoFocus
+                          keyboardType="number-pad"
+                          value={editValue}
+                          onChangeText={setEditValue}
+                          style={s.paEditInput}
+                        />
+                        <TouchableOpacity onPress={() => handleUpdateValue(a.id)}>
+                          <Text style={s.paCheck}>✓</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <View style={s.paEditRow}>
+                        <TouchableOpacity onPress={() => { setEditId(a.id); setEditValue(String(a.currentValue)); }}>
+                          <Text style={s.balance}>{yen(Number(a.currentValue))}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => handleDeleteAsset(a.id)}>
+                          <Text style={s.paDelete}>削除</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                ))}
+                <View style={s.totalRow}>
+                  <Text style={s.totalLabel}>実物資産合計</Text>
+                  <Text style={s.totalValue}>
+                    {yen(personalAssets.reduce((sum, a) => sum + Number(a.currentValue), 0))}
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+
+          {accounts.length === 0 ? (
+            <View style={s.emptyBox}><Text style={s.emptyText}>資産データがありません。</Text></View>
+          ) : (
+            <>
           {/* 年選択 */}
           {years.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.yearRow}>
@@ -320,9 +443,81 @@ export function AssetsScreen() {
               </Text>
             </View>
           </View>
+            </>
+          )}
         </>
       )}
     </ScrollView>
+
+    <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => setShowAddModal(false)}>
+      <Pressable style={s.modalOverlay} onPress={() => setShowAddModal(false)}>
+        <Pressable style={s.modalSheet} onPress={(e) => e.stopPropagation()}>
+          <Text style={s.modalTitle}>実物資産 登録</Text>
+
+          <Text style={s.modalLabel}>資産名 *</Text>
+          <TextInput
+            style={s.modalInput}
+            value={form.name}
+            onChangeText={(t) => setForm((f) => ({ ...f, name: t }))}
+            placeholder="自宅土地"
+            placeholderTextColor="#cbd5e1"
+          />
+
+          <Text style={s.modalLabel}>種別</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: 10 }}>
+            {PA_CATEGORIES.map((c) => (
+              <TouchableOpacity
+                key={c}
+                style={[s.paChip, form.category === c && s.paChipActive]}
+                onPress={() => setForm((f) => ({ ...f, category: c }))}
+              >
+                <Text style={[s.paChipTxt, form.category === c && s.paChipTxtActive]}>
+                  {PA_CATEGORY_LABEL[c]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <Text style={s.modalLabel}>取得価格（円）</Text>
+          <TextInput
+            style={s.modalInput}
+            value={form.acquisitionCost}
+            onChangeText={(t) => setForm((f) => ({ ...f, acquisitionCost: t.replace(/[^0-9]/g, "") }))}
+            keyboardType="number-pad"
+            placeholder="0"
+            placeholderTextColor="#cbd5e1"
+          />
+
+          <Text style={s.modalLabel}>現在評価額（円） *</Text>
+          <TextInput
+            style={s.modalInput}
+            value={form.currentValue}
+            onChangeText={(t) => setForm((f) => ({ ...f, currentValue: t.replace(/[^0-9]/g, "") }))}
+            keyboardType="number-pad"
+            placeholder="0"
+            placeholderTextColor="#cbd5e1"
+          />
+
+          <Text style={s.modalLabel}>備考</Text>
+          <TextInput
+            style={s.modalInput}
+            value={form.note}
+            onChangeText={(t) => setForm((f) => ({ ...f, note: t }))}
+            placeholderTextColor="#cbd5e1"
+          />
+
+          <View style={s.modalBtnRow}>
+            <TouchableOpacity style={s.modalCancelBtn} onPress={() => setShowAddModal(false)}>
+              <Text style={s.modalCancelTxt}>キャンセル</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.modalSaveBtn} onPress={handleAddAsset} disabled={saving}>
+              <Text style={s.modalSaveTxt}>{saving ? "保存中…" : "登録"}</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
@@ -361,4 +556,24 @@ const s = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 10, marginTop: 4, borderTopWidth: 1, borderTopColor: "#e2e8f0" },
   totalLabel: { fontSize: 14, fontWeight: "700", color: "#0f172a" },
   totalValue: { fontSize: 15, fontWeight: "700" },
+  paHeader:    { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  paAddBtn:    { fontSize: 12, fontWeight: "700", color: "#4f46e5" },
+  paEditRow:   { flexDirection: "row", alignItems: "center", gap: 10 },
+  paEditInput: { width: 90, textAlign: "right", fontSize: 13, fontWeight: "600", color: "#1e293b", borderWidth: 1, borderColor: "#4f46e5", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  paCheck:     { fontSize: 15, color: "#4f46e5", fontWeight: "700" },
+  paDelete:    { fontSize: 11, color: "#f43f5e" },
+  paChip:      { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: "#f1f5f9", marginRight: 6 },
+  paChipActive: { backgroundColor: "#4f46e5" },
+  paChipTxt:   { fontSize: 12, color: "#64748b", fontWeight: "600" },
+  paChipTxtActive: { color: "#fff" },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.5)", justifyContent: "flex-end" },
+  modalSheet:  { backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 22, paddingBottom: 36 },
+  modalTitle:  { fontSize: 17, fontWeight: "700", color: "#1e293b", marginBottom: 14 },
+  modalLabel:  { fontSize: 12, fontWeight: "600", color: "#374151", marginBottom: 6, marginTop: 8 },
+  modalInput:  { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: "#1e293b" },
+  modalBtnRow: { flexDirection: "row", gap: 10, marginTop: 20 },
+  modalCancelBtn: { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: "#e2e8f0" },
+  modalCancelTxt: { fontSize: 13, fontWeight: "600", color: "#64748b" },
+  modalSaveBtn: { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", backgroundColor: "#4f46e5" },
+  modalSaveTxt: { fontSize: 13, fontWeight: "700", color: "#fff" },
 });

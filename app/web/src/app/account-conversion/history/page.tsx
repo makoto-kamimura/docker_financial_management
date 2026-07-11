@@ -96,8 +96,8 @@ function AccountConversionHistoryInner() {
                 }`}
               >
                 <div className="font-medium">
-                  {new Date(s.convertedAt).toLocaleDateString("ja-JP")} {MODE_LABEL[s.fromMode] ?? s.fromMode} →{" "}
-                  {MODE_LABEL[s.toMode] ?? s.toMode}
+                  {new Date(s.convertedAt).toLocaleDateString("ja-JP")}{" "}
+                  {MODE_LABEL[s.fromMode] ?? s.fromMode} → {MODE_LABEL[s.toMode] ?? s.toMode}
                 </div>
                 <div className="text-xs text-slate-400">
                   {s.convertibleCount}/{s.accountCount} 科目変換済み

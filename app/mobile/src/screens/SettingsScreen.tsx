@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { fetchBankAccounts, type BankAccount } from "../api";
+import {
+  Alert, RefreshControl, ScrollView, StyleSheet, Text,
+  TextInput, TouchableOpacity, View,
+} from "react-native";
+import {
+  fetchBankAccounts, getAllocation, resetAllocation, setAllocation,
+  type AllocationGroup, type AllocationItem, type BankAccount,
+} from "../api";
 import { LoadingView } from "../components/LoadingView";
+
+const GROUP_ORDER: AllocationGroup[] = ["固定費", "生活費", "その他"];
 
 const yen = (v: number) =>
   v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
@@ -16,6 +24,8 @@ export function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [allocation, setAllocationState] = useState<AllocationItem[]>(() => getAllocation().map(i => ({ ...i })));
+  const [allocDirty, setAllocDirty] = useState(false);
 
   async function load() {
     setError(null);
@@ -30,6 +40,29 @@ export function SettingsScreen() {
   }
 
   useEffect(() => { load(); }, []);
+
+  function updateAllocPercent(key: string, field: "minPercent" | "maxPercent", text: string) {
+    const digits = text.replace(/[^0-9]/g, "");
+    setAllocDirty(true);
+    setAllocationState(prev => prev.map(item => {
+      if (item.key !== key) return item;
+      if (field === "maxPercent") {
+        return { ...item, maxPercent: digits === "" ? null : Number(digits) };
+      }
+      return { ...item, minPercent: digits === "" ? 0 : Number(digits) };
+    }));
+  }
+
+  function handleSaveAllocation() {
+    setAllocation(allocation);
+    setAllocDirty(false);
+    Alert.alert("保存しました", "予算配分ルールを更新しました。");
+  }
+
+  function handleResetAllocation() {
+    setAllocationState(resetAllocation().map(i => ({ ...i })));
+    setAllocDirty(false);
+  }
 
   if (loading) return <LoadingView />;
 
@@ -58,6 +91,55 @@ export function SettingsScreen() {
           </View>
         ))
       )}
+
+      <Text style={[s.sectionTitle, { marginTop: 24 }]}>予算配分ルール（FP推奨・手取り収入ベース）</Text>
+      <Text style={s.hint}>予算画面の「収入・売上」タップ時に表示するおすすめ配分の割合（％）です。必要に応じて変更できます。</Text>
+
+      {GROUP_ORDER.map(group => {
+        const items = allocation.filter(i => i.group === group);
+        if (items.length === 0) return null;
+        return (
+          <View key={group} style={s.allocGroup}>
+            <Text style={s.allocGroupTitle}>{group}</Text>
+            {items.map(item => (
+              <View key={item.key} style={s.allocRow}>
+                <Text style={s.allocLabel} numberOfLines={1}>{item.label}</Text>
+                <View style={s.allocInputs}>
+                  <TextInput
+                    style={s.allocInput}
+                    keyboardType="number-pad"
+                    value={String(item.minPercent)}
+                    onChangeText={t => updateAllocPercent(item.key, "minPercent", t)}
+                  />
+                  <Text style={s.allocSep}>〜</Text>
+                  <TextInput
+                    style={s.allocInput}
+                    keyboardType="number-pad"
+                    placeholder="上限なし"
+                    placeholderTextColor="#cbd5e1"
+                    value={item.maxPercent === null ? "" : String(item.maxPercent)}
+                    onChangeText={t => updateAllocPercent(item.key, "maxPercent", t)}
+                  />
+                  <Text style={s.allocPct}>%</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        );
+      })}
+
+      <View style={s.allocBtnRow}>
+        <TouchableOpacity style={s.resetBtn} onPress={handleResetAllocation}>
+          <Text style={s.resetBtnTxt}>デフォルトに戻す</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.saveBtn, !allocDirty && s.saveBtnDisabled]}
+          onPress={handleSaveAllocation}
+          disabled={!allocDirty}
+        >
+          <Text style={s.saveBtnTxt}>保存する</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }
@@ -76,4 +158,18 @@ const s = StyleSheet.create({
   accountName: { fontSize: 14, fontWeight: "600", color: "#1e293b", marginBottom: 2 },
   bankName: { fontSize: 12, color: "#64748b" },
   balance: { fontSize: 14, fontWeight: "700", color: "#1e293b" },
+  allocGroup:      { marginBottom: 14 },
+  allocGroupTitle: { fontSize: 12, fontWeight: "700", color: "#4f46e5", marginBottom: 6 },
+  allocRow:        { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 6, borderWidth: 1, borderColor: "#e2e8f0" },
+  allocLabel:      { flex: 1, fontSize: 12, color: "#1e293b", marginRight: 8 },
+  allocInputs:     { flexDirection: "row", alignItems: "center" },
+  allocInput:      { width: 44, fontSize: 13, fontWeight: "600", color: "#1e293b", textAlign: "center", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 6, paddingVertical: 4 },
+  allocSep:        { fontSize: 12, color: "#94a3b8", marginHorizontal: 4 },
+  allocPct:        { fontSize: 12, color: "#64748b", marginLeft: 4 },
+  allocBtnRow:     { flexDirection: "row", gap: 10, marginTop: 8, marginBottom: 24 },
+  resetBtn:        { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff" },
+  resetBtnTxt:     { fontSize: 13, fontWeight: "600", color: "#64748b" },
+  saveBtn:         { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", backgroundColor: "#4f46e5" },
+  saveBtnDisabled: { opacity: 0.4 },
+  saveBtnTxt:      { fontSize: 13, fontWeight: "700", color: "#fff" },
 });

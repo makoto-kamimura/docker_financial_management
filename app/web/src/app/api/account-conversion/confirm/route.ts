@@ -28,8 +28,15 @@ export async function POST(req: NextRequest) {
     mappings: MappingInput[];
   };
 
-  if (!MODES.includes(body.fromMode) || !MODES.includes(body.toMode) || body.fromMode === body.toMode) {
-    return NextResponse.json({ error: "fromMode/toMode must differ and be HOME or CORPORATE" }, { status: 400 });
+  if (
+    !MODES.includes(body.fromMode) ||
+    !MODES.includes(body.toMode) ||
+    body.fromMode === body.toMode
+  ) {
+    return NextResponse.json(
+      { error: "fromMode/toMode must differ and be HOME or CORPORATE" },
+      { status: 400 },
+    );
   }
   if (!Array.isArray(body.mappings) || body.mappings.length === 0) {
     return NextResponse.json({ error: "mappings is required" }, { status: 400 });
@@ -37,13 +44,18 @@ export async function POST(req: NextRequest) {
 
   const accountIds = [
     ...new Set(
-      body.mappings.flatMap((m) => [m.homeAccountId, m.corporateAccountId]).filter((x): x is number => x != null),
+      body.mappings
+        .flatMap((m) => [m.homeAccountId, m.corporateAccountId])
+        .filter((x): x is number => x != null),
     ),
   ];
   const accounts = await db.account.findMany({ where: { id: { in: accountIds }, tenantId } });
   const byId = new Map(accounts.map((a) => [a.id, a]));
   if (accountIds.some((id) => !byId.has(id))) {
-    return NextResponse.json({ error: "one or more accounts do not belong to this tenant" }, { status: 403 });
+    return NextResponse.json(
+      { error: "one or more accounts do not belong to this tenant" },
+      { status: 403 },
+    );
   }
 
   const session = await db.accountConversionSession.create({
@@ -63,14 +75,21 @@ export async function POST(req: NextRequest) {
   });
 
   // ユーザーが手動で変更したマッピングは、次回以降の自動変換のために自分専用ルールとして保存する
-  const overridden = body.mappings.filter((m) => m.isManuallyOverridden && m.corporateAccountId != null);
+  const overridden = body.mappings.filter(
+    (m) => m.isManuallyOverridden && m.corporateAccountId != null,
+  );
   for (const m of overridden) {
     const home = byId.get(m.homeAccountId);
     const corp = byId.get(m.corporateAccountId!);
     if (!home || !corp) continue;
     await db.accountMappingRule.upsert({
       where: { homeCode_userId: { homeCode: home.code, userId } },
-      update: { corporateCode: corp.code, isConvertible: true, matchType: "MANUAL", confidenceScore: 1.0 },
+      update: {
+        corporateCode: corp.code,
+        isConvertible: true,
+        matchType: "MANUAL",
+        confidenceScore: 1.0,
+      },
       create: {
         homeCode: home.code,
         userId,

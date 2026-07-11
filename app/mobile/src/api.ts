@@ -188,11 +188,21 @@ export type BudgetRow = {
   period?: { fiscalYear: number; month: number };
 };
 
-export async function fetchBudgets(year: number): Promise<BudgetRow[]> {
+export type HousingLoanOverlayRow = {
+  accountId: number;
+  accountCode: string;
+  month: number;
+  amount: number;
+};
+
+export async function fetchBudgets(year: number): Promise<{
+  budgets: BudgetRow[];
+  housingLoanOverlay: HousingLoanOverlayRow[];
+}> {
   const res = await apiFetch(`/budgets?year=${year}`);
   if (!res.ok) throw new Error("予算データの取得に失敗しました");
   const json = await res.json();
-  return json.data ?? [];
+  return { budgets: json.data ?? [], housingLoanOverlay: json.housingLoanOverlay ?? [] };
 }
 
 export async function postBudget(data: {
@@ -204,6 +214,45 @@ export async function postBudget(data: {
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("予算の保存に失敗しました");
+}
+
+// ── 予算配分ルール（FP推奨・手取り収入ベース） ───────────────────────
+export type AllocationGroup = "固定費" | "生活費" | "その他";
+
+export type AllocationItem = {
+  key: string;
+  label: string;
+  group: AllocationGroup;
+  minPercent: number;
+  /** null = 上限なし（「○％以上」の目安） */
+  maxPercent: number | null;
+  note?: string;
+};
+
+export const DEFAULT_ALLOCATION: AllocationItem[] = [
+  { key: "rent",          label: "家賃・住宅ローン",                    group: "固定費", minPercent: 20, maxPercent: 30, note: "理想は25%以内" },
+  { key: "utilities",     label: "水道・光熱費",                        group: "固定費", minPercent: 5,  maxPercent: 8 },
+  { key: "communication", label: "通信費（スマホ・インターネット）",     group: "固定費", minPercent: 3,  maxPercent: 6 },
+  { key: "insurance",     label: "保険料",                              group: "固定費", minPercent: 5,  maxPercent: 10 },
+  { key: "food",          label: "食費",                                group: "生活費", minPercent: 15, maxPercent: 20 },
+  { key: "car",           label: "車関連（ガソリン・保険・駐車場など）", group: "生活費", minPercent: 5,  maxPercent: 15 },
+  { key: "daily",         label: "日用品・衣服",                        group: "生活費", minPercent: 3,  maxPercent: 5 },
+  { key: "education",     label: "教育費（子どもがいる場合）",          group: "生活費", minPercent: 5,  maxPercent: 15 },
+  { key: "leisure",       label: "娯楽・交際費",                        group: "その他", minPercent: 5,  maxPercent: 10 },
+  { key: "savings",       label: "貯蓄・投資",                          group: "その他", minPercent: 20, maxPercent: null, note: "最低10%は確保" },
+];
+
+let _allocation: AllocationItem[] = DEFAULT_ALLOCATION.map(i => ({ ...i }));
+
+export function getAllocation(): AllocationItem[] {
+  return _allocation;
+}
+export function setAllocation(items: AllocationItem[]) {
+  _allocation = items;
+}
+export function resetAllocation(): AllocationItem[] {
+  _allocation = DEFAULT_ALLOCATION.map(i => ({ ...i }));
+  return _allocation;
 }
 
 // ── 銀行口座 ──────────────────────────────────────────────────────────
@@ -310,6 +359,10 @@ export type Loan = {
   interestRate: string; borrowedOn: string;
   repaymentDate: string; remainingAmount: string;
   status: string; note: string | null;
+  loanType: string;
+  linkedAccountId: number | null;
+  linkedAccount: { id: number; code: string; name: string } | null;
+  monthlyPayment: string | null;
 };
 
 export async function fetchLoans(): Promise<Loan[]> {
@@ -317,6 +370,87 @@ export async function fetchLoans(): Promise<Loan[]> {
   if (!res.ok) throw new Error("借入金の取得に失敗しました");
   const json = await res.json();
   return json.data ?? [];
+}
+
+export async function postLoan(data: {
+  lenderName: string; amount: number; interestRate: number;
+  borrowedOn: string; repaymentDate: string; note?: string;
+  loanType?: "business" | "housing";
+  linkedAccountCode?: string;
+  monthlyPayment?: number;
+}): Promise<Loan> {
+  const res = await apiFetch("/loans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("借入金の登録に失敗しました");
+  const json = await res.json();
+  return json.data;
+}
+
+export async function patchLoan(id: number, data: {
+  repaymentDate?: string;
+  monthlyPayment?: number | null;
+  linkedAccountCode?: string | null;
+}): Promise<Loan> {
+  const res = await apiFetch(`/loans/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("借入金の更新に失敗しました");
+  const json = await res.json();
+  return json.data;
+}
+
+// ── 実物資産（土地・建物・車・金など） ──────────────────────────────
+export type PersonalAssetCategory = "LAND" | "BUILDING" | "VEHICLE" | "GOLD" | "OTHER";
+export type PersonalAsset = {
+  id: number;
+  name: string;
+  category: PersonalAssetCategory;
+  acquiredOn: string | null;
+  acquisitionCost: string | null;
+  currentValue: string;
+  note: string | null;
+};
+
+export async function fetchPersonalAssets(): Promise<PersonalAsset[]> {
+  const res = await apiFetch("/personal-assets");
+  if (!res.ok) throw new Error("資産の取得に失敗しました");
+  const json = await res.json();
+  return json.data ?? [];
+}
+
+export async function postPersonalAsset(data: {
+  name: string; category: PersonalAssetCategory;
+  acquiredOn?: string; acquisitionCost?: number; currentValue: number; note?: string;
+}): Promise<PersonalAsset> {
+  const res = await apiFetch("/personal-assets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("資産の登録に失敗しました");
+  const json = await res.json();
+  return json.data;
+}
+
+export async function patchPersonalAsset(id: number, data: { currentValue: number }): Promise<PersonalAsset> {
+  const res = await apiFetch(`/personal-assets/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("資産の更新に失敗しました");
+  const json = await res.json();
+  return json.data;
+}
+
+export async function deletePersonalAsset(id: number): Promise<void> {
+  const res = await apiFetch(`/personal-assets/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("資産の削除に失敗しました");
 }
 
 // ── 仕訳帳 ────────────────────────────────────────────────────────────
