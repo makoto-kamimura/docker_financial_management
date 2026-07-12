@@ -5,7 +5,8 @@ import {
 } from "react-native";
 import {
   fetchAccounts, fetchBudgets, matchesViewMode, postBudget,
-  type Account, type BudgetRow, type HousingLoanOverlayRow, type ViewMode,
+  type Account, type BudgetRow, type HousingLoanOverlayRow,
+  type PersonalAssetDebtOverlayRow, type ViewMode,
 } from "../api";
 import { RevenueAllocationModal } from "../components/RevenueAllocationModal";
 
@@ -15,6 +16,7 @@ const CAT_LABEL: Record<string, string> = {
   REVENUE: "収入・売上",
   COGS:    "売上原価",
   EXPENSE: "費用・支出",
+  LIABILITY: "負債返済（自動計上）",
 };
 
 const yen = (v: number) =>
@@ -32,6 +34,7 @@ export function BudgetScreen({ viewMode }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [budgets,  setBudgets]  = useState<BudgetRow[]>([]);
   const [overlay,  setOverlay]  = useState<HousingLoanOverlayRow[]>([]);
+  const [debtOverlay, setDebtOverlay] = useState<PersonalAssetDebtOverlayRow[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [edits,    setEdits]    = useState<Record<string, string>>({});
   const [saving,   setSaving]   = useState(false);
@@ -41,11 +44,17 @@ export function BudgetScreen({ viewMode }: Props) {
     setLoading(true);
     setEdits({});
     try {
-      const [accs, { budgets: buds, housingLoanOverlay }] = await Promise.all([fetchAccounts(), fetchBudgets(y)]);
+      const [accs, { budgets: buds, housingLoanOverlay, personalAssetDebtOverlay }] =
+        await Promise.all([fetchAccounts(), fetchBudgets(y)]);
+      // 負債返済の自動計上がある負債科目も予算一覧に表示する
+      const debtCodes = new Set(personalAssetDebtOverlay.map(o => o.accountCode));
       setAccounts(accs.filter(a =>
-        BUDGETABLE.includes(a.category) && matchesViewMode(a.code, viewMode)));
+        (BUDGETABLE.includes(a.category) ||
+          (a.category === "LIABILITY" && debtCodes.has(a.code))) &&
+        matchesViewMode(a.code, viewMode)));
       setBudgets(buds);
       setOverlay(housingLoanOverlay);
+      setDebtOverlay(personalAssetDebtOverlay);
     } catch {
       // silent — list stays empty
     } finally {
@@ -70,6 +79,19 @@ export function BudgetScreen({ viewMode }: Props) {
     return overlay.find(o => o.accountCode === code && o.month === month)?.amount ?? 0;
   }
 
+  // 実物資産の負債分割（解消予定月までの月割り）分。同一科目に複数資産があれば合算する。
+  function debtAutoOf(code: string): number {
+    return debtOverlay
+      .filter(o => o.accountCode === code && o.month === month)
+      .reduce((sum, o) => sum + o.amount, 0);
+  }
+
+  function debtAssetNamesOf(code: string): string {
+    return [...new Set(
+      debtOverlay.filter(o => o.accountCode === code && o.month === month).map(o => o.assetName),
+    )].join("・");
+  }
+
   async function handleSave() {
     const entries = Object.entries(edits).filter(([, v]) => v.trim() !== "");
     if (entries.length === 0) return;
@@ -91,7 +113,7 @@ export function BudgetScreen({ viewMode }: Props) {
 
   const monthTotal = accounts.reduce((sum, a) => {
     const v = valFor(a.code);
-    return sum + (v !== "" ? Number(v) : budgetOf(a.code)) + autoOf(a.code);
+    return sum + (v !== "" ? Number(v) : budgetOf(a.code)) + autoOf(a.code) + debtAutoOf(a.code);
   }, 0);
 
   const revenueTotal = accounts.reduce((sum, a) => {
@@ -108,7 +130,7 @@ export function BudgetScreen({ viewMode }: Props) {
     })
     .filter(l => l.amount > 0);
 
-  const grouped = (["REVENUE", "COGS", "EXPENSE"] as const).flatMap(cat => {
+  const grouped = (["REVENUE", "COGS", "EXPENSE", "LIABILITY"] as const).flatMap(cat => {
     const items = accounts.filter(a => a.category === cat);
     return items.length > 0 ? [{ cat, items }] : [];
   });
@@ -174,9 +196,10 @@ export function BudgetScreen({ viewMode }: Props) {
             <View key={cat} style={s.group}>
               <Text style={s.groupLabel}>{CAT_LABEL[cat]}</Text>
               {items.map(a => {
-                const val    = valFor(a.code);
-                const edited = a.code in edits;
-                const auto   = autoOf(a.code);
+                const val      = valFor(a.code);
+                const edited   = a.code in edits;
+                const auto     = autoOf(a.code);
+                const debtAuto = debtAutoOf(a.code);
                 return (
                   <View key={a.code} style={[s.row, edited && s.rowEdited]}>
                     <View style={s.rowInfo}>
@@ -185,6 +208,11 @@ export function BudgetScreen({ viewMode }: Props) {
                       {auto > 0 && (
                         <Text style={s.rowAutoNote} numberOfLines={1}>
                           🏠 住宅ローン返済額 {yen(auto)} を自動加算中
+                        </Text>
+                      )}
+                      {debtAuto > 0 && (
+                        <Text style={s.rowDebtNote} numberOfLines={1}>
+                          💳 負債返済分（{debtAssetNamesOf(a.code)}）{yen(debtAuto)} を自動加算中
                         </Text>
                       )}
                     </View>
@@ -206,9 +234,9 @@ export function BudgetScreen({ viewMode }: Props) {
                           }
                         />
                       </View>
-                      {auto > 0 && (
+                      {(auto > 0 || debtAuto > 0) && (
                         <Text style={s.rowCombinedNote}>
-                          合計 {yen((val !== "" ? Number(val) : budgetOf(a.code)) + auto)}
+                          合計 {yen((val !== "" ? Number(val) : budgetOf(a.code)) + auto + debtAuto)}
                         </Text>
                       )}
                     </View>
@@ -280,6 +308,7 @@ const s = StyleSheet.create({
   rowCode:       { fontSize: 10, color: "#94a3b8" },
   rowName:       { fontSize: 13, color: "#1e293b", fontWeight: "500", marginTop: 1 },
   rowAutoNote:   { fontSize: 10, color: "#4f46e5", marginTop: 2 },
+  rowDebtNote:   { fontSize: 10, color: "#d97706", marginTop: 2 },
   rowCombinedNote: { fontSize: 10, color: "#4f46e5", marginTop: 3, fontWeight: "600" },
   inputWrap:     { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, paddingHorizontal: 8, backgroundColor: "#fff", minWidth: 110 },
   yen:           { fontSize: 13, color: "#64748b", marginRight: 2 },

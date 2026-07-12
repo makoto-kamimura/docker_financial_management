@@ -3,6 +3,7 @@ import { z } from "zod";
 import { tenantDb } from "@/lib/tenant-db";
 import { requireRole } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
+import { computeDebtSchedule, ymIndex } from "@/lib/debt-schedule";
 
 const BudgetSchema = z.object({
   accountCode: z.string().min(1),
@@ -38,11 +39,13 @@ export async function GET(req: NextRequest) {
   });
 
   const housingLoanOverlay = await computeHousingLoanOverlay(db, tenantId, year);
+  const personalAssetDebtOverlay = await computePersonalAssetDebtOverlay(db, tenantId, year);
 
   return NextResponse.json({
     data: budgets,
     years: years.map((y) => y.fiscalYear),
     housingLoanOverlay,
+    personalAssetDebtOverlay,
   });
 }
 
@@ -76,6 +79,59 @@ async function computeHousingLoanOverlay(
         accountCode: loan.linkedAccount.code,
         month,
         amount: Number(loan.monthlyPayment),
+      });
+    }
+  }
+  return overlay;
+}
+
+// 実物資産に紐付く負債（ローン等）の当初負債額を、支払い開始年月〜解消予定年月で均等割りし、
+// 紐付け負債科目の予算に上乗せする額を計算する（Budget テーブルは書き換えず、表示側で加算する想定）。
+async function computePersonalAssetDebtOverlay(
+  db: ReturnType<typeof tenantDb>,
+  tenantId: number,
+  year: number,
+): Promise<
+  { accountId: number; accountCode: string; assetName: string; month: number; amount: number }[]
+> {
+  const assets = await db.personalAsset.findMany({
+    where: {
+      tenantId,
+      linkedAccountId: { not: null },
+      debtStartOn: { not: null },
+      debtPayoffDue: { not: null },
+      debtInitialAmount: { not: null },
+    },
+    include: { linkedAccount: { select: { id: true, code: true } } },
+  });
+
+  const overlay: {
+    accountId: number;
+    accountCode: string;
+    assetName: string;
+    month: number;
+    amount: number;
+  }[] = [];
+  for (const asset of assets) {
+    if (!asset.linkedAccount || !asset.debtStartOn || !asset.debtPayoffDue) continue;
+    const schedule = computeDebtSchedule(
+      Number(asset.debtInitialAmount),
+      asset.debtStartOn,
+      asset.debtPayoffDue,
+    );
+    if (!schedule) continue;
+
+    const startYm = ymIndex(asset.debtStartOn);
+    const payoffYm = ymIndex(asset.debtPayoffDue);
+    for (let month = 1; month <= 12; month++) {
+      const ym = year * 12 + (month - 1);
+      if (ym < startYm || ym > payoffYm) continue;
+      overlay.push({
+        accountId: asset.linkedAccount.id,
+        accountCode: asset.linkedAccount.code,
+        assetName: asset.name,
+        month,
+        amount: schedule.monthly,
       });
     }
   }

@@ -456,6 +456,9 @@ model PersonalAsset {
   note            String?
   linkedAccountId Int?                                      // 紐付く負債科目（例: 住宅ローン）
   linkedAccount   Account?              @relation(fields: [linkedAccountId], references: [id])
+  debtStartOn       DateTime?                               // 負債の支払い開始年月。月初日で保存
+  debtPayoffDue     DateTime?                               // 負債解消（完済）予定年月。月初日で保存
+  debtInitialAmount Decimal?              @db.Decimal(18, 2) // 当初負債額。開始月〜解消予定月で月割りして予算に自動計上し、経過月数から残高を算出
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 

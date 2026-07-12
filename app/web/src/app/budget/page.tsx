@@ -18,10 +18,18 @@ type HousingLoanOverlayRow = {
   month: number;
   amount: number;
 };
+type PersonalAssetDebtOverlayRow = {
+  accountId: number;
+  accountCode: string;
+  assetName: string;
+  month: number;
+  amount: number;
+};
 type BudgetResponse = {
   data: BudgetRow[];
   years: number[];
   housingLoanOverlay?: HousingLoanOverlayRow[];
+  personalAssetDebtOverlay?: PersonalAssetDebtOverlayRow[];
 };
 type ImportResult = { imported: number; errors: string[] };
 type Tab = "manual" | "csv";
@@ -93,9 +101,28 @@ export default function BudgetPage() {
   }
   const overlayAccountCodes = new Set((data?.housingLoanOverlay ?? []).map((o) => o.accountCode));
 
+  // 実物資産の負債分割（解消予定月までの月割り）分。同一科目・月に複数資産があれば合算する。
+  const debtOverlayMap = new Map<string, number>();
+  const debtOverlayAssetNames = new Map<string, string[]>();
+  for (const o of data?.personalAssetDebtOverlay ?? []) {
+    const key = `${o.accountCode}:${o.month}`;
+    debtOverlayMap.set(key, (debtOverlayMap.get(key) ?? 0) + o.amount);
+    const names = debtOverlayAssetNames.get(o.accountCode) ?? [];
+    if (!names.includes(o.assetName)) names.push(o.assetName);
+    debtOverlayAssetNames.set(o.accountCode, names);
+  }
+  const debtOverlayAccountCodes = new Set(
+    (data?.personalAssetDebtOverlay ?? []).map((o) => o.accountCode),
+  );
+
   const sortedAccounts = accounts
     ? accounts
-        .filter((a) => grouped.has(a.code) || overlayAccountCodes.has(a.code))
+        .filter(
+          (a) =>
+            grouped.has(a.code) ||
+            overlayAccountCodes.has(a.code) ||
+            debtOverlayAccountCodes.has(a.code),
+        )
         .sort(
           (a, b) =>
             CATEGORY_ORDER.indexOf(a.category as never) -
@@ -410,11 +437,13 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                 {sortedAccounts.map((acct) => {
                   const g = grouped.get(acct.code) ?? { account: undefined, byMonth: new Map() };
                   const hasOverlay = overlayAccountCodes.has(acct.code);
+                  const hasDebtOverlay = debtOverlayAccountCodes.has(acct.code);
                   const annual = MONTHS.reduce(
                     (s, m) =>
                       s +
                       (Number(g.byMonth.get(m)?.amount) || 0) +
-                      (overlayMap.get(`${acct.code}:${m}`) ?? 0),
+                      (overlayMap.get(`${acct.code}:${m}`) ?? 0) +
+                      (debtOverlayMap.get(`${acct.code}:${m}`) ?? 0),
                     0,
                   );
                   return (
@@ -430,10 +459,19 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                             🏠 自動反映
                           </span>
                         )}
+                        {hasDebtOverlay && (
+                          <span
+                            className="ml-1.5 text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded"
+                            title={`実物資産（${(debtOverlayAssetNames.get(acct.code) ?? []).join("・")}）の負債残高を解消予定月まで月割りして自動加算しています`}
+                          >
+                            💳 返済分
+                          </span>
+                        )}
                       </td>
                       {MONTHS.map((m) => {
                         const cell = g.byMonth.get(m);
                         const auto = overlayMap.get(`${acct.code}:${m}`) ?? 0;
+                        const debtAuto = debtOverlayMap.get(`${acct.code}:${m}`) ?? 0;
                         const isEditing = editCell && cell && editCell.id === cell.id;
                         return (
                           <td key={m} className="px-3 py-1.5 text-right tabular-nums">
@@ -459,7 +497,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                             ) : cell ? (
                               <div>
                                 <div className="flex items-center justify-end gap-1 group/cell">
-                                  <span>{yen(Number(cell.amount) + auto)}</span>
+                                  <span>{yen(Number(cell.amount) + auto + debtAuto)}</span>
                                   <button
                                     onClick={() =>
                                       setEditCell({ id: cell.id, amount: String(cell.amount) })
@@ -480,13 +518,30 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                     内 住宅ローン {yen(auto)}
                                   </div>
                                 )}
+                                {debtAuto > 0 && (
+                                  <div className="text-[10px] text-amber-600">
+                                    内 負債返済分 {yen(debtAuto)}
+                                  </div>
+                                )}
                               </div>
-                            ) : auto > 0 ? (
-                              <div className="text-indigo-600">
-                                {yen(auto)}
-                                <div className="text-[10px] text-indigo-400">
-                                  住宅ローン自動反映
-                                </div>
+                            ) : auto > 0 || debtAuto > 0 ? (
+                              <div>
+                                {auto > 0 && (
+                                  <div className="text-indigo-600">
+                                    {yen(auto)}
+                                    <div className="text-[10px] text-indigo-400">
+                                      住宅ローン自動反映
+                                    </div>
+                                  </div>
+                                )}
+                                {debtAuto > 0 && (
+                                  <div className="text-amber-600">
+                                    {yen(debtAuto)}
+                                    <div className="text-[10px] text-amber-500">
+                                      負債返済分自動反映
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <span className="text-slate-300">—</span>

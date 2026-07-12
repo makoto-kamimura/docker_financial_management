@@ -202,14 +202,28 @@ export type HousingLoanOverlayRow = {
   amount: number;
 };
 
+// 実物資産に紐付く負債の残高を解消予定月まで月割りした自動計上分
+export type PersonalAssetDebtOverlayRow = {
+  accountId: number;
+  accountCode: string;
+  assetName: string;
+  month: number;
+  amount: number;
+};
+
 export async function fetchBudgets(year: number): Promise<{
   budgets: BudgetRow[];
   housingLoanOverlay: HousingLoanOverlayRow[];
+  personalAssetDebtOverlay: PersonalAssetDebtOverlayRow[];
 }> {
   const res = await apiFetch(`/budgets?year=${year}`);
   if (!res.ok) throw new Error("予算データの取得に失敗しました");
   const json = await res.json();
-  return { budgets: json.data ?? [], housingLoanOverlay: json.housingLoanOverlay ?? [] };
+  return {
+    budgets: json.data ?? [],
+    housingLoanOverlay: json.housingLoanOverlay ?? [],
+    personalAssetDebtOverlay: json.personalAssetDebtOverlay ?? [],
+  };
 }
 
 export async function postBudget(data: {
@@ -422,6 +436,14 @@ export type PersonalAsset = {
   currentValue: string;
   note: string | null;
   linkedAccountId: number | null;
+  debtStartOn: string | null; // 支払い開始年月
+  debtPayoffDue: string | null; // 負債解消（完済）予定年月
+  debtInitialAmount: string | null; // 当初負債額
+  debtMonthly: number | null; // 月割り額（サーバ計算）
+  debtRemaining: number | null; // 経過月数から算出した現在の負債残高（サーバ計算）
+  debtRemainingMonths: number | null; // 残り支払い回数（サーバ計算）
+  createdAt: string; // 登録日時（現在評価額の初回登録時点）
+  updatedAt: string; // 最終更新日時（評価額更新時に自動更新）
 };
 
 export async function fetchPersonalAssets(): Promise<PersonalAsset[]> {
@@ -435,6 +457,7 @@ export async function postPersonalAsset(data: {
   name: string; category: PersonalAssetCategory;
   acquiredOn?: string; acquisitionCost?: number; currentValue: number; note?: string;
   linkedAccountId?: number;
+  debtStartOn?: string; debtPayoffDue?: string; debtInitialAmount?: number;
 }): Promise<PersonalAsset> {
   const res = await apiFetch("/personal-assets", {
     method: "POST",
@@ -450,6 +473,7 @@ export async function patchPersonalAsset(id: number, data: Partial<{
   name: string; category: PersonalAssetCategory;
   acquiredOn: string | null; acquisitionCost: number | null;
   currentValue: number; note: string | null; linkedAccountId: number | null;
+  debtStartOn: string | null; debtPayoffDue: string | null; debtInitialAmount: number | null;
 }>): Promise<PersonalAsset> {
   const res = await apiFetch(`/personal-assets/${id}`, {
     method: "PATCH",

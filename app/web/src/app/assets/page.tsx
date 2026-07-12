@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
+import { isCountedAsAsset } from "@/lib/personal-asset";
 
 type PersonalAssetCategory = "LAND" | "BUILDING" | "VEHICLE" | "GOLD" | "OTHER";
 type PersonalAsset = {
@@ -24,7 +25,17 @@ type PersonalAsset = {
   acquisitionCost: number | string | null;
   currentValue: number | string;
   note: string | null;
+  linkedAccountId: number | null;
+  debtStartOn: string | null;
+  debtPayoffDue: string | null;
+  debtInitialAmount: number | string | null;
+  debtMonthly: number | null;
+  debtRemaining: number | null;
+  debtRemainingMonths: number | null;
+  createdAt: string;
+  updatedAt: string;
 };
+type AccountRef = { id: number; code: string; name: string; category: string };
 
 const PERSONAL_ASSET_CATEGORY_LABEL: Record<PersonalAssetCategory, string> = {
   LAND: "土地",
@@ -43,6 +54,18 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
     acquisitionCost: "",
     currentValue: "",
     note: "",
+    linkedAccountId: "",
+    debtStartOn: "",
+    debtPayoffDue: "",
+    debtInitialAmount: "",
+  });
+
+  const { data: liabilityAccounts } = useQuery({
+    queryKey: ["accounts", "LIABILITY"],
+    queryFn: async (): Promise<AccountRef[]> => {
+      const json = await (await fetch("/api/accounts")).json();
+      return ((json.data ?? []) as AccountRef[]).filter((a) => a.category === "LIABILITY");
+    },
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +75,10 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
   async function submit() {
     if (!form.name || !form.currentValue) {
       setError("資産名と現在評価額は必須です。");
+      return;
+    }
+    if (form.debtStartOn && form.debtPayoffDue && form.debtStartOn > form.debtPayoffDue) {
+      setError("支払い開始年月は解消予定年月以前にしてください。");
       return;
     }
     setSaving(true);
@@ -66,6 +93,10 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
         acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : undefined,
         currentValue: Number(form.currentValue),
         note: form.note || undefined,
+        linkedAccountId: form.linkedAccountId ? Number(form.linkedAccountId) : undefined,
+        debtStartOn: form.debtStartOn || undefined,
+        debtPayoffDue: form.debtPayoffDue || undefined,
+        debtInitialAmount: form.debtInitialAmount ? Number(form.debtInitialAmount) : undefined,
       }),
     });
     if (res.ok) {
@@ -137,6 +168,57 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
               />
             </label>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">紐付け負債科目（ローン等）</span>
+              <select
+                className="input-field mt-1 w-full"
+                value={form.linkedAccountId}
+                onChange={(e) => f("linkedAccountId", e.target.value)}
+              >
+                <option value="">なし</option>
+                {(liabilityAccounts ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">当初負債額（円）</span>
+              <input
+                type="number"
+                className="input-field mt-1 w-full"
+                value={form.debtInitialAmount}
+                onChange={(e) => f("debtInitialAmount", e.target.value)}
+                min={0}
+                disabled={!form.linkedAccountId}
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">支払い開始年月</span>
+              <input
+                type="month"
+                className="input-field mt-1 w-full"
+                value={form.debtStartOn}
+                onChange={(e) => f("debtStartOn", e.target.value)}
+                disabled={!form.linkedAccountId}
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">負債解消（完済）予定年月</span>
+              <input
+                type="month"
+                className="input-field mt-1 w-full"
+                value={form.debtPayoffDue}
+                onChange={(e) => f("debtPayoffDue", e.target.value)}
+                disabled={!form.linkedAccountId}
+              />
+            </label>
+          </div>
+          <p className="text-[10px] text-slate-400">
+            当初負債額・開始年月・解消予定年月を設定すると、開始月〜解消予定月で月割りした金額を予算に自動計上し、経過月数から負債残高を算出して表示します。負債科目に紐付けた項目のうち資産として計上されるのは土地・建物のみで、その他の項目は負債のみに反映されます
+          </p>
           <label className="block">
             <span className="text-xs font-medium text-slate-600">備考</span>
             <input
@@ -199,14 +281,22 @@ function PersonalAssetsSection() {
   });
 
   const assets = data ?? [];
-  const total = assets.reduce((s, a) => s + Number(a.currentValue), 0);
+  const total = assets.filter(isCountedAsAsset).reduce((s, a) => s + Number(a.currentValue), 0);
+  const totalDebt = assets.reduce((s, a) => s + (a.debtRemaining ?? 0), 0);
+  const hasExcluded = assets.some((a) => !isCountedAsAsset(a));
 
   return (
     <div className="card mb-6">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="section-title">実物資産（土地・建物・車・金など）</h2>
-          <p className="text-xs text-slate-400 mt-0.5">合計評価額: {yen(total)}</p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            合計評価額: {yen(total)}
+            {totalDebt > 0 && (
+              <span className="text-amber-600"> ・ 負債残高合計: {yen(totalDebt)}</span>
+            )}
+            {hasExcluded && <span> ・ ローン紐付きは土地・建物のみ資産計上</span>}
+          </p>
         </div>
         <button
           type="button"
@@ -234,13 +324,25 @@ function PersonalAssetsSection() {
                     {PERSONAL_ASSET_CATEGORY_LABEL[a.category]}
                   </span>
                   <span className="font-medium text-slate-800 text-sm">{a.name}</span>
+                  {!isCountedAsAsset(a) && (
+                    <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                      資産計上外
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-slate-400 mt-1">
                   {a.acquiredOn && <span>取得日: {a.acquiredOn.slice(0, 10)} ・ </span>}
                   {a.acquisitionCost !== null && (
-                    <span>取得価格: {yen(Number(a.acquisitionCost))}</span>
+                    <span>取得価格: {yen(Number(a.acquisitionCost))} ・ </span>
                   )}
+                  <span>登録日: {a.createdAt.slice(0, 10)}</span>
                 </div>
+                {a.debtRemaining !== null && (
+                  <div className="text-xs text-amber-600 mt-0.5">
+                    負債残高: {yen(a.debtRemaining)}（残り{a.debtRemainingMonths}回・月
+                    {yen(a.debtMonthly ?? 0)}・{a.debtPayoffDue?.slice(0, 7)}解消予定）
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 {editId === a.id ? (
