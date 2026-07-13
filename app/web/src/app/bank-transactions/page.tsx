@@ -33,6 +33,7 @@ type Transfer = {
   toAccount: BankAccount | null;
 };
 type ImportResult = { inserted: number; errors: { row: number; message: string }[] };
+type MonthlyCashFlowResponse = { year: number; month: number; graph: FlowGraph };
 type TransferFlowResponse = {
   cyclic: boolean;
   graph: FlowGraph;
@@ -51,6 +52,7 @@ type TransferFlowResponse = {
 const now = new Date();
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 const CHANNEL_LABELS: Record<string, string> = {
   INCOME: "給与・収入",
@@ -98,12 +100,27 @@ export default function BankTransactionsPage() {
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
+  // フロー図タブ: 設定ベース（既定）/ 実績ベース（月次・F-6）
+  const [flowSource, setFlowSource] = useState<"config" | "actual">("config");
+  const [flowYear, setFlowYear] = useState(now.getFullYear());
+  const [flowMonth, setFlowMonth] = useState(now.getMonth() + 1);
+
   // ── データ取得 ──────────────────────────────────────────────
   const { data: flowData } = useQuery({
     queryKey: ["transfer-flow"],
     enabled: tab === "flow",
     queryFn: async (): Promise<TransferFlowResponse> => {
       const res = await fetch("/api/transfers/flow");
+      if (!res.ok) throw new Error("failed");
+      return res.json();
+    },
+  });
+
+  const { data: monthlyFlowData, isLoading: monthlyFlowLoading } = useQuery({
+    queryKey: ["cashflow-monthly", flowYear, flowMonth],
+    enabled: tab === "flow" && flowSource === "actual",
+    queryFn: async (): Promise<MonthlyCashFlowResponse> => {
+      const res = await fetch(`/api/cashflow/monthly?year=${flowYear}&month=${flowMonth}`);
       if (!res.ok) throw new Error("failed");
       return res.json();
     },
@@ -382,22 +399,85 @@ export default function BankTransactionsPage() {
       {/* ── フロー図タブ ─────────────────────────────────────── */}
       {tab === "flow" && (
         <>
-          <div className="card mb-4">
-            <h2 className="section-title mb-4">口座間 資金フロー図</h2>
-            {!flowData ? (
-              <div className="flex items-center justify-center h-48 text-sm text-slate-400">
-                読み込み中…
-              </div>
-            ) : flowData.cyclic ? (
-              <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                循環する資金フローが検出されたため、図を表示できません。カレンダータブで設定を確認してください。
-              </p>
-            ) : (
-              <AccountFlowDiagram data={flowData.graph} />
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-sm h-9">
+              {(["config", "actual"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setFlowSource(s)}
+                  className={`px-3 font-medium transition-colors ${flowSource === s ? "bg-indigo-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                >
+                  {s === "config" ? "設定ベース" : "実績ベース（月次）"}
+                </button>
+              ))}
+            </div>
+            {flowSource === "actual" && (
+              <>
+                <select
+                  value={flowYear}
+                  onChange={(e) => setFlowYear(Number(e.target.value))}
+                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white"
+                >
+                  {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => (
+                    <option key={y} value={y}>
+                      {y}年
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={flowMonth}
+                  onChange={(e) => setFlowMonth(Number(e.target.value))}
+                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white"
+                >
+                  {MONTHS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}月
+                    </option>
+                  ))}
+                </select>
+              </>
             )}
           </div>
 
-          {flowData && flowData.transfers.length > 0 && (
+          {flowSource === "config" ? (
+            <div className="card mb-4">
+              <h2 className="section-title mb-4">口座間 資金フロー図</h2>
+              {!flowData ? (
+                <div className="flex items-center justify-center h-48 text-sm text-slate-400">
+                  読み込み中…
+                </div>
+              ) : flowData.cyclic ? (
+                <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                  循環する資金フローが検出されたため、図を表示できません。カレンダータブで設定を確認してください。
+                </p>
+              ) : (
+                <AccountFlowDiagram data={flowData.graph} />
+              )}
+            </div>
+          ) : (
+            <div className="card mb-4">
+              <h2 className="section-title mb-4">
+                {flowYear}年{flowMonth}月 実績フロー図
+              </h2>
+              <p className="text-xs text-slate-400 mb-3">
+                科目に紐付け済み（「明細一覧」タブで紐付け）の入出金明細と資金移動ルールから生成しています。
+              </p>
+              {monthlyFlowLoading || !monthlyFlowData ? (
+                <div className="flex items-center justify-center h-48 text-sm text-slate-400">
+                  読み込み中…
+                </div>
+              ) : monthlyFlowData.graph.links.length === 0 ? (
+                <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+                  対象月に科目紐付け済みの明細がありません。「明細一覧」タブで紐付けを行ってください。
+                </p>
+              ) : (
+                <AccountFlowDiagram data={monthlyFlowData.graph} />
+              )}
+            </div>
+          )}
+
+          {flowSource === "config" && flowData && flowData.transfers.length > 0 && (
             <div className="card">
               <h2 className="section-title mb-3">資金移動スケジュール</h2>
               <table className="w-full text-sm">

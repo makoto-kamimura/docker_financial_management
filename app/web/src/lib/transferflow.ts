@@ -26,8 +26,8 @@ export type TransferInput = {
   label?: string | null;
 };
 
-// 外部端点のノードキー/ラベルを決める
-function externalKey(prefix: "in" | "out", channel: TransferChannel, label?: string | null) {
+// 外部端点のノードキー/ラベルを決める（cashflow-monthly.ts でも再利用する）
+export function externalKey(prefix: "in" | "out", channel: TransferChannel, label?: string | null) {
   const name = label && label.trim() ? label : CHANNEL_LABELS[channel];
   return { key: `ext:${prefix}:${name}`, name: `外部（${name}）` };
 }
