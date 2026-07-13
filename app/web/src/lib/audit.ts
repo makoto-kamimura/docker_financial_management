@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-interface AuditOptions {
+export interface AuditOptions {
   before?: unknown;
   after?: unknown;
 }

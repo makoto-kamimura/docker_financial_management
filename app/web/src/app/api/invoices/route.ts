@@ -1,8 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { zDate } from "@/lib/zod-helpers";
 
 const INCLUDE = { lines: true };
+
+const InvoiceSchema = z.object({
+  customerName: z.string().min(1),
+  customerAddress: z.string().optional(),
+  issueDate: zDate,
+  dueDate: zDate,
+  note: z.string().optional(),
+  lines: z
+    .array(
+      z.object({
+        description: z.string().min(1),
+        quantity: z.number(),
+        unitPrice: z.number(),
+        taxRate: z.number().optional(),
+      }),
+    )
+    .min(1),
+});
 
 function generateInvoiceNumber(): string {
   const now = new Date();
@@ -13,72 +32,56 @@ function generateInvoiceNumber(): string {
   return `INV-${y}${m}${d}-${r}`;
 }
 
-export async function GET(req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+// GET /api/invoices?status= … インボイス一覧
+export const GET = withApi({
+  role: "viewer",
+  querySchema: z.object({ status: z.string().optional() }),
+  handler: async ({ user, db, query }) => {
+    const invoices = await db.invoice.findMany({
+      where: { tenantId: user.tenantId, ...(query.status ? { status: query.status } : {}) },
+      include: INCLUDE,
+      orderBy: { issueDate: "desc" },
+    });
+    return NextResponse.json({ data: invoices });
+  },
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const status = req.nextUrl.searchParams.get("status");
-  const invoices = await db.invoice.findMany({
-    where: { tenantId, ...(status ? { status } : {}) },
-    include: INCLUDE,
-    orderBy: { issueDate: "desc" },
-  });
-  return NextResponse.json({ data: invoices });
-}
+// POST /api/invoices … インボイスの発行（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: InvoiceSchema,
+  handler: async ({ user, db, body }) => {
+    const lineData = body.lines.map((l) => {
+      const taxRate = l.taxRate ?? 0.1;
+      const amount = Math.round(l.quantity * l.unitPrice);
+      return {
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        taxRate,
+        amount,
+      };
+    });
+    const subtotal = lineData.reduce((s, l) => s + l.amount, 0);
+    const taxAmount = Math.round(lineData.reduce((s, l) => s + l.amount * l.taxRate, 0));
+    const total = subtotal + taxAmount;
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    customerName: string;
-    customerAddress?: string;
-    issueDate: string;
-    dueDate: string;
-    note?: string;
-    lines: { description: string; quantity: number; unitPrice: number; taxRate?: number }[];
-  };
-  if (!body.customerName || !body.issueDate || !body.dueDate || !body.lines?.length) {
-    return NextResponse.json(
-      { error: "customerName, issueDate, dueDate, lines are required" },
-      { status: 400 },
-    );
-  }
-
-  const lineData = body.lines.map((l) => {
-    const taxRate = l.taxRate ?? 0.1;
-    const amount = Math.round(l.quantity * l.unitPrice);
-    return {
-      description: l.description,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      taxRate,
-      amount,
-    };
-  });
-  const subtotal = lineData.reduce((s, l) => s + l.amount, 0);
-  const taxAmount = Math.round(lineData.reduce((s, l) => s + l.amount * l.taxRate, 0));
-  const total = subtotal + taxAmount;
-
-  const invoice = await db.invoice.create({
-    data: {
-      tenantId,
-      invoiceNumber: generateInvoiceNumber(),
-      customerName: body.customerName,
-      customerAddress: body.customerAddress ?? null,
-      issueDate: new Date(body.issueDate),
-      dueDate: new Date(body.dueDate),
-      subtotal,
-      taxAmount,
-      total,
-      note: body.note ?? null,
-      lines: { create: lineData },
-    },
-    include: INCLUDE,
-  });
-  return NextResponse.json({ data: invoice }, { status: 201 });
-}
+    const invoice = await db.invoice.create({
+      data: {
+        tenantId: user.tenantId,
+        invoiceNumber: generateInvoiceNumber(),
+        customerName: body.customerName,
+        customerAddress: body.customerAddress ?? null,
+        issueDate: body.issueDate,
+        dueDate: body.dueDate,
+        subtotal,
+        taxAmount,
+        total,
+        note: body.note ?? null,
+        lines: { create: lineData },
+      },
+      include: INCLUDE,
+    });
+    return NextResponse.json({ data: invoice }, { status: 201 });
+  },
+});

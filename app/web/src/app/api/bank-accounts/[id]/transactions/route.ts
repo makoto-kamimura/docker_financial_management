@@ -1,117 +1,111 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { badRequest, notFound } from "@/lib/api-error";
 import { parseBankCsv } from "@/lib/banktxn-import";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const TxnSchema = z.object({
+  date: z.string().min(1),
+  description: z.string().min(1),
+  amount: z.number(),
+  balance: z.number().nullable().optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const accountId = Number((await params).id);
-  const account = await db.bankAccount.findUnique({ where: { id: accountId, tenantId } });
-  if (!account) return NextResponse.json({ error: "not found" }, { status: 404 });
+// GET /api/bank-accounts/[id]/transactions … 入出金明細（直近 200 件）
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db, id }) => {
+    const account = await db.bankAccount.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!account) throw notFound();
 
-  const txns = await db.bankTransaction.findMany({
-    where: { accountId },
-    orderBy: { date: "desc" },
-    take: 200,
-  });
-  return NextResponse.json({
-    data: txns.map((t) => ({
-      ...t,
-      amount: Number(t.amount),
-      balance: t.balance ? Number(t.balance) : null,
-    })),
-  });
-}
-
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const accountId = Number((await params).id);
-  const account = await db.bankAccount.findUnique({ where: { id: accountId, tenantId } });
-  if (!account) return NextResponse.json({ error: "account not found" }, { status: 404 });
-
-  const ct = req.headers.get("content-type") ?? "";
-
-  if (ct.includes("application/json")) {
-    const body = (await req.json()) as {
-      date: string;
-      description: string;
-      amount: number;
-      balance?: number | null;
-    };
-    if (!body.date || !body.description || body.amount == null) {
-      return NextResponse.json({ error: "date, description, amount は必須です" }, { status: 400 });
-    }
-    const txn = await db.bankTransaction.create({
-      data: {
-        accountId,
-        date: new Date(body.date),
-        description: body.description,
-        amount: body.amount,
-        balance: body.balance ?? null,
-        source: "MANUAL",
-      },
+    const txns = await db.bankTransaction.findMany({
+      where: { accountId: id },
+      orderBy: { date: "desc" },
+      take: 200,
     });
-    await writeAudit(auth.user.id, "create_txn", `bank_account:${accountId}:${txn.id}`);
-    return NextResponse.json(
-      {
+    return NextResponse.json({
+      data: txns.map((t) => ({
+        ...t,
+        amount: Number(t.amount),
+        balance: t.balance ? Number(t.balance) : null,
+      })),
+    });
+  },
+});
+
+// POST /api/bank-accounts/[id]/transactions … 手動登録（JSON）/ CSV 取込（text）
+export const POST = withApi({
+  role: "editor",
+  handler: async ({ req, user, db, id, audit }) => {
+    const account = await db.bankAccount.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!account) throw notFound("account not found");
+
+    const ct = req.headers.get("content-type") ?? "";
+
+    if (ct.includes("application/json")) {
+      const parsed = TxnSchema.safeParse(await req.json());
+      if (!parsed.success) throw badRequest("date, description, amount は必須です");
+
+      const body = parsed.data;
+      const txn = await db.bankTransaction.create({
         data: {
-          ...txn,
-          amount: Number(txn.amount),
-          balance: txn.balance ? Number(txn.balance) : null,
+          accountId: id,
+          date: new Date(body.date),
+          description: body.description,
+          amount: body.amount,
+          balance: body.balance ?? null,
+          source: "MANUAL",
         },
-      },
-      { status: 201 },
-    );
-  }
+      });
+      await audit("create_txn", `bank_account:${id}:${txn.id}`);
+      return NextResponse.json(
+        {
+          data: {
+            ...txn,
+            amount: Number(txn.amount),
+            balance: txn.balance ? Number(txn.balance) : null,
+          },
+        },
+        { status: 201 },
+      );
+    }
 
-  const csv = await req.text();
-  if (!csv.trim()) return NextResponse.json({ error: "empty body" }, { status: 400 });
+    const csv = await req.text();
+    if (!csv.trim()) throw badRequest("empty body");
 
-  const { rows, errors } = parseBankCsv(csv, accountId);
-  let inserted = 0;
-  for (const r of rows) {
-    await db.bankTransaction.upsert({
-      where: { accountId_externalId: { accountId, externalId: r.externalId } },
-      update: {},
-      create: {
-        accountId,
-        date: new Date(r.date),
-        description: r.description,
-        amount: r.amount,
-        balance: r.balance,
-        source: "CSV",
-        externalId: r.externalId,
-      },
-    });
-    inserted++;
-  }
-  await writeAudit(auth.user.id, "import_txn", `bank_account:${accountId}:${inserted}`);
-  return NextResponse.json({ inserted, errors }, { status: errors.length ? 207 : 201 });
-}
+    const { rows, errors } = parseBankCsv(csv, id);
+    let inserted = 0;
+    for (const r of rows) {
+      await db.bankTransaction.upsert({
+        where: { accountId_externalId: { accountId: id, externalId: r.externalId } },
+        update: {},
+        create: {
+          accountId: id,
+          date: new Date(r.date),
+          description: r.description,
+          amount: r.amount,
+          balance: r.balance,
+          source: "CSV",
+          externalId: r.externalId,
+        },
+      });
+      inserted++;
+    }
+    await audit("import_txn", `bank_account:${id}:${inserted}`);
+    return NextResponse.json({ inserted, errors }, { status: errors.length ? 207 : 201 });
+  },
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// DELETE /api/bank-accounts/[id]/transactions?txnId= … 明細 1 件の削除
+export const DELETE = withApi({
+  role: "editor",
+  querySchema: z.object({ txnId: z.coerce.number().int().positive() }),
+  handler: async ({ user, db, id, query, audit }) => {
+    const account = await db.bankAccount.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!account) throw notFound();
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const accountId = Number((await params).id);
-  const account = await db.bankAccount.findUnique({ where: { id: accountId, tenantId } });
-  if (!account) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const txnId = Number(req.nextUrl.searchParams.get("txnId"));
-  if (!txnId) return NextResponse.json({ error: "txnId が必要です" }, { status: 400 });
-
-  await db.bankTransaction.delete({ where: { id: txnId, accountId } });
-  await writeAudit(auth.user.id, "delete_txn", `bank_account:${accountId}:${txnId}`);
-  return NextResponse.json({ ok: true });
-}
+    await db.bankTransaction.delete({ where: { id: query.txnId, accountId: id } });
+    await audit("delete_txn", `bank_account:${id}:${query.txnId}`);
+    return NextResponse.json({ ok: true });
+  },
+});

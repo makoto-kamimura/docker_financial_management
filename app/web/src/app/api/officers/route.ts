@@ -1,50 +1,44 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { zDate } from "@/lib/zod-helpers";
 
-export async function GET(_req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const OfficerSchema = z.object({
+  name: z.string().min(1),
+  title: z.string().min(1),
+  termStart: zDate,
+  termEnd: zDate,
+  salary: z.number().optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const officers = await db.officer.findMany({
-    where: { tenantId },
-    include: { tenant: { select: { id: true, name: true } } },
-    orderBy: { termStart: "asc" },
-  });
-  return NextResponse.json({ data: officers });
-}
+// GET /api/officers … 役員一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db }) => {
+    const officers = await db.officer.findMany({
+      where: { tenantId: user.tenantId },
+      include: { tenant: { select: { id: true, name: true } } },
+      orderBy: { termStart: "asc" },
+    });
+    return NextResponse.json({ data: officers });
+  },
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    name: string;
-    title: string;
-    termStart: string;
-    termEnd: string;
-    salary?: number;
-  };
-  if (!body.name || !body.title || !body.termStart || !body.termEnd) {
-    return NextResponse.json(
-      { error: "name, title, termStart, termEnd are required" },
-      { status: 400 },
-    );
-  }
-
-  const officer = await db.officer.create({
-    data: {
-      tenantId,
-      name: body.name,
-      title: body.title,
-      termStart: new Date(body.termStart),
-      termEnd: new Date(body.termEnd),
-      salary: body.salary ?? null,
-    },
-  });
-  return NextResponse.json({ data: officer }, { status: 201 });
-}
+// POST /api/officers … 役員の登録（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: OfficerSchema,
+  handler: async ({ user, db, body }) => {
+    const officer = await db.officer.create({
+      data: {
+        tenantId: user.tenantId,
+        name: body.name,
+        title: body.title,
+        termStart: body.termStart,
+        termEnd: body.termEnd,
+        salary: body.salary ?? null,
+      },
+    });
+    return NextResponse.json({ data: officer }, { status: 201 });
+  },
+});

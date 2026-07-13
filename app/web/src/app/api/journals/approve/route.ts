@@ -1,94 +1,84 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
 
-export async function GET(req: NextRequest) {
-  const auth = await requireRole("accountant");
-  if (auth.error) return auth.error;
+const ApproveSchema = z.object({
+  journalEntryId: z.number().int().positive(),
+  action: z.enum(["submit", "approve", "reject"]),
+  comment: z.string().optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const status = req.nextUrl.searchParams.get("status") ?? "pending";
-  const year = req.nextUrl.searchParams.get("year");
-  const q = req.nextUrl.searchParams.get("q");
-
-  const where: Prisma.JournalEntryWhereInput = { tenantId, approvalStatus: status };
-  if (year) {
-    where.transactionDate = {
-      gte: new Date(`${year}-01-01`),
-      lt: new Date(`${Number(year) + 1}-01-01`),
+// GET /api/journals/approve?status=&year=&q= … 承認対象の仕訳一覧（accountant 以上）
+export const GET = withApi({
+  role: "accountant",
+  querySchema: z.object({
+    status: z.string().default("pending"),
+    year: z.coerce.number().int().optional(),
+    q: z.string().optional(),
+  }),
+  handler: async ({ user, db, query }) => {
+    const where: Prisma.JournalEntryWhereInput = {
+      tenantId: user.tenantId,
+      approvalStatus: query.status,
     };
-  }
-  if (q) {
-    where.description = { contains: q, mode: "insensitive" };
-  }
+    if (query.year) {
+      where.transactionDate = {
+        gte: new Date(`${query.year}-01-01`),
+        lt: new Date(`${query.year + 1}-01-01`),
+      };
+    }
+    if (query.q) {
+      where.description = { contains: query.q, mode: "insensitive" };
+    }
 
-  const journals = await db.journalEntry.findMany({
-    where,
-    include: {
-      details: { include: { account: { select: { code: true, name: true } } } },
-      approvals: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        include: { actor: { select: { id: true, name: true } } },
+    const journals = await db.journalEntry.findMany({
+      where,
+      include: {
+        details: { include: { account: { select: { code: true, name: true } } } },
+        approvals: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: { actor: { select: { id: true, name: true } } },
+        },
       },
-    },
-    orderBy: { transactionDate: "desc" },
-    take: 100,
-  });
+      orderBy: { transactionDate: "desc" },
+      take: 100,
+    });
 
-  return NextResponse.json({ data: journals });
-}
+    return NextResponse.json({ data: journals });
+  },
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("accountant");
-  if (auth.error) return auth.error;
+// POST /api/journals/approve … 承認アクション（submit / approve / reject）
+export const POST = withApi({
+  role: "accountant",
+  schema: ApproveSchema,
+  handler: async ({ user, db, body }) => {
+    const entry = await db.journalEntry.findUnique({
+      where: { id: body.journalEntryId, tenantId: user.tenantId },
+    });
+    if (!entry) throw notFound();
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    journalEntryId: number;
-    action: "submit" | "approve" | "reject";
-    comment?: string;
-  };
+    const statusMap = { submit: "pending", approve: "approved", reject: "rejected" } as const;
+    const actionMap = { submit: "submitted", approve: "approved", reject: "rejected" } as const;
 
-  if (!body.journalEntryId || !body.action) {
-    return NextResponse.json({ error: "journalEntryId and action are required" }, { status: 400 });
-  }
+    const [, approval] = await db.$transaction([
+      db.journalEntry.update({
+        where: { id: body.journalEntryId },
+        data: { approvalStatus: statusMap[body.action] },
+      }),
+      db.journalApproval.create({
+        data: {
+          journalEntryId: body.journalEntryId,
+          action: actionMap[body.action],
+          actorId: user.id,
+          comment: body.comment ?? null,
+        },
+      }),
+    ]);
 
-  const entry = await db.journalEntry.findUnique({
-    where: { id: body.journalEntryId, tenantId },
-  });
-  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const statusMap: Record<string, string> = {
-    submit: "pending",
-    approve: "approved",
-    reject: "rejected",
-  };
-  const newStatus = statusMap[body.action];
-  if (!newStatus) return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-
-  const [, approval] = await db.$transaction([
-    db.journalEntry.update({
-      where: { id: body.journalEntryId },
-      data: { approvalStatus: newStatus },
-    }),
-    db.journalApproval.create({
-      data: {
-        journalEntryId: body.journalEntryId,
-        action:
-          body.action === "submit"
-            ? "submitted"
-            : body.action === "approve"
-              ? "approved"
-              : "rejected",
-        actorId: auth.user!.id,
-        comment: body.comment ?? null,
-      },
-    }),
-  ]);
-
-  return NextResponse.json({ data: approval }, { status: 201 });
-}
+    return NextResponse.json({ data: approval }, { status: 201 });
+  },
+});

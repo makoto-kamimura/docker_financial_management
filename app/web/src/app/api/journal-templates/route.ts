@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
 
 const INCLUDE = {
   lines: {
@@ -9,57 +9,55 @@ const INCLUDE = {
   },
 };
 
-export async function GET(_req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const LineSchema = z.object({
+  side: z.string().min(1),
+  accountId: z.number().int().positive(),
+  amount: z.number().optional(),
+  note: z.string().optional(),
+  sortOrder: z.number().int().optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const templates = await db.journalTemplate.findMany({
-    where: { tenantId },
-    include: INCLUDE,
-    orderBy: { id: "asc" },
-  });
-  return NextResponse.json({ data: templates });
-}
+const TemplateSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  lines: z.array(LineSchema).min(1),
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// GET /api/journal-templates … 仕訳テンプレート一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db }) => {
+    const templates = await db.journalTemplate.findMany({
+      where: { tenantId: user.tenantId },
+      include: INCLUDE,
+      orderBy: { id: "asc" },
+    });
+    return NextResponse.json({ data: templates });
+  },
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    name: string;
-    description?: string;
-    lines: {
-      side: string;
-      accountId: number;
-      amount?: number;
-      note?: string;
-      sortOrder?: number;
-    }[];
-  };
-  if (!body.name || !body.lines?.length) {
-    return NextResponse.json({ error: "name and lines are required" }, { status: 400 });
-  }
-
-  const template = await db.journalTemplate.create({
-    data: {
-      tenantId,
-      name: body.name,
-      description: body.description ?? null,
-      lines: {
-        create: body.lines.map((l, i) => ({
-          side: l.side,
-          accountId: l.accountId,
-          amount: l.amount ?? null,
-          note: l.note ?? null,
-          sortOrder: l.sortOrder ?? i,
-        })),
+// POST /api/journal-templates … 仕訳テンプレートの登録（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: TemplateSchema,
+  handler: async ({ user, db, body }) => {
+    const template = await db.journalTemplate.create({
+      data: {
+        tenantId: user.tenantId,
+        name: body.name,
+        description: body.description ?? null,
+        lines: {
+          create: body.lines.map((l, i) => ({
+            side: l.side,
+            accountId: l.accountId,
+            amount: l.amount ?? null,
+            note: l.note ?? null,
+            sortOrder: l.sortOrder ?? i,
+          })),
+        },
       },
-    },
-    include: INCLUDE,
-  });
-  return NextResponse.json({ data: template }, { status: 201 });
-}
+      include: INCLUDE,
+    });
+    return NextResponse.json({ data: template }, { status: 201 });
+  },
+});

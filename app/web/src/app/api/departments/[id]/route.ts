@@ -1,56 +1,42 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
+import { conflict, notFound } from "@/lib/api-error";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
   manager: z.string().optional().nullable(),
 });
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// PATCH /api/departments/[id] … 部門の更新（editor 以上）
+export const PATCH = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body, audit }) => {
+    const existing = await db.department.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const deptId = parseInt(id, 10);
-  if (isNaN(deptId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    const dept = await db.department.update({ where: { id }, data: body });
+    await audit("update", `department:${id}`);
+    return NextResponse.json({ data: dept });
+  },
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.department.findUnique({ where: { id: deptId, tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+// DELETE /api/departments/[id] … 部門の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id, audit }) => {
+    const { tenantId } = user;
+    const existing = await db.department.findUnique({ where: { id, tenantId } });
+    if (!existing) throw notFound();
 
-  const parsed = UpdateSchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    const hasRecords = await db.financialRecord.findFirst({
+      where: { departmentId: id, tenantId },
+    });
+    if (hasRecords) throw conflict("実績データが存在するため削除できません");
 
-  const dept = await db.department.update({ where: { id: deptId }, data: parsed.data });
-  await writeAudit(auth.user.id, "update", `department:${deptId}`);
-  return NextResponse.json({ data: dept });
-}
-
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const deptId = parseInt(id, 10);
-  if (isNaN(deptId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.department.findUnique({ where: { id: deptId, tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const hasRecords = await db.financialRecord.findFirst({
-    where: { departmentId: deptId, tenantId },
-  });
-  if (hasRecords) {
-    return NextResponse.json({ error: "実績データが存在するため削除できません" }, { status: 409 });
-  }
-
-  await db.department.delete({ where: { id: deptId } });
-  await writeAudit(auth.user.id, "delete", `department:${deptId}`);
-  return new NextResponse(null, { status: 204 });
-}
+    await db.department.delete({ where: { id } });
+    await audit("delete", `department:${id}`);
+    return new NextResponse(null, { status: 204 });
+  },
+});

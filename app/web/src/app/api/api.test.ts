@@ -3,6 +3,7 @@
  * DB に接続せず、Route Handler のビジネスロジック・バリデーション・レスポンス形式を検証する。
  */
 import { describe, it, expect, vi } from "vitest";
+import { emptyRouteContext } from "@/lib/api-handler";
 
 // ── Prisma モック ─────────────────────────────────────────────────────────
 vi.mock("@/lib/prisma", () => ({
@@ -113,7 +114,7 @@ describe("GET /api/tax-settings", () => {
   it("200 と data 配列を返す", async () => {
     const { GET } = await import("@/app/api/tax-settings/route");
     const req = makeReq("GET", "http://localhost:3000/api/tax-settings");
-    const res = await GET(req);
+    const res = await GET(req, emptyRouteContext());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json.data)).toBe(true);
@@ -124,7 +125,7 @@ describe("PUT /api/tax-settings", () => {
   it("taxYear・taxationType が必須", async () => {
     const { PUT } = await import("@/app/api/tax-settings/route");
     const req = makeReq("PUT", "http://localhost:3000/api/tax-settings", {});
-    const res = await PUT(req);
+    const res = await PUT(req, emptyRouteContext());
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBeTruthy();
@@ -143,7 +144,7 @@ describe("PUT /api/tax-settings", () => {
       taxYear: 2026,
       taxationType: "general",
     });
-    const res = await PUT(req);
+    const res = await PUT(req, emptyRouteContext());
     expect(res.status).toBe(200);
     expect(prisma.taxSetting.upsert).toHaveBeenCalled();
   });
@@ -153,7 +154,7 @@ describe("GET /api/inventories", () => {
   it("200 と data 配列を返す", async () => {
     const { GET } = await import("@/app/api/inventories/route");
     const req = makeReq("GET", "http://localhost:3000/api/inventories");
-    const res = await GET(req);
+    const res = await GET(req, emptyRouteContext());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json.data)).toBe(true);
@@ -164,7 +165,7 @@ describe("POST /api/inventories", () => {
   it("name と inventoryDate が必須", async () => {
     const { POST } = await import("@/app/api/inventories/route");
     const req = makeReq("POST", "http://localhost:3000/api/inventories", { items: [] });
-    const res = await POST(req);
+    const res = await POST(req, emptyRouteContext());
     expect(res.status).toBe(400);
   });
 
@@ -183,7 +184,7 @@ describe("POST /api/inventories", () => {
       valuationMethod: "average",
       items: [],
     });
-    const res = await POST(req);
+    const res = await POST(req, emptyRouteContext());
     expect(res.status).toBe(201);
     const call = (prisma.inventory.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.data.valuationMethod).toBe("average");
@@ -194,7 +195,7 @@ describe("GET /api/tax-credit", () => {
   it("year パラメータで集計を返す", async () => {
     const { GET } = await import("@/app/api/tax-credit/route");
     const req = makeReq("GET", "http://localhost:3000/api/tax-credit?year=2026");
-    const res = await GET(req);
+    const res = await GET(req, emptyRouteContext());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data.year).toBe(2026);
@@ -206,7 +207,7 @@ describe("GET /api/journals/approve", () => {
   it("承認待ち一覧を返す", async () => {
     const { GET } = await import("@/app/api/journals/approve/route");
     const req = makeReq("GET", "http://localhost:3000/api/journals/approve?status=pending");
-    const res = await GET(req);
+    const res = await GET(req, emptyRouteContext());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json.data)).toBe(true);
@@ -217,7 +218,7 @@ describe("POST /api/journals/approve", () => {
   it("journalEntryId と action が必須", async () => {
     const { POST } = await import("@/app/api/journals/approve/route");
     const req = makeReq("POST", "http://localhost:3000/api/journals/approve", {});
-    const res = await POST(req);
+    const res = await POST(req, emptyRouteContext());
     expect(res.status).toBe(400);
   });
 
@@ -232,7 +233,7 @@ describe("POST /api/journals/approve", () => {
       journalEntryId: 1,
       action: "invalid",
     });
-    const res = await POST(req);
+    const res = await POST(req, emptyRouteContext());
     expect(res.status).toBe(400);
   });
 
@@ -251,7 +252,7 @@ describe("POST /api/journals/approve", () => {
       journalEntryId: 1,
       action: "submit",
     });
-    const res = await POST(req);
+    const res = await POST(req, emptyRouteContext());
     expect(res.status).toBe(201);
   });
 });
@@ -260,7 +261,7 @@ describe("GET /api/loans", () => {
   it("200 と data 配列を返す", async () => {
     const { GET } = await import("@/app/api/loans/route");
     const req = makeReq("GET", "http://localhost:3000/api/loans");
-    const res = await GET(req);
+    const res = await GET(req, emptyRouteContext());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json.data)).toBe(true);
@@ -271,7 +272,7 @@ describe("GET /api/tenants", () => {
   it("200 と data 配列を返す", async () => {
     const { GET } = await import("@/app/api/tenants/route");
     const req = makeReq("GET", "http://localhost:3000/api/tenants");
-    const res = await GET(req);
+    const res = await GET(req, emptyRouteContext());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json.data)).toBe(true);
@@ -282,7 +283,7 @@ describe("GET /api/closing/statements", () => {
   it("fiscalYear と ratios を含むレスポンスを返す", async () => {
     const { GET } = await import("@/app/api/closing/statements/route");
     const req = makeReq("GET", "http://localhost:3000/api/closing/statements?year=2026");
-    const res = await GET(req);
+    const res = await GET(req, emptyRouteContext());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.fiscalYear).toBe(2026);
@@ -295,7 +296,10 @@ describe("GET /api/closing/statements", () => {
 describe("GET /api/business-profile", () => {
   it("200 を返す（データなし時は data: null）", async () => {
     const { GET } = await import("@/app/api/business-profile/route");
-    const res = await GET();
+    const res = await GET(
+      makeReq("GET", "http://localhost:3000/api/business-profile"),
+      emptyRouteContext(),
+    );
     expect(res.status).toBe(200);
   });
 });

@@ -1,17 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// DELETE /api/announcements/[id] … 決算公告の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.announcement.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.announcement.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.announcement.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.announcement.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

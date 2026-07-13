@@ -1,69 +1,63 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-
-type Params = { params: Promise<{ id: string }> };
+import { withApi } from "@/lib/api-handler";
+import { badRequest, notFound } from "@/lib/api-error";
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads");
 
-export async function GET(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+// GET /api/journals/[id]/receipts … 証憑一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db, id }) => {
+    const entry = await db.journalEntry.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!entry) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const entry = await db.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
-  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const receipts = await db.receipt.findMany({
+      where: { journalEntryId: id },
+      orderBy: { uploadedAt: "desc" },
+    });
+    return NextResponse.json({ data: receipts });
+  },
+});
 
-  const receipts = await db.receipt.findMany({
-    where: { journalEntryId: Number(id) },
-    orderBy: { uploadedAt: "desc" },
-  });
-  return NextResponse.json({ data: receipts });
-}
+// POST /api/journals/[id]/receipts … 証憑アップロード（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  handler: async ({ req, user, db, id }) => {
+    const entry = await db.journalEntry.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!entry) throw notFound();
 
-export async function POST(req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
+    if (!file) throw badRequest("file is required");
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const entry = await db.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
-  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (!existsSync(UPLOAD_DIR)) {
+      await mkdir(UPLOAD_DIR, { recursive: true });
+    }
 
-  const formData = await req.formData();
-  const file = formData.get("file") as File | null;
-  if (!file) return NextResponse.json({ error: "file is required" }, { status: 400 });
+    const ext = file.name.split(".").pop() ?? "";
+    const savedName = `${randomUUID()}.${ext}`;
+    const bytes = await file.arrayBuffer();
+    await writeFile(path.join(UPLOAD_DIR, savedName), Buffer.from(bytes));
 
-  if (!existsSync(UPLOAD_DIR)) {
-    await mkdir(UPLOAD_DIR, { recursive: true });
-  }
+    const fileType = file.type.startsWith("image/")
+      ? "image"
+      : file.type === "application/pdf"
+        ? "pdf"
+        : "other";
 
-  const ext = file.name.split(".").pop() ?? "";
-  const savedName = `${randomUUID()}.${ext}`;
-  const bytes = await file.arrayBuffer();
-  await writeFile(path.join(UPLOAD_DIR, savedName), Buffer.from(bytes));
-
-  const fileType = file.type.startsWith("image/")
-    ? "image"
-    : file.type === "application/pdf"
-      ? "pdf"
-      : "other";
-
-  const receipt = await db.receipt.create({
-    data: {
-      journalEntryId: Number(id),
-      fileName: file.name,
-      fileUrl: `/api/uploads/${savedName}`,
-      fileType,
-      fileSize: file.size,
-    },
-  });
-  return NextResponse.json({ data: receipt }, { status: 201 });
-}
+    const receipt = await db.receipt.create({
+      data: {
+        journalEntryId: id,
+        fileName: file.name,
+        fileUrl: `/api/uploads/${savedName}`,
+        fileType,
+        fileSize: file.size,
+      },
+    });
+    return NextResponse.json({ data: receipt }, { status: 201 });
+  },
+});

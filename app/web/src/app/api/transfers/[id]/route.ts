@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
 
 const PatchSchema = z.object({
   fromAccountId: z.number().int().nullable().optional(),
@@ -15,35 +14,29 @@ const PatchSchema = z.object({
   note: z.string().optional(),
 });
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// PATCH /api/transfers/[id] … 資金移動ルールの更新（editor 以上）
+export const PATCH = withApi({
+  role: "editor",
+  schema: PatchSchema,
+  handler: async ({ user, db, id, body, audit }) => {
+    const existing = await db.transfer.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const id = Number((await params).id);
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.transfer.findUnique({ where: { id, tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const transfer = await db.transfer.update({ where: { id }, data: body });
+    await audit("update", `transfer:${id}`);
+    return NextResponse.json({ data: transfer });
+  },
+});
 
-  const parsed = PatchSchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+// DELETE /api/transfers/[id] … 資金移動ルールの削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id, audit }) => {
+    const existing = await db.transfer.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const transfer = await db.transfer.update({ where: { id }, data: parsed.data });
-  await writeAudit(auth.user.id, "update", `transfer:${id}`);
-  return NextResponse.json({ data: transfer });
-}
-
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const id = Number((await params).id);
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.transfer.findUnique({ where: { id, tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.transfer.delete({ where: { id } });
-  await writeAudit(auth.user.id, "delete", `transfer:${id}`);
-  return NextResponse.json({ ok: true });
-}
+    await db.transfer.delete({ where: { id } });
+    await audit("delete", `transfer:${id}`);
+    return NextResponse.json({ ok: true });
+  },
+});

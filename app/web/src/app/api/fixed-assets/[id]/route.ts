@@ -1,62 +1,57 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
 
-type Params = { params: Promise<{ id: string }> };
+const UpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  category: z.string().optional(),
+  disposedOn: z.string().nullable().optional(),
+});
 
-export async function GET(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+// GET /api/fixed-assets/[id] … 固定資産 1 件の取得
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db, id }) => {
+    const asset = await db.fixedAsset.findUnique({
+      where: { id, tenantId: user.tenantId },
+      include: { depreciations: { orderBy: { fiscalYear: "asc" } } },
+    });
+    if (!asset) throw notFound();
+    return NextResponse.json({ data: asset });
+  },
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const asset = await db.fixedAsset.findUnique({
-    where: { id: Number(id), tenantId },
-    include: { depreciations: { orderBy: { fiscalYear: "asc" } } },
-  });
-  if (!asset) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ data: asset });
-}
+// PUT /api/fixed-assets/[id] … 固定資産の更新（除却日設定を含む、editor 以上）
+export const PUT = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body }) => {
+    const existing = await db.fixedAsset.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-export async function PUT(req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+    const asset = await db.fixedAsset.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.category !== undefined && { category: body.category }),
+        ...(body.disposedOn !== undefined && {
+          disposedOn: body.disposedOn ? new Date(body.disposedOn) : null,
+        }),
+      },
+    });
+    return NextResponse.json({ data: asset });
+  },
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.fixedAsset.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+// DELETE /api/fixed-assets/[id] … 固定資産の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.fixedAsset.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const body = (await req.json()) as Partial<{
-    name: string;
-    category: string;
-    disposedOn: string | null;
-  }>;
-  const asset = await db.fixedAsset.update({
-    where: { id: Number(id) },
-    data: {
-      ...(body.name !== undefined && { name: body.name }),
-      ...(body.category !== undefined && { category: body.category }),
-      ...(body.disposedOn !== undefined && {
-        disposedOn: body.disposedOn ? new Date(body.disposedOn) : null,
-      }),
-    },
-  });
-  return NextResponse.json({ data: asset });
-}
-
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.fixedAsset.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.fixedAsset.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.fixedAsset.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

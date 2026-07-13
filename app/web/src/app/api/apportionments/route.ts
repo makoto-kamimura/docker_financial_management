@@ -1,65 +1,55 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
 
-export async function GET(_req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const ApportionmentSchema = z.object({
+  accountId: z.number().int().positive(),
+  businessRate: z.number().min(0).max(100),
+  description: z.string().optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const list = await db.apportionment.findMany({
-    where: { tenantId },
-    include: { account: { select: { id: true, code: true, name: true, category: true } } },
-    orderBy: { account: { code: "asc" } },
-  });
-  return NextResponse.json({ data: list });
-}
+// GET /api/apportionments … 家事按分一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db }) => {
+    const list = await db.apportionment.findMany({
+      where: { tenantId: user.tenantId },
+      include: { account: { select: { id: true, code: true, name: true, category: true } } },
+      orderBy: { account: { code: "asc" } },
+    });
+    return NextResponse.json({ data: list });
+  },
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// POST /api/apportionments … 家事按分の登録・更新（科目単位 upsert、editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: ApportionmentSchema,
+  handler: async ({ user, db, body }) => {
+    const { tenantId } = user;
+    const record = await db.apportionment.upsert({
+      where: { tenantId_accountId: { tenantId, accountId: body.accountId } },
+      update: { businessRate: body.businessRate, description: body.description ?? null },
+      create: {
+        tenantId,
+        accountId: body.accountId,
+        businessRate: body.businessRate,
+        description: body.description ?? null,
+      },
+      include: { account: { select: { id: true, code: true, name: true, category: true } } },
+    });
+    return NextResponse.json({ data: record });
+  },
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    accountId: number;
-    businessRate: number;
-    description?: string;
-  };
-
-  if (!body.accountId || body.businessRate === undefined) {
-    return NextResponse.json({ error: "accountId and businessRate are required" }, { status: 400 });
-  }
-  if (body.businessRate < 0 || body.businessRate > 100) {
-    return NextResponse.json({ error: "businessRate must be 0-100" }, { status: 400 });
-  }
-
-  const record = await db.apportionment.upsert({
-    where: { tenantId_accountId: { tenantId, accountId: body.accountId } },
-    update: { businessRate: body.businessRate, description: body.description ?? null },
-    create: {
-      tenantId,
-      accountId: body.accountId,
-      businessRate: body.businessRate,
-      description: body.description ?? null,
-    },
-    include: { account: { select: { id: true, code: true, name: true, category: true } } },
-  });
-  return NextResponse.json({ data: record });
-}
-
-export async function DELETE(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const accountId = Number(req.nextUrl.searchParams.get("accountId"));
-  if (!accountId) return NextResponse.json({ error: "accountId is required" }, { status: 400 });
-
-  await db.apportionment.delete({
-    where: { tenantId_accountId: { tenantId, accountId } },
-  });
-  return NextResponse.json({ ok: true });
-}
+// DELETE /api/apportionments?accountId= … 家事按分の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  querySchema: z.object({ accountId: z.coerce.number().int().positive() }),
+  handler: async ({ user, db, query }) => {
+    await db.apportionment.delete({
+      where: { tenantId_accountId: { tenantId: user.tenantId, accountId: query.accountId } },
+    });
+    return NextResponse.json({ ok: true });
+  },
+});

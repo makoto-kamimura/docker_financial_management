@@ -1,47 +1,46 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { badRequest, notFound } from "@/lib/api-error";
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+const RepaySchema = z.object({
+  repaidOn: z.string().min(1),
+  principal: z.number().min(0),
+  interest: z.number().min(0).default(0),
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as { repaidOn: string; principal: number; interest: number };
-  if (!body.repaidOn || body.principal === undefined) {
-    return NextResponse.json({ error: "repaidOn and principal are required" }, { status: 400 });
-  }
+// POST /api/loans/[id]/repay … 返済記録の登録と残高更新（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: RepaySchema,
+  handler: async ({ user, db, id, body }) => {
+    const loan = await db.loan.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!loan) throw notFound();
+    if (loan.status === "repaid") throw badRequest("already repaid");
 
-  const loan = await db.loan.findUnique({ where: { id: Number(id), tenantId } });
-  if (!loan) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (loan.status === "repaid")
-    return NextResponse.json({ error: "already repaid" }, { status: 400 });
+    const { principal, interest } = body;
+    const newRemaining = Number(loan.remainingAmount) - principal;
 
-  const principal = body.principal;
-  const interest = body.interest ?? 0;
-  const newRemaining = Number(loan.remainingAmount) - principal;
-
-  const repayment = await db.$transaction(async (tx) => {
-    const r = await tx.loanRepayment.create({
-      data: {
-        loanId: Number(id),
-        repaidOn: new Date(body.repaidOn),
-        principal,
-        interest,
-        totalAmount: principal + interest,
-      },
+    const repayment = await db.$transaction(async (tx) => {
+      const r = await tx.loanRepayment.create({
+        data: {
+          loanId: id,
+          repaidOn: new Date(body.repaidOn),
+          principal,
+          interest,
+          totalAmount: principal + interest,
+        },
+      });
+      await tx.loan.update({
+        where: { id },
+        data: {
+          remainingAmount: newRemaining < 0 ? 0 : newRemaining,
+          status: newRemaining <= 0 ? "repaid" : "active",
+        },
+      });
+      return r;
     });
-    await tx.loan.update({
-      where: { id: Number(id) },
-      data: {
-        remainingAmount: newRemaining < 0 ? 0 : newRemaining,
-        status: newRemaining <= 0 ? "repaid" : "active",
-      },
-    });
-    return r;
-  });
 
-  return NextResponse.json({ data: repayment }, { status: 201 });
-}
+    return NextResponse.json({ data: repayment }, { status: 201 });
+  },
+});

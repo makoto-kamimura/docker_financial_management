@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
+import { requireAccountByCode } from "@/lib/period";
 
 const TYPES = ["BANK", "CREDIT_CARD"] as const;
 
@@ -15,58 +15,43 @@ const UpdateSchema = z.object({
   note: z.string().optional().nullable(),
 });
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// PATCH /api/linked-accounts/[id] … 口座・カードの更新（editor 以上）
+export const PATCH = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body, audit }) => {
+    const { tenantId } = user;
+    const existing = await db.linkedAccount.findUnique({ where: { id, tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const itemId = parseInt(id, 10);
-  if (isNaN(itemId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    const { accountCode, ...fields } = body;
+    let accountId: number | null | undefined;
+    if (accountCode === null || accountCode === "") {
+      accountId = null;
+    } else if (accountCode) {
+      const acct = await requireAccountByCode(db, tenantId, accountCode);
+      accountId = acct.id;
+    }
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.linkedAccount.findUnique({ where: { id: itemId, tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const parsed = UpdateSchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-
-  const { accountCode, ...fields } = parsed.data;
-  let accountId: number | null | undefined;
-  if (accountCode === null || accountCode === "") {
-    accountId = null;
-  } else if (accountCode) {
-    const acct = await db.account.findUnique({
-      where: { tenantId_code: { tenantId, code: accountCode } },
+    const item = await db.linkedAccount.update({
+      where: { id },
+      data: { ...fields, ...(accountId !== undefined ? { accountId } : {}) },
+      include: { account: { select: { id: true, code: true, name: true } } },
     });
-    if (!acct)
-      return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
-    accountId = acct.id;
-  }
+    await audit("update", `linked_account:${id}`);
+    return NextResponse.json({ data: item });
+  },
+});
 
-  const item = await db.linkedAccount.update({
-    where: { id: itemId },
-    data: { ...fields, ...(accountId !== undefined ? { accountId } : {}) },
-    include: { account: { select: { id: true, code: true, name: true } } },
-  });
-  await writeAudit(auth.user.id, "update", `linked_account:${itemId}`);
-  return NextResponse.json({ data: item });
-}
+// DELETE /api/linked-accounts/[id] … 口座・カードの削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id, audit }) => {
+    const existing = await db.linkedAccount.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const itemId = parseInt(id, 10);
-  if (isNaN(itemId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.linkedAccount.findUnique({ where: { id: itemId, tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.linkedAccount.delete({ where: { id: itemId } });
-  await writeAudit(auth.user.id, "delete", `linked_account:${itemId}`);
-  return new NextResponse(null, { status: 204 });
-}
+    await db.linkedAccount.delete({ where: { id } });
+    await audit("delete", `linked_account:${id}`);
+    return new NextResponse(null, { status: 204 });
+  },
+});

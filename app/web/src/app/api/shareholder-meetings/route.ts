@@ -1,45 +1,42 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { zDate } from "@/lib/zod-helpers";
 
-export async function GET(_req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const MeetingSchema = z.object({
+  meetingDate: zDate,
+  meetingType: z.string().default("regular"),
+  agenda: z.string().min(1),
+  resolution: z.string().optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const meetings = await db.shareholderMeeting.findMany({
-    where: { tenantId },
-    include: { tenant: { select: { id: true, name: true } } },
-    orderBy: { meetingDate: "desc" },
-  });
-  return NextResponse.json({ data: meetings });
-}
+// GET /api/shareholder-meetings … 株主総会一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db }) => {
+    const meetings = await db.shareholderMeeting.findMany({
+      where: { tenantId: user.tenantId },
+      include: { tenant: { select: { id: true, name: true } } },
+      orderBy: { meetingDate: "desc" },
+    });
+    return NextResponse.json({ data: meetings });
+  },
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    meetingDate: string;
-    meetingType?: string;
-    agenda: string;
-    resolution?: string;
-  };
-  if (!body.meetingDate || !body.agenda) {
-    return NextResponse.json({ error: "meetingDate, agenda are required" }, { status: 400 });
-  }
-
-  const meeting = await db.shareholderMeeting.create({
-    data: {
-      tenantId,
-      meetingDate: new Date(body.meetingDate),
-      meetingType: body.meetingType ?? "regular",
-      agenda: body.agenda,
-      resolution: body.resolution ?? null,
-    },
-  });
-  return NextResponse.json({ data: meeting }, { status: 201 });
-}
+// POST /api/shareholder-meetings … 株主総会の登録（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: MeetingSchema,
+  handler: async ({ user, db, body }) => {
+    const meeting = await db.shareholderMeeting.create({
+      data: {
+        tenantId: user.tenantId,
+        meetingDate: body.meetingDate,
+        meetingType: body.meetingType,
+        agenda: body.agenda,
+        resolution: body.resolution ?? null,
+      },
+    });
+    return NextResponse.json({ data: meeting }, { status: 201 });
+  },
+});

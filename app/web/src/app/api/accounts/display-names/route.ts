@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
+import { forbidden } from "@/lib/api-error";
 
 // 各科目の個人事業主モード / 法人モードでの表示名を一括更新する。
 // 空文字は null（＝家庭科目名 name にフォールバック）として保存する。
@@ -24,56 +23,51 @@ const norm = (v: string | null | undefined): string | null => {
   return t === "" ? null : t;
 };
 
-export async function PUT(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// PUT /api/accounts/display-names … モード別科目表示名の一括更新（editor 以上）
+export const PUT = withApi({
+  role: "editor",
+  schema: BulkSchema,
+  handler: async ({ user, db, body, audit }) => {
+    const { tenantId } = user;
+    const ids = body.items.map((i) => i.id);
 
-  const parsed = BulkSchema.safeParse(await req.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
+    // 対象科目がすべて自テナントに属することを確認（他テナントの科目名は変更不可）
+    const owned = await db.account.findMany({
+      where: { id: { in: ids }, tenantId },
+      select: { id: true },
+    });
+    const ownedIds = new Set(owned.map((a) => a.id));
+    if (ids.some((id) => !ownedIds.has(id))) {
+      throw forbidden("一部の科目が存在しないか、権限がありません");
+    }
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const ids = parsed.data.items.map((i) => i.id);
-
-  // 対象科目がすべて自テナントに属することを確認（他テナントの科目名は変更不可）
-  const owned = await db.account.findMany({
-    where: { id: { in: ids }, tenantId },
-    select: { id: true },
-  });
-  const ownedIds = new Set(owned.map((a) => a.id));
-  if (ids.some((id) => !ownedIds.has(id))) {
-    return NextResponse.json(
-      { error: "一部の科目が存在しないか、権限がありません" },
-      { status: 403 },
+    await db.$transaction(
+      body.items.map((item) =>
+        db.account.update({
+          where: { id: item.id },
+          data: {
+            ...(item.soleName !== undefined ? { soleName: norm(item.soleName) } : {}),
+            ...(item.corporateName !== undefined
+              ? { corporateName: norm(item.corporateName) }
+              : {}),
+          },
+        }),
+      ),
     );
-  }
+    await audit("update", `account-display-names:${ids.length}`);
 
-  await db.$transaction(
-    parsed.data.items.map((item) =>
-      db.account.update({
-        where: { id: item.id },
-        data: {
-          ...(item.soleName !== undefined ? { soleName: norm(item.soleName) } : {}),
-          ...(item.corporateName !== undefined ? { corporateName: norm(item.corporateName) } : {}),
-        },
-      }),
-    ),
-  );
-  await writeAudit(auth.user.id, "update", `account-display-names:${ids.length}`);
-
-  const accounts = await db.account.findMany({
-    where: { tenantId },
-    orderBy: { code: "asc" },
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      soleName: true,
-      corporateName: true,
-      category: true,
-    },
-  });
-  return NextResponse.json({ data: accounts });
-}
+    const accounts = await db.account.findMany({
+      where: { tenantId },
+      orderBy: { code: "asc" },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        soleName: true,
+        corporateName: true,
+        category: true,
+      },
+    });
+    return NextResponse.json({ data: accounts });
+  },
+});

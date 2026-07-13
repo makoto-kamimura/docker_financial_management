@@ -1,55 +1,42 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
 
 const UpdateSchema = z.object({ amount: z.number() });
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// PATCH /api/financials/[id] … 実績金額の更新（履歴付き、editor 以上）
+export const PATCH = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body, audit }) => {
+    const before = await db.financialRecord.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!before) throw notFound();
 
-  const { id } = await params;
-  const recordId = parseInt(id, 10);
-  if (isNaN(recordId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    const record = await db.financialRecord.update({
+      where: { id },
+      data: { amount: body.amount },
+    });
+    await db.financialRecordHistory.create({
+      data: { recordId: id, userId: user.id, action: "update", amount: body.amount },
+    });
+    await audit("update", `financial_record:${id}`);
+    return NextResponse.json({ data: record });
+  },
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const before = await db.financialRecord.findUnique({ where: { id: recordId, tenantId } });
-  if (!before) return NextResponse.json({ error: "not found" }, { status: 404 });
+// DELETE /api/financials/[id] … 実績の削除（履歴付き、editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id, audit }) => {
+    const record = await db.financialRecord.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!record) throw notFound();
 
-  const parsed = UpdateSchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-
-  const record = await db.financialRecord.update({
-    where: { id: recordId },
-    data: { amount: parsed.data.amount },
-  });
-  await db.financialRecordHistory.create({
-    data: { recordId, userId: auth.user.id, action: "update", amount: parsed.data.amount },
-  });
-  await writeAudit(auth.user.id, "update", `financial_record:${recordId}`);
-  return NextResponse.json({ data: record });
-}
-
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const recordId = parseInt(id, 10);
-  if (isNaN(recordId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const record = await db.financialRecord.findUnique({ where: { id: recordId, tenantId } });
-  if (!record) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.financialRecordHistory.create({
-    data: { recordId, userId: auth.user.id, action: "delete", amount: record.amount },
-  });
-  await db.financialRecord.delete({ where: { id: recordId } });
-  await writeAudit(auth.user.id, "delete", `financial_record:${recordId}`);
-  return new NextResponse(null, { status: 204 });
-}
+    await db.financialRecordHistory.create({
+      data: { recordId: id, userId: user.id, action: "delete", amount: record.amount },
+    });
+    await db.financialRecord.delete({ where: { id } });
+    await audit("delete", `financial_record:${id}`);
+    return new NextResponse(null, { status: 204 });
+  },
+});

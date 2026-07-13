@@ -1,47 +1,47 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
+import { zDate } from "@/lib/zod-helpers";
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+const UpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  title: z.string().min(1).optional(),
+  termStart: zDate.optional(),
+  termEnd: zDate.optional(),
+  salary: z.number().optional(),
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.officer.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+// PUT /api/officers/[id] … 役員の更新（editor 以上）
+export const PUT = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body }) => {
+    const existing = await db.officer.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const body = (await req.json()) as {
-    name?: string;
-    title?: string;
-    termStart?: string;
-    termEnd?: string;
-    salary?: number;
-  };
-  const officer = await db.officer.update({
-    where: { id: Number(id) },
-    data: {
-      ...(body.name && { name: body.name }),
-      ...(body.title && { title: body.title }),
-      ...(body.termStart && { termStart: new Date(body.termStart) }),
-      ...(body.termEnd && { termEnd: new Date(body.termEnd) }),
-      salary: body.salary ?? undefined,
-    },
-  });
-  return NextResponse.json({ data: officer });
-}
+    const officer = await db.officer.update({
+      where: { id },
+      data: {
+        ...(body.name && { name: body.name }),
+        ...(body.title && { title: body.title }),
+        ...(body.termStart && { termStart: body.termStart }),
+        ...(body.termEnd && { termEnd: body.termEnd }),
+        salary: body.salary ?? undefined,
+      },
+    });
+    return NextResponse.json({ data: officer });
+  },
+});
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// DELETE /api/officers/[id] … 役員の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.officer.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.officer.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.officer.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.officer.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

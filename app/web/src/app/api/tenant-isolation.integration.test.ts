@@ -49,6 +49,7 @@ import { GET as receivableListGet } from "./receivables/route";
 import { GET as invoiceGet } from "./invoices/[id]/route";
 import { GET as bankTxnGet } from "./bank-accounts/[id]/transactions/route";
 import { GET as openbankingGet, POST as openbankingPost } from "./integrations/openbanking/route";
+import { emptyRouteContext } from "@/lib/api-handler";
 
 const SUFFIX = `iso_${Date.now()}`;
 
@@ -246,7 +247,10 @@ describe("テナント越境分離（テナント A として操作）", () => {
   });
 
   it("receivable 一覧: 自テナント A の行のみを返し、B の行は含まれない", async () => {
-    const res = await receivableListGet(makeReq("GET", "http://x/api/receivables"));
+    const res = await receivableListGet(
+      makeReq("GET", "http://x/api/receivables"),
+      emptyRouteContext(),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     const ids: number[] = body.data.map((r: { id: number }) => r.id);
@@ -267,6 +271,7 @@ describe("テナント越境分離（テナント A として操作）", () => {
   it("[回帰] openbanking accounts: 自テナント A の口座のみを返し、B の口座は含まれない", async () => {
     const res = await openbankingGet(
       makeReq("GET", "http://x/api/integrations/openbanking?action=accounts"),
+      emptyRouteContext(),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -281,6 +286,7 @@ describe("テナント越境分離（テナント A として操作）", () => {
         accountId: seed.bankAccountBId,
         transactions: [],
       }),
+      emptyRouteContext(),
     );
     expect(res.status).toBe(404);
   });

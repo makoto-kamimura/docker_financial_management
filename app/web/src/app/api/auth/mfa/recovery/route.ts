@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
+import { ApiError, badRequest, notFound } from "@/lib/api-error";
+import { verifyTotp } from "@/lib/totp";
 
 const RECOVERY_CODE_COUNT = 8;
 
@@ -17,45 +18,39 @@ function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-// POST /api/auth/mfa/recovery/generate — リカバリーコードの発行（MFA 有効時のみ）
+// POST /api/auth/mfa/recovery — リカバリーコードの発行（MFA 有効時のみ）
 // 既存コードは無効化される
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+export const POST = withApi({
+  role: "viewer",
+  handler: async ({ req, user: sessionUser, audit }) => {
+    // ボディ省略も許容する（TOTP 検証で本人確認するため）
+    const body = (await req.json().catch(() => ({}))) as { totp?: string };
 
-  const body = (await req.json().catch(() => ({}))) as { totp?: string };
+    const user = await prisma.user.findUnique({ where: { id: sessionUser.id } });
+    if (!user) throw notFound("user not found");
+    if (!user.mfaEnabled) throw badRequest("MFA が有効ではありません");
 
-  const user = await prisma.user.findUnique({ where: { id: auth.user.id } });
-  if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
-  if (!user.mfaEnabled) {
-    return NextResponse.json({ error: "MFA が有効ではありません" }, { status: 400 });
-  }
-
-  // TOTP コードで本人確認
-  if (user.totpSecret) {
-    const { verifyTotp } = await import("@/lib/totp");
-    if (!body.totp || !verifyTotp(user.totpSecret, body.totp)) {
-      return NextResponse.json({ error: "TOTP コードが正しくありません" }, { status: 401 });
+    // TOTP コードで本人確認
+    if (user.totpSecret) {
+      if (!body.totp || !verifyTotp(user.totpSecret, body.totp)) {
+        throw new ApiError(401, "TOTP コードが正しくありません");
+      }
     }
-  }
 
-  // 新規コードを生成
-  const codes = Array.from({ length: RECOVERY_CODE_COUNT }, () => {
-    const plain = generateCode();
-    return plain;
-  });
+    // 新規コードを生成
+    const codes = Array.from({ length: RECOVERY_CODE_COUNT }, () => generateCode());
+    const hashes = codes.map(hashCode);
 
-  const hashes = codes.map(hashCode);
+    await prisma.user.update({
+      where: { id: sessionUser.id },
+      data: { mfaRecoveryCodes: JSON.stringify(hashes) },
+    });
 
-  await prisma.user.update({
-    where: { id: auth.user.id },
-    data: { mfaRecoveryCodes: JSON.stringify(hashes) },
-  });
+    await audit("mfa_recovery_generate", `user:${sessionUser.id}`);
 
-  await writeAudit(auth.user.id, "mfa_recovery_generate", `user:${auth.user.id}`);
-
-  return NextResponse.json({
-    codes,
-    message: "リカバリーコードを安全な場所に保管してください。再表示はできません。",
-  });
-}
+    return NextResponse.json({
+      codes,
+      message: "リカバリーコードを安全な場所に保管してください。再表示はできません。",
+    });
+  },
+});

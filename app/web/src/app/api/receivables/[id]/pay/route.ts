@@ -1,66 +1,57 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { ApiError, badRequest, notFound } from "@/lib/api-error";
+import { zDate } from "@/lib/zod-helpers";
 
-type Params = { params: Promise<{ id: string }> };
+const PaySchema = z.object({
+  paidOn: zDate,
+  paidAmount: z.number().positive(),
+  paymentAccountCode: z.string().optional(),
+});
 
-export async function POST(req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// POST /api/receivables/[id]/pay … 売掛金の入金消込（自動仕訳、editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: PaySchema,
+  handler: async ({ user, db, id, body }) => {
+    const { tenantId } = user;
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    paidOn: string;
-    paidAmount: number;
-    paymentAccountCode?: string;
-  };
+    const receivable = await db.receivable.findUnique({ where: { id, tenantId } });
+    if (!receivable) throw notFound();
+    if (receivable.status === "paid") throw badRequest("already paid");
 
-  if (!body.paidOn || !body.paidAmount) {
-    return NextResponse.json({ error: "paidOn and paidAmount are required" }, { status: 400 });
-  }
+    const paymentCode = body.paymentAccountCode ?? "1100";
+    const [paymentAccount, arAccount] = await Promise.all([
+      db.account.findFirst({ where: { tenantId, code: paymentCode } }),
+      db.account.findFirst({ where: { tenantId, code: "1300" } }),
+    ]);
 
-  const receivable = await db.receivable.findUnique({ where: { id: Number(id), tenantId } });
-  if (!receivable) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (receivable.status === "paid")
-    return NextResponse.json({ error: "already paid" }, { status: 400 });
+    if (!paymentAccount || !arAccount) {
+      throw new ApiError(500, "勘定科目が見つかりません（1300/入金科目）");
+    }
 
-  const paymentCode = body.paymentAccountCode ?? "1100";
-  const [paymentAccount, arAccount] = await Promise.all([
-    db.account.findFirst({ where: { tenantId, code: paymentCode } }),
-    db.account.findFirst({ where: { tenantId, code: "1300" } }),
-  ]);
-
-  if (!paymentAccount || !arAccount) {
-    return NextResponse.json(
-      { error: "勘定科目が見つかりません（1300/入金科目）" },
-      { status: 500 },
-    );
-  }
-
-  const paidDate = new Date(body.paidOn);
-
-  await db.journalEntry.create({
-    data: {
-      tenantId,
-      transactionDate: paidDate,
-      description: `${receivable.customerName} 売掛金入金`,
-      paymentMethod: paymentCode === "1100" ? "bank" : "cash",
-      taxCategory: "non_taxable",
-      details: {
-        create: [
-          { side: "debit", accountId: paymentAccount.id, amount: body.paidAmount },
-          { side: "credit", accountId: arAccount.id, amount: body.paidAmount },
-        ],
+    await db.journalEntry.create({
+      data: {
+        tenantId,
+        transactionDate: body.paidOn,
+        description: `${receivable.customerName} 売掛金入金`,
+        paymentMethod: paymentCode === "1100" ? "bank" : "cash",
+        taxCategory: "non_taxable",
+        details: {
+          create: [
+            { side: "debit", accountId: paymentAccount.id, amount: body.paidAmount },
+            { side: "credit", accountId: arAccount.id, amount: body.paidAmount },
+          ],
+        },
       },
-    },
-  });
+    });
 
-  const updated = await db.receivable.update({
-    where: { id: Number(id) },
-    data: { status: "paid", paidOn: paidDate, paidAmount: body.paidAmount },
-  });
+    const updated = await db.receivable.update({
+      where: { id },
+      data: { status: "paid", paidOn: body.paidOn, paidAmount: body.paidAmount },
+    });
 
-  return NextResponse.json({ data: updated });
-}
+    return NextResponse.json({ data: updated });
+  },
+});

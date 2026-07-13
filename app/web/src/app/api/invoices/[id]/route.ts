@@ -1,54 +1,54 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
 
-export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const UpdateSchema = z.object({
+  status: z.string().optional(),
+  note: z.string().optional(),
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const invoice = await db.invoice.findUnique({
-    where: { id: Number(id), tenantId },
-    include: { lines: true },
-  });
-  if (!invoice) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ data: invoice });
-}
+// GET /api/invoices/[id] … インボイス 1 件の取得
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db, id }) => {
+    const invoice = await db.invoice.findUnique({
+      where: { id, tenantId: user.tenantId },
+      include: { lines: true },
+    });
+    if (!invoice) throw notFound();
+    return NextResponse.json({ data: invoice });
+  },
+});
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// PUT /api/invoices/[id] … インボイスのステータス・備考更新（editor 以上）
+export const PUT = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body }) => {
+    const existing = await db.invoice.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.invoice.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const invoice = await db.invoice.update({
+      where: { id },
+      data: {
+        ...(body.status && { status: body.status }),
+        ...(body.note !== undefined && { note: body.note }),
+      },
+      include: { lines: true },
+    });
+    return NextResponse.json({ data: invoice });
+  },
+});
 
-  const body = (await req.json()) as { status?: string; note?: string };
-  const invoice = await db.invoice.update({
-    where: { id: Number(id) },
-    data: {
-      ...(body.status && { status: body.status }),
-      ...(body.note !== undefined && { note: body.note }),
-    },
-    include: { lines: true },
-  });
-  return NextResponse.json({ data: invoice });
-}
+// DELETE /api/invoices/[id] … インボイスの削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.invoice.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.invoice.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.invoice.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.invoice.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

@@ -1,34 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
 
-type Params = { params: Promise<{ id: string }> };
+// GET /api/inventories/[id] … 棚卸 1 件の取得
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db, id }) => {
+    const inventory = await db.inventory.findUnique({
+      where: { id, tenantId: user.tenantId },
+      include: { items: { orderBy: { id: "asc" } } },
+    });
+    if (!inventory) throw notFound();
+    return NextResponse.json({ data: inventory });
+  },
+});
 
-export async function GET(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+// DELETE /api/inventories/[id] … 棚卸の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.inventory.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const inventory = await db.inventory.findUnique({
-    where: { id: Number(id), tenantId },
-    include: { items: { orderBy: { id: "asc" } } },
-  });
-  if (!inventory) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ data: inventory });
-}
-
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.inventory.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.inventory.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.inventory.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

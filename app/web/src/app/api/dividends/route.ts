@@ -1,50 +1,44 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { zDate } from "@/lib/zod-helpers";
 
-export async function GET(_req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const DividendSchema = z.object({
+  resolutionDate: zDate,
+  paymentDate: zDate,
+  perShareAmount: z.number().default(0),
+  totalAmount: z.number().positive(),
+  note: z.string().optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const dividends = await db.dividend.findMany({
-    where: { tenantId },
-    include: { tenant: { select: { id: true, name: true } } },
-    orderBy: { resolutionDate: "desc" },
-  });
-  return NextResponse.json({ data: dividends });
-}
+// GET /api/dividends … 配当一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db }) => {
+    const dividends = await db.dividend.findMany({
+      where: { tenantId: user.tenantId },
+      include: { tenant: { select: { id: true, name: true } } },
+      orderBy: { resolutionDate: "desc" },
+    });
+    return NextResponse.json({ data: dividends });
+  },
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    resolutionDate: string;
-    paymentDate: string;
-    perShareAmount: number;
-    totalAmount: number;
-    note?: string;
-  };
-  if (!body.resolutionDate || !body.paymentDate || !body.totalAmount) {
-    return NextResponse.json(
-      { error: "resolutionDate, paymentDate, totalAmount are required" },
-      { status: 400 },
-    );
-  }
-
-  const div = await db.dividend.create({
-    data: {
-      tenantId,
-      resolutionDate: new Date(body.resolutionDate),
-      paymentDate: new Date(body.paymentDate),
-      perShareAmount: body.perShareAmount ?? 0,
-      totalAmount: body.totalAmount,
-      note: body.note ?? null,
-    },
-  });
-  return NextResponse.json({ data: div }, { status: 201 });
-}
+// POST /api/dividends … 配当の登録（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: DividendSchema,
+  handler: async ({ user, db, body }) => {
+    const div = await db.dividend.create({
+      data: {
+        tenantId: user.tenantId,
+        resolutionDate: body.resolutionDate,
+        paymentDate: body.paymentDate,
+        perShareAmount: body.perShareAmount,
+        totalAmount: body.totalAmount,
+        note: body.note ?? null,
+      },
+    });
+    return NextResponse.json({ data: div }, { status: 201 });
+  },
+});

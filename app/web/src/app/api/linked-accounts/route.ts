@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
+import { requireAccountByCode } from "@/lib/period";
 
 const TYPES = ["BANK", "CREDIT_CARD"] as const;
 
@@ -15,44 +14,37 @@ const LinkedAccountSchema = z.object({
   note: z.string().optional(),
 });
 
-export async function GET() {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const items = await db.linkedAccount.findMany({
-    where: { tenantId },
-    orderBy: [{ type: "asc" }, { institution: "asc" }],
-    include: {
-      account: { select: { id: true, code: true, name: true, category: true } },
-    },
-  });
-  return NextResponse.json({ data: items });
-}
-
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const parsed = LinkedAccountSchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-
-  const { accountCode, ...fields } = parsed.data;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-
-  let accountId: number | undefined;
-  if (accountCode) {
-    const acct = await db.account.findUnique({
-      where: { tenantId_code: { tenantId, code: accountCode } },
+// GET /api/linked-accounts … 口座・カード台帳一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db }) => {
+    const items = await db.linkedAccount.findMany({
+      where: { tenantId: user.tenantId },
+      orderBy: [{ type: "asc" }, { institution: "asc" }],
+      include: {
+        account: { select: { id: true, code: true, name: true, category: true } },
+      },
     });
-    if (!acct)
-      return NextResponse.json({ error: `unknown accountCode: ${accountCode}` }, { status: 400 });
-    accountId = acct.id;
-  }
+    return NextResponse.json({ data: items });
+  },
+});
 
-  const item = await db.linkedAccount.create({ data: { tenantId, ...fields, accountId } });
-  await writeAudit(auth.user.id, "create", `linked_account:${item.id}`);
-  return NextResponse.json({ data: item }, { status: 201 });
-}
+// POST /api/linked-accounts … 口座・カードの登録（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: LinkedAccountSchema,
+  handler: async ({ user, db, body, audit }) => {
+    const { accountCode, ...fields } = body;
+    const { tenantId } = user;
+
+    let accountId: number | undefined;
+    if (accountCode) {
+      const acct = await requireAccountByCode(db, tenantId, accountCode);
+      accountId = acct.id;
+    }
+
+    const item = await db.linkedAccount.create({ data: { tenantId, ...fields, accountId } });
+    await audit("create", `linked_account:${item.id}`);
+    return NextResponse.json({ data: item }, { status: 201 });
+  },
+});

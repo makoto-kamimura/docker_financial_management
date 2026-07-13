@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { withApi } from "@/lib/api-handler";
 import {
   buildTransferFlow,
   hasCycle,
@@ -9,45 +8,44 @@ import {
   type TransferChannel,
 } from "@/lib/transferflow";
 
-export async function GET() {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+// GET /api/transfers/flow … 資金移動フロー図（Sankey）生成
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db }) => {
+    const transfers = await db.transfer.findMany({
+      where: { tenantId: user.tenantId },
+      include: { fromAccount: true, toAccount: true },
+      orderBy: [{ day: "asc" }, { id: "asc" }],
+    });
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const transfers = await db.transfer.findMany({
-    where: { tenantId },
-    include: { fromAccount: true, toAccount: true },
-    orderBy: [{ day: "asc" }, { id: "asc" }],
-  });
-
-  const inputs: TransferInput[] = transfers.map((t) => ({
-    fromId: t.fromAccountId,
-    fromName: t.fromAccount?.name ?? null,
-    toId: t.toAccountId,
-    toName: t.toAccount?.name ?? null,
-    amount: Number(t.amount),
-    channel: t.channel as TransferChannel,
-    label: t.label,
-  }));
-
-  const cyclic = hasCycle(inputs);
-  const graph = cyclic ? { nodes: [], links: [] } : buildTransferFlow(inputs);
-
-  return NextResponse.json({
-    cyclic,
-    graph,
-    transfers: transfers.map((t) => ({
-      id: t.id,
-      from: t.fromAccount?.name ?? null,
-      to: t.toAccount?.name ?? null,
+    const inputs: TransferInput[] = transfers.map((t) => ({
+      fromId: t.fromAccountId,
+      fromName: t.fromAccount?.name ?? null,
+      toId: t.toAccountId,
+      toName: t.toAccount?.name ?? null,
       amount: Number(t.amount),
-      kind: t.kind,
-      channel: t.channel,
-      channelLabel: CHANNEL_LABELS[t.channel as TransferChannel],
+      channel: t.channel as TransferChannel,
       label: t.label,
-      day: t.day,
-      note: t.note,
-    })),
-  });
-}
+    }));
+
+    const cyclic = hasCycle(inputs);
+    const graph = cyclic ? { nodes: [], links: [] } : buildTransferFlow(inputs);
+
+    return NextResponse.json({
+      cyclic,
+      graph,
+      transfers: transfers.map((t) => ({
+        id: t.id,
+        from: t.fromAccount?.name ?? null,
+        to: t.toAccount?.name ?? null,
+        amount: Number(t.amount),
+        kind: t.kind,
+        channel: t.channel,
+        channelLabel: CHANNEL_LABELS[t.channel as TransferChannel],
+        label: t.label,
+        day: t.day,
+        note: t.note,
+      })),
+    });
+  },
+});
