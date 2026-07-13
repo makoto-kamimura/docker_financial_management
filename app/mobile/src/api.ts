@@ -253,6 +253,8 @@ export type AllocationItem = {
   /** null = 上限なし（「○％以上」の目安） */
   maxPercent: number | null;
   note?: string;
+  /** 対応する予算科目の ID（null = 未紐付け・「予算に反映」の対象外） */
+  accountId?: number | null;
 };
 
 export const DEFAULT_ALLOCATION: AllocationItem[] = [
@@ -280,6 +282,7 @@ type ServerAllocationRule = {
   maxPercent: number | null;
   note: string | null;
   sortOrder: number;
+  account?: { id: number; code: string; name: string } | null;
 };
 
 export function getAllocation(): AllocationItem[] {
@@ -306,6 +309,7 @@ export async function loadAllocation(): Promise<AllocationItem[]> {
         minPercent: Number(r.minPercent),
         maxPercent: r.maxPercent === null ? null : Number(r.maxPercent),
         note: r.note ?? undefined,
+        accountId: r.account?.id ?? null,
       }));
     if (items.length > 0) _allocation = items;
   } catch {
@@ -332,6 +336,19 @@ export async function saveAllocation(items: AllocationItem[]): Promise<void> {
   });
   if (!res.ok) throw new Error("予算配分ルールの保存に失敗しました");
   _allocation = items.map(i => ({ ...i }));
+}
+
+// 収入配分の推奨額を、対応科目の予算へ一括反映する（POST /api/budgets/allocation-apply）。
+export async function applyAllocationToBudget(
+  year: number,
+  items: { accountId: number; month: number; amount: number }[],
+): Promise<void> {
+  const res = await apiFetch("/budgets/allocation-apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ year, items }),
+  });
+  if (!res.ok) throw new Error("予算への反映に失敗しました");
 }
 
 // ── 銀行口座 ──────────────────────────────────────────────────────────

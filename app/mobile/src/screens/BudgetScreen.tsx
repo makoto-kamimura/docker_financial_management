@@ -277,6 +277,7 @@ export function BudgetScreen({ viewMode }: Props) {
         items={revenueLines}
         total={revenueTotal}
         viewMode={viewMode}
+        onApplied={() => load(year)}
       />
     </View>
   );
