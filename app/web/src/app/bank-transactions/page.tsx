@@ -7,6 +7,7 @@ import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiag
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
+type CategoryAccount = { id: number; code: string; name: string; category: string };
 type Txn = {
   id: number;
   date: string;
@@ -14,6 +15,9 @@ type Txn = {
   amount: number;
   balance: number | null;
   source: "MANUAL" | "CSV" | "SYNC";
+  categoryAccountId: number | null;
+  categoryAccount: { id: number; code: string; name: string } | null;
+  postedRecordId: number | null;
 };
 type Transfer = {
   id: number;
@@ -121,6 +125,17 @@ export default function BankTransactionsPage() {
       (await (await fetch(`/api/bank-accounts/${accountId}/transactions`)).json()).data ?? [],
   });
 
+  const { data: categoryAccounts } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async (): Promise<CategoryAccount[]> =>
+      (await (await fetch("/api/accounts")).json()).data ?? [],
+  });
+  const categorizableAccounts = useMemo(
+    () =>
+      (categoryAccounts ?? []).filter((a) => ["REVENUE", "COGS", "EXPENSE"].includes(a.category)),
+    [categoryAccounts],
+  );
+
   const { data: allTransfers } = useQuery({
     queryKey: ["transfers"],
     queryFn: async (): Promise<Transfer[]> =>
@@ -209,6 +224,30 @@ export default function BankTransactionsPage() {
     await fetch(`/api/bank-accounts/${accountId}/transactions?txnId=${txnId}`, {
       method: "DELETE",
     });
+    qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+  }
+
+  async function setTxnCategory(txnId: number, categoryAccountId: number | null) {
+    await fetch(`/api/bank-transactions/${txnId}/categorize`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoryAccountId }),
+    });
+    qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+  }
+
+  async function postTxnToActuals(txnId: number) {
+    const res = await fetch(`/api/bank-transactions/${txnId}/categorize`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post: true, learn: true }),
+    });
+    if (res.ok) {
+      setMsg("実績へ転記しました。");
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMsg(`転記に失敗しました: ${err.error ?? "エラー"}`);
+    }
     qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
   }
 
@@ -481,7 +520,7 @@ export default function BankTransactionsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  {["日付", "摘要", "金額", "残高", "取得元", ""].map((h) => (
+                  {["日付", "摘要", "金額", "残高", "科目", "取得元", "実績", ""].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-left text-xs font-semibold text-slate-600"
@@ -506,8 +545,43 @@ export default function BankTransactionsPage() {
                     <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">
                       {t.balance != null ? yen(t.balance) : "—"}
                     </td>
+                    <td className="px-4 py-2.5">
+                      <select
+                        value={t.categoryAccountId ?? ""}
+                        disabled={t.postedRecordId !== null}
+                        onChange={(e) =>
+                          setTxnCategory(
+                            t.id,
+                            e.target.value === "" ? null : Number(e.target.value),
+                          )
+                        }
+                        className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white disabled:bg-slate-50 disabled:text-slate-400 min-w-32"
+                      >
+                        <option value="">未紐付け</option>
+                        {categorizableAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="px-4 py-2.5 text-xs text-slate-400">
                       {SOURCE_LABELS[t.source] ?? t.source}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {t.postedRecordId !== null ? (
+                        <span className="text-xs bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded">
+                          転記済み
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => postTxnToActuals(t.id)}
+                          disabled={t.categoryAccountId === null}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
+                        >
+                          転記する
+                        </button>
+                      )}
                     </td>
                     <td className="px-2 py-2.5 text-right">
                       <button
@@ -521,7 +595,7 @@ export default function BankTransactionsPage() {
                 ))}
                 {(txns ?? []).length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-sm">
                       明細がありません
                     </td>
                   </tr>

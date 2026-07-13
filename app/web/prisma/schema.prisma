@@ -12,11 +12,11 @@ datasource db {
 
 // 勘定科目カテゴリ
 enum AccountCategory {
-  REVENUE  // 売上・収入
-  COGS     // 売上原価・変動費
-  EXPENSE  // 販管費・固定費
-  PROFIT   // 利益・貯蓄
-  ASSET    // 資産（貸借対照表）
+  REVENUE // 売上・収入
+  COGS // 売上原価・変動費
+  EXPENSE // 販管費・固定費
+  PROFIT // 利益・貯蓄
+  ASSET // 資産（貸借対照表）
   LIABILITY // 負債（貸借対照表）
   OTHER
 }
@@ -40,15 +40,15 @@ model Account {
   id            Int             @id @default(autoincrement())
   tenantId      Int
   code          String
-  name          String                          // 既定表示名（家庭モードの科目名）
-  soleName      String?                         // 個人事業主モードでの表示科目名（null は name にフォールバック）
-  corporateName String?                         // 法人モードでの表示科目名（null は name にフォールバック）
-  category  AccountCategory @default(OTHER)
-  parentId  Int?            // 親勘定科目 ID（null = トップレベル）
-  parent    Account?        @relation("AccountTree", fields: [parentId], references: [id])
-  children  Account[]       @relation("AccountTree")
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  name          String // 既定表示名（家庭モードの科目名）
+  soleName      String? // 個人事業主モードでの表示科目名（null は name にフォールバック）
+  corporateName String? // 法人モードでの表示科目名（null は name にフォールバック）
+  category      AccountCategory @default(OTHER)
+  parentId      Int? // 親勘定科目 ID（null = トップレベル）
+  parent        Account?        @relation("AccountTree", fields: [parentId], references: [id])
+  children      Account[]       @relation("AccountTree")
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   records              FinancialRecord[]
   forecasts            Forecast[]
@@ -62,6 +62,8 @@ model Account {
   loans                Loan[]
   personalAssets       PersonalAsset[]
   allocationRules      AllocationRule[]
+  categorizedTxns      BankTransaction[]
+  txnCategoryRules     TxnCategoryRule[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -73,7 +75,7 @@ model Department {
   id       Int          @id @default(autoincrement())
   tenantId Int
   name     String
-  manager  String?      // 担当者名
+  manager  String? // 担当者名
   parentId Int?
   parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id])
   children Department[] @relation("DepartmentTree")
@@ -86,7 +88,7 @@ model Department {
 
 // 会計期間マスタ
 model Period {
-  id         Int    @id @default(autoincrement())
+  id         Int @id @default(autoincrement())
   tenantId   Int
   fiscalYear Int
   quarter    Int // 1-4
@@ -122,14 +124,14 @@ model Budget {
 model AllocationRule {
   id         Int      @id @default(autoincrement())
   tenantId   Int
-  key        String                     // ルール識別子（rent / food など）
-  label      String                     // 表示名（家賃・住宅ローン など）
-  group      String                     // 固定費 / 生活費 / その他
+  key        String // ルール識別子（rent / food など）
+  label      String // 表示名（家賃・住宅ローン など）
+  group      String // 固定費 / 生活費 / その他
   minPercent Decimal  @db.Decimal(5, 2) // 推奨割合の下限（%）
   maxPercent Decimal? @db.Decimal(5, 2) // 推奨割合の上限（%）。null = 上限なし
-  note       String?                    // 補足（「理想は25%以内」など）
+  note       String? // 補足（「理想は25%以内」など）
   account    Account? @relation(fields: [accountId], references: [id])
-  accountId  Int?                       // 対応する支払項目科目（null = 未紐付け）
+  accountId  Int? // 対応する支払項目科目（null = 未紐付け）
   sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -153,7 +155,8 @@ model FinancialRecord {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
-  history FinancialRecordHistory[]
+  history       FinancialRecordHistory[]
+  postedFromTxn BankTransaction?
 
   @@index([tenantId, accountId, periodId])
   @@map("financial_records")
@@ -164,8 +167,8 @@ model FinancialRecordHistory {
   id        Int             @id @default(autoincrement())
   record    FinancialRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
   recordId  Int
-  userId    Int?            // 操作ユーザー（null = CSV インポート等のシステム操作）
-  action    String          // "create" | "update" | "delete"
+  userId    Int? // 操作ユーザー（null = CSV インポート等のシステム操作）
+  action    String // "create" | "update" | "delete"
   amount    Decimal         @db.Decimal(18, 2) // 操作時点の金額
   changedAt DateTime        @default(now())
 
@@ -194,13 +197,13 @@ model Forecast {
 model LinkedAccount {
   id          Int      @id @default(autoincrement())
   tenantId    Int
-  name        String               // 口座名・カード名（表示名）
-  type        String               // BANK | CREDIT_CARD
-  institution String               // 金融機関名
-  lastFour    String?              // 口座番号・カード番号の下4桁
-  accountId   Int?                 // 紐付く勘定科目（ASSET/LIABILITY）
+  name        String // 口座名・カード名（表示名）
+  type        String // BANK | CREDIT_CARD
+  institution String // 金融機関名
+  lastFour    String? // 口座番号・カード番号の下4桁
+  accountId   Int? // 紐付く勘定科目（ASSET/LIABILITY）
   account     Account? @relation(fields: [accountId], references: [id])
-  note        String?              // メモ
+  note        String? // メモ
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -211,15 +214,15 @@ model LinkedAccount {
 // ユーザー（認証）
 model User {
   id               Int       @id @default(autoincrement())
-  tenantId         Int       // 1テナントに複数ユーザーを所属させられる（N:1）
+  tenantId         Int // 1テナントに複数ユーザーを所属させられる（N:1）
   tenant           Tenant    @relation(fields: [tenantId], references: [id])
   email            String    @unique
   name             String
   passwordHash     String
   role             String    @default("viewer") // admin / editor / accountant / viewer
   mfaEnabled       Boolean   @default(false)
-  totpSecret       String?   // Base32 エンコードされた TOTP シークレット
-  mfaRecoveryCodes String?   // JSON 配列: ハッシュ化されたリカバリーコード
+  totpSecret       String? // Base32 エンコードされた TOTP シークレット
+  mfaRecoveryCodes String? // JSON 配列: ハッシュ化されたリカバリーコード
   loginAttempts    Int       @default(0) // 連続失敗回数
   lockedUntil      DateTime? // アカウントロック解除時刻
   createdAt        DateTime  @default(now())
@@ -269,8 +272,8 @@ model AuditLog {
   userId    Int?
   action    String
   target    String
-  before    String?  // 変更前の値（JSON）
-  after     String?  // 変更後の値（JSON）
+  before    String? // 変更前の値（JSON）
+  after     String? // 変更後の値（JSON）
   changedAt DateTime @default(now())
 
   @@map("audit_logs")
@@ -310,29 +313,29 @@ enum TxnSource {
 
 // F001 事業者情報
 model BusinessProfile {
-  id              Int       @id @default(autoincrement())
-  tenantId        Int       @unique
-  tradeName       String?               // 屋号
-  ownerName       String    @default("") // 氏名
-  openedOn        DateTime?             // 開業日
-  blueReturn      Boolean   @default(false) // 青色申告
-  invoiceNumber   String?               // インボイス登録番号（T + 13桁）
-  taxationType    String    @default("exempt") // exempt / general / simplified
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id            Int       @id @default(autoincrement())
+  tenantId      Int       @unique
+  tradeName     String? // 屋号
+  ownerName     String    @default("") // 氏名
+  openedOn      DateTime? // 開業日
+  blueReturn    Boolean   @default(false) // 青色申告
+  invoiceNumber String? // インボイス登録番号（T + 13桁）
+  taxationType  String    @default("exempt") // exempt / general / simplified
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@map("business_profiles")
 }
 
 // F012 消費税設定（年度別）
 model TaxSetting {
-  id              Int      @id @default(autoincrement())
-  tenantId        Int
-  taxYear         Int                   // 適用年度
-  taxationType    String                // exempt / general / simplified
-  simplifiedRate  Decimal? @db.Decimal(5, 2) // 簡易課税みなし仕入率（%）
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  tenantId       Int
+  taxYear        Int // 適用年度
+  taxationType   String // exempt / general / simplified
+  simplifiedRate Decimal? @db.Decimal(5, 2) // 簡易課税みなし仕入率（%）
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@unique([tenantId, taxYear])
   @@index([tenantId])
@@ -341,16 +344,16 @@ model TaxSetting {
 
 // F002 仕訳帳ヘッダ
 model JournalEntry {
-  id              Int       @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   tenantId        Int
-  transactionDate DateTime              // 取引日
-  description     String                // 摘要
-  paymentMethod   String    @default("cash") // cash / bank / card / transfer
-  taxCategory     String    @default("taxable") // taxable / exempt / non_taxable
-  receiptUrl      String?               // 証憑ファイル URL
-  approvalStatus  String    @default("approved") // draft / pending / approved / rejected
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  transactionDate DateTime // 取引日
+  description     String // 摘要
+  paymentMethod   String   @default("cash") // cash / bank / card / transfer
+  taxCategory     String   @default("taxable") // taxable / exempt / non_taxable
+  receiptUrl      String? // 証憑ファイル URL
+  approvalStatus  String   @default("approved") // draft / pending / approved / rejected
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   details   JournalDetail[]
   receipts  Receipt[]
@@ -366,7 +369,7 @@ model JournalApproval {
   id             Int          @id @default(autoincrement())
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   journalEntryId Int
-  action         String                   // submitted / approved / rejected
+  action         String // submitted / approved / rejected
   actorId        Int
   actor          User         @relation(fields: [actorId], references: [id])
   comment        String?
@@ -378,16 +381,16 @@ model JournalApproval {
 
 // F002 仕訳明細（複式簿記：借方/貸方）
 model JournalDetail {
-  id                  Int          @id @default(autoincrement())
-  journalEntry        JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  journalEntryId      Int
-  side                String                // debit（借方）/ credit（貸方）
-  account             Account      @relation(fields: [accountId], references: [id])
-  accountId           Int
-  amount              Decimal      @db.Decimal(18, 2)
-  taxRate             Decimal?     @db.Decimal(5, 4)     // 消費税率（0.10 / 0.08 / null=非課税）
-  taxCreditEligible   Boolean      @default(true)        // 仕入税額控除対象か
-  note                String?                            // 明細摘要
+  id                Int          @id @default(autoincrement())
+  journalEntry      JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  journalEntryId    Int
+  side              String // debit（借方）/ credit（貸方）
+  account           Account      @relation(fields: [accountId], references: [id])
+  accountId         Int
+  amount            Decimal      @db.Decimal(18, 2)
+  taxRate           Decimal?     @db.Decimal(5, 4) // 消費税率（0.10 / 0.08 / null=非課税）
+  taxCreditEligible Boolean      @default(true) // 仕入税額控除対象か
+  note              String? // 明細摘要
 
   @@index([journalEntryId])
   @@map("journal_details")
@@ -398,11 +401,11 @@ model Receipt {
   id             Int          @id @default(autoincrement())
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   journalEntryId Int
-  fileName       String                 // アップロード時の元ファイル名（表示用）
-  fileUrl        String                 // 配信 URL（/api/uploads/<savedName>）
-  savedName      String?                // uploads/ 配下の実ファイル名（配信時の所有確認・Content-Type 決定に使用）
-  mimeType       String?                // アップロード時に検証済みの MIME タイプ
-  fileType       String       // pdf / image / other
+  fileName       String // アップロード時の元ファイル名（表示用）
+  fileUrl        String // 配信 URL（/api/uploads/<savedName>）
+  savedName      String? // uploads/ 配下の実ファイル名（配信時の所有確認・Content-Type 決定に使用）
+  mimeType       String? // アップロード時に検証済みの MIME タイプ
+  fileType       String // pdf / image / other
   fileSize       Int
   uploadedAt     DateTime     @default(now())
 
@@ -413,15 +416,15 @@ model Receipt {
 
 // F006 棚卸帳ヘッダ
 model Inventory {
-  id               Int             @id @default(autoincrement())
-  tenantId         Int
-  name             String          // 棚卸名（例: 2026年6月末棚卸）
-  inventoryDate    DateTime        // 棚卸日
-  status           String          @default("open") // open / closed
-  totalAmount      Decimal         @default(0) @db.Decimal(18, 2)
-  valuationMethod  String          @default("last_purchase") // last_purchase / average / moving_average
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  id              Int      @id @default(autoincrement())
+  tenantId        Int
+  name            String // 棚卸名（例: 2026年6月末棚卸）
+  inventoryDate   DateTime // 棚卸日
+  status          String   @default("open") // open / closed
+  totalAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  valuationMethod String   @default("last_purchase") // last_purchase / average / moving_average
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   items InventoryItem[]
 
@@ -450,15 +453,15 @@ model InventoryItem {
 model FixedAsset {
   id              Int       @id @default(autoincrement())
   tenantId        Int
-  name            String    // 資産名
+  name            String // 資産名
   category        String    @default("tangible") // tangible / intangible
-  acquiredOn      DateTime  // 取得日
-  acquisitionCost Decimal   @db.Decimal(18, 2)   // 取得金額
-  usefulLife      Int       // 耐用年数（年）
-  method          String    @default("straight")  // straight（定額）/ declining（定率）
+  acquiredOn      DateTime // 取得日
+  acquisitionCost Decimal   @db.Decimal(18, 2) // 取得金額
+  usefulLife      Int // 耐用年数（年）
+  method          String    @default("straight") // straight（定額）/ declining（定率）
   residualRate    Decimal   @default(0.1) @db.Decimal(5, 4) // 残存率（旧定率法）
-  bookValue       Decimal   @db.Decimal(18, 2)   // 帳簿価額
-  disposedOn      DateTime?                       // 除却・売却日
+  bookValue       Decimal   @db.Decimal(18, 2) // 帳簿価額
+  disposedOn      DateTime? // 除却・売却日
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -484,30 +487,30 @@ model Depreciation {
 
 // 実物資産の分類（土地・建物・車・金など）
 enum PersonalAssetCategory {
-  LAND      // 土地
-  BUILDING  // 建物
-  VEHICLE   // 車
-  GOLD      // 金・貴金属
+  LAND // 土地
+  BUILDING // 建物
+  VEHICLE // 車
+  GOLD // 金・貴金属
   OTHER
 }
 
 // 実物資産台帳（家計の資産管理: 土地・建物・車・金など）
 model PersonalAsset {
-  id              Int                   @id @default(autoincrement())
-  tenantId        Int
-  name            String                            // 資産名（例: 自宅土地）
-  category        PersonalAssetCategory @default(OTHER)
-  acquiredOn      DateTime?                         // 取得日
-  acquisitionCost Decimal?              @db.Decimal(18, 2) // 取得価格
-  currentValue    Decimal               @db.Decimal(18, 2) // 現在評価額
-  note            String?
-  linkedAccountId Int?                                      // 紐付く負債科目（例: 住宅ローン）
-  linkedAccount   Account?              @relation(fields: [linkedAccountId], references: [id])
-  debtStartOn       DateTime?                               // 負債の支払い開始年月。月初日で保存
-  debtPayoffDue     DateTime?                               // 負債解消（完済）予定年月。月初日で保存
+  id                Int                   @id @default(autoincrement())
+  tenantId          Int
+  name              String // 資産名（例: 自宅土地）
+  category          PersonalAssetCategory @default(OTHER)
+  acquiredOn        DateTime? // 取得日
+  acquisitionCost   Decimal?              @db.Decimal(18, 2) // 取得価格
+  currentValue      Decimal               @db.Decimal(18, 2) // 現在評価額
+  note              String?
+  linkedAccountId   Int? // 紐付く負債科目（例: 住宅ローン）
+  linkedAccount     Account?              @relation(fields: [linkedAccountId], references: [id])
+  debtStartOn       DateTime? // 負債の支払い開始年月。月初日で保存
+  debtPayoffDue     DateTime? // 負債解消（完済）予定年月。月初日で保存
   debtInitialAmount Decimal?              @db.Decimal(18, 2) // 当初負債額。開始月〜解消予定月で月割りして予算に自動計上し、経過月数から残高を算出
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   @@index([tenantId])
   @@index([linkedAccountId])
@@ -534,16 +537,16 @@ model Apportionment {
 model Receivable {
   id            Int       @id @default(autoincrement())
   tenantId      Int
-  customerName  String                       // 得意先名
-  description   String                       // 件名・摘要
+  customerName  String // 得意先名
+  description   String // 件名・摘要
   amount        Decimal   @db.Decimal(18, 2) // 請求金額（税込）
   taxAmount     Decimal   @default(0) @db.Decimal(18, 2)
-  issueDate     DateTime                     // 請求日
-  dueDate       DateTime                     // 支払期限
-  status        String    @default("open")   // open / paid / overdue
-  paidOn        DateTime?                    // 入金日
+  issueDate     DateTime // 請求日
+  dueDate       DateTime // 支払期限
+  status        String    @default("open") // open / paid / overdue
+  paidOn        DateTime? // 入金日
   paidAmount    Decimal?  @db.Decimal(18, 2) // 入金金額
-  invoiceNumber String?                      // 請求書番号
+  invoiceNumber String? // 請求書番号
   note          String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -557,14 +560,14 @@ model Receivable {
 model Payable {
   id           Int       @id @default(autoincrement())
   tenantId     Int
-  supplierName String                       // 仕入先名
-  description  String                       // 件名・摘要
+  supplierName String // 仕入先名
+  description  String // 件名・摘要
   amount       Decimal   @db.Decimal(18, 2) // 請求金額（税込）
   taxAmount    Decimal   @default(0) @db.Decimal(18, 2)
-  issueDate    DateTime                     // 請求書受取日
-  dueDate      DateTime                     // 支払期限
-  status       String    @default("open")   // open / paid / overdue
-  paidOn       DateTime?                    // 支払日
+  issueDate    DateTime // 請求書受取日
+  dueDate      DateTime // 支払期限
+  status       String    @default("open") // open / paid / overdue
+  paidOn       DateTime? // 支払日
   paidAmount   Decimal?  @db.Decimal(18, 2) // 支払金額
   note         String?
   createdAt    DateTime  @default(now())
@@ -583,20 +586,20 @@ model Payable {
 model Tenant {
   id              Int       @id @default(autoincrement())
   type            String    @default("SOLE_PROPRIETOR") // SOLE_PROPRIETOR / CORPORATION
-  name            String                                // 屋号または法人名
-  corporateNumber String?                               // 法人番号 13 桁
-  capitalAmount   Decimal?  @db.Decimal(18, 2)          // 資本金
+  name            String // 屋号または法人名
+  corporateNumber String? // 法人番号 13 桁
+  capitalAmount   Decimal?  @db.Decimal(18, 2) // 資本金
   establishedOn   DateTime?
-  closingMonth    Int       @default(12)                // 決算月（1-12）
+  closingMonth    Int       @default(12) // 決算月（1-12）
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  users             User[]
-  fiscalYears       FiscalYear[]
-  officers          Officer[]
-  meetings          ShareholderMeeting[]
-  dividends         Dividend[]
-  announcements     Announcement[]
+  users         User[]
+  fiscalYears   FiscalYear[]
+  officers      Officer[]
+  meetings      ShareholderMeeting[]
+  dividends     Dividend[]
+  announcements Announcement[]
 
   @@map("tenants")
 }
@@ -640,7 +643,7 @@ model JournalTemplateLine {
   id         Int             @id @default(autoincrement())
   template   JournalTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   templateId Int
-  side       String          // debit / credit
+  side       String // debit / credit
   account    Account         @relation(fields: [accountId], references: [id])
   accountId  Int
   amount     Decimal?        @db.Decimal(18, 2) // null = 入力時に指定
@@ -658,9 +661,9 @@ model JournalTemplateLine {
 model BankAccount {
   id          Int             @id @default(autoincrement())
   tenantId    Int
-  name        String          // 表示名（例: 給与口座）
-  bankName    String          // 銀行名
-  branchName  String?         // 支店名
+  name        String // 表示名（例: 給与口座）
+  bankName    String // 銀行名
+  branchName  String? // 支店名
   accountType String          @default("普通") // 普通 / 当座
   role        BankAccountRole @default(OTHER)
   createdAt   DateTime        @default(now())
@@ -698,40 +701,61 @@ model Transfer {
 
 // 銀行入出金明細（取込・同期したトランザクション）
 model BankTransaction {
-  id          Int         @id @default(autoincrement())
-  account     BankAccount @relation(fields: [accountId], references: [id])
-  accountId   Int
-  date        DateTime    // 取引日
-  description String      // 摘要
-  amount      Decimal     @db.Decimal(18, 2) // +入金 / -出金
-  balance     Decimal?    @db.Decimal(18, 2) // 取引後残高（取得できた場合）
-  source      TxnSource   @default(MANUAL)
-  externalId  String?     // 重複取込防止用の外部ID
-  createdAt   DateTime    @default(now())
+  id                Int              @id @default(autoincrement())
+  account           BankAccount      @relation(fields: [accountId], references: [id])
+  accountId         Int
+  date              DateTime // 取引日
+  description       String // 摘要
+  amount            Decimal          @db.Decimal(18, 2) // +入金 / -出金
+  balance           Decimal?         @db.Decimal(18, 2) // 取引後残高（取得できた場合）
+  source            TxnSource        @default(MANUAL)
+  externalId        String? // 重複取込防止用の外部ID
+  categoryAccountId Int? // 紐付けた収入・支払項目科目（Account）
+  categoryAccount   Account?         @relation(fields: [categoryAccountId], references: [id])
+  postedRecordId    Int?             @unique // 転記済み FinancialRecord（unique で二重転記を DB 層でも防止）
+  postedRecord      FinancialRecord? @relation(fields: [postedRecordId], references: [id])
+  createdAt         DateTime         @default(now())
 
   @@unique([accountId, externalId])
   @@index([accountId, date])
+  @@index([categoryAccountId])
   @@map("bank_transactions")
+}
+
+// 明細の摘要キーワードから科目を自動分類するためのルール（取込時に categoryAccountId を埋めるだけで転記はしない）
+model TxnCategoryRule {
+  id                Int      @id @default(autoincrement())
+  tenantId          Int
+  keyword           String // 摘要の部分一致キーワード（大文字小文字無視で評価）
+  categoryAccountId Int
+  categoryAccount   Account  @relation(fields: [categoryAccountId], references: [id])
+  priority          Int      @default(0) // 手動学習（learn=true）は 100。優先度降順→キーワード長い順で評価
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([tenantId, keyword])
+  @@index([tenantId])
+  @@map("txn_category_rules")
 }
 
 // 借入金
 model Loan {
-  id              Int       @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   tenantId        Int
   lenderName      String
-  amount          Decimal   @db.Decimal(18, 2)
-  interestRate    Decimal   @db.Decimal(5, 4)
+  amount          Decimal  @db.Decimal(18, 2)
+  interestRate    Decimal  @db.Decimal(5, 4)
   borrowedOn      DateTime
-  repaymentDate   DateTime                       // 完済予定/支払い完了年月
-  remainingAmount Decimal   @db.Decimal(18, 2)
-  status          String    @default("active") // active / repaid
+  repaymentDate   DateTime // 完済予定/支払い完了年月
+  remainingAmount Decimal  @db.Decimal(18, 2)
+  status          String   @default("active") // active / repaid
   note            String?
-  loanType        String    @default("business") // business（事業性）/ housing（住宅ローン）
-  linkedAccountId Int?                            // 住宅ローン: 返済額を自動反映する予算科目（例: 家賃）
-  linkedAccount   Account?  @relation(fields: [linkedAccountId], references: [id])
-  monthlyPayment  Decimal?  @db.Decimal(18, 2)    // 住宅ローン: 月々の返済額（予算に自動加算）
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  loanType        String   @default("business") // business（事業性）/ housing（住宅ローン）
+  linkedAccountId Int? // 住宅ローン: 返済額を自動反映する予算科目（例: 家賃）
+  linkedAccount   Account? @relation(fields: [linkedAccountId], references: [id])
+  monthlyPayment  Decimal? @db.Decimal(18, 2) // 住宅ローン: 月々の返済額（予算に自動加算）
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   repayments LoanRepayment[]
 
@@ -907,12 +931,12 @@ model Announcement {
 // ============================================================
 
 enum AccountMappingMatchType {
-  TABLE    // 変換テーブル直引き（定義済みH-prefix科目）
-  KEYWORD  // キーワードルール（「税」「保険」等）
-  FUZZY    // あいまい一致（類似度スコア）
-  AI_FREE  // AI推論（無料・軽量モデル）
-  AI_PAID  // AI推論（有料・高精度モデル）
-  MANUAL   // ユーザー手動マッピング
+  TABLE // 変換テーブル直引き（定義済みH-prefix科目）
+  KEYWORD // キーワードルール（「税」「保険」等）
+  FUZZY // あいまい一致（類似度スコア）
+  AI_FREE // AI推論（無料・軽量モデル）
+  AI_PAID // AI推論（有料・高精度モデル）
+  MANUAL // ユーザー手動マッピング
 }
 
 enum AccountConversionMode {
@@ -927,16 +951,16 @@ enum AccountConversionStatus {
 
 // 勘定科目変換ルールマスタ（システム定義 + ユーザー独自ルール）
 model AccountMappingRule {
-  id              Int                    @id @default(autoincrement())
-  homeCode        String                 // 家庭モード科目コード（H-prefix）
-  corporateCode   String?                // 法人科目コード（変換不可の場合 null）
+  id              Int                     @id @default(autoincrement())
+  homeCode        String // 家庭モード科目コード（H-prefix）
+  corporateCode   String? // 法人科目コード（変換不可の場合 null）
   matchType       AccountMappingMatchType @default(TABLE)
-  confidenceScore Float                  @default(1.0) // 0.0〜1.0
-  isConvertible   Boolean                @default(true) // false = 変換不可（❌科目）
-  notes           String?                // 調整区分・税務注意事項等のメモ
-  userId          Int?                   // null = システム定義、値あり = ユーザー独自ルール
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  confidenceScore Float                   @default(1.0) // 0.0〜1.0
+  isConvertible   Boolean                 @default(true) // false = 変換不可（❌科目）
+  notes           String? // 調整区分・税務注意事項等のメモ
+  userId          Int? // null = システム定義、値あり = ユーザー独自ルール
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
 
   @@unique([homeCode, userId])
   @@index([homeCode])
@@ -946,12 +970,12 @@ model AccountMappingRule {
 
 // 変換セッション（モード切替ごとに1レコード）
 model AccountConversionSession {
-  id          Int                      @id @default(autoincrement())
+  id          Int                     @id @default(autoincrement())
   userId      Int
   fromMode    AccountConversionMode
   toMode      AccountConversionMode
-  convertedAt DateTime                 @default(now())
-  status      AccountConversionStatus  @default(COMPLETED)
+  convertedAt DateTime                @default(now())
+  status      AccountConversionStatus @default(COMPLETED)
 
   logs AccountConversionLog[]
 
@@ -964,10 +988,10 @@ model AccountConversionLog {
   id                   Int                      @id @default(autoincrement())
   session              AccountConversionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   sessionId            Int
-  homeAccountId        Int                      // 変換元科目（Account.id）
-  corporateAccountId   Int?                     // 変換先科目（変換不可の場合 null）
+  homeAccountId        Int // 変換元科目（Account.id）
+  corporateAccountId   Int? // 変換先科目（変換不可の場合 null）
   matchType            AccountMappingMatchType
-  confidenceScore      Float?                   // 信頼度スコア（0.0〜1.0）
+  confidenceScore      Float? // 信頼度スコア（0.0〜1.0）
   isConvertible        Boolean                  @default(true)
   isManuallyOverridden Boolean                  @default(false)
   createdAt            DateTime                 @default(now())
@@ -978,20 +1002,20 @@ model AccountConversionLog {
 
 // AI有料変換結果キャッシュ（30日間再利用）
 model AiConversionResult {
-  id                 Int      @id @default(autoincrement())
-  cacheKey           String   @unique // SHA256(accountName + ":" + businessType)
-  inputContext       Json              // AIに渡したコンテキスト全体
-  primaryCode        String            // 推奨変換先科目コード
-  primaryReason      String            // 選択理由
-  taxClassification  String            // 課税 / 非課税 / 免税 / 不課税
-  taxNotes           String?           // 税務上の注意事項
-  alternatives       Json              // 代替候補リスト
-  confidenceScore    Float             // 信頼度スコア（0.0〜1.0）
-  confidenceReason   String            // 信頼度の根拠説明
-  warnings           Json              // 注意事項リスト
-  modelId            String            // 使用したLLMモデルID
-  cachedUntil        DateTime          // キャッシュ有効期限（30日）
-  createdAt          DateTime @default(now())
+  id                Int      @id @default(autoincrement())
+  cacheKey          String   @unique // SHA256(accountName + ":" + businessType)
+  inputContext      Json // AIに渡したコンテキスト全体
+  primaryCode       String // 推奨変換先科目コード
+  primaryReason     String // 選択理由
+  taxClassification String // 課税 / 非課税 / 免税 / 不課税
+  taxNotes          String? // 税務上の注意事項
+  alternatives      Json // 代替候補リスト
+  confidenceScore   Float // 信頼度スコア（0.0〜1.0）
+  confidenceReason  String // 信頼度の根拠説明
+  warnings          Json // 注意事項リスト
+  modelId           String // 使用したLLMモデルID
+  cachedUntil       DateTime // キャッシュ有効期限（30日）
+  createdAt         DateTime @default(now())
 
   @@map("ai_conversion_results")
 }
@@ -1001,12 +1025,12 @@ model AiConversionUsage {
   id              Int      @id @default(autoincrement())
   userId          Int
   sessionId       Int
-  accountCount    Int              // 変換対象科目数
-  cachedCount     Int              // キャッシュヒット数（課金対象外）
-  billedCount     Int              // 実際にAPI呼び出しした科目数
-  plan            String           // PAY_PER_USE / MONTHLY
-  chargedAt       DateTime         @default(now())
-  reportGenerated Boolean          @default(false)
+  accountCount    Int // 変換対象科目数
+  cachedCount     Int // キャッシュヒット数（課金対象外）
+  billedCount     Int // 実際にAPI呼び出しした科目数
+  plan            String // PAY_PER_USE / MONTHLY
+  chargedAt       DateTime @default(now())
+  reportGenerated Boolean  @default(false)
 
   @@index([userId])
   @@index([sessionId])

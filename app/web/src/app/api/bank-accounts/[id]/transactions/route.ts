@@ -23,6 +23,7 @@ export const GET = withApi({
       where: { accountId: id },
       orderBy: { date: "desc" },
       take: 200,
+      include: { categoryAccount: { select: { id: true, code: true, name: true } } },
     });
     return NextResponse.json({ data: txns.map(serializeBankTransaction) });
   },

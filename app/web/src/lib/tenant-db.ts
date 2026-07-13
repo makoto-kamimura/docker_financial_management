@@ -49,6 +49,7 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "Announcement",
   "FiscalYearClose",
   "PersonalAsset",
+  "TxnCategoryRule",
 ]);
 
 // tenantId 列を持つが自動スコープの対象外とするモデル（理由は上記コメント参照）。
