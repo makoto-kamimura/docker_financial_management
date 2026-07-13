@@ -576,6 +576,65 @@ function DashboardContent() {
               </div>
             </div>
           )}
+
+          {comp && comp.monthly.length > 0 && (
+            <div className="card overflow-hidden p-0">
+              <h2 className="section-title px-4 pt-4">月次収支サマリー（実績）</h2>
+              <p className="text-xs text-slate-400 px-4 pb-2">
+                支出が収入を上回った月は赤背景で表示しています。
+              </p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    {["月", "収入", "支出", "差引"].map((h) => (
+                      <th
+                        key={h}
+                        className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {comp.monthly.map((row) => {
+                    const revenue = Number(row.REVENUE ?? 0);
+                    const expense = Number(row.COGS ?? 0) + Number(row.EXPENSE ?? 0);
+                    const net = revenue - expense;
+                    const isDeficit = expense > revenue;
+                    return (
+                      <tr
+                        key={String(row.month)}
+                        className={
+                          isDeficit
+                            ? "bg-red-50 hover:bg-red-100 transition-colors"
+                            : "hover:bg-slate-50 transition-colors"
+                        }
+                      >
+                        <td
+                          className={`px-4 py-2.5 font-medium ${isDeficit ? "text-red-700" : "text-slate-700"}`}
+                        >
+                          {isDeficit && (
+                            <span aria-hidden="true" className="mr-1">
+                              ⚠
+                            </span>
+                          )}
+                          {row.month}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{yen(revenue)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{yen(expense)}</td>
+                        <td
+                          className={`px-4 py-2.5 text-right tabular-nums font-medium ${net < 0 ? "text-red-600" : "text-green-600"}`}
+                        >
+                          {yen(net)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
     </AppShell>
