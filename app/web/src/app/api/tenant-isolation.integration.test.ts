@@ -50,6 +50,7 @@ import { GET as invoiceGet } from "./invoices/[id]/route";
 import { GET as bankTxnGet } from "./bank-accounts/[id]/transactions/route";
 import { GET as openbankingGet, POST as openbankingPost } from "./integrations/openbanking/route";
 import { GET as uploadGet } from "./uploads/[filename]/route";
+import { POST as allocationApplyPost } from "./budgets/allocation-apply/route";
 import { emptyRouteContext } from "@/lib/api-handler";
 
 const SUFFIX = `iso_${Date.now()}`;
@@ -65,6 +66,8 @@ type Seed = {
   bankAccountAId: number;
   bankAccountBId: number;
   receiptBSavedName: string;
+  accountAId: number;
+  accountBId: number;
 };
 
 let seed: Seed;
@@ -206,6 +209,14 @@ beforeAll(async () => {
     },
   });
 
+  // F-2/F-3 回帰テスト用: allocation-apply のテナント越境検証に使う各テナントの科目
+  const accountATest = await prisma.account.create({
+    data: { tenantId: tenantA.id, code: `A-EXP_${SUFFIX}`, name: "科目A", category: "EXPENSE" },
+  });
+  const accountBTest = await prisma.account.create({
+    data: { tenantId: tenantB.id, code: `B-EXP_${SUFFIX}`, name: "科目B", category: "EXPENSE" },
+  });
+
   seed = {
     tenantAId: tenantA.id,
     tenantBId: tenantB.id,
@@ -229,6 +240,8 @@ beforeAll(async () => {
     bankAccountAId: bankA.id,
     bankAccountBId: bankB.id,
     receiptBSavedName,
+    accountAId: accountATest.id,
+    accountBId: accountBTest.id,
   };
 
   // 既定はテナント A として振る舞う
@@ -247,6 +260,9 @@ afterAll(async () => {
   await prisma.invoiceLine.deleteMany({ where: { invoice: { tenantId: { in: tids } } } });
   await prisma.invoice.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.receivable.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.budget.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.period.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.account.deleteMany({ where: { id: { in: [seed.accountAId, seed.accountBId] } } });
   await prisma.auditLog.deleteMany({ where: { userId: { in: [seed.userA.id, seed.userB.id] } } });
   await prisma.session.deleteMany({ where: { userId: { in: [seed.userA.id, seed.userB.id] } } });
   await prisma.user.deleteMany({ where: { tenantId: { in: tids } } });
@@ -376,5 +392,64 @@ describe("tenantDb 拡張そのものの分離挙動", () => {
     });
     expect(created.tenantId).toBe(seed.tenantAId);
     await prisma.receivable.delete({ where: { id: created.id } });
+  });
+});
+
+describe("[F-2/F-3] budgets/allocation-apply のテナント越境検証", () => {
+  const APPLY_YEAR = 2099; // 他テストと衝突しない専用の年度
+
+  beforeAll(() => {
+    actingUser = seed.userA;
+  });
+
+  afterAll(async () => {
+    await prisma.budget.deleteMany({
+      where: { tenantId: seed.tenantAId, period: { fiscalYear: APPLY_YEAR } },
+    });
+    await prisma.period.deleteMany({ where: { tenantId: seed.tenantAId, fiscalYear: APPLY_YEAR } });
+  });
+
+  it("自テナント A の科目への適用は 201 で成功し、budgets に反映される", async () => {
+    const res = await allocationApplyPost(
+      makeReq("POST", "http://x/api/budgets/allocation-apply", {
+        year: APPLY_YEAR,
+        items: [{ accountId: seed.accountAId, month: 1, amount: 12345 }],
+      }),
+      emptyRouteContext(),
+    );
+    expect(res.status).toBe(201);
+
+    const budget = await prisma.budget.findFirst({
+      where: {
+        tenantId: seed.tenantAId,
+        accountId: seed.accountAId,
+        period: { fiscalYear: APPLY_YEAR, month: 1 },
+      },
+    });
+    expect(Number(budget?.amount)).toBe(12345);
+  });
+
+  it("テナント B の accountId が混入すると 404 になり、一切書き込まれない", async () => {
+    const res = await allocationApplyPost(
+      makeReq("POST", "http://x/api/budgets/allocation-apply", {
+        year: APPLY_YEAR,
+        items: [
+          { accountId: seed.accountAId, month: 2, amount: 11111 },
+          { accountId: seed.accountBId, month: 2, amount: 99999 },
+        ],
+      }),
+      emptyRouteContext(),
+    );
+    expect(res.status).toBe(404);
+
+    // 混在バッチの中の自テナント分（month=2）も一切書き込まれていないこと
+    const budget = await prisma.budget.findFirst({
+      where: {
+        tenantId: seed.tenantAId,
+        accountId: seed.accountAId,
+        period: { fiscalYear: APPLY_YEAR, month: 2 },
+      },
+    });
+    expect(budget).toBeNull();
   });
 });
