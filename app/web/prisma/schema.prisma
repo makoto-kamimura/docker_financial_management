@@ -377,12 +377,15 @@ model Receipt {
   id             Int          @id @default(autoincrement())
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   journalEntryId Int
-  fileName       String
-  fileUrl        String
+  fileName       String                 // アップロード時の元ファイル名（表示用）
+  fileUrl        String                 // 配信 URL（/api/uploads/<savedName>）
+  savedName      String?                // uploads/ 配下の実ファイル名（配信時の所有確認・Content-Type 決定に使用）
+  mimeType       String?                // アップロード時に検証済みの MIME タイプ
   fileType       String       // pdf / image / other
   fileSize       Int
   uploadedAt     DateTime     @default(now())
 
+  @@unique([savedName])
   @@index([journalEntryId])
   @@map("receipts")
 }

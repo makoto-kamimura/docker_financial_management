@@ -49,6 +49,7 @@ import { GET as receivableListGet } from "./receivables/route";
 import { GET as invoiceGet } from "./invoices/[id]/route";
 import { GET as bankTxnGet } from "./bank-accounts/[id]/transactions/route";
 import { GET as openbankingGet, POST as openbankingPost } from "./integrations/openbanking/route";
+import { GET as uploadGet } from "./uploads/[filename]/route";
 import { emptyRouteContext } from "@/lib/api-handler";
 
 const SUFFIX = `iso_${Date.now()}`;
@@ -63,6 +64,7 @@ type Seed = {
   invoiceBId: number;
   bankAccountAId: number;
   bankAccountBId: number;
+  receiptBSavedName: string;
 };
 
 let seed: Seed;
@@ -97,6 +99,8 @@ beforeAll(async () => {
     "bank_accounts",
     "bank_transactions",
     "audit_logs",
+    "journal_entries",
+    "receipts",
   ]) {
     await resyncSequence(t);
   }
@@ -172,6 +176,36 @@ beforeAll(async () => {
     },
   });
 
+  // S-1 回帰テスト用: テナント B の仕訳・証憑（uploads の配信認可を検証する）
+  const accountB = await prisma.account.findFirst({ where: { tenantId: tenantB.id } });
+  const journalB = await prisma.journalEntry.create({
+    data: {
+      tenantId: tenantB.id,
+      transactionDate: new Date("2026-01-10"),
+      description: "B社仕訳",
+      details: accountB
+        ? {
+            create: [
+              { side: "debit", accountId: accountB.id, amount: 100 },
+              { side: "credit", accountId: accountB.id, amount: 100 },
+            ],
+          }
+        : undefined,
+    },
+  });
+  const receiptBSavedName = `iso_receipt_${SUFFIX}.pdf`;
+  await prisma.receipt.create({
+    data: {
+      journalEntryId: journalB.id,
+      fileName: "receipt-b.pdf",
+      fileUrl: `/api/uploads/${receiptBSavedName}`,
+      savedName: receiptBSavedName,
+      mimeType: "application/pdf",
+      fileType: "pdf",
+      fileSize: 100,
+    },
+  });
+
   seed = {
     tenantAId: tenantA.id,
     tenantBId: tenantB.id,
@@ -194,6 +228,7 @@ beforeAll(async () => {
     invoiceBId: invB.id,
     bankAccountAId: bankA.id,
     bankAccountBId: bankB.id,
+    receiptBSavedName,
   };
 
   // 既定はテナント A として振る舞う
@@ -206,6 +241,9 @@ afterAll(async () => {
   // FK 順に削除
   await prisma.bankTransaction.deleteMany({ where: { account: { tenantId: { in: tids } } } });
   await prisma.bankAccount.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.receipt.deleteMany({ where: { journalEntry: { tenantId: { in: tids } } } });
+  await prisma.journalDetail.deleteMany({ where: { journalEntry: { tenantId: { in: tids } } } });
+  await prisma.journalEntry.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.invoiceLine.deleteMany({ where: { invoice: { tenantId: { in: tids } } } });
   await prisma.invoice.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.receivable.deleteMany({ where: { tenantId: { in: tids } } });
@@ -265,6 +303,21 @@ describe("テナント越境分離（テナント A として操作）", () => {
 
   it("bank-accounts/[id]/transactions GET: テナント B の口座は 404", async () => {
     const res = await bankTxnGet(makeReq("GET", "http://x"), params(seed.bankAccountBId));
+    expect(res.status).toBe(404);
+  });
+
+  it("[S-1] uploads/[filename] GET: テナント B の証憑は 404（未ログインでは 401）", async () => {
+    const filenameParams = (filename: string) => ({ params: Promise.resolve({ filename }) });
+
+    actingUser = null;
+    const unauth = await uploadGet(
+      makeReq("GET", "http://x"),
+      filenameParams(seed.receiptBSavedName),
+    );
+    expect(unauth.status).toBe(401);
+
+    actingUser = seed.userA;
+    const res = await uploadGet(makeReq("GET", "http://x"), filenameParams(seed.receiptBSavedName));
     expect(res.status).toBe(404);
   });
 
