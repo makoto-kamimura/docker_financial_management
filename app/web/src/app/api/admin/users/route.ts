@@ -5,6 +5,7 @@ import { withApi } from "@/lib/api-handler";
 import { conflict } from "@/lib/api-error";
 import { hashPassword } from "@/lib/auth";
 import { seedDefaultAccountsForTenant } from "@/lib/default-accounts";
+import { seedDefaultAllocationRulesForTenant } from "@/lib/default-allocation-rules";
 
 const CreateSchema = z.object({
   email: z.string().email(),
@@ -41,8 +42,9 @@ export const POST = withApi({
       let tid = actor.tenantId;
       if (newTenant) {
         tid = (await tx.tenant.create({ data: { name: fields.name } })).id;
-        // 新規テナントには家庭モードの既定勘定科目一式を自動登録する
+        // 新規テナントには家庭モードの既定勘定科目一式と予算配分ルールを自動登録する
         await seedDefaultAccountsForTenant(tx, tid);
+        await seedDefaultAllocationRulesForTenant(tx, tid);
       }
       return tx.user.create({
         data: { ...fields, passwordHash: hashPassword(password), tenantId: tid },

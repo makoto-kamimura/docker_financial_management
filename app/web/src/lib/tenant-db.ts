@@ -18,8 +18,9 @@ import { prisma } from "@/lib/prisma";
 // その分岐が壊れる。User の絞り込みは呼び出し側で明示的に扱う。
 // Session / AuditLog / Tenant / 各種子テーブル（JournalDetail など）は tenantId 列を
 // 持たないため、そもそも対象外（注入するとカラム不在で実行時エラーになる）。
-const TENANT_SCOPED_MODELS = new Set<string>([
+export const TENANT_SCOPED_MODELS = new Set<string>([
   "Account",
+  "AllocationRule",
   "Department",
   "Period",
   "Budget",
@@ -47,7 +48,13 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   "Dividend",
   "Announcement",
   "FiscalYearClose",
+  "PersonalAsset",
 ]);
+
+// tenantId 列を持つが自動スコープの対象外とするモデル（理由は上記コメント参照）。
+// tenant-db.test.ts が「tenantId を持つ全モデル = SCOPED ∪ EXCLUDED」を検証しており、
+// スキーマに tenantId 付きモデルを追加して登録を忘れると CI が失敗する。
+export const TENANT_SCOPE_EXCLUDED_MODELS = new Set<string>(["User"]);
 
 // tenantId を最後に spread することで、呼び出し側が別テナントの tenantId を
 // 明示的に渡してきても必ず上書きし、テナント境界を越えられないようにする。

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { withApi } from "@/lib/api-handler";
 import { seedDefaultAccountsForTenant } from "@/lib/default-accounts";
+import { seedDefaultAllocationRulesForTenant } from "@/lib/default-allocation-rules";
 
 const TenantSchema = z.object({
   type: z.string().default("SOLE_PROPRIETOR"),
@@ -37,8 +38,9 @@ export const POST = withApi({
         closingMonth: body.closingMonth,
       },
     });
-    // 新規テナントには家庭モードの既定勘定科目一式を自動登録する
+    // 新規テナントには家庭モードの既定勘定科目一式と予算配分ルールを自動登録する
     await seedDefaultAccountsForTenant(prisma, tenant.id);
+    await seedDefaultAllocationRulesForTenant(prisma, tenant.id);
     return NextResponse.json({ data: tenant }, { status: 201 });
   },
 });

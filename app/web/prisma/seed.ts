@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { seedDefaultAllocationRulesForTenant } from "../src/lib/default-allocation-rules";
 import { randomBytes, scryptSync } from "node:crypto";
 
 const prisma = new PrismaClient();
@@ -3519,6 +3520,10 @@ async function main() {
     ],
   });
   console.log("  ✓ Created personal assets");
+
+  // ── 予算配分ルール（既定マスタ） ──────────────────────────────────────
+  const allocationCreated = await seedDefaultAllocationRulesForTenant(prisma, tid);
+  console.log(`  ✓ Seeded allocation rules (${allocationCreated} created)`);
 
   console.log("🎉 Seed completed!");
 }

@@ -4,7 +4,7 @@ import {
   TextInput, TouchableOpacity, View,
 } from "react-native";
 import {
-  fetchAccounts, fetchBudgets, matchesViewMode, postBudget,
+  fetchAccounts, fetchBudgets, loadAllocation, matchesViewMode, postBudget,
   type Account, type BudgetRow, type HousingLoanOverlayRow,
   type PersonalAssetDebtOverlayRow, type ViewMode,
 } from "../api";
@@ -63,6 +63,8 @@ export function BudgetScreen({ viewMode }: Props) {
   }
 
   useEffect(() => { load(year); }, [year, viewMode]);
+  // 収入配分モーダルで使う配分ルールをサーバーから取得（失敗時は既定値で表示）
+  useEffect(() => { loadAllocation(); }, []);
 
   function budgetOf(code: string): number {
     const b = budgets.find(b => b.account?.code === code && b.period?.month === month);

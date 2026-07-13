@@ -61,6 +61,7 @@ model Account {
   accruedExpenses      AccruedExpense[]
   loans                Loan[]
   personalAssets       PersonalAsset[]
+  allocationRules      AllocationRule[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -114,6 +115,28 @@ model Budget {
   @@unique([tenantId, accountId, periodId])
   @@index([tenantId])
   @@map("budgets")
+}
+
+// 予算配分ルール（FP 推奨の収入比率マスタ。ステップ 2 の配分提案に使用）
+// 既定ルール（旧モバイル DEFAULT_ALLOCATION）をテナント作成時に自動投入する。
+model AllocationRule {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int
+  key        String                     // ルール識別子（rent / food など）
+  label      String                     // 表示名（家賃・住宅ローン など）
+  group      String                     // 固定費 / 生活費 / その他
+  minPercent Decimal  @db.Decimal(5, 2) // 推奨割合の下限（%）
+  maxPercent Decimal? @db.Decimal(5, 2) // 推奨割合の上限（%）。null = 上限なし
+  note       String?                    // 補足（「理想は25%以内」など）
+  account    Account? @relation(fields: [accountId], references: [id])
+  accountId  Int?                       // 対応する支払項目科目（null = 未紐付け）
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("allocation_rules")
 }
 
 // 実績データ

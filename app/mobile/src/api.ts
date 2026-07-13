@@ -238,6 +238,8 @@ export async function postBudget(data: {
 }
 
 // ── 予算配分ルール（FP推奨・手取り収入ベース） ───────────────────────
+// マスタはサーバー側（GET/PUT /api/allocation-rules、テナント別に永続化）。
+// ここでの既定値はサーバー未接続時のフォールバック表示にのみ使用する。
 export type AllocationGroup = "固定費" | "生活費" | "その他";
 
 export type AllocationItem = {
@@ -265,6 +267,18 @@ export const DEFAULT_ALLOCATION: AllocationItem[] = [
 
 let _allocation: AllocationItem[] = DEFAULT_ALLOCATION.map(i => ({ ...i }));
 
+const ALLOCATION_GROUPS: readonly string[] = ["固定費", "生活費", "その他"];
+
+type ServerAllocationRule = {
+  key: string;
+  label: string;
+  group: string;
+  minPercent: number;
+  maxPercent: number | null;
+  note: string | null;
+  sortOrder: number;
+};
+
 export function getAllocation(): AllocationItem[] {
   return _allocation;
 }
@@ -274,6 +288,50 @@ export function setAllocation(items: AllocationItem[]) {
 export function resetAllocation(): AllocationItem[] {
   _allocation = DEFAULT_ALLOCATION.map(i => ({ ...i }));
   return _allocation;
+}
+
+// サーバーからテナントの配分ルールを取得してローカルへ反映する。
+// 取得失敗時（オフライン・旧サーバー）は現在値（既定値）を維持する。
+export async function loadAllocation(): Promise<AllocationItem[]> {
+  try {
+    const res = await apiFetch("/allocation-rules");
+    if (!res.ok) return _allocation;
+    const json = await res.json();
+    const items: AllocationItem[] = (json.data ?? [])
+      .filter((r: ServerAllocationRule) => ALLOCATION_GROUPS.includes(r.group))
+      .map((r: ServerAllocationRule) => ({
+        key: r.key,
+        label: r.label,
+        group: r.group as AllocationGroup,
+        minPercent: Number(r.minPercent),
+        maxPercent: r.maxPercent === null ? null : Number(r.maxPercent),
+        note: r.note ?? undefined,
+      }));
+    if (items.length > 0) _allocation = items;
+  } catch {
+    // フォールバック: 既定値のまま
+  }
+  return _allocation;
+}
+
+// 配分ルールをサーバーへ保存し、成功時にローカルへ反映する。
+export async function saveAllocation(items: AllocationItem[]): Promise<void> {
+  const res = await apiFetch("/allocation-rules", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      items: items.map(i => ({
+        key: i.key,
+        label: i.label,
+        group: i.group,
+        minPercent: i.minPercent,
+        maxPercent: i.maxPercent,
+        note: i.note ?? null,
+      })),
+    }),
+  });
+  if (!res.ok) throw new Error("予算配分ルールの保存に失敗しました");
+  _allocation = items.map(i => ({ ...i }));
 }
 
 // ── 銀行口座 ──────────────────────────────────────────────────────────
