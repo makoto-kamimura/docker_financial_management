@@ -74,7 +74,10 @@ export async function logout(): Promise<void> {
 }
 
 // ── 共通型 ────────────────────────────────────────────────────────────
-export type Account = { id: number; code: string; name: string; category: string };
+export type Account = {
+  id: number; code: string; name: string; category: string;
+  soleName?: string | null; corporateName?: string | null;
+};
 
 export type RecentHistory = {
   historyId: number;
