@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import { badRequest, notFound } from "@/lib/api-error";
 import { zYearMonth } from "@/lib/zod-helpers";
 
-const CATEGORIES = ["LAND", "BUILDING", "VEHICLE", "GOLD", "OTHER"] as const;
-
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
-  category: z.enum(CATEGORIES).optional(),
+  category: z.enum(PERSONAL_ASSET_CATEGORIES).optional(),
   acquiredOn: z.string().nullable().optional(),
   acquisitionCost: z.number().nullable().optional(),
   currentValue: z.number().optional(),

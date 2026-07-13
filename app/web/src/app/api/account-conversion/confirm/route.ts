@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AccountConversionMode, AccountMappingMatchType } from "@prisma/client";
 import { withApi } from "@/lib/api-handler";
 import { forbidden } from "@/lib/api-error";
+import { saveManualMappingRule } from "@/lib/account-conversion";
 
 const MODES = ["HOME", "CORPORATE"] as const;
 const MATCH_TYPES = ["TABLE", "KEYWORD", "FUZZY", "AI_FREE", "AI_PAID", "MANUAL"] as const;
@@ -78,23 +79,7 @@ export const POST = withApi({
       const home = byId.get(m.homeAccountId);
       const corp = byId.get(m.corporateAccountId!);
       if (!home || !corp) continue;
-      await db.accountMappingRule.upsert({
-        where: { homeCode_userId: { homeCode: home.code, userId } },
-        update: {
-          corporateCode: corp.code,
-          isConvertible: true,
-          matchType: "MANUAL",
-          confidenceScore: 1.0,
-        },
-        create: {
-          homeCode: home.code,
-          userId,
-          corporateCode: corp.code,
-          isConvertible: true,
-          matchType: "MANUAL",
-          confidenceScore: 1.0,
-        },
-      });
+      await saveManualMappingRule(userId, home.code, corp.code);
     }
 
     return NextResponse.json({ data: { sessionId: session.id } }, { status: 201 });

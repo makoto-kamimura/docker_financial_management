@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
 import { parseBankCsv } from "@/lib/banktxn-import";
+import { serializeBankTransaction, upsertExternalTransactions } from "@/lib/bank-transactions";
 
 const TxnSchema = z.object({
   date: z.string().min(1),
@@ -23,13 +24,7 @@ export const GET = withApi({
       orderBy: { date: "desc" },
       take: 200,
     });
-    return NextResponse.json({
-      data: txns.map((t) => ({
-        ...t,
-        amount: Number(t.amount),
-        balance: t.balance ? Number(t.balance) : null,
-      })),
-    });
+    return NextResponse.json({ data: txns.map(serializeBankTransaction) });
   },
 });
 
@@ -58,39 +53,14 @@ export const POST = withApi({
         },
       });
       await audit("create_txn", `bank_account:${id}:${txn.id}`);
-      return NextResponse.json(
-        {
-          data: {
-            ...txn,
-            amount: Number(txn.amount),
-            balance: txn.balance ? Number(txn.balance) : null,
-          },
-        },
-        { status: 201 },
-      );
+      return NextResponse.json({ data: serializeBankTransaction(txn) }, { status: 201 });
     }
 
     const csv = await req.text();
     if (!csv.trim()) throw badRequest("empty body");
 
     const { rows, errors } = parseBankCsv(csv, id);
-    let inserted = 0;
-    for (const r of rows) {
-      await db.bankTransaction.upsert({
-        where: { accountId_externalId: { accountId: id, externalId: r.externalId } },
-        update: {},
-        create: {
-          accountId: id,
-          date: new Date(r.date),
-          description: r.description,
-          amount: r.amount,
-          balance: r.balance,
-          source: "CSV",
-          externalId: r.externalId,
-        },
-      });
-      inserted++;
-    }
+    const inserted = await upsertExternalTransactions(db, id, rows, "CSV");
     await audit("import_txn", `bank_account:${id}:${inserted}`);
     return NextResponse.json({ inserted, errors }, { status: errors.length ? 207 : 201 });
   },

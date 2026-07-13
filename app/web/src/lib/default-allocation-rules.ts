@@ -8,7 +8,9 @@ import type { Prisma } from "@prisma/client";
  * accountCode は家庭モード既定科目（HOME_ACCOUNTS_SEED の H-xxxx）への紐付け。
  * 複数科目にまたがる項目（水道・光熱費など）は null（未紐付け）とする。
  */
-export type AllocationGroup = "固定費" | "生活費" | "その他";
+export const ALLOCATION_GROUPS = ["固定費", "生活費", "その他"] as const;
+
+export type AllocationGroup = (typeof ALLOCATION_GROUPS)[number];
 
 export type AllocationRuleSeed = {
   key: string;

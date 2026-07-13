@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { ACCOUNT_CATEGORIES } from "@/lib/account-category";
 import { badRequest, conflict, notFound } from "@/lib/api-error";
 import { findAccountByCode } from "@/lib/period";
-
-const CATEGORIES = ["REVENUE", "COGS", "EXPENSE", "PROFIT", "ASSET", "LIABILITY", "OTHER"] as const;
 
 const UpdateSchema = z.object({
   code: z.string().min(1).max(20).optional(),
   name: z.string().min(1).optional(),
-  category: z.enum(CATEGORIES).optional(),
+  category: z.enum(ACCOUNT_CATEGORIES).optional(),
   parentCode: z.string().optional().nullable(),
   soleName: z.string().max(255).nullable().optional(),
   corporateName: z.string().max(255).nullable().optional(),

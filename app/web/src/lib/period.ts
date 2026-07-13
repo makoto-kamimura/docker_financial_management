@@ -11,6 +11,11 @@ export function resolvePeriod(db: TenantDb, tenantId: number, fiscalYear: number
   });
 }
 
+// 取引日などの日付から会計期間（その日付の年・月）を解決する。
+export function resolvePeriodForDate(db: TenantDb, tenantId: number, date: Date) {
+  return resolvePeriod(db, tenantId, date.getFullYear(), date.getMonth() + 1);
+}
+
 // 勘定科目をコードで解決する（自テナントのみ）。
 export function findAccountByCode(db: TenantDb, tenantId: number, code: string) {
   return db.account.findUnique({ where: { tenantId_code: { tenantId, code } } });

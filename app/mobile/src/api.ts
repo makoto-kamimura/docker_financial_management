@@ -282,9 +282,6 @@ type ServerAllocationRule = {
 export function getAllocation(): AllocationItem[] {
   return _allocation;
 }
-export function setAllocation(items: AllocationItem[]) {
-  _allocation = items;
-}
 export function resetAllocation(): AllocationItem[] {
   _allocation = DEFAULT_ALLOCATION.map(i => ({ ...i }));
   return _allocation;

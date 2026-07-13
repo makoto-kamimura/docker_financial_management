@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { resolvePeriod } from "@/lib/period";
 import { zDate } from "@/lib/zod-helpers";
+import { AP_ACCOUNT_CODE, postIssueRecord } from "@/lib/settlement";
 
 const PayableSchema = z.object({
   supplierName: z.string().min(1),
@@ -56,18 +56,8 @@ export const POST = withApi({
       },
     });
 
-    const apAccount = await db.account.findFirst({ where: { tenantId, code: "3000" } });
-    if (apAccount) {
-      const period = await resolvePeriod(
-        db,
-        tenantId,
-        record.issueDate.getFullYear(),
-        record.issueDate.getMonth() + 1,
-      );
-      await db.financialRecord.create({
-        data: { tenantId, accountId: apAccount.id, periodId: period.id, amount: body.amount },
-      });
-    }
+    // 買掛金科目（3000）があれば実績へ連動記帳する
+    await postIssueRecord(db, tenantId, AP_ACCOUNT_CODE, record.issueDate, body.amount);
 
     return NextResponse.json({ data: record }, { status: 201 });
   },

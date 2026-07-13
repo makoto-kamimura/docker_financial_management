@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  calcMape,
+  calcRmse,
+  evaluateForecastAccuracy,
   forecast,
   forecastGrowthRate,
   forecastHolt,
   forecastHoltWinters,
   forecastLinear,
   forecastMovingAverage,
+  toDbForecastMethod,
+  toDbForecastScenario,
 } from "@/lib/forecast";
 
 describe("forecastLinear", () => {
@@ -68,5 +73,35 @@ describe("forecast (dispatch)", () => {
     expect(forecast(history, 2, "moving_average")).toEqual(forecastMovingAverage(history, 2));
     expect(forecast(history, 2, "growth_rate")).toEqual(forecastGrowthRate(history, 2));
     expect(forecast(history, 2, "holt")).toEqual(forecastHolt(history, 2));
+  });
+});
+
+describe("精度評価と DB enum 写像", () => {
+  it("calcMape: 実績 0 の月を除外して平均絶対パーセント誤差を返す", () => {
+    expect(calcMape([100, 0, 200], [110, 50, 180])).toBe(10); // (10% + 10%) / 2
+    expect(calcMape([], [])).toBeNull();
+    expect(calcMape([0, 0], [1, 2])).toBeNull();
+  });
+
+  it("calcRmse: 二乗平均平方根誤差を丸めて返す", () => {
+    expect(calcRmse([100, 200], [110, 190])).toBe(10);
+    expect(calcRmse([], [])).toBeNull();
+  });
+
+  it("evaluateForecastAccuracy: 履歴不足時は null、十分なら holdout 3 ヶ月で評価する", () => {
+    expect(evaluateForecastAccuracy([1, 2, 3, 4, 5], "linear_regression")).toBeNull();
+    const result = evaluateForecastAccuracy([10, 20, 30, 40, 50, 60], "linear_regression");
+    expect(result).not.toBeNull();
+    expect(result!.holdoutMonths).toBe(3);
+    expect(result!.mape).toBe(0); // 完全な線形なので誤差ゼロ
+  });
+
+  it("toDbForecastMethod: Holt 系は LINEAR_REGRESSION に写像し、未知値はフォールバックする", () => {
+    expect(toDbForecastMethod("moving_average")).toBe("MOVING_AVERAGE");
+    expect(toDbForecastMethod("holt")).toBe("LINEAR_REGRESSION");
+    expect(toDbForecastMethod("holt_winters")).toBe("LINEAR_REGRESSION");
+    expect(toDbForecastMethod("unknown")).toBe("LINEAR_REGRESSION");
+    expect(toDbForecastScenario("optimistic")).toBe("OPTIMISTIC");
+    expect(toDbForecastScenario("unknown")).toBe("BASE");
   });
 });

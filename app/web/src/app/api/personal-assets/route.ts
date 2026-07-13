@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import { badRequest } from "@/lib/api-error";
 import { zYearMonth } from "@/lib/zod-helpers";
 import { computeDebtSchedule } from "@/lib/debt-schedule";
 
-const CATEGORIES = ["LAND", "BUILDING", "VEHICLE", "GOLD", "OTHER"] as const;
-
 const CreateSchema = z
   .object({
     name: z.string().min(1),
-    category: z.enum(CATEGORIES).default("OTHER"),
+    category: z.enum(PERSONAL_ASSET_CATEGORIES).default("OTHER"),
     acquiredOn: z.string().optional(),
     acquisitionCost: z.number().optional(),
     currentValue: z.number(),

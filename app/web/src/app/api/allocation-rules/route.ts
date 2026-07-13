@@ -3,14 +3,13 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest } from "@/lib/api-error";
 import { findAccountByCode } from "@/lib/period";
-
-const GROUPS = ["固定費", "生活費", "その他"] as const;
+import { ALLOCATION_GROUPS } from "@/lib/default-allocation-rules";
 
 const RuleSchema = z
   .object({
     key: z.string().min(1).max(50),
     label: z.string().min(1).max(100),
-    group: z.enum(GROUPS),
+    group: z.enum(ALLOCATION_GROUPS),
     minPercent: z.number().min(0).max(100),
     maxPercent: z.number().min(0).max(100).nullable(),
     note: z.string().max(255).nullable().optional(),

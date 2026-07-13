@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { resolvePeriod } from "@/lib/period";
 import { zDate } from "@/lib/zod-helpers";
+import { AR_ACCOUNT_CODE, postIssueRecord } from "@/lib/settlement";
 
 const ReceivableSchema = z.object({
   customerName: z.string().min(1),
@@ -58,18 +58,8 @@ export const POST = withApi({
       },
     });
 
-    const arAccount = await db.account.findFirst({ where: { tenantId, code: "1300" } });
-    if (arAccount) {
-      const period = await resolvePeriod(
-        db,
-        tenantId,
-        record.issueDate.getFullYear(),
-        record.issueDate.getMonth() + 1,
-      );
-      await db.financialRecord.create({
-        data: { tenantId, accountId: arAccount.id, periodId: period.id, amount: body.amount },
-      });
-    }
+    // 売掛金科目（1300）があれば実績へ連動記帳する
+    await postIssueRecord(db, tenantId, AR_ACCOUNT_CODE, record.issueDate, body.amount);
 
     return NextResponse.json({ data: record }, { status: 201 });
   },

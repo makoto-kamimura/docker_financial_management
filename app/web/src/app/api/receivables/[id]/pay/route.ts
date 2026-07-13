@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { ApiError, badRequest, notFound } from "@/lib/api-error";
+import { badRequest, notFound } from "@/lib/api-error";
 import { zDate } from "@/lib/zod-helpers";
+import { AR_ACCOUNT_CODE, createSettlementJournal } from "@/lib/settlement";
 
 const PaySchema = z.object({
   paidOn: zDate,
@@ -21,30 +22,14 @@ export const POST = withApi({
     if (!receivable) throw notFound();
     if (receivable.status === "paid") throw badRequest("already paid");
 
-    const paymentCode = body.paymentAccountCode ?? "1100";
-    const [paymentAccount, arAccount] = await Promise.all([
-      db.account.findFirst({ where: { tenantId, code: paymentCode } }),
-      db.account.findFirst({ where: { tenantId, code: "1300" } }),
-    ]);
-
-    if (!paymentAccount || !arAccount) {
-      throw new ApiError(500, "勘定科目が見つかりません（1300/入金科目）");
-    }
-
-    await db.journalEntry.create({
-      data: {
-        tenantId,
-        transactionDate: body.paidOn,
-        description: `${receivable.customerName} 売掛金入金`,
-        paymentMethod: paymentCode === "1100" ? "bank" : "cash",
-        taxCategory: "non_taxable",
-        details: {
-          create: [
-            { side: "debit", accountId: paymentAccount.id, amount: body.paidAmount },
-            { side: "credit", accountId: arAccount.id, amount: body.paidAmount },
-          ],
-        },
-      },
+    await createSettlementJournal(db, tenantId, {
+      paidOn: body.paidOn,
+      amount: body.paidAmount,
+      paymentAccountCode: body.paymentAccountCode,
+      counterAccountCode: AR_ACCOUNT_CODE,
+      description: `${receivable.customerName} 売掛金入金`,
+      direction: "receipt",
+      missingAccountsMessage: "勘定科目が見つかりません（1300/入金科目）",
     });
 
     const updated = await db.receivable.update({

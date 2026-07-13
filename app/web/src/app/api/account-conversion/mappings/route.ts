@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { withApi } from "@/lib/api-handler";
+import { saveManualMappingRule } from "@/lib/account-conversion";
 
 const MappingSchema = z.object({
   homeCode: z.string().min(1),
@@ -29,25 +30,9 @@ export const PUT = withApi({
   role: "editor",
   schema: MappingSchema,
   handler: async ({ user, body }) => {
-    const userId = user.id;
-    const rule = await prisma.accountMappingRule.upsert({
-      where: { homeCode_userId: { homeCode: body.homeCode, userId } },
-      update: {
-        corporateCode: body.corporateCode ?? null,
-        isConvertible: body.isConvertible,
-        notes: body.notes ?? null,
-        matchType: "MANUAL",
-        confidenceScore: 1.0,
-      },
-      create: {
-        homeCode: body.homeCode,
-        userId,
-        corporateCode: body.corporateCode ?? null,
-        isConvertible: body.isConvertible,
-        notes: body.notes ?? null,
-        matchType: "MANUAL",
-        confidenceScore: 1.0,
-      },
+    const rule = await saveManualMappingRule(user.id, body.homeCode, body.corporateCode ?? null, {
+      isConvertible: body.isConvertible,
+      notes: body.notes ?? null,
     });
     return NextResponse.json({ data: rule });
   },

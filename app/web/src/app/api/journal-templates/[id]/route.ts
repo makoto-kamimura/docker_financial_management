@@ -2,26 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
-
-const INCLUDE = {
-  lines: {
-    include: { account: { select: { id: true, code: true, name: true, category: true } } },
-    orderBy: { sortOrder: "asc" as const },
-  },
-};
-
-const LineSchema = z.object({
-  side: z.string().min(1),
-  accountId: z.number().int().positive(),
-  amount: z.number().optional(),
-  note: z.string().optional(),
-  sortOrder: z.number().int().optional(),
-});
+import { TEMPLATE_INCLUDE, TemplateLineSchema, toTemplateLineData } from "@/lib/journal-template";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
-  lines: z.array(LineSchema).optional(),
+  lines: z.array(TemplateLineSchema).optional(),
 });
 
 // GET /api/journal-templates/[id] … テンプレート 1 件の取得
@@ -30,7 +16,7 @@ export const GET = withApi({
   handler: async ({ user, db, id }) => {
     const t = await db.journalTemplate.findUnique({
       where: { id, tenantId: user.tenantId },
-      include: INCLUDE,
+      include: TEMPLATE_INCLUDE,
     });
     if (!t) throw notFound();
     return NextResponse.json({ data: t });
@@ -58,19 +44,15 @@ export const PUT = withApi({
       if (body.lines) {
         await tx.journalTemplateLine.deleteMany({ where: { templateId: id } });
         await tx.journalTemplateLine.createMany({
-          data: body.lines.map((l, i) => ({
-            templateId: id,
-            side: l.side,
-            accountId: l.accountId,
-            amount: l.amount ?? null,
-            note: l.note ?? null,
-            sortOrder: l.sortOrder ?? i,
-          })),
+          data: toTemplateLineData(body.lines).map((l) => ({ ...l, templateId: id })),
         });
       }
     });
 
-    const updated = await db.journalTemplate.findUnique({ where: { id }, include: INCLUDE });
+    const updated = await db.journalTemplate.findUnique({
+      where: { id },
+      include: TEMPLATE_INCLUDE,
+    });
     return NextResponse.json({ data: updated });
   },
 });

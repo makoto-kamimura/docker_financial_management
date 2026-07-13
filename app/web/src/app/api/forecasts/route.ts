@@ -3,7 +3,13 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
 import { aggregate } from "@/lib/aggregate";
-import { forecast, type ForecastMethod } from "@/lib/forecast";
+import {
+  forecast,
+  evaluateForecastAccuracy,
+  toDbForecastMethod,
+  toDbForecastScenario,
+  type ForecastMethod,
+} from "@/lib/forecast";
 import { resolvePeriod } from "@/lib/period";
 
 const METHODS = [
@@ -15,25 +21,6 @@ const METHODS = [
 ] as const;
 
 const SCENARIO_FACTOR = { optimistic: 1.1, base: 1.0, pessimistic: 0.9 } as const;
-
-function calcMape(actual: number[], predicted: number[]): number | null {
-  const n = Math.min(actual.length, predicted.length);
-  if (n === 0) return null;
-  const nonZero = actual.slice(0, n).filter((_, i) => actual[i] !== 0);
-  if (nonZero.length === 0) return null;
-  const sum = actual.slice(0, n).reduce((s, a, i) => {
-    if (a === 0) return s;
-    return s + Math.abs((a - predicted[i]) / a);
-  }, 0);
-  return Math.round((sum / nonZero.length) * 10000) / 100;
-}
-
-function calcRmse(actual: number[], predicted: number[]): number | null {
-  const n = Math.min(actual.length, predicted.length);
-  if (n === 0) return null;
-  const mse = actual.slice(0, n).reduce((s, a, i) => s + Math.pow(a - predicted[i], 2), 0) / n;
-  return Math.round(Math.sqrt(mse));
-}
 
 // GET /api/forecasts?accountCode=4000&months=6&method=linear_regression&scenario=base
 export const GET = withApi({
@@ -79,19 +66,7 @@ export const GET = withApi({
     const history = monthly.map((b) => b.total);
     const factor = SCENARIO_FACTOR[scenario] ?? 1;
     const forecasted = forecast(history, months, method, params).map((v) => Math.round(v * factor));
-
-    let accuracy: { mape: number | null; rmse: number | null; holdoutMonths: number } | null = null;
-    const holdout = 3;
-    if (history.length > holdout + 2) {
-      const trainHistory = history.slice(0, history.length - holdout);
-      const actualHoldout = history.slice(history.length - holdout);
-      const predictedHoldout = forecast(trainHistory, holdout, method, params);
-      accuracy = {
-        mape: calcMape(actualHoldout, predictedHoldout),
-        rmse: calcRmse(actualHoldout, predictedHoldout),
-        holdoutMonths: holdout,
-      };
-    }
+    const accuracy = evaluateForecastAccuracy(history, method, params);
 
     return NextResponse.json({
       accountCode,
@@ -125,27 +100,8 @@ export const POST = withApi({
     });
     if (!account) throw notFound(`account not found: ${body.accountCode}`);
 
-    const methodMap: Record<string, string> = {
-      moving_average: "MOVING_AVERAGE",
-      linear_regression: "LINEAR_REGRESSION",
-      growth_rate: "GROWTH_RATE",
-      holt: "LINEAR_REGRESSION",
-      holt_winters: "LINEAR_REGRESSION",
-    };
-    const scenarioMap: Record<string, string> = {
-      base: "BASE",
-      optimistic: "OPTIMISTIC",
-      pessimistic: "PESSIMISTIC",
-    };
-
-    const dbMethod = (methodMap[body.method] ?? "LINEAR_REGRESSION") as
-      | "MOVING_AVERAGE"
-      | "LINEAR_REGRESSION"
-      | "GROWTH_RATE";
-    const dbScenario = (scenarioMap[body.scenario] ?? "BASE") as
-      | "BASE"
-      | "OPTIMISTIC"
-      | "PESSIMISTIC";
+    const method = toDbForecastMethod(body.method);
+    const scenario = toDbForecastScenario(body.scenario);
 
     let year = body.startYear;
     let month = body.startMonth;
@@ -155,14 +111,7 @@ export const POST = withApi({
       const period = await resolvePeriod(db, tenantId, year, month);
 
       const snapshot = await db.forecast.create({
-        data: {
-          tenantId,
-          accountId: account.id,
-          periodId: period.id,
-          method: dbMethod,
-          scenario: dbScenario,
-          amount,
-        },
+        data: { tenantId, accountId: account.id, periodId: period.id, method, scenario, amount },
       });
       created.push(snapshot.id);
 

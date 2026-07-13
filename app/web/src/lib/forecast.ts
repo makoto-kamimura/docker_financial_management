@@ -160,3 +160,76 @@ export function forecast(
       return forecastLinear(history, months);
   }
 }
+
+// ── 精度評価（ホールドアウト検証） ─────────────────────────────────────
+
+export type ForecastAccuracy = { mape: number | null; rmse: number | null; holdoutMonths: number };
+
+// MAPE（平均絶対パーセント誤差、%）。実績 0 の月は分母にできないため除外する。
+export function calcMape(actual: number[], predicted: number[]): number | null {
+  const n = Math.min(actual.length, predicted.length);
+  if (n === 0) return null;
+  const nonZero = actual.slice(0, n).filter((_, i) => actual[i] !== 0);
+  if (nonZero.length === 0) return null;
+  const sum = actual.slice(0, n).reduce((s, a, i) => {
+    if (a === 0) return s;
+    return s + Math.abs((a - predicted[i]) / a);
+  }, 0);
+  return Math.round((sum / nonZero.length) * 10000) / 100;
+}
+
+// RMSE（二乗平均平方根誤差）
+export function calcRmse(actual: number[], predicted: number[]): number | null {
+  const n = Math.min(actual.length, predicted.length);
+  if (n === 0) return null;
+  const mse = actual.slice(0, n).reduce((s, a, i) => s + Math.pow(a - predicted[i], 2), 0) / n;
+  return Math.round(Math.sqrt(mse));
+}
+
+// 直近 holdout ヶ月を検証用に取り分け、残りで学習した予測との誤差を評価する。
+// 履歴が holdout + 2 ヶ月以下しかない場合は評価不能として null を返す。
+export function evaluateForecastAccuracy(
+  history: number[],
+  method: ForecastMethod,
+  params?: ForecastParams,
+  holdout = 3,
+): ForecastAccuracy | null {
+  if (history.length <= holdout + 2) return null;
+  const trainHistory = history.slice(0, history.length - holdout);
+  const actualHoldout = history.slice(history.length - holdout);
+  const predictedHoldout = forecast(trainHistory, holdout, method, params);
+  return {
+    mape: calcMape(actualHoldout, predictedHoldout),
+    rmse: calcRmse(actualHoldout, predictedHoldout),
+    holdoutMonths: holdout,
+  };
+}
+
+// ── DB enum への写像 ────────────────────────────────────────────────────
+// DB の ForecastMethod enum は 3 値のため、Holt 系は LINEAR_REGRESSION として保存する
+// （仕様書 付録 B「Forecast enum」参照）。
+
+export type DbForecastMethod = "MOVING_AVERAGE" | "LINEAR_REGRESSION" | "GROWTH_RATE";
+export type DbForecastScenario = "OPTIMISTIC" | "BASE" | "PESSIMISTIC";
+
+const DB_METHOD_MAP: Record<string, DbForecastMethod> = {
+  moving_average: "MOVING_AVERAGE",
+  linear_regression: "LINEAR_REGRESSION",
+  growth_rate: "GROWTH_RATE",
+  holt: "LINEAR_REGRESSION",
+  holt_winters: "LINEAR_REGRESSION",
+};
+
+const DB_SCENARIO_MAP: Record<string, DbForecastScenario> = {
+  base: "BASE",
+  optimistic: "OPTIMISTIC",
+  pessimistic: "PESSIMISTIC",
+};
+
+export function toDbForecastMethod(method: string): DbForecastMethod {
+  return DB_METHOD_MAP[method] ?? "LINEAR_REGRESSION";
+}
+
+export function toDbForecastScenario(scenario: string): DbForecastScenario {
+  return DB_SCENARIO_MAP[scenario] ?? "BASE";
+}

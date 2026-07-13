@@ -2,15 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest } from "@/lib/api-error";
-import { resolvePeriod } from "@/lib/period";
-import type { TenantDb } from "@/lib/tenant-db";
+import { JOURNAL_DETAILS_INCLUDE, syncJournalToFinancialRecords } from "@/lib/journal";
 import { invalidateCache } from "@/lib/redis";
 
-const INCLUDE_DETAILS = {
-  details: {
-    include: { account: { select: { id: true, code: true, name: true, category: true } } },
-    orderBy: { side: "asc" as const },
-  },
+const INCLUDE_WITH_RECEIPTS = {
+  ...JOURNAL_DETAILS_INCLUDE,
   receipts: { orderBy: { uploadedAt: "desc" as const } },
 };
 
@@ -62,7 +58,7 @@ export const GET = withApi({
       db.journalEntry.count({ where }),
       db.journalEntry.findMany({
         where,
-        include: INCLUDE_DETAILS,
+        include: INCLUDE_WITH_RECEIPTS,
         orderBy: { transactionDate: "desc" },
         skip: (page - 1) * limit,
         take: limit,
@@ -106,10 +102,10 @@ export const POST = withApi({
           })),
         },
       },
-      include: INCLUDE_DETAILS,
+      include: INCLUDE_WITH_RECEIPTS,
     });
 
-    await syncToFinancialRecords(
+    await syncJournalToFinancialRecords(
       db,
       tenantId,
       entry.transactionDate,
@@ -123,24 +119,3 @@ export const POST = withApi({
     return NextResponse.json({ data: entry }, { status: 201 });
   },
 });
-
-async function syncToFinancialRecords(
-  db: TenantDb,
-  tenantId: number,
-  transactionDate: Date,
-  details: { accountId: number; amount: number }[],
-) {
-  const fiscalYear = transactionDate.getFullYear();
-  const month = transactionDate.getMonth() + 1;
-
-  const period = await resolvePeriod(db, tenantId, fiscalYear, month);
-
-  await db.financialRecord.createMany({
-    data: details.map((d) => ({
-      tenantId,
-      accountId: d.accountId,
-      periodId: period.id,
-      amount: d.amount,
-    })),
-  });
-}

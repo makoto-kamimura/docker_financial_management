@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
-import { resolvePeriod } from "@/lib/period";
+import { resolvePeriodForDate } from "@/lib/period";
 
 // POST /api/inventories/[id]/close … 棚卸の確定（棚卸資産科目 1200 へ実績連動、editor 以上）
 export const POST = withApi({
@@ -17,8 +17,7 @@ export const POST = withApi({
 
     const stockAccount = await db.account.findFirst({ where: { tenantId, code: "1200" } });
     if (stockAccount) {
-      const date = inventory.inventoryDate;
-      const period = await resolvePeriod(db, tenantId, date.getFullYear(), date.getMonth() + 1);
+      const period = await resolvePeriodForDate(db, tenantId, inventory.inventoryDate);
       await db.financialRecord.create({
         data: {
           tenantId,
