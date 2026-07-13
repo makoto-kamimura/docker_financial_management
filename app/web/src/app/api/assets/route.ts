@@ -41,6 +41,8 @@ export const GET = withApi({
         id: a.id,
         code: a.code,
         name: a.name,
+        soleName: a.soleName,
+        corporateName: a.corporateName,
         category: a.category,
         parentId: a.parentId,
         parent: a.parent,

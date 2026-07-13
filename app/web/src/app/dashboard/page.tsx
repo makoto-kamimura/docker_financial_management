@@ -22,6 +22,8 @@ import { downloadSvgAsPng } from "@/lib/export-client";
 import { KpiCards } from "@/components/KpiCards";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
 
 type Row = {
   period: string;
@@ -44,7 +46,14 @@ type CompositionResponse = {
   totals: { name: string; value: number }[];
   years: number[];
 };
-type AccountItem = { id: number; code: string; name: string; category: string };
+type AccountItem = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 type BankAccount = { id: number; name: string; bankName: string };
 type SimResult = {
   accounts: { id: number; name: string }[];
@@ -104,19 +113,8 @@ function DashboardContent() {
   const [compYear, setCompYear] = useState<number | null>(null);
   const [accountCode, setAccountCode] = useState("H1000");
   const [year, setYear] = useState(new Date().getFullYear());
-  const [sysMode, setSysMode] = useState("sole");
+  const sysMode = useViewMode();
   const chartRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("viewMode");
-    if (saved && ["household", "sole", "corporate"].includes(saved)) setSysMode(saved);
-    const handler = () => {
-      const m = localStorage.getItem("viewMode");
-      if (m && ["household", "sole", "corporate"].includes(m)) setSysMode(m);
-    };
-    window.addEventListener("viewmode-change", handler);
-    return () => window.removeEventListener("viewmode-change", handler);
-  }, []);
 
   const { data: accountsData } = useQuery({
     queryKey: ["accounts-select"],
@@ -269,7 +267,7 @@ function DashboardContent() {
                 >
                   {(accountsData ?? []).map((a) => (
                     <option key={a.code} value={a.code}>
-                      {a.code} {a.name}
+                      {a.code} {displayName(a, sysMode)}
                     </option>
                   ))}
                 </select>

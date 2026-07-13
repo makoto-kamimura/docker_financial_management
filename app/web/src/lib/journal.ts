@@ -5,7 +5,18 @@ import { resolvePeriodForDate } from "@/lib/period";
 // journals / actuals（カレンダー入力）の各ルートで共用する。
 export const JOURNAL_DETAILS_INCLUDE = {
   details: {
-    include: { account: { select: { id: true, code: true, name: true, category: true } } },
+    include: {
+      account: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          category: true,
+          soleName: true,
+          corporateName: true,
+        },
+      },
+    },
     orderBy: { side: "asc" as const },
   },
 };

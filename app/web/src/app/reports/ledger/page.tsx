@@ -2,8 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
 
-type Account = { id: number; code: string; name: string; category: string };
+type Account = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 type LedgerRow = {
   date: string;
   journalId: number;
@@ -16,12 +25,15 @@ type Ledger = {
   accountId: number;
   code: string;
   name: string;
+  soleName?: string | null;
+  corporateName?: string | null;
   rows: LedgerRow[];
   totalDebit: number;
   totalCredit: number;
 };
 
 export default function LedgerPage() {
+  const sysMode = useViewMode();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,7 +42,7 @@ export default function LedgerPage() {
   const [searched, setSearched] = useState(false);
 
   useEffect(() => {
-    fetch("/api/masters/accounts")
+    fetch("/api/accounts")
       .then((r) => r.json())
       .then((j) => setAccounts(j.data ?? []));
   }, []);
@@ -88,7 +100,7 @@ export default function LedgerPage() {
             <option value="">— 全科目 —</option>
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.code} {a.name}
+                {a.code} {displayName(a, sysMode)}
               </option>
             ))}
           </select>
@@ -118,7 +130,7 @@ export default function LedgerPage() {
           >
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex justify-between">
               <h2 className="font-semibold text-slate-800">
-                {l.code} {l.name}
+                {l.code} {displayName(l, sysMode)}
               </h2>
               <div className="text-sm text-slate-500 space-x-4">
                 <span>

@@ -3,9 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName, type ViewMode } from "@/lib/display-name";
 
 // ── 型定義 ─────────────────────────────────────────────────────────────
-type Account = { id: number; code: string; name: string; category: string };
+type Account = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 type Detail = { side: "debit" | "credit"; accountId: number; amount: number; note: string };
 type JournalDetail = {
   id: number;
@@ -113,10 +122,12 @@ function JournalForm({
   accounts,
   onSaved,
   onClose,
+  sysMode,
 }: {
   accounts: Account[];
   onSaved: () => void;
   onClose: () => void;
+  sysMode: ViewMode;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
@@ -284,7 +295,7 @@ function JournalForm({
                         <option value={0}>科目を選択</option>
                         {acctOptions(row.side).map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.code} {a.name}
+                            {a.code} {displayName(a, sysMode)}
                           </option>
                         ))}
                       </select>
@@ -356,6 +367,7 @@ function JournalForm({
 
 // ── メインページ ────────────────────────────────────────────────────────
 export default function JournalsPage() {
+  const sysMode = useViewMode();
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   const [year, setYear] = useState(currentYear);
@@ -560,7 +572,7 @@ export default function JournalsPage() {
                           </td>
                           <td className="px-3 py-1.5 text-slate-600">
                             <span className="font-mono text-slate-400 mr-1">{d.account.code}</span>
-                            {d.account.name}
+                            {displayName(d.account, sysMode)}
                           </td>
                           <td className="px-3 py-1.5 text-right font-medium">
                             {yen(Number(d.amount))}
@@ -579,7 +591,12 @@ export default function JournalsPage() {
       )}
 
       {showForm && (
-        <JournalForm accounts={accounts} onSaved={load} onClose={() => setShowForm(false)} />
+        <JournalForm
+          accounts={accounts}
+          onSaved={load}
+          onClose={() => setShowForm(false)}
+          sysMode={sysMode}
+        />
       )}
     </AppShell>
   );

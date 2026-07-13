@@ -1,9 +1,12 @@
+import type { ViewMode } from "@/lib/display-name";
+
 // キャッシュフロー（資金フロー）図のデータ構造。Recharts Sankey に渡せる形にする。
 export type CashFlowNode = { name: string };
 export type CashFlowLink = { source: number; target: number; value: number };
 export type CashFlowGraph = { nodes: CashFlowNode[]; links: CashFlowLink[] };
 
-export type SysMode = "household" | "sole" | "corporate";
+// lib/display-name.ts の ViewMode と同一。既存コードとの互換のためエイリアスとして残す。
+export type SysMode = ViewMode;
 
 export type CashFlowLabels = {
   revenue: string;

@@ -15,6 +15,8 @@ import {
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { isCountedAsAsset } from "@/lib/personal-asset";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
 
 type PersonalAssetCategory = "LAND" | "BUILDING" | "VEHICLE" | "GOLD" | "OTHER";
 type PersonalAsset = {
@@ -35,7 +37,14 @@ type PersonalAsset = {
   createdAt: string;
   updatedAt: string;
 };
-type AccountRef = { id: number; code: string; name: string; category: string };
+type AccountRef = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 
 const PERSONAL_ASSET_CATEGORY_LABEL: Record<PersonalAssetCategory, string> = {
   LAND: "土地",
@@ -47,6 +56,7 @@ const PERSONAL_ASSET_CATEGORY_LABEL: Record<PersonalAssetCategory, string> = {
 
 function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  const sysMode = useViewMode();
   const [form, setForm] = useState({
     name: "",
     category: "LAND" as PersonalAssetCategory,
@@ -179,7 +189,7 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
                 <option value="">なし</option>
                 {(liabilityAccounts ?? []).map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.code} {a.name}
+                    {a.code} {displayName(a, sysMode)}
                   </option>
                 ))}
               </select>
@@ -408,6 +418,8 @@ type AccountBalance = {
   id: number;
   code: string;
   name: string;
+  soleName?: string | null;
+  corporateName?: string | null;
   category: "ASSET" | "LIABILITY";
   parentId: number | null;
   parent: { id: number; code: string; name: string } | null;
@@ -458,6 +470,7 @@ async function fetchAssets(): Promise<AssetsResponse> {
 }
 
 export default function AssetsPage() {
+  const sysMode = useViewMode();
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const toggle = (id: number) =>
@@ -633,7 +646,7 @@ export default function AssetsPage() {
                               <span className="text-xs font-mono text-slate-400 mr-1">
                                 {a.code}
                               </span>
-                              {a.name}
+                              {displayName(a, sysMode)}
                             </span>
                           </td>
                           <td className="py-2 text-right text-emerald-700">{yen(subtotal)}</td>
@@ -706,7 +719,7 @@ export default function AssetsPage() {
                                 <span className="text-xs font-mono text-slate-400 mr-1">
                                   {a.code}
                                 </span>
-                                {a.name}
+                                {displayName(a, sysMode)}
                               </span>
                             </td>
                             <td className="py-2 text-right text-rose-700">{yen(subtotal)}</td>

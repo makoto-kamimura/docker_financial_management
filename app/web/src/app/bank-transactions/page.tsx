@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
-import type { SysMode } from "@/lib/cashflow";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
@@ -90,23 +89,10 @@ export default function BankTransactionsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const [sysMode, setSysMode] = useState<SysMode>("sole");
-
   // カレンダー状態
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
-
-  useEffect(() => {
-    const v = localStorage.getItem("viewMode");
-    if (v === "household" || v === "corporate" || v === "sole") setSysMode(v);
-    const handler = (e: Event) => {
-      const m = (e as CustomEvent<SysMode>).detail;
-      if (m) setSysMode(m);
-    };
-    window.addEventListener("viewmode-change", handler);
-    return () => window.removeEventListener("viewmode-change", handler);
-  }, []);
 
   // ── データ取得 ──────────────────────────────────────────────
   const { data: flowData } = useQuery({

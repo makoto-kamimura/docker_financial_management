@@ -29,7 +29,9 @@ export const GET = withApi({
           journalEntry: { tenantId, transactionDate: { gte: startDate, lte: endDate } },
         },
         include: {
-          account: { select: { id: true, code: true, name: true } },
+          account: {
+            select: { id: true, code: true, name: true, soleName: true, corporateName: true },
+          },
           journalEntry: { select: { id: true, transactionDate: true, description: true } },
         },
         orderBy: [{ journalEntry: { transactionDate: "asc" } }, { id: "asc" }],
@@ -47,6 +49,8 @@ export const GET = withApi({
         accountId: number;
         code: string;
         name: string;
+        soleName: string | null;
+        corporateName: string | null;
         rows: LedgerRow[];
         totalDebit: number;
         totalCredit: number;
@@ -60,6 +64,8 @@ export const GET = withApi({
             accountId: aid,
             code: d.account.code,
             name: d.account.name,
+            soleName: d.account.soleName,
+            corporateName: d.account.corporateName,
             rows: [],
             totalDebit: 0,
             totalCredit: 0,

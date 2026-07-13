@@ -19,6 +19,8 @@ import { BudgetActualChart } from "@/components/BudgetActualChart";
 import { downloadSvgAsPng } from "@/lib/export-client";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
 
 type Row = {
   period: string;
@@ -82,11 +84,19 @@ function toAnnualRows(rows: Row[]): Row[] {
   });
 }
 
-type AccountItem = { id: number; code: string; name: string; category: string };
+type AccountItem = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 
 export default function ReportsPage() {
   const [tab, setTab] = useState<"budget" | "composition">("budget");
   const [method, setMethod] = useState("holt_winters");
+  const sysMode = useViewMode();
   const [viewMode, setViewMode] = useState<"monthly" | "annual">("monthly");
   const [compYear, setCompYear] = useState<number | null>(null);
   const [accountCode, setAccountCode] = useState("H1000");
@@ -188,7 +198,7 @@ export default function ReportsPage() {
                 >
                   {(accountsData ?? []).map((a) => (
                     <option key={a.code} value={a.code}>
-                      {a.code} {a.name}
+                      {a.code} {displayName(a, sysMode)}
                     </option>
                   ))}
                 </select>

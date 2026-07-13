@@ -15,7 +15,7 @@ export const GET = withApi({
       include: {
         record: {
           include: {
-            account: { select: { code: true, name: true } },
+            account: { select: { code: true, name: true, soleName: true, corporateName: true } },
             period: { select: { fiscalYear: true, month: true } },
           },
         },

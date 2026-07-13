@@ -4,8 +4,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
 
-type AccountRef = { id: number; code: string; name: string; category: string };
+type AccountRef = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 type BudgetRow = {
   id: number;
   amount: number;
@@ -67,6 +76,7 @@ function currentFiscalYear() {
 
 export default function BudgetPage() {
   const qc = useQueryClient();
+  const sysMode = useViewMode();
   const [tab, setTab] = useState<Tab>("manual");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [form, setForm] = useState({ accountCode: "", month: 1, amount: "" });
@@ -133,6 +143,8 @@ export default function BudgetPage() {
         code: g.account.code,
         name: g.account.name,
         category: "",
+        soleName: null,
+        corporateName: null,
       }));
 
   async function addBudget(e: { preventDefault(): void }) {
@@ -262,7 +274,7 @@ export default function BudgetPage() {
                 <option value="">選択してください</option>
                 {accounts?.map((a) => (
                   <option key={a.code} value={a.code}>
-                    {a.code} {a.name}
+                    {a.code} {displayName(a, sysMode)}
                   </option>
                 ))}
               </select>
@@ -450,7 +462,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                     <tr key={acct.code} className="hover:bg-slate-50 group">
                       <td className="sticky left-0 bg-white group-hover:bg-slate-50 px-4 py-2 font-medium">
                         <span className="text-xs font-mono text-slate-400 mr-1.5">{acct.code}</span>
-                        <span className="text-slate-800">{acct.name}</span>
+                        <span className="text-slate-800">{displayName(acct, sysMode)}</span>
                         {hasOverlay && (
                           <span
                             className="ml-1.5 text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded"

@@ -40,6 +40,8 @@ export const GET = withApi({
         accountId: number;
         code: string;
         name: string;
+        soleName: string | null;
+        corporateName: string | null;
         category: string;
         total: number;
         parentId: number | null;
@@ -53,6 +55,8 @@ export const GET = withApi({
             accountId: key,
             code: r.account.code,
             name: r.account.name,
+            soleName: r.account.soleName,
+            corporateName: r.account.corporateName,
             category: r.account.category,
             parentId: r.account.parentId,
             total: 0,
