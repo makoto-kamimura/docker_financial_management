@@ -1,22 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { createSession, verifyPassword } from "@/lib/auth";
-import { verifyTotp } from "@/lib/totp";
 import { writeAudit } from "@/lib/audit";
+import { consumeMfaChallenge, issueMfaChallenge } from "@/lib/mfa-challenge";
 
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-  code: z.string().optional(), // MFA TOTP ワンタイムコード
-  recoveryCode: z.string().optional(), // MFA リカバリーコード
+  // 旧クライアント互換: password と同時に MFA コードを送る 1 段階フロー（1 リリースの間のみ許容）
+  code: z.string().optional(),
+  recoveryCode: z.string().optional(),
 });
 
 const MAX_ATTEMPTS = 5; // 最大連続失敗回数
 const LOCK_MINUTES = 15; // ロック時間 (分)
 
-// POST /api/auth/login … メール + パスワード（+ 必要なら MFA コード or リカバリーコード）でログインする。
+// POST /api/auth/login … メール + パスワードでログインする。
+// MFA 有効なユーザーは { mfaRequired: true, mfaToken } を返す（セッションは未発行）。
+// 続けて POST /api/auth/mfa/verify に mfaToken + code|recoveryCode を送ることで完了する。
 export async function POST(req: NextRequest) {
   const parsed = LoginSchema.safeParse(await req.json());
   if (!parsed.success) {
@@ -55,44 +57,44 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 401 });
   }
 
-  // 認証成功: 失敗カウントをリセット
-  if (user.loginAttempts > 0 || user.lockedUntil) {
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { loginAttempts: 0, lockedUntil: null },
+  // パスワード認証成功。MFA 無効ならここでセッション発行・失敗カウントリセット
+  // （MFA 有効時はリセットを MFA 通過後まで遅らせる。TOTP 総当たり対策）
+  if (!user.mfaEnabled || !user.totpSecret) {
+    if (user.loginAttempts > 0 || user.lockedUntil) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { loginAttempts: 0, lockedUntil: null },
+      });
+    }
+    const sessionId = await createSession(user.id);
+    await writeAudit(user.id, "login", `user:${user.id}`);
+    return NextResponse.json({
+      data: { id: user.id, name: user.name, role: user.role, sessionId },
     });
   }
 
-  // MFA が有効ならワンタイムコードまたはリカバリーコードを要求
-  if (user.mfaEnabled && user.totpSecret) {
-    if (!code && !recoveryCode) {
-      return NextResponse.json({ mfaRequired: true }, { status: 401 });
-    }
-
-    if (recoveryCode) {
-      // リカバリーコード認証
-      const stored: string[] = user.mfaRecoveryCodes ? JSON.parse(user.mfaRecoveryCodes) : [];
-      const hash = createHash("sha256").update(recoveryCode.trim().toUpperCase()).digest("hex");
-      const idx = stored.indexOf(hash);
-      if (idx === -1) {
-        return NextResponse.json({ error: "invalid recovery code" }, { status: 401 });
-      }
-      // 使用済みコードを削除（ワンタイム）
-      stored.splice(idx, 1);
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { mfaRecoveryCodes: JSON.stringify(stored) },
+  // 旧クライアント互換: password と同時に code/recoveryCode が送られた場合は
+  // チャレンジ発行 → 即検証を内部で連続実行する（新エンドポイントと同じ試行制限・ロックを適用）
+  if (code || recoveryCode) {
+    const token = await issueMfaChallenge(user.id);
+    const result = await consumeMfaChallenge(token, { code, recoveryCode });
+    if (result.status === "success") {
+      const sessionId = await createSession(user.id);
+      await writeAudit(user.id, "login", `user:${user.id}`);
+      return NextResponse.json({
+        data: { id: user.id, name: user.name, role: user.role, sessionId },
       });
-      await writeAudit(user.id, "mfa_recovery_used", `user:${user.id}`);
-    } else if (code) {
-      if (!verifyTotp(user.totpSecret, code)) {
-        return NextResponse.json({ error: "invalid mfa code" }, { status: 401 });
-      }
     }
+    if (result.status === "locked") {
+      return NextResponse.json(
+        { error: `アカウントがロックされています。${result.remainSec}秒後に再試行してください。` },
+        { status: 429 },
+      );
+    }
+    return NextResponse.json({ error: "invalid mfa code" }, { status: 401 });
   }
 
-  const sessionId = await createSession(user.id);
-  await writeAudit(user.id, "login", `user:${user.id}`);
-  // sessionId はモバイルアプリ向けに返す（Web は Cookie を使用）
-  return NextResponse.json({ data: { id: user.id, name: user.name, role: user.role, sessionId } });
+  // 新フロー: MFA チャレンジトークンを発行してクライアントへ返す（セッションは未発行）
+  const mfaToken = await issueMfaChallenge(user.id);
+  return NextResponse.json({ mfaRequired: true, mfaToken }, { status: 401 });
 }

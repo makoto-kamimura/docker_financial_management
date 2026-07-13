@@ -22,14 +22,18 @@ export async function POST(req: NextRequest) {
   const { count } = await prisma.session.deleteMany({
     where: { expiresAt: { lt: now } },
   });
+  const { count: mfaCount } = await prisma.mfaChallenge.deleteMany({
+    where: { expiresAt: { lt: now } },
+  });
 
   return NextResponse.json({
     deleted: count,
+    deletedMfaChallenges: mfaCount,
     deletedAt: now.toISOString(),
   });
 }
 
-// GET /api/admin/cleanup — 期限切れセッション数の確認（admin 限定）
+// GET /api/admin/cleanup — 期限切れセッション・MFA チャレンジ数の確認（admin 限定）
 export async function GET() {
   const auth = await requireRole("admin");
   if (auth.error) return auth.error;
@@ -39,10 +43,19 @@ export async function GET() {
     where: { expiresAt: { lt: now } },
   });
   const totalCount = await prisma.session.count();
+  const expiredMfaCount = await prisma.mfaChallenge.count({
+    where: { expiresAt: { lt: now } },
+  });
+  const totalMfaCount = await prisma.mfaChallenge.count();
 
   return NextResponse.json({
     expired: expiredCount,
     total: totalCount,
     active: totalCount - expiredCount,
+    mfaChallenges: {
+      expired: expiredMfaCount,
+      total: totalMfaCount,
+      active: totalMfaCount - expiredMfaCount,
+    },
   });
 }

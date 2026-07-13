@@ -226,6 +226,7 @@ model User {
 
   sessions         Session[]
   journalApprovals JournalApproval[]
+  mfaChallenges    MfaChallenge[]
 
   @@index([tenantId])
   @@map("users")
@@ -240,6 +241,20 @@ model Session {
   createdAt DateTime @default(now())
 
   @@map("sessions")
+}
+
+// MFA 2段階ログインの一時チャレンジ（パスワード認証後・TOTP/リカバリーコード検証前）。
+// token は生トークンの SHA-256 ハッシュを保存する（DB 漏洩時も再利用不可）。
+model MfaChallenge {
+  token     String   @id
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("mfa_challenges")
 }
 
 // 監査ログ
