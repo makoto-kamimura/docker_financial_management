@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkCsrf, isMutatingApiRequest } from "@/lib/csrf";
+import { sessionCookieName } from "@/lib/session-constants";
 
 // 保護対象パス。未ログイン（セッション Cookie 無し）なら /login へリダイレクトする。
 // NOTE: ここでは Cookie の有無のみを確認する軽量チェック。
@@ -31,8 +32,6 @@ const PROTECTED = [
   "/settings",
   "/admin",
 ];
-const SESSION_COOKIE = "fm_session";
-
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -45,7 +44,7 @@ export function middleware(req: NextRequest) {
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (!isProtected) return NextResponse.next();
 
-  const hasSession = req.cookies.has(SESSION_COOKIE);
+  const hasSession = req.cookies.has(sessionCookieName());
   if (!hasSession) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";

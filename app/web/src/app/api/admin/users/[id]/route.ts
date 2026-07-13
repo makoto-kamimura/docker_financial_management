@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
-import { hashPassword } from "@/lib/auth";
+import { hashPassword, invalidateAllSessions } from "@/lib/auth";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -29,6 +29,12 @@ export const PATCH = withApi({
       data,
       select: { id: true, email: true, name: true, role: true, mfaEnabled: true, createdAt: true },
     });
+
+    // パスワード・ロール変更時は既存セッションを全て失効させる（変更前の権限での操作を防ぐ）
+    if (password || fields.role !== undefined) {
+      await invalidateAllSessions(id);
+    }
+
     await audit("update", `user:${id}`);
     return NextResponse.json({ data: user });
   },

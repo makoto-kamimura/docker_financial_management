@@ -1,9 +1,21 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { cookies, headers } from "next/headers";
+import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isCookieSecure, sessionCookieName, SESSION_TOKEN_PREFIX } from "@/lib/session-constants";
 
-const SESSION_COOKIE = "fm_session";
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 日
+const ABSOLUTE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 日（絶対期限）
+const IDLE_TTL_MS = 1000 * 60 * 60 * 24; // 24 時間（アイドルタイムアウト）
+const LAST_SEEN_UPDATE_THRESHOLD_MS = 1000 * 60 * 60; // lastSeenAt 更新の間引き（1時間）
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+// 新形式（`fm2:` 接頭辞）はハッシュで DB 照合、旧形式（平文トークン）は移行期間中そのまま照合する。
+function lookupKey(token: string): string {
+  return token.startsWith(SESSION_TOKEN_PREFIX) ? hashToken(token) : token;
+}
 
 // パスワードを scrypt でハッシュ化する（外部依存なし）
 export function hashPassword(password: string): string {
@@ -21,51 +33,87 @@ export function verifyPassword(password: string, stored: string): boolean {
   return keyBuf.length === derived.length && timingSafeEqual(keyBuf, derived);
 }
 
-// ログイン: セッションを作成し Cookie を設定する。セッション ID を返す（モバイル用）
-export async function createSession(userId: number): Promise<string> {
-  const id = randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await prisma.session.create({ data: { id, userId, expiresAt } });
+function clientMeta(req?: NextRequest): { ip?: string; userAgent?: string } {
+  if (!req) return {};
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const userAgent = req.headers.get("user-agent") ?? undefined;
+  return { ip, userAgent };
+}
+
+// ログイン: セッションを作成し Cookie を設定する。トークンを返す（モバイルは Bearer として使用）。
+// ログイン成功時は常に新規トークンを発行する（セッション固定攻撃対策）。
+export async function createSession(userId: number, req?: NextRequest): Promise<string> {
+  const token = SESSION_TOKEN_PREFIX + randomBytes(32).toString("hex");
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + ABSOLUTE_TTL_MS);
+  const { ip, userAgent } = clientMeta(req);
+  await prisma.session.create({
+    data: { id: hashToken(token), userId, expiresAt, lastSeenAt: now, ip, userAgent },
+  });
 
   const store = await cookies();
-  store.set(SESSION_COOKIE, id, {
+  store.set(sessionCookieName(), token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false",
+    secure: isCookieSecure(),
     sameSite: "lax",
     expires: expiresAt,
     path: "/",
   });
-  return id;
+  return token;
+}
+
+function resolveRequestToken(reqHeaders: Headers, cookieToken: string | undefined): string | null {
+  const auth = reqHeaders.get("authorization");
+  const bearerToken = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+  return bearerToken ?? cookieToken ?? null;
 }
 
 // 現在のリクエストのログインユーザーを取得する（未ログインなら null）
-// Cookie（Web）または Authorization: Bearer <sessionId>（モバイル）の両方に対応
+// Cookie（Web）または Authorization: Bearer <token>（モバイル）の両方に対応
 export async function getCurrentUser() {
   const reqHeaders = await headers();
-  const auth = reqHeaders.get("authorization");
-  const bearerSessionId = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-
   const store = await cookies();
-  const sessionId = bearerSessionId ?? store.get(SESSION_COOKIE)?.value;
-  if (!sessionId) return null;
+  const token = resolveRequestToken(reqHeaders, store.get(sessionCookieName())?.value);
+  if (!token) return null;
 
   const session = await prisma.session.findUnique({
-    where: { id: sessionId },
+    where: { id: lookupKey(token) },
     include: { user: true },
   });
-  if (!session || session.expiresAt < new Date()) return null;
+  if (!session) return null;
+
+  const now = new Date();
+  if (session.expiresAt < now) return null; // 絶対期限
+  if (session.lastSeenAt.getTime() + IDLE_TTL_MS < now.getTime()) return null; // アイドルタイムアウト
+
+  // 書き込み頻度を抑えるため、一定時間以上古い場合のみ lastSeenAt を更新する
+  if (now.getTime() - session.lastSeenAt.getTime() > LAST_SEEN_UPDATE_THRESHOLD_MS) {
+    await prisma.session
+      .update({ where: { id: session.id }, data: { lastSeenAt: now } })
+      .catch(() => {});
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { passwordHash: _passwordHash, ...user } = session.user;
   return user; // includes tenantId
 }
 
-// ログアウト: セッションを削除し Cookie をクリアする
+// ログアウト: セッションを削除し Cookie をクリアする。Cookie（Web）/ Bearer（モバイル）の両方に対応。
 export async function destroySession(): Promise<void> {
+  const reqHeaders = await headers();
   const store = await cookies();
-  const sessionId = store.get(SESSION_COOKIE)?.value;
-  if (sessionId) {
-    await prisma.session.deleteMany({ where: { id: sessionId } });
-    store.delete(SESSION_COOKIE);
+  const cookieToken = store.get(sessionCookieName())?.value;
+  const token = resolveRequestToken(reqHeaders, cookieToken);
+
+  if (token) {
+    await prisma.session.deleteMany({ where: { id: lookupKey(token) } });
   }
+  if (cookieToken) {
+    store.delete(sessionCookieName());
+  }
+}
+
+// 指定ユーザーの全セッションを失効させる（パスワード変更・ロール変更時）。
+export async function invalidateAllSessions(userId: number): Promise<void> {
+  await prisma.session.deleteMany({ where: { userId } });
 }

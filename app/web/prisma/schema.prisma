@@ -232,14 +232,20 @@ model User {
   @@map("users")
 }
 
-// セッション
+// セッション。id は SHA-256(token) を保存する（新形式 `fm2:` トークンのみ。
+// 旧形式の平文トークンで発行されたセッションは移行期間中そのまま自然失効する）。
 model Session {
-  id        String   @id
-  user      User     @relation(fields: [userId], references: [id])
-  userId    Int
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id         String   @id
+  user       User     @relation(fields: [userId], references: [id])
+  userId     Int
+  expiresAt  DateTime // 絶対期限（発行から 7 日）
+  lastSeenAt DateTime @default(now()) // アイドルタイムアウト判定（24h）
+  ip         String? // 監査用
+  userAgent  String? // 監査用
+  createdAt  DateTime @default(now())
 
+  @@index([userId])
+  @@index([expiresAt])
   @@map("sessions")
 }
 

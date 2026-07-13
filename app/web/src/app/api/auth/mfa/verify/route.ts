@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
   }
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: result.sessionUserId } });
-  const sessionId = await createSession(user.id);
+  const sessionId = await createSession(user.id, req);
   await writeAudit(user.id, "login", `user:${user.id}`);
   return NextResponse.json({ data: { id: user.id, name: user.name, role: user.role, sessionId } });
 }

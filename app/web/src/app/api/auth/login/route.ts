@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
         data: { loginAttempts: 0, lockedUntil: null },
       });
     }
-    const sessionId = await createSession(user.id);
+    const sessionId = await createSession(user.id, req);
     await writeAudit(user.id, "login", `user:${user.id}`);
     return NextResponse.json({
       data: { id: user.id, name: user.name, role: user.role, sessionId },
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     const token = await issueMfaChallenge(user.id);
     const result = await consumeMfaChallenge(token, { code, recoveryCode });
     if (result.status === "success") {
-      const sessionId = await createSession(user.id);
+      const sessionId = await createSession(user.id, req);
       await writeAudit(user.id, "login", `user:${user.id}`);
       return NextResponse.json({
         data: { id: user.id, name: user.name, role: user.role, sessionId },
