@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { verifyTotp } from "@/lib/totp";
+import { verifyTotpWithReplayGuard } from "@/lib/totp-replay-guard";
 import { writeAudit } from "@/lib/audit";
 
 export const MFA_TOKEN_TTL_MS = 5 * 60 * 1000; // 5分
@@ -22,7 +22,12 @@ export async function issueMfaChallenge(userId: number): Promise<string> {
 }
 
 async function verifyCode(
-  user: { id: number; totpSecret: string | null; mfaRecoveryCodes: string | null },
+  user: {
+    id: number;
+    totpSecret: string | null;
+    totpLastUsedStep: bigint | null;
+    mfaRecoveryCodes: string | null;
+  },
   input: { code?: string; recoveryCode?: string },
 ): Promise<boolean> {
   if (input.recoveryCode) {
@@ -39,7 +44,7 @@ async function verifyCode(
     return true;
   }
   if (input.code && user.totpSecret) {
-    return verifyTotp(user.totpSecret, input.code);
+    return verifyTotpWithReplayGuard(user.id, user.totpSecret, input.code, user.totpLastUsedStep);
   }
   return false;
 }

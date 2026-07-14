@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { withApi } from "@/lib/api-handler";
 import { ApiError, badRequest, notFound } from "@/lib/api-error";
-import { verifyTotp } from "@/lib/totp";
+import { verifyTotpWithReplayGuard } from "@/lib/totp-replay-guard";
 
 const RECOVERY_CODE_COUNT = 8;
 
@@ -32,7 +32,15 @@ export const POST = withApi({
 
     // TOTP コードで本人確認
     if (user.totpSecret) {
-      if (!body.totp || !verifyTotp(user.totpSecret, body.totp)) {
+      const ok =
+        body.totp &&
+        (await verifyTotpWithReplayGuard(
+          user.id,
+          user.totpSecret,
+          body.totp,
+          user.totpLastUsedStep,
+        ));
+      if (!ok) {
         throw new ApiError(401, "TOTP コードが正しくありません");
       }
     }

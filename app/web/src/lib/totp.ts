@@ -56,14 +56,29 @@ function hotp(secret: Buffer, counter: number): string {
   return String(bin % 1_000_000).padStart(6, "0");
 }
 
-// TOTP コードを検証する（前後 1 ステップの許容＝時刻ずれ対策、30 秒刻み）
-export function verifyTotp(secretBase32: string, code: string, window = 1, step = 30): boolean {
+// TOTP コードを検証し、一致したステップ番号（カウンタ値）を返す（不一致なら null）。
+// S-7: リプレイ防止のため、呼び出し側は返却されたステップ番号が「直近で使用済みの
+// ステップ以下でないか」を確認し、検証成功時はそのステップ番号を記録すること
+// （lib/totp-replay-guard.ts の verifyTotpWithReplayGuard() が DB 記録込みで行う）。
+export function verifyTotpStep(
+  secretBase32: string,
+  code: string,
+  window = 1,
+  step = 30,
+): number | null {
   const secret = base32Decode(secretBase32);
   const counter = Math.floor(Date.now() / 1000 / step);
   for (let w = -window; w <= window; w++) {
-    if (hotp(secret, counter + w) === code) return true;
+    if (hotp(secret, counter + w) === code) return counter + w;
   }
-  return false;
+  return null;
+}
+
+// TOTP コードを検証する（前後 1 ステップの許容＝時刻ずれ対策、30 秒刻み）。
+// リプレイ防止が必要な呼び出し元（ログイン・MFA 有効化/無効化・リカバリーコード発行）は
+// verifyTotpWithReplayGuard() を使うこと。この関数は単純な真偽判定のみで再利用検出はしない。
+export function verifyTotp(secretBase32: string, code: string, window = 1, step = 30): boolean {
+  return verifyTotpStep(secretBase32, code, window, step) !== null;
 }
 
 // 認証アプリ登録用の otpauth URI を生成する

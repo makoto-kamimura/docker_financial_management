@@ -222,6 +222,7 @@ model User {
   role             String    @default("viewer") // admin / editor / accountant / viewer
   mfaEnabled       Boolean   @default(false)
   totpSecret       String? // Base32 エンコードされた TOTP シークレット
+  totpLastUsedStep BigInt? // S-7: 直近で検証成功した TOTP ステップ番号（この値以下のコードは再利用として拒否する）
   mfaRecoveryCodes String? // JSON 配列: ハッシュ化されたリカバリーコード
   loginAttempts    Int       @default(0) // 連続失敗回数
   lockedUntil      DateTime? // アカウントロック解除時刻
