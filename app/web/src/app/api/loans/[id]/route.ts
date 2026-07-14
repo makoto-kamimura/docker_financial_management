@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
 import { findAccountByCode } from "@/lib/period";
+import { invalidateCache } from "@/lib/redis";
 
 const UpdateSchema = z.object({
   lenderName: z.string().min(1).optional(),
@@ -50,6 +51,7 @@ export const PATCH = withApi({
         linkedAccount: { select: { id: true, code: true, name: true } },
       },
     });
+    await invalidateCache(`assets:summary:${tenantId}:*`);
     return NextResponse.json({ data: loan });
   },
 });

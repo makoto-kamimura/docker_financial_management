@@ -1,5 +1,14 @@
 // 実物資産カテゴリ（Zod 検証・画面の列挙で共用する定数）
-export const PERSONAL_ASSET_CATEGORIES = ["LAND", "BUILDING", "VEHICLE", "GOLD", "OTHER"] as const;
+export const PERSONAL_ASSET_CATEGORIES = [
+  "LAND",
+  "BUILDING",
+  "VEHICLE",
+  "GOLD",
+  "CASH",
+  "DEPOSIT",
+  "SECURITIES",
+  "OTHER",
+] as const;
 
 export type PersonalAssetCategoryValue = (typeof PERSONAL_ASSET_CATEGORIES)[number];
 

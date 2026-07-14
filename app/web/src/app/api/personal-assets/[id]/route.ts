@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api-handler";
 import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import { badRequest, notFound } from "@/lib/api-error";
 import { zYearMonth } from "@/lib/zod-helpers";
+import { invalidateCache } from "@/lib/redis";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -59,6 +60,7 @@ export const PATCH = withApi({
         ...(body.debtInitialAmount !== undefined && { debtInitialAmount: body.debtInitialAmount }),
       },
     });
+    await invalidateCache(`assets:summary:${tenantId}:*`);
     return NextResponse.json({ data: asset });
   },
 });
@@ -71,6 +73,7 @@ export const DELETE = withApi({
     if (!existing) throw notFound();
 
     await db.personalAsset.delete({ where: { id } });
+    await invalidateCache(`assets:summary:${user.tenantId}:*`);
     return NextResponse.json({ ok: true });
   },
 });

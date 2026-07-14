@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
 import { parseBankCsv } from "@/lib/banktxn-import";
 import { serializeBankTransaction, upsertExternalTransactions } from "@/lib/bank-transactions";
+import { invalidateCache } from "@/lib/redis";
 
 const TxnSchema = z.object({
   date: z.string().min(1),
@@ -54,6 +55,7 @@ export const POST = withApi({
         },
       });
       await audit("create_txn", `bank_account:${id}:${txn.id}`);
+      await invalidateCache(`assets:summary:${user.tenantId}:*`);
       return NextResponse.json({ data: serializeBankTransaction(txn) }, { status: 201 });
     }
 
@@ -63,6 +65,7 @@ export const POST = withApi({
     const { rows, errors } = parseBankCsv(csv, id);
     const inserted = await upsertExternalTransactions(db, id, rows, "CSV");
     await audit("import_txn", `bank_account:${id}:${inserted}`);
+    await invalidateCache(`assets:summary:${user.tenantId}:*`);
     return NextResponse.json({ inserted, errors }, { status: errors.length ? 207 : 201 });
   },
 });
@@ -77,6 +80,7 @@ export const DELETE = withApi({
 
     await db.bankTransaction.delete({ where: { id: query.txnId, accountId: id } });
     await audit("delete_txn", `bank_account:${id}:${query.txnId}`);
+    await invalidateCache(`assets:summary:${user.tenantId}:*`);
     return NextResponse.json({ ok: true });
   },
 });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
+import { invalidateCache } from "@/lib/redis";
 
 const RepaySchema = z.object({
   repaidOn: z.string().min(1),
@@ -41,6 +42,7 @@ export const POST = withApi({
       return r;
     });
 
+    await invalidateCache(`assets:summary:${user.tenantId}:*`);
     return NextResponse.json({ data: repayment }, { status: 201 });
   },
 });

@@ -5,6 +5,7 @@ import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import { badRequest } from "@/lib/api-error";
 import { zYearMonth } from "@/lib/zod-helpers";
 import { computeDebtSchedule } from "@/lib/debt-schedule";
+import { invalidateCache } from "@/lib/redis";
 
 const CreateSchema = z
   .object({
@@ -77,6 +78,7 @@ export const POST = withApi({
         debtInitialAmount: body.debtInitialAmount ?? null,
       },
     });
+    await invalidateCache(`assets:summary:${tenantId}:*`);
     return NextResponse.json({ data: asset }, { status: 201 });
   },
 });

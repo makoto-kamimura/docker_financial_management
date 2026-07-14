@@ -491,6 +491,9 @@ enum PersonalAssetCategory {
   BUILDING // 建物
   VEHICLE // 車
   GOLD // 金・貴金属
+  CASH // 現金（タンス預金）
+  DEPOSIT // 預金（銀行口座と別で管理する定期預金等）
+  SECURITIES // 投資（株式・投資信託等）
   OTHER
 }
 
