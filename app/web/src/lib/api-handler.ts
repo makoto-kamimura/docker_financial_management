@@ -5,6 +5,7 @@ import { requireRole, type Role } from "@/lib/authz";
 import { tenantDb, type TenantDb } from "@/lib/tenant-db";
 import { writeAudit, type AuditOptions } from "@/lib/audit";
 import { errorResponse } from "@/lib/api-error";
+import { clientIp } from "@/lib/rate-limit";
 
 export type AuthUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
@@ -100,8 +101,14 @@ export function withApi<TBody = undefined, TQuery = undefined>(opts: {
       }
 
       const db = tenantDb(user.tenantId);
+      // S-12: tenantId / ip / userAgent を自動付与する（呼び出し側は action/target/before/after のみ渡せばよい）
       const audit = (action: string, target: string, options?: AuditOptions) =>
-        writeAudit(user.id, action, target, options);
+        writeAudit(user.id, action, target, {
+          ...options,
+          tenantId: user.tenantId,
+          ip: clientIp(req),
+          userAgent: req.headers.get("user-agent"),
+        });
 
       return await opts.handler({ req, user, db, body, query, params, id, audit });
     } catch (e) {

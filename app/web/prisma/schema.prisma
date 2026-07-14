@@ -289,13 +289,18 @@ model MfaChallenge {
 // 監査ログ
 model AuditLog {
   id        Int      @id @default(autoincrement())
+  tenantId  Int? // S-12: テナント横断調査用（ログイン失敗等 user 不明時は null）
   userId    Int?
   action    String
   target    String
-  before    String? // 変更前の値（JSON）
-  after     String? // 変更後の値（JSON）
+  ip        String? // S-12
+  userAgent String? // S-12（255 文字で切り詰め）
+  before    String? // 変更前の値（JSON。redactSecrets() でハッシュ類はマスク済み）
+  after     String? // 変更後の値（JSON。redactSecrets() でハッシュ類はマスク済み）
   changedAt DateTime @default(now())
 
+  @@index([tenantId, changedAt])
+  @@index([userId, changedAt])
   @@map("audit_logs")
 }
 

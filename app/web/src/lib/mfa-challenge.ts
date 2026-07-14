@@ -21,6 +21,8 @@ export async function issueMfaChallenge(userId: number): Promise<string> {
   return token;
 }
 
+type AuditMeta = { tenantId: number; ip?: string | null; userAgent?: string | null };
+
 async function verifyCode(
   user: {
     id: number;
@@ -29,6 +31,7 @@ async function verifyCode(
     mfaRecoveryCodes: string | null;
   },
   input: { code?: string; recoveryCode?: string },
+  meta: AuditMeta,
 ): Promise<boolean> {
   if (input.recoveryCode) {
     const stored: string[] = user.mfaRecoveryCodes ? JSON.parse(user.mfaRecoveryCodes) : [];
@@ -40,7 +43,7 @@ async function verifyCode(
       where: { id: user.id },
       data: { mfaRecoveryCodes: JSON.stringify(stored) },
     });
-    await writeAudit(user.id, "mfa_recovery_used", `user:${user.id}`);
+    await writeAudit(user.id, "mfa_recovery_used", `user:${user.id}`, meta);
     return true;
   }
   if (input.code && user.totpSecret) {
@@ -60,6 +63,7 @@ export type ConsumeResult =
 export async function consumeMfaChallenge(
   token: string,
   input: { code?: string; recoveryCode?: string },
+  meta: { ip?: string | null; userAgent?: string | null } = {},
 ): Promise<ConsumeResult> {
   const hashed = hashToken(token);
   const challenge = await prisma.mfaChallenge.findUnique({
@@ -73,6 +77,8 @@ export async function consumeMfaChallenge(
   }
 
   const { user } = challenge;
+  const auditMeta: AuditMeta = { tenantId: user.tenantId, ip: meta.ip, userAgent: meta.userAgent };
+
   if (user.lockedUntil && user.lockedUntil > new Date()) {
     await prisma.mfaChallenge.delete({ where: { token: hashed } }).catch(() => {});
     return {
@@ -81,7 +87,7 @@ export async function consumeMfaChallenge(
     };
   }
 
-  const ok = await verifyCode(user, input);
+  const ok = await verifyCode(user, input, auditMeta);
 
   if (ok) {
     await prisma.mfaChallenge.delete({ where: { token: hashed } }).catch(() => {});
@@ -100,11 +106,18 @@ export async function consumeMfaChallenge(
       where: { id: user.id },
       data: { loginAttempts: attempts, lockedUntil },
     });
-    await writeAudit(user.id, "mfa_locked", `user:${user.id} attempts:${attempts}`);
+    // S-12: 詳細設計書 §8 の記録必須イベント「account_locked」
+    await writeAudit(
+      user.id,
+      "account_locked",
+      `user:${user.id} reason:mfa attempts:${attempts}`,
+      auditMeta,
+    );
     return { status: "locked", remainSec: LOCK_MINUTES * 60 };
   }
 
   await prisma.mfaChallenge.update({ where: { token: hashed }, data: { attempts } });
-  await writeAudit(user.id, "mfa_failed", `user:${user.id} attempts:${attempts}`);
+  // S-12: 詳細設計書 §8 の記録必須イベント「mfa_verify_failed」
+  await writeAudit(user.id, "mfa_verify_failed", `user:${user.id} attempts:${attempts}`, auditMeta);
   return { status: "invalid_code" };
 }

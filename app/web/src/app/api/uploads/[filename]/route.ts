@@ -11,7 +11,7 @@ import { contentTypeForExtension, tenantUploadDir, UPLOAD_DIR } from "@/lib/uplo
 // （他テナントのファイル名を知っていても 404 になり、存在の有無ごと秘匿する）。
 export const GET = withApi({
   role: "viewer",
-  handler: async ({ user, db, params }) => {
+  handler: async ({ user, db, params, audit }) => {
     // パストラバーサル防止（DB 照合前に正規化しておく）
     const safe = path.basename(params.filename ?? "");
 
@@ -28,6 +28,9 @@ export const GET = withApi({
 
     const ext = safe.split(".").pop()?.toLowerCase() ?? "";
     const contentType = receipt.mimeType || contentTypeForExtension(ext);
+
+    // S-12: 詳細設計書 §8 の記録必須イベント「receipt_download」（証憑は税務書類のため取得も記録する）
+    await audit("receipt_download", `receipt:${receipt.id}`);
 
     const bytes = await readFile(filePath);
     return new NextResponse(bytes, {

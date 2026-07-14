@@ -33,6 +33,8 @@ export const PATCH = withApi({
     // パスワード・ロール変更時は既存セッションを全て失効させる（変更前の権限での操作を防ぐ）
     if (password || fields.role !== undefined) {
       await invalidateAllSessions(id);
+      // S-12: 詳細設計書 §8 の記録必須イベント「session_revoked_all」
+      await audit("session_revoked_all", `user:${id}`);
     }
 
     await audit("update", `user:${id}`);

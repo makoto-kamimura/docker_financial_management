@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createSession } from "@/lib/auth";
 import { writeAudit } from "@/lib/audit";
 import { consumeMfaChallenge } from "@/lib/mfa-challenge";
+import { clientIp } from "@/lib/rate-limit";
 
 const VerifySchema = z
   .object({
@@ -25,8 +26,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   const { mfaToken, code, recoveryCode } = parsed.data;
+  const ip = clientIp(req);
+  const userAgent = req.headers.get("user-agent");
 
-  const result = await consumeMfaChallenge(mfaToken, { code, recoveryCode });
+  const result = await consumeMfaChallenge(mfaToken, { code, recoveryCode }, { ip, userAgent });
 
   if (result.status === "invalid_token") {
     return NextResponse.json({ error: "MFA トークンが無効か期限切れです" }, { status: 401 });
@@ -43,6 +46,6 @@ export async function POST(req: NextRequest) {
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: result.sessionUserId } });
   const sessionId = await createSession(user.id, req);
-  await writeAudit(user.id, "login", `user:${user.id}`);
+  await writeAudit(user.id, "login", `user:${user.id}`, { tenantId: user.tenantId, ip, userAgent });
   return NextResponse.json({ data: { id: user.id, name: user.name, role: user.role, sessionId } });
 }
