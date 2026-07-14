@@ -93,7 +93,13 @@ function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 // ── Auth ──────────────────────────────────────────────────────────────
 export type UserInfo = { id: number; name: string; role: string };
 
-export async function login(email: string, password: string): Promise<UserInfo> {
+// S-15: MFA 有効ユーザーは 1 段階目（パスワード）成功時にセッションを発行せず
+// { mfaRequired: true, mfaToken } を返す。呼び出し側は status で分岐する。
+export type LoginResult =
+  | { status: "success"; user: UserInfo }
+  | { status: "mfaRequired"; mfaToken: string };
+
+export async function login(email: string, password: string): Promise<LoginResult> {
   let res: Response;
   try {
     res = await fetchWithTimeout(`${API_BASE_URL}/auth/login`, {
@@ -107,8 +113,40 @@ export async function login(email: string, password: string): Promise<UserInfo> 
       : `ネットワークエラー: ${e instanceof Error ? e.message : String(e)}`;
     throw new Error(msg);
   }
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error ?? "ログインに失敗しました");
+  const json = await res.json().catch(() => ({}));
+  if (res.ok) {
+    await setSession(json.data.sessionId as string);
+    return {
+      status: "success",
+      user: { id: json.data.id, name: json.data.name, role: json.data.role },
+    };
+  }
+  if (res.status === 401 && json.mfaRequired && json.mfaToken) {
+    return { status: "mfaRequired", mfaToken: json.mfaToken as string };
+  }
+  throw new Error(json.error ?? "ログインに失敗しました");
+}
+
+// ログイン第 2 段階。TOTP コードまたはリカバリーコードで認証を完了しセッションを発行する。
+export async function verifyMfa(
+  mfaToken: string,
+  input: { code?: string; recoveryCode?: string },
+): Promise<UserInfo> {
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${API_BASE_URL}/auth/mfa/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfaToken, ...input }),
+    });
+  } catch (e) {
+    const msg = e instanceof Error && e.name === "AbortError"
+      ? `サーバーに接続できません（${API_BASE_URL}）\nDockerが起動しているか確認してください。`
+      : `ネットワークエラー: ${e instanceof Error ? e.message : String(e)}`;
+    throw new Error(msg);
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error ?? "認証コードの確認に失敗しました");
   await setSession(json.data.sessionId as string);
   return { id: json.data.id, name: json.data.name, role: json.data.role };
 }
