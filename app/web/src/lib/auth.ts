@@ -1,8 +1,16 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import { cookies, headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isCookieSecure, sessionCookieName, SESSION_TOKEN_PREFIX } from "@/lib/session-constants";
+
+const scryptAsync = promisify(scrypt) as (
+  password: string,
+  salt: string,
+  keylen: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+) => Promise<Buffer>;
 
 const ABSOLUTE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 日（絶対期限）
 const IDLE_TTL_MS = 1000 * 60 * 60 * 24; // 24 時間（アイドルタイムアウト）
@@ -17,24 +25,72 @@ function lookupKey(token: string): string {
   return token.startsWith(SESSION_TOKEN_PREFIX) ? hashToken(token) : token;
 }
 
-// S-5: ユーザー不在時に verifyPassword を実行するためのダミーハッシュ（固定値・実在パスワードなし）。
-// scryptSync のコストを実在ユーザーへの検証と同等に発生させ、タイミング差によるアカウント列挙を防ぐ。
-export const DUMMY_PASSWORD_HASH =
-  "97a435db29a5b77183be4c7d72939e68:6076b9ba9f6ba3b1192f5877d1847504e8ca63eac02f21dfdc7eca969ebad217d32d789fe392d42f527d50653594724a65eed1d0ff4d9a4b97323deeb69a984e";
+// S-6: パスワードハッシュ形式。新形式は `scrypt$N$r$p$salt$hash`（パラメータを埋め込むことで
+// 将来のコストパラメータ変更後も旧ハッシュを正しく検証できる）。旧形式（`salt:hash`。固定パラメータ
+// N=16384 r=8 p=1 = Node のデフォルト値）は引き続き verifyPassword で検証でき、ログイン成功時に
+// 透過的に新形式へ再ハッシュされる（呼び出し側は isLegacyPasswordHash() で判定する）。
+const HASH_PREFIX = "scrypt";
+const SCRYPT_N = 32768; // 2^15（旧デフォルトの 2 倍のコスト）
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_KEYLEN = 64;
+// scrypt の必要メモリは概ね 128 * N * r バイト（新パラメータで 32MiB）。
+// Node のデフォルト上限（32MiB）ちょうどで ERR_CRYPTO_INVALID_SCRYPT_PARAMS になり得るため余裕を持たせる。
+const SCRYPT_MAXMEM = 64 * 1024 * 1024;
 
-// パスワードを scrypt でハッシュ化する（外部依存なし）
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const derived = scryptSync(password, salt, 64).toString("hex");
-  return `${salt}:${derived}`;
+// S-5: ユーザー不在時に verifyPassword を実行するためのダミーハッシュ（固定値・実在パスワードなし）。
+// 新形式と同じコストを発生させ、実在ユーザーとの処理時間差によるアカウント列挙を防ぐ。
+export const DUMMY_PASSWORD_HASH =
+  "scrypt$32768$8$1$54556891c140d3f0c0f4648937b6836d$554c6cb76736339bae30b4b9a73622ae1238435992a3a81d5c7cbe46fc6475423a534633211babaed8e53e80e423df8f7518ebe8e4e335fca803cb4fdbb70e47";
+
+// 旧形式（`salt:hash`）で保存されたハッシュかどうかを判定する（ログイン成功時の透過再ハッシュ判定用）
+export function isLegacyPasswordHash(stored: string): boolean {
+  return !stored.startsWith(`${HASH_PREFIX}$`);
 }
 
-// 平文パスワードとハッシュを比較する
-export function verifyPassword(password: string, stored: string): boolean {
-  const [salt, key] = stored.split(":");
-  if (!salt || !key) return false;
-  const derived = scryptSync(password, salt, 64);
+// パスワードを scrypt でハッシュ化する（外部依存なし。非同期のためイベントループをブロックしない）
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  const derived = await scryptAsync(password, salt, SCRYPT_KEYLEN, {
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+    maxmem: SCRYPT_MAXMEM,
+  });
+  return `${HASH_PREFIX}$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${derived.toString("hex")}`;
+}
+
+// 平文パスワードとハッシュを比較する。新形式・旧形式の両方に対応する。
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  if (isLegacyPasswordHash(stored)) {
+    const [salt, key] = stored.split(":");
+    if (!salt || !key) return false;
+    const derived = await scryptAsync(password, salt, SCRYPT_KEYLEN, {
+      N: 16384,
+      r: 8,
+      p: 1,
+      maxmem: SCRYPT_MAXMEM,
+    });
+    const keyBuf = Buffer.from(key, "hex");
+    return keyBuf.length === derived.length && timingSafeEqual(keyBuf, derived);
+  }
+
+  const parts = stored.split("$");
+  if (parts.length !== 6) return false;
+  const [, nStr, rStr, pStr, salt, key] = parts;
+  const N = Number(nStr);
+  const r = Number(rStr);
+  const p = Number(pStr);
+  if (!Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p) || !salt || !key) {
+    return false;
+  }
   const keyBuf = Buffer.from(key, "hex");
+  const derived = await scryptAsync(password, salt, keyBuf.length, {
+    N,
+    r,
+    p,
+    maxmem: SCRYPT_MAXMEM,
+  });
   return keyBuf.length === derived.length && timingSafeEqual(keyBuf, derived);
 }
 

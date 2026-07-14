@@ -37,6 +37,9 @@ export const POST = withApi({
     const exists = await prisma.user.findUnique({ where: { email: fields.email } });
     if (exists) throw conflict("メールアドレスが既に使用されています");
 
+    // hashPassword は CPU コストの高い非同期処理のため、DB トランザクションの外で先に計算する
+    const passwordHash = await hashPassword(password);
+
     const user = await prisma.$transaction(async (tx) => {
       // 既定は自テナントへの追加（テナント間の分離を維持）。newTenant 指定時のみ空テナントを新設する。
       let tid = actor.tenantId;
@@ -47,7 +50,7 @@ export const POST = withApi({
         await seedDefaultAllocationRulesForTenant(tx, tid);
       }
       return tx.user.create({
-        data: { ...fields, passwordHash: hashPassword(password), tenantId: tid },
+        data: { ...fields, passwordHash, tenantId: tid },
         select: {
           id: true,
           email: true,

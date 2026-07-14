@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { createSession, verifyPassword, DUMMY_PASSWORD_HASH } from "@/lib/auth";
+import {
+  createSession,
+  verifyPassword,
+  hashPassword,
+  isLegacyPasswordHash,
+  DUMMY_PASSWORD_HASH,
+} from "@/lib/auth";
 import { writeAudit } from "@/lib/audit";
 import { consumeMfaChallenge, issueMfaChallenge } from "@/lib/mfa-challenge";
 
@@ -33,7 +39,7 @@ export async function POST(req: NextRequest) {
   if (!user) {
     // ユーザー不在でもダミーハッシュに対し verifyPassword を実行し、
     // 実在ユーザーと同等の処理時間を発生させることでタイミング差による列挙を防ぐ
-    verifyPassword(password, DUMMY_PASSWORD_HASH);
+    await verifyPassword(password, DUMMY_PASSWORD_HASH);
     return NextResponse.json({ error: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
   }
 
@@ -46,7 +52,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!verifyPassword(password, user.passwordHash)) {
+  if (!(await verifyPassword(password, user.passwordHash))) {
     const attempts = user.loginAttempts + 1;
     const lockData =
       attempts >= MAX_ATTEMPTS
@@ -57,7 +63,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
   }
 
-  // パスワード認証成功。MFA 無効ならここでセッション発行・失敗カウントリセット
+  // S-6: パスワード認証成功。旧形式ハッシュ（salt:hash）なら透過的に新形式へ再ハッシュする
+  if (isLegacyPasswordHash(user.passwordHash)) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await hashPassword(password) },
+    });
+  }
+
+  // MFA 無効ならここでセッション発行・失敗カウントリセット
   // （MFA 有効時はリセットを MFA 通過後まで遅らせる。TOTP 総当たり対策）
   if (!user.mfaEnabled || !user.totpSecret) {
     if (user.loginAttempts > 0 || user.lockedUntil) {

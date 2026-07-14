@@ -22,7 +22,7 @@ export const PATCH = withApi({
 
     const { password, ...fields } = body;
     const data: Record<string, unknown> = { ...fields };
-    if (password) data.passwordHash = hashPassword(password);
+    if (password) data.passwordHash = await hashPassword(password);
 
     const user = await prisma.user.update({
       where: { id },
