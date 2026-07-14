@@ -4,9 +4,7 @@ import { existsSync } from "fs";
 import path from "path";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
-import { contentTypeForExtension } from "@/lib/upload";
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads");
+import { contentTypeForExtension, tenantUploadDir, UPLOAD_DIR } from "@/lib/upload";
 
 // GET /api/uploads/[filename] … 証憑ファイルの配信。
 // Receipt レコード経由で「自テナントの仕訳に紐づく証憑か」を確認してから配信する
@@ -22,7 +20,10 @@ export const GET = withApi({
     });
     if (!receipt) throw notFound();
 
-    const filePath = path.join(UPLOAD_DIR, safe);
+    // S-8: テナント別ディレクトリを優先し、旧フラット構成（移行前のファイル）へフォールバックする
+    const tenantPath = path.join(tenantUploadDir(user.tenantId), safe);
+    const legacyPath = path.join(UPLOAD_DIR, safe);
+    const filePath = existsSync(tenantPath) ? tenantPath : legacyPath;
     if (!existsSync(filePath)) throw notFound();
 
     const ext = safe.split(".").pop()?.toLowerCase() ?? "";

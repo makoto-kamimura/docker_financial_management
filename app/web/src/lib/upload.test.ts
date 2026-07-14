@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { classifyFileType, contentTypeForExtension, resolveUploadExtension } from "./upload";
+import {
+  classifyFileType,
+  contentTypeForExtension,
+  matchesMagicBytes,
+  resolveUploadExtension,
+} from "./upload";
 
 describe("resolveUploadExtension", () => {
   it("許可された拡張子・MIME タイプの組は拡張子を返す", () => {
@@ -40,5 +45,41 @@ describe("classifyFileType", () => {
     expect(classifyFileType("image/jpeg")).toBe("image");
     expect(classifyFileType("application/pdf")).toBe("pdf");
     expect(classifyFileType("application/octet-stream")).toBe("other");
+  });
+});
+
+describe("matchesMagicBytes (S-8)", () => {
+  it("正しいマジックバイトを持つファイルは true", () => {
+    expect(matchesMagicBytes(Buffer.from("%PDF-1.4 ..."), "pdf")).toBe(true);
+    expect(matchesMagicBytes(Buffer.from([0xff, 0xd8, 0xff, 0xe0]), "jpg")).toBe(true);
+    expect(matchesMagicBytes(Buffer.from([0xff, 0xd8, 0xff, 0xe0]), "jpeg")).toBe(true);
+    expect(
+      matchesMagicBytes(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2]), "png"),
+    ).toBe(true);
+    expect(matchesMagicBytes(Buffer.from("GIF89a...."), "gif")).toBe(true);
+    expect(matchesMagicBytes(Buffer.from("GIF87a...."), "gif")).toBe(true);
+    const webp = Buffer.concat([
+      Buffer.from("RIFF"),
+      Buffer.from([0, 0, 0, 0]),
+      Buffer.from("WEBP"),
+    ]);
+    expect(matchesMagicBytes(webp, "webp")).toBe(true);
+  });
+
+  it("拡張子を詐称した中身（例: HTML を .pdf と主張）は false", () => {
+    expect(matchesMagicBytes(Buffer.from("<html><script>evil()</script></html>"), "pdf")).toBe(
+      false,
+    );
+    expect(matchesMagicBytes(Buffer.from("<html>"), "jpg")).toBe(false);
+    expect(matchesMagicBytes(Buffer.from("MZ\x90\x00"), "png")).toBe(false); // Windows PE 実行ファイルの先頭
+  });
+
+  it("未知の拡張子は false", () => {
+    expect(matchesMagicBytes(Buffer.from("%PDF-"), "exe")).toBe(false);
+  });
+
+  it("バッファがシグネチャより短い場合は false", () => {
+    expect(matchesMagicBytes(Buffer.from("PD"), "pdf")).toBe(false);
+    expect(matchesMagicBytes(Buffer.alloc(0), "png")).toBe(false);
   });
 });

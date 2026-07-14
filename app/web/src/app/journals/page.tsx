@@ -80,19 +80,34 @@ function ReceiptUploader({
     setUploading(false);
   }
 
+  async function remove(receiptId: number) {
+    if (!confirm("この証憑を削除しますか？")) return;
+    await fetch(`/api/journals/${entryId}/receipts/${receiptId}`, { method: "DELETE" });
+    onUploaded();
+  }
+
   return (
     <div className="mt-2 pt-2 border-t border-slate-50 flex items-center gap-3 flex-wrap">
       {receipts.map((r) => (
-        <a
-          key={r.id}
-          href={r.fileUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-xs text-indigo-600 hover:underline"
-        >
-          <span>{r.fileType === "pdf" ? "📄" : "🖼"}</span>
-          <span>{r.fileName}</span>
-        </a>
+        <span key={r.id} className="flex items-center gap-1 text-xs">
+          <a
+            href={r.fileUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-indigo-600 hover:underline"
+          >
+            <span>{r.fileType === "pdf" ? "📄" : "🖼"}</span>
+            <span>{r.fileName}</span>
+          </a>
+          <button
+            type="button"
+            onClick={() => remove(r.id)}
+            className="text-slate-300 hover:text-red-500"
+            aria-label="証憑を削除"
+          >
+            ×
+          </button>
+        </span>
       ))}
       <button
         type="button"

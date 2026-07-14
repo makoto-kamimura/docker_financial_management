@@ -5,10 +5,13 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
-import { classifyFileType, resolveUploadExtension } from "@/lib/upload";
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads");
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB
+import {
+  classifyFileType,
+  matchesMagicBytes,
+  MAX_UPLOAD_BYTES,
+  resolveUploadExtension,
+  tenantUploadDir,
+} from "@/lib/upload";
 
 // GET /api/journals/[id]/receipts … 証憑一覧
 export const GET = withApi({
@@ -32,7 +35,14 @@ export const POST = withApi({
     const entry = await db.journalEntry.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!entry) throw notFound();
 
-    const formData = await req.formData();
+    // リクエストボディがサーバー側の上限を超えて切り詰められた場合、formData() のパースが
+    // 例外を投げる（Next.js のデフォルト body size 制限）。500 ではなく 400 として扱う
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      throw badRequest("ファイルサイズは 10MB 以下にしてください");
+    }
     const file = formData.get("file") as File | null;
     if (!file) throw badRequest("file is required");
     if (file.size > MAX_UPLOAD_BYTES) throw badRequest("ファイルサイズは 10MB 以下にしてください");
@@ -40,13 +50,20 @@ export const POST = withApi({
     const ext = resolveUploadExtension(file.name, file.type);
     if (!ext) throw badRequest("許可されていないファイル形式です（pdf/jpg/png/gif/webp のみ）");
 
-    if (!existsSync(UPLOAD_DIR)) {
-      await mkdir(UPLOAD_DIR, { recursive: true });
+    const bytes = await file.arrayBuffer();
+    const buf = Buffer.from(bytes);
+    // S-8: マジックバイト検証。拡張子・Content-Type の詐称（内容不一致）を検出する
+    if (!matchesMagicBytes(buf, ext)) {
+      throw badRequest("ファイルの内容が拡張子と一致しません");
+    }
+
+    const dir = tenantUploadDir(user.tenantId);
+    if (!existsSync(dir)) {
+      await mkdir(dir, { recursive: true });
     }
 
     const savedName = `${randomUUID()}.${ext}`;
-    const bytes = await file.arrayBuffer();
-    await writeFile(path.join(UPLOAD_DIR, savedName), Buffer.from(bytes));
+    await writeFile(path.join(dir, savedName), buf);
 
     const receipt = await db.receipt.create({
       data: {
