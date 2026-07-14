@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  getViewMode, logout, setViewMode as apiSetViewMode,
+  getViewMode, logout, restoreSession, setViewMode as apiSetViewMode,
   type UserInfo, type ViewMode, VIEW_MODES,
 } from "./api";
 import { LoginScreen } from "./screens/LoginScreen";
@@ -57,9 +57,17 @@ const SYSTEM_NAME: Record<ViewMode, string> = {
 
 export default function App() {
   const [user, setUser]           = useState<UserInfo | null>(null);
+  const [restoring, setRestoring] = useState(true);
   const [activeTab, setActiveTab] = useState<BottomTab>("home");
   const [viewMode, setVm]         = useState<ViewMode>(getViewMode());
   const [moreRoute, setMoreRoute] = useState<MoreRoute | null>(null);
+
+  // S-14: 起動時に SecureStore の保存済みセッションを復元し、GET /api/auth/me で有効性を確認する
+  useEffect(() => {
+    restoreSession()
+      .then(setUser)
+      .finally(() => setRestoring(false));
+  }, []);
 
   function changeMode(m: ViewMode) {
     apiSetViewMode(m);
@@ -74,6 +82,15 @@ export default function App() {
 
   function navigateMore(route: MoreRoute) { setMoreRoute(route); }
   function backToMore() { setMoreRoute(null); }
+
+  if (restoring) {
+    return (
+      <SafeAreaView style={[s.root, s.restoringRoot]}>
+        <ActivityIndicator size="large" color="#4f46e5" />
+        <StatusBar style="dark" />
+      </SafeAreaView>
+    );
+  }
 
   if (!user) {
     return (
@@ -178,6 +195,7 @@ export default function App() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff" },
+  restoringRoot: { justifyContent: "center", alignItems: "center" },
   header: {
     flexDirection: "row",
     alignItems: "center",

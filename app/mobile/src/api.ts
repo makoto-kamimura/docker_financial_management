@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import * as SecureStore from "expo-secure-store";
 
 const _devHost = Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
 const API_BASE_URL: string =
@@ -14,13 +15,56 @@ function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
 }
 
 // ── セッション・モード管理 ─────────────────────────────────────────────
+// S-14: セッショントークンは端末の Keychain / Keystore（expo-secure-store）に永続化する。
+// AsyncStorage は平文保存でありトークンの保管先として使わない。
+const SESSION_STORE_KEY = "fm_session_token";
+
 let _session = "";
 // F-11: ステップ導線と整合させ、初期値は household とする（メモリ内保持のため常に起動時の既定値）
 let _viewMode: ViewMode = "household";
 
 export function getSession() { return _session; }
-export function setSession(token: string) { _session = token; }
-export function clearSession() { _session = ""; }
+
+// メモリ上のセッションを更新し、SecureStore への永続化を行う（await 可能）。
+export async function setSession(token: string) {
+  _session = token;
+  await SecureStore.setItemAsync(SESSION_STORE_KEY, token).catch((e) => {
+    console.warn("[secure-store] failed to persist session:", e);
+  });
+}
+
+export async function clearSession() {
+  _session = "";
+  await SecureStore.deleteItemAsync(SESSION_STORE_KEY).catch(() => {});
+}
+
+// アプリ起動時に呼び出す。SecureStore に保存済みのトークンがあれば読み込み、
+// GET /api/auth/me で有効性を確認したうえでユーザー情報を返す。
+// - トークンが無効（401 等）: SecureStore からも削除し null を返す
+// - ネットワークエラー: トークンは保持したまま（次回起動時に再試行できるように）null を返す
+export async function restoreSession(): Promise<UserInfo | null> {
+  const token = await SecureStore.getItemAsync(SESSION_STORE_KEY).catch(() => null);
+  if (!token) return null;
+  _session = token;
+
+  try {
+    const res = await apiFetch("/auth/me");
+    if (!res.ok) {
+      await clearSession();
+      return null;
+    }
+    const json = await res.json();
+    if (!json.user) {
+      await clearSession();
+      return null;
+    }
+    return { id: json.user.id, name: json.user.name, role: json.user.role };
+  } catch {
+    _session = "";
+    return null;
+  }
+}
+
 export function getViewMode() { return _viewMode; }
 export function setViewMode(m: ViewMode) { _viewMode = m; }
 
@@ -65,13 +109,13 @@ export async function login(email: string, password: string): Promise<UserInfo> 
   }
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? "ログインに失敗しました");
-  setSession(json.data.sessionId as string);
+  await setSession(json.data.sessionId as string);
   return { id: json.data.id, name: json.data.name, role: json.data.role };
 }
 
 export async function logout(): Promise<void> {
   await apiFetch("/auth/logout", { method: "POST" });
-  clearSession();
+  await clearSession();
 }
 
 // ── 共通型 ────────────────────────────────────────────────────────────
