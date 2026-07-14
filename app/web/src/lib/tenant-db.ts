@@ -55,7 +55,12 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
 // tenantId 列を持つが自動スコープの対象外とするモデル（理由は上記コメント参照）。
 // tenant-db.test.ts が「tenantId を持つ全モデル = SCOPED ∪ EXCLUDED」を検証しており、
 // スキーマに tenantId 付きモデルを追加して登録を忘れると CI が失敗する。
-export const TENANT_SCOPE_EXCLUDED_MODELS = new Set<string>(["User"]);
+//
+// 【LearningProgress を含めない理由】学習ガイドの既読管理は userId 所有のユーザー私物
+// （F-9）。tenantId 列は持つが、アクセス制御は常に `userId: user.id` で明示的に絞り込む
+// べきものであり、tenantId の自動注入では「同テナント内の他ユーザーの既読が見える」
+// 誤りを構造的に防げない（User と同じ理由）。
+export const TENANT_SCOPE_EXCLUDED_MODELS = new Set<string>(["User", "LearningProgress"]);
 
 // tenantId を最後に spread することで、呼び出し側が別テナントの tenantId を
 // 明示的に渡してきても必ず上書きし、テナント境界を越えられないようにする。

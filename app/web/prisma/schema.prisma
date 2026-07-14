@@ -230,9 +230,28 @@ model User {
   sessions         Session[]
   journalApprovals JournalApproval[]
   mfaChallenges    MfaChallenge[]
+  learningProgress LearningProgress[]
 
   @@index([tenantId])
   @@map("users")
+}
+
+// F-9: 学習ガイドの既読管理（userId 所有）。tenantId 列は持つが自動テナントスコープ拡張の
+// 対象外（tenant-db.ts の TENANT_SCOPE_EXCLUDED_MODELS）とする。既読は個人の学習履歴で
+// あり `userId: user.id` で厳格に絞り込むべきものであり、tenantId による自動注入は
+// 「同テナント内の他ユーザーの既読が見える」誤りを構造的に防げないため。
+model LearningProgress {
+  id       Int      @id @default(autoincrement())
+  tenantId Int
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  userId   Int
+  user     User     @relation(fields: [userId], references: [id])
+  topicKey String
+  readAt   DateTime @default(now())
+
+  @@unique([userId, topicKey])
+  @@index([tenantId])
+  @@map("learning_progress")
 }
 
 // セッション。id は SHA-256(token) を保存する（新形式 `fm2:` トークンのみ。
@@ -597,12 +616,13 @@ model Tenant {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  users         User[]
-  fiscalYears   FiscalYear[]
-  officers      Officer[]
-  meetings      ShareholderMeeting[]
-  dividends     Dividend[]
-  announcements Announcement[]
+  users            User[]
+  fiscalYears      FiscalYear[]
+  officers         Officer[]
+  meetings         ShareholderMeeting[]
+  dividends        Dividend[]
+  announcements    Announcement[]
+  learningProgress LearningProgress[]
 
   @@map("tenants")
 }

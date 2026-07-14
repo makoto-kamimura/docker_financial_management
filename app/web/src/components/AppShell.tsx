@@ -34,6 +34,7 @@ import {
   ExternalLink,
   Repeat,
   Bug,
+  GraduationCap,
 } from "lucide-react";
 
 export type ViewMode = "household" | "sole" | "corporate";
@@ -166,6 +167,12 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/account-conversion",
         label: "勘定科目変換",
         icon: Repeat,
+        modes: ["sole", "corporate"],
+      },
+      {
+        href: "/learning",
+        label: "学習ガイド",
+        icon: GraduationCap,
         modes: ["sole", "corporate"],
       },
       {
