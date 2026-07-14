@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 // テナント分離を「仕組み」で強制する Prisma Client Extension。
@@ -9,8 +10,6 @@ import { prisma } from "@/lib/prisma";
 // のように使うと、tenantId を書き忘れてもテナント越境が起きない。
 //
 // 対象は tenantId 列を持つ業務テーブルのみ（ホワイトリスト方式）。
-// ここに無いモデルは一切変更されず素通しする。新しくテナントスコープ対象の
-// モデルを追加したら、必ずこの集合にも登録すること（＝再発防止チェックリスト）。
 //
 // 【User を含めない理由】User は tenantId 列を持つが「テナント所属（メンバーシップ）」
 // を表す特殊モデル。admin/users の新規テナント作成フロー（newTenant）では
@@ -18,49 +17,24 @@ import { prisma } from "@/lib/prisma";
 // その分岐が壊れる。User の絞り込みは呼び出し側で明示的に扱う。
 // Session / AuditLog / Tenant / 各種子テーブル（JournalDetail など）は tenantId 列を
 // 持たないため、そもそも対象外（注入するとカラム不在で実行時エラーになる）。
-export const TENANT_SCOPED_MODELS = new Set<string>([
-  "Account",
-  "AllocationRule",
-  "Department",
-  "Period",
-  "Budget",
-  "FinancialRecord",
-  "Forecast",
-  "LinkedAccount",
-  "BusinessProfile",
-  "TaxSetting",
-  "JournalEntry",
-  "Inventory",
-  "FixedAsset",
-  "Apportionment",
-  "Receivable",
-  "Payable",
-  "FiscalYear",
-  "JournalTemplate",
-  "BankAccount",
-  "Transfer",
-  "Loan",
-  "Invoice",
-  "AccruedRevenue",
-  "AccruedExpense",
-  "Officer",
-  "ShareholderMeeting",
-  "Dividend",
-  "Announcement",
-  "FiscalYearClose",
-  "PersonalAsset",
-  "TxnCategoryRule",
-]);
-
-// tenantId 列を持つが自動スコープの対象外とするモデル（理由は上記コメント参照）。
-// tenant-db.test.ts が「tenantId を持つ全モデル = SCOPED ∪ EXCLUDED」を検証しており、
-// スキーマに tenantId 付きモデルを追加して登録を忘れると CI が失敗する。
 //
 // 【LearningProgress を含めない理由】学習ガイドの既読管理は userId 所有のユーザー私物
 // （F-9）。tenantId 列は持つが、アクセス制御は常に `userId: user.id` で明示的に絞り込む
 // べきものであり、tenantId の自動注入では「同テナント内の他ユーザーの既読が見える」
 // 誤りを構造的に防げない（User と同じ理由）。
 export const TENANT_SCOPE_EXCLUDED_MODELS = new Set<string>(["User", "LearningProgress"]);
+
+// S-10: TENANT_SCOPED_MODELS は Prisma.dmmf から「tenantId 列を持つ全モデル −
+// TENANT_SCOPE_EXCLUDED_MODELS」として起動時に自動導出する（手書き Set の登録漏れを
+// 構造的に防ぐ）。schema.prisma に tenantId 付きモデルを新規追加した場合、明示的に
+// EXCLUDED へ登録しない限り自動的にスコープ対象になる（fail-secure なデフォルト。
+// 従来の「登録し忘れると素通しされ、テナント越境の穴になる」という失敗モードを排除する）。
+export const TENANT_SCOPED_MODELS = new Set<string>(
+  Prisma.dmmf.datamodel.models
+    .filter((m) => m.fields.some((f) => f.name === "tenantId" && f.kind === "scalar"))
+    .map((m) => m.name)
+    .filter((name) => !TENANT_SCOPE_EXCLUDED_MODELS.has(name)),
+);
 
 // tenantId を最後に spread することで、呼び出し側が別テナントの tenantId を
 // 明示的に渡してきても必ず上書きし、テナント境界を越えられないようにする。
