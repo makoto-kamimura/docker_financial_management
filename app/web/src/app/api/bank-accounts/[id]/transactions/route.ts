@@ -6,6 +6,7 @@ import { parseBankCsv } from "@/lib/banktxn-import";
 import { serializeBankTransaction, upsertExternalTransactions } from "@/lib/bank-transactions";
 import { invalidateCache } from "@/lib/redis";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/import";
 
 const TxnSchema = z.object({
   date: z.string().min(1),
@@ -64,10 +65,22 @@ export const POST = withApi({
     const rate = await checkRateLimit(`rl:import:user:${user.id}`, 10, 600);
     if (!rate.allowed) return rateLimitResponse(rate.retryAfterSeconds);
 
+    // S-11: Content-Length で事前拒否（ボディを読む前にサイズ超過を検出する）
+    const contentLength = Number(req.headers.get("content-length") ?? "0");
+    if (contentLength > MAX_CSV_BYTES) {
+      throw badRequest("ファイルサイズが上限（5MB）を超えています。分割して取込してください。");
+    }
+
     const csv = await req.text();
     if (!csv.trim()) throw badRequest("empty body");
 
     const { rows, errors } = parseBankCsv(csv, id);
+    if (rows.length + errors.length > MAX_IMPORT_ROWS) {
+      throw badRequest(
+        `行数が上限（${MAX_IMPORT_ROWS}行）を超えています。分割して取込してください。`,
+      );
+    }
+
     const inserted = await upsertExternalTransactions(db, id, rows, "CSV");
     await audit("import_txn", `bank_account:${id}:${inserted}`);
     await invalidateCache(`assets:summary:${user.tenantId}:*`);

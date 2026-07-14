@@ -22,37 +22,35 @@ export type ExternalTransactionRow = {
 };
 
 // 外部由来（CSV 取込・自動同期）の明細を登録する。
-// `@@unique([accountId, externalId])` により重複行は upsert(update:{}) で無視される。
+// S-11: 1 件ずつの upsert 直列実行（N+1）を一括 createMany + skipDuplicates に置換。
+// `@@unique([accountId, externalId])` により重複行は自動的にスキップされる（維持）。
 // 摘要が txn_category_rules に一致する場合は categoryAccountId を自動で埋める
 // （転記は行わない。人の操作による POST /categorize でのみ実績へ転記する）。
+// 返り値は実際に新規作成された件数（重複でスキップされた行は含まない）。
 export async function upsertExternalTransactions(
   db: TenantDb,
   accountId: number,
   rows: ExternalTransactionRow[],
   source: Extract<TxnSource, "CSV" | "SYNC">,
 ): Promise<number> {
+  if (rows.length === 0) return 0;
+
   const rules = await db.txnCategoryRule.findMany({
     select: { keyword: true, categoryAccountId: true, priority: true },
   });
 
-  let processed = 0;
-  for (const r of rows) {
-    const categoryAccountId = classifyByRules(r.description, rules);
-    await db.bankTransaction.upsert({
-      where: { accountId_externalId: { accountId, externalId: r.externalId } },
-      update: {},
-      create: {
-        accountId,
-        date: new Date(r.date),
-        description: r.description,
-        amount: r.amount,
-        balance: r.balance ?? null,
-        source,
-        externalId: r.externalId,
-        categoryAccountId,
-      },
-    });
-    processed++;
-  }
-  return processed;
+  const { count } = await db.bankTransaction.createMany({
+    data: rows.map((r) => ({
+      accountId,
+      date: new Date(r.date),
+      description: r.description,
+      amount: r.amount,
+      balance: r.balance ?? null,
+      source,
+      externalId: r.externalId,
+      categoryAccountId: classifyByRules(r.description, rules),
+    })),
+    skipDuplicates: true,
+  });
+  return count;
 }
