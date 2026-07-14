@@ -15,7 +15,8 @@ function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
 
 // ── セッション・モード管理 ─────────────────────────────────────────────
 let _session = "";
-let _viewMode: ViewMode = "sole";
+// F-11: ステップ導線と整合させ、初期値は household とする（メモリ内保持のため常に起動時の既定値）
+let _viewMode: ViewMode = "household";
 
 export function getSession() { return _session; }
 export function setSession(token: string) { _session = token; }

@@ -20,7 +20,7 @@ export function hasSwitchedViewMode(): boolean {
 // AppShell のモード切替ピル（家計/個人/法人）と同期する現在の観点モード。
 // AppShell が localStorage への保存と "viewmode-change" カスタムイベントの発火を担当し、
 // 各画面はこのフックで購読するだけでよい（dashboard / bank-transactions の重複実装を統一）。
-export function useViewMode(initial: ViewMode = "sole"): ViewMode {
+export function useViewMode(initial: ViewMode = "household"): ViewMode {
   const [mode, setMode] = useState<ViewMode>(initial);
 
   useEffect(() => {

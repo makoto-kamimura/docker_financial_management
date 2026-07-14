@@ -212,7 +212,9 @@ const TITLE: Record<ViewMode, string> = {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [viewMode, setViewMode] = useState<ViewMode>("sole");
+  // F-11: 新規ユーザー（localStorage 未設定）の初期値はステップ導線と整合させ household とする。
+  // 既存ユーザーは下の useEffect で保存済みの viewMode に上書きされるため影響しない。
+  const [viewMode, setViewMode] = useState<ViewMode>("household");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { locale, changeLocale } = useLocale();
 
