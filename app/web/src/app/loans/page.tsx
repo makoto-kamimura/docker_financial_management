@@ -13,6 +13,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { amortizationSchedule, ymIndex } from "@/lib/debt-schedule";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type Repayment = {
@@ -76,20 +77,31 @@ function buildScheduleData(loans: Loan[]): ChartPoint[] {
         continue;
       }
 
-      // ここまでの実績返済額を累積
+      // ここまでの実績返済額を累積（実績がある月は実績値を優先する）
       const sorted = [...loan.repayments].sort((a, b) => a.repaidOn.localeCompare(b.repaidOn));
       let balance = Number(loan.amount);
       for (const r of sorted) {
         if (new Date(r.repaidOn) <= cursor) balance -= Number(r.principal);
       }
 
-      // 今日以降は残高から返済期限まで線形に補間（予測）
+      // 今日以降は元利均等の償還スケジュール（amortizationSchedule）から残高を再計算する。
+      // monthlyPayment が入力済みならその値を、未入力なら年利から計算した金額を毎月の返済額とする。
+      // amortizationSchedule/ymIndex は UTC 基準で月数を数えるため、ブラウザのタイムゾーンによる
+      // ズレ（正の UTC オフセットではローカル日付が UTC で前月にずれ得る）を避けて
+      // Date.UTC で構築した日付を渡す。
       if (cursor > today) {
-        const remaining = Number(loan.remainingAmount);
-        const msRemaining = endMDate.getTime() - today.getTime();
-        const msElapsed = cursor.getTime() - today.getTime();
-        const ratio = msRemaining > 0 ? Math.max(0, 1 - msElapsed / msRemaining) : 0;
-        balance = Math.round(remaining * ratio);
+        const todayMonthStartUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), 1));
+        const endMDateUtc = new Date(Date.UTC(endMDate.getFullYear(), endMDate.getMonth(), 1));
+        const cursorUtc = new Date(Date.UTC(cursor.getFullYear(), cursor.getMonth(), 1));
+        const rows = amortizationSchedule(
+          Number(loan.remainingAmount),
+          Number(loan.interestRate),
+          todayMonthStartUtc,
+          endMDateUtc,
+          loan.monthlyPayment ? Number(loan.monthlyPayment) : undefined,
+        );
+        const offset = ymIndex(cursorUtc) - ymIndex(todayMonthStartUtc);
+        balance = offset >= 0 && offset < rows.length ? rows[offset].remaining : 0;
       }
 
       pt[key] = Math.max(0, Math.round(balance));

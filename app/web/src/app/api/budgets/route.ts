@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { resolvePeriod, requireAccountByCode } from "@/lib/period";
-import { computeHousingLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
+import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
 
 const BudgetSchema = z.object({
   accountCode: z.string().min(1),
@@ -35,13 +35,15 @@ export const GET = withApi({
       orderBy: { fiscalYear: "asc" },
     });
 
-    const housingLoanOverlay = await computeHousingLoanOverlay(db, tenantId, year);
+    const loanOverlay = await computeLoanOverlay(db, tenantId, year);
     const personalAssetDebtOverlay = await computePersonalAssetDebtOverlay(db, tenantId, year);
 
     return NextResponse.json({
       data: budgets,
       years: years.map((y) => y.fiscalYear),
-      housingLoanOverlay,
+      loanOverlay,
+      // 旧クライアント互換のため 1 リリース併存（住宅ローンに限らず全ローンを含む点が変更点）
+      housingLoanOverlay: loanOverlay,
       personalAssetDebtOverlay,
     });
   },

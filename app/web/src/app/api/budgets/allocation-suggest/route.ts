@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { suggestAllocation, type AllocationRule } from "@/lib/allocation";
-import { computeHousingLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
+import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
 
 // GET /api/budgets/allocation-suggest?year=&month=&basis=budget|actual … 配分提案（読み取り専用）
 export const GET = withApi({
@@ -37,11 +37,11 @@ export const GET = withApi({
       }
     }
 
-    const [housingOverlay, debtOverlay] = await Promise.all([
-      computeHousingLoanOverlay(db, tenantId, year),
+    const [loanOverlay, debtOverlay] = await Promise.all([
+      computeLoanOverlay(db, tenantId, year),
       computePersonalAssetDebtOverlay(db, tenantId, year),
     ]);
-    const overlays = [...housingOverlay, ...debtOverlay]
+    const overlays = [...loanOverlay, ...debtOverlay]
       .filter((o) => o.month === month)
       .map((o) => ({ accountId: o.accountId, amount: o.amount }));
 

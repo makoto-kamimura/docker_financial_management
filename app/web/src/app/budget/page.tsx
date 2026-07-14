@@ -711,7 +711,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                         {hasOverlay && (
                           <span
                             className="ml-1.5 text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded"
-                            title="住宅ローンの月々の返済額が自動加算されています"
+                            title="ローンの月々の返済額が自動加算されています"
                           >
                             🏠 自動反映
                           </span>
@@ -772,7 +772,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                 </div>
                                 {auto > 0 && (
                                   <div className="text-[10px] text-indigo-500">
-                                    内 住宅ローン {yen(auto)}
+                                    内 ローン返済 {yen(auto)}
                                   </div>
                                 )}
                                 {debtAuto > 0 && (
@@ -787,7 +787,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                   <div className="text-indigo-600">
                                     {yen(auto)}
                                     <div className="text-[10px] text-indigo-400">
-                                      住宅ローン自動反映
+                                      ローン返済自動反映
                                     </div>
                                   </div>
                                 )}
