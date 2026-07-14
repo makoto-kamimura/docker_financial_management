@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { createSession, verifyPassword } from "@/lib/auth";
+import { createSession, verifyPassword, DUMMY_PASSWORD_HASH } from "@/lib/auth";
 import { writeAudit } from "@/lib/audit";
 import { consumeMfaChallenge, issueMfaChallenge } from "@/lib/mfa-challenge";
 
@@ -15,6 +15,9 @@ const LoginSchema = z.object({
 
 const MAX_ATTEMPTS = 5; // 最大連続失敗回数
 const LOCK_MINUTES = 15; // ロック時間 (分)
+// S-5: ユーザー不在・パスワード誤りを区別させない統一メッセージ（列挙対策）。
+// 残り試行回数はレスポンスに含めず、監査ログ（login_failed の target）にのみ記録する。
+const INVALID_CREDENTIALS_MESSAGE = "メールアドレスまたはパスワードが正しくありません";
 
 // POST /api/auth/login … メール + パスワードでログインする。
 // MFA 有効なユーザーは { mfaRequired: true, mfaToken } を返す（セッションは未発行）。
@@ -28,8 +31,10 @@ export async function POST(req: NextRequest) {
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
-    // ユーザー不在でも同一タイミング応答でメールアドレス列挙を防ぐ
-    return NextResponse.json({ error: "invalid credentials" }, { status: 401 });
+    // ユーザー不在でもダミーハッシュに対し verifyPassword を実行し、
+    // 実在ユーザーと同等の処理時間を発生させることでタイミング差による列挙を防ぐ
+    verifyPassword(password, DUMMY_PASSWORD_HASH);
+    return NextResponse.json({ error: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
   }
 
   // アカウントロック確認
@@ -49,12 +54,7 @@ export async function POST(req: NextRequest) {
         : { loginAttempts: attempts };
     await prisma.user.update({ where: { id: user.id }, data: lockData });
     await writeAudit(user.id, "login_failed", `user:${user.id} attempts:${attempts}`);
-    const remaining = MAX_ATTEMPTS - attempts;
-    const msg =
-      remaining <= 0
-        ? `ログインに失敗しました。アカウントを ${LOCK_MINUTES} 分間ロックします。`
-        : `ログインに失敗しました（残り ${remaining} 回でロック）。`;
-    return NextResponse.json({ error: msg }, { status: 401 });
+    return NextResponse.json({ error: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
   }
 
   // パスワード認証成功。MFA 無効ならここでセッション発行・失敗カウントリセット

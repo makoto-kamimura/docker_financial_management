@@ -17,6 +17,11 @@ function lookupKey(token: string): string {
   return token.startsWith(SESSION_TOKEN_PREFIX) ? hashToken(token) : token;
 }
 
+// S-5: ユーザー不在時に verifyPassword を実行するためのダミーハッシュ（固定値・実在パスワードなし）。
+// scryptSync のコストを実在ユーザーへの検証と同等に発生させ、タイミング差によるアカウント列挙を防ぐ。
+export const DUMMY_PASSWORD_HASH =
+  "97a435db29a5b77183be4c7d72939e68:6076b9ba9f6ba3b1192f5877d1847504e8ca63eac02f21dfdc7eca969ebad217d32d789fe392d42f527d50653594724a65eed1d0ff4d9a4b97323deeb69a984e";
+
 // パスワードを scrypt でハッシュ化する（外部依存なし）
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
