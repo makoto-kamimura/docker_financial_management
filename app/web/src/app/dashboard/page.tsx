@@ -22,8 +22,9 @@ import { downloadSvgAsPng } from "@/lib/export-client";
 import { KpiCards } from "@/components/KpiCards";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
-import { useViewMode } from "@/lib/use-view-mode";
+import { useViewMode, hasSwitchedViewMode } from "@/lib/use-view-mode";
 import { displayName } from "@/lib/display-name";
+import { computeStepChecklist } from "@/lib/step-checklist";
 
 type Row = {
   period: string;
@@ -99,6 +100,58 @@ function toAnnualRows(rows: Row[]): Row[] {
     const achievementRate = actual != null && budget > 0 ? actual / budget : null;
     return { period: `${year}年`, budget, actual, forecast, variance, achievementRate };
   });
+}
+
+// F-10: ステップ進捗チェックリスト。全ステップ達成後は非表示にする（オンボーディング用途）。
+function StepChecklistCard() {
+  const { data } = useQuery({
+    queryKey: ["onboarding-steps"],
+    queryFn: async () => {
+      const res = await fetch("/api/onboarding/steps");
+      const json = await res.json();
+      return json.data as {
+        hasIncomeBudget: boolean;
+        hasExpenseBudget: boolean;
+        hasBankAccount: boolean;
+        hasPersonalAsset: boolean;
+        hasLoan: boolean;
+      };
+    },
+  });
+  const [hasSwitchedMode, setHasSwitchedMode] = useState(false);
+
+  useEffect(() => {
+    setHasSwitchedMode(hasSwitchedViewMode());
+    const handler = () => setHasSwitchedMode(hasSwitchedViewMode());
+    window.addEventListener("viewmode-change", handler);
+    return () => window.removeEventListener("viewmode-change", handler);
+  }, []);
+
+  if (!data) return null;
+  const items = computeStepChecklist({ ...data, hasSwitchedMode });
+  const doneCount = items.filter((i) => i.done).length;
+  if (doneCount === items.length) return null;
+
+  return (
+    <div className="card mb-6">
+      <h2 className="text-sm font-semibold text-slate-700 mb-3">
+        ステップ進捗（{doneCount} / {items.length}）
+      </h2>
+      <ol className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+        {items.map((i) => (
+          <li
+            key={i.step}
+            className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
+              i.done ? "bg-green-50 text-green-700" : "bg-slate-50 text-slate-500"
+            }`}
+          >
+            <span aria-hidden="true">{i.done ? "✅" : "⬜"}</span>
+            <span>{i.label}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
 }
 
 function DashboardContent() {
@@ -208,6 +261,8 @@ function DashboardContent() {
           {sysMode === "household" ? "収支 KPI・予実管理" : "財務 KPI・予実管理"}
         </p>
       </div>
+
+      <StepChecklistCard />
 
       <div className="card mb-6">
         <KpiCards mode={sysMode} />

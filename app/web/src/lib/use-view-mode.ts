@@ -11,6 +11,12 @@ function readStoredMode(): ViewMode | null {
   return v && (VALID_MODES as readonly string[]).includes(v) ? (v as ViewMode) : null;
 }
 
+// F-10: ダッシュボードのステップ進捗チェックリスト「モード切替経験」判定用。
+// AppShell の changeViewMode() がモード実切替のたびに "true" をセットする。
+export function hasSwitchedViewMode(): boolean {
+  return localStorage.getItem("viewmode-switched") === "true";
+}
+
 // AppShell のモード切替ピル（家計/個人/法人）と同期する現在の観点モード。
 // AppShell が localStorage への保存と "viewmode-change" カスタムイベントの発火を担当し、
 // 各画面はこのフックで購読するだけでよい（dashboard / bank-transactions の重複実装を統一）。

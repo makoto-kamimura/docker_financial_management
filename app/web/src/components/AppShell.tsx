@@ -227,6 +227,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const previous = viewMode;
     setViewMode(mode);
     localStorage.setItem("viewMode", mode);
+    // F-10: ステップ進捗チェックリスト「モード切替経験」の判定に使う
+    if (previous !== mode) localStorage.setItem("viewmode-switched", "true");
     window.dispatchEvent(new CustomEvent("viewmode-change", { detail: mode }));
 
     // 家庭 → 法人 への切替時は、勘定科目の変換確認画面を案内する
