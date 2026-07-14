@@ -5,6 +5,7 @@ import { badRequest, notFound } from "@/lib/api-error";
 import { parseBankCsv } from "@/lib/banktxn-import";
 import { serializeBankTransaction, upsertExternalTransactions } from "@/lib/bank-transactions";
 import { invalidateCache } from "@/lib/redis";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const TxnSchema = z.object({
   date: z.string().min(1),
@@ -58,6 +59,10 @@ export const POST = withApi({
       await invalidateCache(`assets:summary:${user.tenantId}:*`);
       return NextResponse.json({ data: serializeBankTransaction(txn) }, { status: 201 });
     }
+
+    // S-9: CSV 取込のみユーザー単位のレート制限を適用（10 回 / 10 分）
+    const rate = await checkRateLimit(`rl:import:user:${user.id}`, 10, 600);
+    if (!rate.allowed) return rateLimitResponse(rate.retryAfterSeconds);
 
     const csv = await req.text();
     if (!csv.trim()) throw badRequest("empty body");

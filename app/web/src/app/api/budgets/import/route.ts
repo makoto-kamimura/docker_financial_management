@@ -2,11 +2,16 @@ import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
 import { badRequest } from "@/lib/api-error";
 import { resolvePeriod, findAccountByCode } from "@/lib/period";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 // POST /api/budgets/import … 予算 CSV 一括取込（accountCode,fiscalYear,month,amount）
 export const POST = withApi({
   role: "editor",
   handler: async ({ req, user, db, audit }) => {
+    // S-9: ユーザー単位のレート制限（10 回 / 10 分）
+    const rate = await checkRateLimit(`rl:import:user:${user.id}`, 10, 600);
+    if (!rate.allowed) return rateLimitResponse(rate.retryAfterSeconds);
+
     const { tenantId } = user;
     const formData = await req.formData();
     const file = formData.get("file") as File | null;

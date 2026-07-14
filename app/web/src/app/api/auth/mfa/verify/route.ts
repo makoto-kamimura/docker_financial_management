@@ -16,6 +16,9 @@ const VerifySchema = z
   });
 
 // POST /api/auth/mfa/verify … ログイン第2段階。mfaToken + TOTP コード or リカバリーコードでセッションを発行する。
+// S-9: レート制限（5 回 / トークン生存中）は consumeMfaChallenge() の MfaChallenge.attempts +
+// MAX_MFA_ATTEMPTS（S-2 で実装済み）により mfaToken 単位で既に実現されている。
+// 詳細設計書 §4.3 の `rl:mfa:token:<sha256(mfaToken)>` はこの既存の仕組みと同一のもの。
 export async function POST(req: NextRequest) {
   const parsed = VerifySchema.safeParse(await req.json());
   if (!parsed.success) {
