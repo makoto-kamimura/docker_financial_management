@@ -1,75 +1,75 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { zDate } from "@/lib/zod-helpers";
 
-export async function GET(req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const InventorySchema = z.object({
+  name: z.string().min(1),
+  inventoryDate: zDate,
+  valuationMethod: z.string().default("last_purchase"),
+  items: z
+    .array(
+      z.object({
+        itemName: z.string().min(1),
+        itemType: z.string().default("product"),
+        quantity: z.number(),
+        unit: z.string().default("個"),
+        unitPrice: z.number(),
+      }),
+    )
+    .optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const year = req.nextUrl.searchParams.get("year");
-  const dateFilter = year
-    ? {
-        inventoryDate: {
-          gte: new Date(`${year}-01-01`),
-          lt: new Date(`${Number(year) + 1}-01-01`),
-        },
-      }
-    : {};
+// GET /api/inventories?year= … 棚卸一覧
+export const GET = withApi({
+  role: "viewer",
+  querySchema: z.object({ year: z.coerce.number().int().optional() }),
+  handler: async ({ user, db, query }) => {
+    const dateFilter = query.year
+      ? {
+          inventoryDate: {
+            gte: new Date(`${query.year}-01-01`),
+            lt: new Date(`${query.year + 1}-01-01`),
+          },
+        }
+      : {};
 
-  const inventories = await db.inventory.findMany({
-    where: { tenantId, ...dateFilter },
-    include: { items: true },
-    orderBy: { inventoryDate: "desc" },
-  });
-  return NextResponse.json({ data: inventories });
-}
+    const inventories = await db.inventory.findMany({
+      where: { tenantId: user.tenantId, ...dateFilter },
+      include: { items: true },
+      orderBy: { inventoryDate: "desc" },
+    });
+    return NextResponse.json({ data: inventories });
+  },
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// POST /api/inventories … 棚卸の登録（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: InventorySchema,
+  handler: async ({ user, db, body }) => {
+    const items = (body.items ?? []).map((i) => ({
+      itemName: i.itemName,
+      itemType: i.itemType,
+      quantity: i.quantity,
+      unit: i.unit,
+      unitPrice: i.unitPrice,
+      totalAmount: i.quantity * i.unitPrice,
+    }));
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    name: string;
-    inventoryDate: string;
-    valuationMethod?: string;
-    items?: {
-      itemName: string;
-      itemType?: string;
-      quantity: number;
-      unit?: string;
-      unitPrice: number;
-    }[];
-  };
+    const totalAmount = items.reduce((s, i) => s + Number(i.totalAmount), 0);
 
-  if (!body.name || !body.inventoryDate) {
-    return NextResponse.json({ error: "name and inventoryDate are required" }, { status: 400 });
-  }
-
-  const items = (body.items ?? []).map((i) => ({
-    itemName: i.itemName,
-    itemType: i.itemType ?? "product",
-    quantity: i.quantity,
-    unit: i.unit ?? "個",
-    unitPrice: i.unitPrice,
-    totalAmount: i.quantity * i.unitPrice,
-  }));
-
-  const totalAmount = items.reduce((s, i) => s + Number(i.totalAmount), 0);
-
-  const inventory = await db.inventory.create({
-    data: {
-      tenantId,
-      name: body.name,
-      inventoryDate: new Date(body.inventoryDate),
-      valuationMethod: body.valuationMethod ?? "last_purchase",
-      totalAmount,
-      items: items.length > 0 ? { create: items } : undefined,
-    },
-    include: { items: true },
-  });
-  return NextResponse.json({ data: inventory }, { status: 201 });
-}
+    const inventory = await db.inventory.create({
+      data: {
+        tenantId: user.tenantId,
+        name: body.name,
+        inventoryDate: body.inventoryDate,
+        valuationMethod: body.valuationMethod,
+        totalAmount,
+        items: items.length > 0 ? { create: items } : undefined,
+      },
+      include: { items: true },
+    });
+    return NextResponse.json({ data: inventory }, { status: 201 });
+  },
+});

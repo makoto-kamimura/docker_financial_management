@@ -1,69 +1,81 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { withApi } from "@/lib/api-handler";
+import { badRequest, notFound } from "@/lib/api-error";
+import {
+  classifyFileType,
+  matchesMagicBytes,
+  MAX_UPLOAD_BYTES,
+  resolveUploadExtension,
+  tenantUploadDir,
+} from "@/lib/upload";
 
-type Params = { params: Promise<{ id: string }> };
+// GET /api/journals/[id]/receipts … 証憑一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db, id }) => {
+    const entry = await db.journalEntry.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!entry) throw notFound();
 
-const UPLOAD_DIR = path.join(process.cwd(), "uploads");
+    const receipts = await db.receipt.findMany({
+      where: { journalEntryId: id },
+      orderBy: { uploadedAt: "desc" },
+    });
+    return NextResponse.json({ data: receipts });
+  },
+});
 
-export async function GET(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+// POST /api/journals/[id]/receipts … 証憑アップロード（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  handler: async ({ req, user, db, id }) => {
+    const entry = await db.journalEntry.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!entry) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const entry = await db.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
-  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+    // リクエストボディがサーバー側の上限を超えて切り詰められた場合、formData() のパースが
+    // 例外を投げる（Next.js のデフォルト body size 制限）。500 ではなく 400 として扱う
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      throw badRequest("ファイルサイズは 10MB 以下にしてください");
+    }
+    const file = formData.get("file") as File | null;
+    if (!file) throw badRequest("file is required");
+    if (file.size > MAX_UPLOAD_BYTES) throw badRequest("ファイルサイズは 10MB 以下にしてください");
 
-  const receipts = await db.receipt.findMany({
-    where: { journalEntryId: Number(id) },
-    orderBy: { uploadedAt: "desc" },
-  });
-  return NextResponse.json({ data: receipts });
-}
+    const ext = resolveUploadExtension(file.name, file.type);
+    if (!ext) throw badRequest("許可されていないファイル形式です（pdf/jpg/png/gif/webp のみ）");
 
-export async function POST(req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+    const bytes = await file.arrayBuffer();
+    const buf = Buffer.from(bytes);
+    // S-8: マジックバイト検証。拡張子・Content-Type の詐称（内容不一致）を検出する
+    if (!matchesMagicBytes(buf, ext)) {
+      throw badRequest("ファイルの内容が拡張子と一致しません");
+    }
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const entry = await db.journalEntry.findUnique({ where: { id: Number(id), tenantId } });
-  if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const dir = tenantUploadDir(user.tenantId);
+    if (!existsSync(dir)) {
+      await mkdir(dir, { recursive: true });
+    }
 
-  const formData = await req.formData();
-  const file = formData.get("file") as File | null;
-  if (!file) return NextResponse.json({ error: "file is required" }, { status: 400 });
+    const savedName = `${randomUUID()}.${ext}`;
+    await writeFile(path.join(dir, savedName), buf);
 
-  if (!existsSync(UPLOAD_DIR)) {
-    await mkdir(UPLOAD_DIR, { recursive: true });
-  }
-
-  const ext = file.name.split(".").pop() ?? "";
-  const savedName = `${randomUUID()}.${ext}`;
-  const bytes = await file.arrayBuffer();
-  await writeFile(path.join(UPLOAD_DIR, savedName), Buffer.from(bytes));
-
-  const fileType = file.type.startsWith("image/")
-    ? "image"
-    : file.type === "application/pdf"
-      ? "pdf"
-      : "other";
-
-  const receipt = await db.receipt.create({
-    data: {
-      journalEntryId: Number(id),
-      fileName: file.name,
-      fileUrl: `/api/uploads/${savedName}`,
-      fileType,
-      fileSize: file.size,
-    },
-  });
-  return NextResponse.json({ data: receipt }, { status: 201 });
-}
+    const receipt = await db.receipt.create({
+      data: {
+        journalEntryId: id,
+        fileName: file.name,
+        fileUrl: `/api/uploads/${savedName}`,
+        savedName,
+        mimeType: file.type,
+        fileType: classifyFileType(file.type),
+        fileSize: file.size,
+      },
+    });
+    return NextResponse.json({ data: receipt }, { status: 201 });
+  },
+});

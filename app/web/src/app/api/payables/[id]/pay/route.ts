@@ -1,66 +1,42 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { badRequest, notFound } from "@/lib/api-error";
+import { zDate } from "@/lib/zod-helpers";
+import { AP_ACCOUNT_CODE, createSettlementJournal } from "@/lib/settlement";
 
-type Params = { params: Promise<{ id: string }> };
+const PaySchema = z.object({
+  paidOn: zDate,
+  paidAmount: z.number().positive(),
+  paymentAccountCode: z.string().optional(),
+});
 
-export async function POST(req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// POST /api/payables/[id]/pay … 買掛金の支払消込（自動仕訳、editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: PaySchema,
+  handler: async ({ user, db, id, body }) => {
+    const { tenantId } = user;
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    paidOn: string;
-    paidAmount: number;
-    paymentAccountCode?: string;
-  };
+    const payable = await db.payable.findUnique({ where: { id, tenantId } });
+    if (!payable) throw notFound();
+    if (payable.status === "paid") throw badRequest("already paid");
 
-  if (!body.paidOn || !body.paidAmount) {
-    return NextResponse.json({ error: "paidOn and paidAmount are required" }, { status: 400 });
-  }
-
-  const payable = await db.payable.findUnique({ where: { id: Number(id), tenantId } });
-  if (!payable) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (payable.status === "paid")
-    return NextResponse.json({ error: "already paid" }, { status: 400 });
-
-  const paymentCode = body.paymentAccountCode ?? "1100";
-  const [paymentAccount, apAccount] = await Promise.all([
-    db.account.findFirst({ where: { tenantId, code: paymentCode } }),
-    db.account.findFirst({ where: { tenantId, code: "3000" } }),
-  ]);
-
-  if (!paymentAccount || !apAccount) {
-    return NextResponse.json(
-      { error: "勘定科目が見つかりません（3000/支払科目）" },
-      { status: 500 },
-    );
-  }
-
-  const paidDate = new Date(body.paidOn);
-
-  await db.journalEntry.create({
-    data: {
-      tenantId,
-      transactionDate: paidDate,
+    await createSettlementJournal(db, tenantId, {
+      paidOn: body.paidOn,
+      amount: body.paidAmount,
+      paymentAccountCode: body.paymentAccountCode,
+      counterAccountCode: AP_ACCOUNT_CODE,
       description: `${payable.supplierName} 買掛金支払`,
-      paymentMethod: paymentCode === "1100" ? "bank" : "cash",
-      taxCategory: "non_taxable",
-      details: {
-        create: [
-          { side: "debit", accountId: apAccount.id, amount: body.paidAmount },
-          { side: "credit", accountId: paymentAccount.id, amount: body.paidAmount },
-        ],
-      },
-    },
-  });
+      direction: "payment",
+      missingAccountsMessage: "勘定科目が見つかりません（3000/支払科目）",
+    });
 
-  const updated = await db.payable.update({
-    where: { id: Number(id) },
-    data: { status: "paid", paidOn: paidDate, paidAmount: body.paidAmount },
-  });
+    const updated = await db.payable.update({
+      where: { id },
+      data: { status: "paid", paidOn: body.paidOn, paidAmount: body.paidAmount },
+    });
 
-  return NextResponse.json({ data: updated });
-}
+    return NextResponse.json({ data: updated });
+  },
+});

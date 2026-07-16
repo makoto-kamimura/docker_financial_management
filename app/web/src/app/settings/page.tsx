@@ -45,7 +45,7 @@ const TYPE_BADGE = {
 } as const;
 
 // ── タブ型 ──────────────────────────────────────────────────────
-type Tab = "profile" | "tax" | "security" | "accounts" | "accountNames";
+type Tab = "profile" | "tax" | "security" | "accounts" | "accountNames" | "allocationRules";
 
 // ── 事業者情報セクション ─────────────────────────────────────────
 function BusinessProfileSection() {
@@ -943,11 +943,268 @@ function AccountNamesSection() {
   );
 }
 
+// ── 予算配分ルール設定 ───────────────────────────────────────────
+type AllocationRuleServerRow = {
+  id: number;
+  key: string;
+  label: string;
+  group: string;
+  minPercent: number;
+  maxPercent: number | null;
+  note: string | null;
+  sortOrder: number;
+  account: { id: number; code: string; name: string } | null;
+};
+type RuleEdit = {
+  origKey: string | null; // null = 新規（保存前）
+  key: string;
+  label: string;
+  group: string;
+  minPercent: string;
+  maxPercent: string; // 空 = 上限なし
+  note: string;
+  accountCode: string; // 空 = 未紐付け
+};
+const ALLOCATION_GROUPS_UI = ["固定費", "生活費", "その他"] as const;
+
+function toEdit(r: AllocationRuleServerRow): RuleEdit {
+  return {
+    origKey: r.key,
+    key: r.key,
+    label: r.label,
+    group: r.group,
+    minPercent: String(r.minPercent),
+    maxPercent: r.maxPercent === null ? "" : String(r.maxPercent),
+    note: r.note ?? "",
+    accountCode: r.account?.code ?? "",
+  };
+}
+
+function AllocationRulesSection() {
+  const [rules, setRules] = useState<RuleEdit[]>([]);
+  const [removedKeys, setRemovedKeys] = useState<string[]>([]);
+  const [accounts, setAccounts] = useState<AccountRef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const load = () => {
+    setLoading(true);
+    Promise.all([
+      fetch("/api/allocation-rules").then((r) => r.json()),
+      fetch("/api/accounts").then((r) => r.json()),
+    ]).then(([rulesJson, accountsJson]) => {
+      setRules((rulesJson.data ?? []).map(toEdit));
+      setAccounts(accountsJson.data ?? []);
+      setRemovedKeys([]);
+      setLoading(false);
+    });
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const setField = (index: number, field: keyof RuleEdit, value: string) => {
+    setRules((rs) => rs.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+  };
+
+  const addRule = () => {
+    setRules((rs) => [
+      ...rs,
+      {
+        origKey: null,
+        key: "",
+        label: "",
+        group: ALLOCATION_GROUPS_UI[0],
+        minPercent: "0",
+        maxPercent: "",
+        note: "",
+        accountCode: "",
+      },
+    ]);
+  };
+
+  const removeRule = (index: number) => {
+    setRules((rs) => {
+      const target = rs[index];
+      if (target.origKey) setRemovedKeys((keys) => [...keys, target.origKey!]);
+      return rs.filter((_, i) => i !== index);
+    });
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setMsg(null);
+    const items = rules.map((r) => ({
+      key: r.key.trim(),
+      label: r.label.trim(),
+      group: r.group,
+      minPercent: Number(r.minPercent) || 0,
+      maxPercent: r.maxPercent.trim() === "" ? null : Number(r.maxPercent),
+      note: r.note.trim() === "" ? null : r.note.trim(),
+      accountCode: r.accountCode === "" ? null : r.accountCode,
+    }));
+    if (items.some((i) => !i.key || !i.label)) {
+      setSaving(false);
+      setMsg({ ok: false, text: "項目名（key・ラベル）が未入力の行があります。" });
+      return;
+    }
+    const res = await fetch("/api/allocation-rules", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items, removedKeys: removedKeys.length ? removedKeys : undefined }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      const j = await res.json();
+      setRules((j.data ?? []).map(toEdit));
+      setRemovedKeys([]);
+      setMsg({ ok: true, text: "予算配分ルールを保存しました。" });
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMsg({ ok: false, text: err.error ?? "保存に失敗しました。" });
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <h2 className="section-title">予算配分ルール</h2>
+          <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+            収入配分の提案（予算管理の「配分提案」タブ）で使う推奨割合（%）です。対応科目を紐付けると、
+            推奨額をその科目の予算へワンクリックで一括反映できます。
+          </p>
+        </div>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="btn-primary px-4 py-2 whitespace-nowrap disabled:opacity-50"
+        >
+          {saving ? "保存中…" : "変更を保存"}
+        </button>
+      </div>
+
+      {msg && (
+        <p
+          className={`text-xs rounded px-2 py-1.5 mb-3 border ${
+            msg.ok
+              ? "text-green-700 bg-green-50 border-green-200"
+              : "text-red-600 bg-red-50 border-red-200"
+          }`}
+        >
+          {msg.text}
+        </p>
+      )}
+
+      {loading ? (
+        <p className="text-slate-400 text-sm">読み込み中…</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-slate-500 border-b border-slate-200">
+              <tr>
+                <th className="text-left py-2 pr-3 whitespace-nowrap">グループ</th>
+                <th className="text-left py-2 pr-3">ラベル</th>
+                <th className="text-left py-2 pr-3 whitespace-nowrap">下限%</th>
+                <th className="text-left py-2 pr-3 whitespace-nowrap">上限%</th>
+                <th className="text-left py-2 pr-3">対応科目</th>
+                <th className="text-left py-2 pr-3">補足</th>
+                <th className="py-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {rules.map((r, i) => (
+                <tr key={r.origKey ?? `new-${i}`}>
+                  <td className="py-1.5 pr-3">
+                    <select
+                      value={r.group}
+                      onChange={(e) => setField(i, "group", e.target.value)}
+                      className="input-field w-28"
+                    >
+                      {ALLOCATION_GROUPS_UI.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <input
+                      value={r.label}
+                      placeholder={r.origKey ? undefined : "例: 貯蓄・投資"}
+                      onChange={(e) => setField(i, "label", e.target.value)}
+                      className="input-field w-full min-w-[10rem]"
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <input
+                      type="number"
+                      value={r.minPercent}
+                      onChange={(e) => setField(i, "minPercent", e.target.value)}
+                      className="input-field w-20"
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <input
+                      type="number"
+                      value={r.maxPercent}
+                      placeholder="上限なし"
+                      onChange={(e) => setField(i, "maxPercent", e.target.value)}
+                      className="input-field w-20"
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <select
+                      value={r.accountCode}
+                      onChange={(e) => setField(i, "accountCode", e.target.value)}
+                      className="input-field w-full min-w-[10rem]"
+                    >
+                      <option value="">— 未紐付け —</option>
+                      {accounts.map((a) => (
+                        <option key={a.code} value={a.code}>
+                          {a.code} {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <input
+                      value={r.note}
+                      onChange={(e) => setField(i, "note", e.target.value)}
+                      className="input-field w-full min-w-[8rem]"
+                    />
+                  </td>
+                  <td className="py-1.5">
+                    <button
+                      onClick={() => removeRule(i)}
+                      className="text-xs text-slate-300 hover:text-red-500"
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button
+            onClick={addRule}
+            className="mt-3 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+          >
+            + ルールを追加
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── メインページ ─────────────────────────────────────────────────
 const TABS: { id: Tab; label: string }[] = [
   { id: "profile", label: "基本設定" },
   { id: "tax", label: "消費税設定" },
   { id: "accountNames", label: "科目名設定" },
+  { id: "allocationRules", label: "予算配分ルール" },
   { id: "accounts", label: "口座・カード管理" },
   { id: "security", label: "セキュリティ" },
 ];
@@ -981,6 +1238,7 @@ export default function SettingsPage() {
       {tab === "profile" && <BusinessProfileSection />}
       {tab === "tax" && <TaxSettingsSection />}
       {tab === "accountNames" && <AccountNamesSection />}
+      {tab === "allocationRules" && <AllocationRulesSection />}
       {tab === "security" && <SecuritySection />}
       {tab === "accounts" && <LinkedAccountsSection />}
     </AppShell>

@@ -1,60 +1,58 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { badRequest } from "@/lib/api-error";
 import { invalidateCache } from "@/lib/redis";
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+const FinalizeSchema = z.object({
+  fiscalYear: z.number().int(),
+  netIncome: z.number(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as { fiscalYear: number; netIncome: number };
-  if (!body.fiscalYear) {
-    return NextResponse.json({ error: "fiscalYear is required" }, { status: 400 });
-  }
+// POST /api/closing/finalize … 決算確定（キャッシュ無効化、editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: FinalizeSchema,
+  handler: async ({ user, db, body }) => {
+    const { tenantId } = user;
 
-  const existing = await db.fiscalYearClose.findUnique({
-    where: { tenantId_fiscalYear: { tenantId, fiscalYear: body.fiscalYear } },
-  });
-  if (existing?.status === "closed") {
-    return NextResponse.json(
-      { error: `${body.fiscalYear}年度は既に決算確定済みです` },
-      { status: 400 },
-    );
-  }
+    const existing = await db.fiscalYearClose.findUnique({
+      where: { tenantId_fiscalYear: { tenantId, fiscalYear: body.fiscalYear } },
+    });
+    if (existing?.status === "closed") {
+      throw badRequest(`${body.fiscalYear}年度は既に決算確定済みです`);
+    }
 
-  const close = await db.fiscalYearClose.upsert({
-    where: { tenantId_fiscalYear: { tenantId, fiscalYear: body.fiscalYear } },
-    update: { status: "closed", closedAt: new Date(), netIncome: body.netIncome },
-    create: {
-      tenantId,
-      fiscalYear: body.fiscalYear,
-      status: "closed",
-      closedAt: new Date(),
-      netIncome: body.netIncome,
-    },
-  });
+    const close = await db.fiscalYearClose.upsert({
+      where: { tenantId_fiscalYear: { tenantId, fiscalYear: body.fiscalYear } },
+      update: { status: "closed", closedAt: new Date(), netIncome: body.netIncome },
+      create: {
+        tenantId,
+        fiscalYear: body.fiscalYear,
+        status: "closed",
+        closedAt: new Date(),
+        netIncome: body.netIncome,
+      },
+    });
 
-  await invalidateCache(`closing:statements:${tenantId}:${body.fiscalYear}`);
-  await invalidateCache(`reports:ledger:${tenantId}:${body.fiscalYear}:*`);
+    await invalidateCache(`closing:statements:${tenantId}:${body.fiscalYear}`);
+    await invalidateCache(`reports:ledger:${tenantId}:${body.fiscalYear}:*`);
 
-  return NextResponse.json({ data: close });
-}
+    return NextResponse.json({ data: close });
+  },
+});
 
-export async function DELETE(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const fiscalYear = Number(req.nextUrl.searchParams.get("year"));
-  if (!fiscalYear) return NextResponse.json({ error: "year is required" }, { status: 400 });
-
-  const close = await db.fiscalYearClose.upsert({
-    where: { tenantId_fiscalYear: { tenantId, fiscalYear } },
-    update: { status: "open", closedAt: null },
-    create: { tenantId, fiscalYear, status: "open" },
-  });
-  return NextResponse.json({ data: close });
-}
+// DELETE /api/closing/finalize?year= … 決算締め解除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  querySchema: z.object({ year: z.coerce.number().int() }),
+  handler: async ({ user, db, query }) => {
+    const { tenantId } = user;
+    const close = await db.fiscalYearClose.upsert({
+      where: { tenantId_fiscalYear: { tenantId, fiscalYear: query.year } },
+      update: { status: "open", closedAt: null },
+      create: { tenantId, fiscalYear: query.year, status: "open" },
+    });
+    return NextResponse.json({ data: close });
+  },
+});

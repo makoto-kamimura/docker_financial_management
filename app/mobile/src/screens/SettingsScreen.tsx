@@ -4,7 +4,7 @@ import {
   TextInput, TouchableOpacity, View,
 } from "react-native";
 import {
-  fetchBankAccounts, getAllocation, resetAllocation, setAllocation,
+  fetchBankAccounts, getAllocation, loadAllocation, resetAllocation, saveAllocation,
   type AllocationGroup, type AllocationItem, type BankAccount,
 } from "../api";
 import { LoadingView } from "../components/LoadingView";
@@ -31,6 +31,8 @@ export function SettingsScreen() {
     setError(null);
     try {
       setAccounts(await fetchBankAccounts());
+      // サーバー側マスタの配分ルールを反映（未接続時は既定値のまま）
+      setAllocationState((await loadAllocation()).map(i => ({ ...i })));
     } catch (e) {
       setError(e instanceof Error ? e.message : "取得に失敗しました");
     } finally {
@@ -53,10 +55,14 @@ export function SettingsScreen() {
     }));
   }
 
-  function handleSaveAllocation() {
-    setAllocation(allocation);
-    setAllocDirty(false);
-    Alert.alert("保存しました", "予算配分ルールを更新しました。");
+  async function handleSaveAllocation() {
+    try {
+      await saveAllocation(allocation);
+      setAllocDirty(false);
+      Alert.alert("保存しました", "予算配分ルールを更新しました。");
+    } catch (e) {
+      Alert.alert("保存に失敗しました", e instanceof Error ? e.message : "通信エラーが発生しました。");
+    }
   }
 
   function handleResetAllocation() {

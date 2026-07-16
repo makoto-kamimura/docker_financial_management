@@ -1,39 +1,47 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
+import { zDate } from "@/lib/zod-helpers";
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+const UpdateSchema = z.object({
+  meetingDate: zDate.optional(),
+  agenda: z.string().min(1).optional(),
+  resolution: z.string().optional(),
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.shareholderMeeting.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+// PUT /api/shareholder-meetings/[id] … 株主総会の更新（editor 以上）
+export const PUT = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body }) => {
+    const existing = await db.shareholderMeeting.findUnique({
+      where: { id, tenantId: user.tenantId },
+    });
+    if (!existing) throw notFound();
 
-  const body = (await req.json()) as { meetingDate?: string; agenda?: string; resolution?: string };
-  const m = await db.shareholderMeeting.update({
-    where: { id: Number(id) },
-    data: {
-      ...(body.meetingDate && { meetingDate: new Date(body.meetingDate) }),
-      ...(body.agenda && { agenda: body.agenda }),
-      resolution: body.resolution ?? undefined,
-    },
-  });
-  return NextResponse.json({ data: m });
-}
+    const m = await db.shareholderMeeting.update({
+      where: { id },
+      data: {
+        ...(body.meetingDate && { meetingDate: body.meetingDate }),
+        ...(body.agenda && { agenda: body.agenda }),
+        resolution: body.resolution ?? undefined,
+      },
+    });
+    return NextResponse.json({ data: m });
+  },
+});
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// DELETE /api/shareholder-meetings/[id] … 株主総会の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.shareholderMeeting.findUnique({
+      where: { id, tenantId: user.tenantId },
+    });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.shareholderMeeting.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.shareholderMeeting.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.shareholderMeeting.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

@@ -1,88 +1,72 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
+import { TEMPLATE_INCLUDE, TemplateLineSchema, toTemplateLineData } from "@/lib/journal-template";
 
-const INCLUDE = {
-  lines: {
-    include: { account: { select: { id: true, code: true, name: true, category: true } } },
-    orderBy: { sortOrder: "asc" as const },
-  },
-};
+const UpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  lines: z.array(TemplateLineSchema).optional(),
+});
 
-export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const t = await db.journalTemplate.findUnique({
-    where: { id: Number(id), tenantId },
-    include: INCLUDE,
-  });
-  if (!t) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ data: t });
-}
-
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.journalTemplate.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const body = (await req.json()) as {
-    name?: string;
-    description?: string;
-    lines?: {
-      side: string;
-      accountId: number;
-      amount?: number;
-      note?: string;
-      sortOrder?: number;
-    }[];
-  };
-
-  await db.$transaction(async (tx) => {
-    await tx.journalTemplate.update({
-      where: { id: Number(id) },
-      data: { ...(body.name && { name: body.name }), description: body.description ?? undefined },
+// GET /api/journal-templates/[id] … テンプレート 1 件の取得
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db, id }) => {
+    const t = await db.journalTemplate.findUnique({
+      where: { id, tenantId: user.tenantId },
+      include: TEMPLATE_INCLUDE,
     });
-    if (body.lines) {
-      await tx.journalTemplateLine.deleteMany({ where: { templateId: Number(id) } });
-      await tx.journalTemplateLine.createMany({
-        data: body.lines.map((l, i) => ({
-          templateId: Number(id),
-          side: l.side,
-          accountId: l.accountId,
-          amount: l.amount ?? null,
-          note: l.note ?? null,
-          sortOrder: l.sortOrder ?? i,
-        })),
+    if (!t) throw notFound();
+    return NextResponse.json({ data: t });
+  },
+});
+
+// PUT /api/journal-templates/[id] … テンプレートの更新（明細は全置換、editor 以上）
+export const PUT = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body }) => {
+    const existing = await db.journalTemplate.findUnique({
+      where: { id, tenantId: user.tenantId },
+    });
+    if (!existing) throw notFound();
+
+    await db.$transaction(async (tx) => {
+      await tx.journalTemplate.update({
+        where: { id },
+        data: {
+          ...(body.name && { name: body.name }),
+          description: body.description ?? undefined,
+        },
       });
-    }
-  });
+      if (body.lines) {
+        await tx.journalTemplateLine.deleteMany({ where: { templateId: id } });
+        await tx.journalTemplateLine.createMany({
+          data: toTemplateLineData(body.lines).map((l) => ({ ...l, templateId: id })),
+        });
+      }
+    });
 
-  const updated = await db.journalTemplate.findUnique({
-    where: { id: Number(id) },
-    include: INCLUDE,
-  });
-  return NextResponse.json({ data: updated });
-}
+    const updated = await db.journalTemplate.findUnique({
+      where: { id },
+      include: TEMPLATE_INCLUDE,
+    });
+    return NextResponse.json({ data: updated });
+  },
+});
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// DELETE /api/journal-templates/[id] … テンプレートの削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.journalTemplate.findUnique({
+      where: { id, tenantId: user.tenantId },
+    });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.journalTemplate.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.journalTemplate.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.journalTemplate.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

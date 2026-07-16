@@ -1,8 +1,12 @@
+import { useState } from "react";
 import {
-  Modal, Pressable, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text,
   TouchableOpacity, View,
 } from "react-native";
-import { getAllocation, type AllocationGroup, type AllocationItem, type ViewMode } from "../api";
+import {
+  applyAllocationToBudget, getAllocation,
+  type AllocationGroup, type AllocationItem, type ViewMode,
+} from "../api";
 
 const GROUP_ORDER: AllocationGroup[] = ["固定費", "生活費", "その他"];
 
@@ -31,6 +35,12 @@ function amountText(total: number, item: AllocationItem): string {
   return `${yen(min)} 〜 ${yen(max)}`;
 }
 
+// Web の suggestAllocation() と同じ式（下限・上限の中央値。上限なしは下限）で推奨額を算出する。
+function recommendedAmount(total: number, item: AllocationItem): number {
+  const percent = item.maxPercent === null ? item.minPercent : (item.minPercent + item.maxPercent) / 2;
+  return Math.round(total * percent / 100);
+}
+
 type RevenueLine = { code: string; name: string; amount: number };
 
 type Props = {
@@ -41,12 +51,43 @@ type Props = {
   items: RevenueLine[];
   total: number;
   viewMode: ViewMode;
+  /** 予算への反映が成功した後に呼ばれる（呼び出し側で予算一覧を再取得する） */
+  onApplied?: () => void;
 };
 
-export function RevenueAllocationModal({ visible, onClose, year, month, items, total, viewMode }: Props) {
+export function RevenueAllocationModal({ visible, onClose, year, month, items, total, viewMode, onApplied }: Props) {
   const allocation = getAllocation();
   const fixedMin = Math.round(total * 0.45);
   const fixedMax = Math.round(total * 0.55);
+  const [applying, setApplying] = useState(false);
+
+  async function applyToBudget() {
+    const applyItems = allocation
+      .filter(a => a.accountId != null)
+      .map(a => ({
+        accountId: a.accountId as number,
+        month,
+        amount: recommendedAmount(total, a),
+      }))
+      .filter(a => a.amount > 0);
+
+    if (applyItems.length === 0) {
+      Alert.alert("反映できません", "対応科目が設定された配分ルールがありません。「その他」→「設定」で科目を紐付けてください。");
+      return;
+    }
+
+    setApplying(true);
+    try {
+      await applyAllocationToBudget(year, applyItems);
+      Alert.alert("反映しました", `${applyItems.length}件の科目に${month}月の予算として反映しました。`);
+      onApplied?.();
+      onClose();
+    } catch {
+      Alert.alert("エラー", "予算への反映に失敗しました。時間をおいて再度お試しください。");
+    } finally {
+      setApplying(false);
+    }
+  }
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -132,6 +173,17 @@ export function RevenueAllocationModal({ visible, onClose, year, month, items, t
               </View>
             )}
 
+            <TouchableOpacity
+              style={[s.applyBtn, (applying || total <= 0) && s.applyBtnDisabled]}
+              onPress={applyToBudget}
+              disabled={applying || total <= 0}
+            >
+              {applying
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={s.applyBtnTxt}>{month}月の予算に反映</Text>
+              }
+            </TouchableOpacity>
+
             <Text style={s.footNote}>配分の割合は「その他」→「設定」画面から変更できます。</Text>
           </ScrollView>
         </Pressable>
@@ -174,5 +226,8 @@ const s = StyleSheet.create({
   ruleLabel:    { fontSize: 11, color: "#475569", flex: 1, marginRight: 8 },
   ruleAmt:      { fontSize: 11, fontWeight: "700", color: "#1e293b" },
   soleTxt:      { fontSize: 12, color: "#475569", lineHeight: 19 },
-  footNote:     { fontSize: 11, color: "#94a3b8", textAlign: "center", marginTop: 18 },
+  applyBtn:     { backgroundColor: "#4f46e5", borderRadius: 12, paddingVertical: 13, alignItems: "center", marginTop: 20 },
+  applyBtnDisabled: { opacity: 0.5 },
+  applyBtnTxt:  { fontSize: 14, fontWeight: "700", color: "#fff" },
+  footNote:     { fontSize: 11, color: "#94a3b8", textAlign: "center", marginTop: 10 },
 });

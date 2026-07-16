@@ -1,148 +1,121 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { badRequest } from "@/lib/api-error";
+import { JOURNAL_DETAILS_INCLUDE, syncJournalToFinancialRecords } from "@/lib/journal";
 import { invalidateCache } from "@/lib/redis";
 
-const INCLUDE_DETAILS = {
-  details: {
-    include: { account: { select: { id: true, code: true, name: true, category: true } } },
-    orderBy: { side: "asc" as const },
-  },
+const INCLUDE_WITH_RECEIPTS = {
+  ...JOURNAL_DETAILS_INCLUDE,
   receipts: { orderBy: { uploadedAt: "desc" as const } },
 };
 
-// GET /api/journals?year=2026&month=6&page=1&limit=50
-export async function GET(req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const JournalSchema = z.object({
+  transactionDate: z.string().min(1),
+  description: z.string().min(1),
+  paymentMethod: z.string().optional(),
+  taxCategory: z.string().optional(),
+  details: z
+    .array(
+      z.object({
+        side: z.enum(["debit", "credit"]),
+        accountId: z.number().int().positive(),
+        amount: z.number(),
+        note: z.string().optional(),
+      }),
+    )
+    .min(1),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const sp = req.nextUrl.searchParams;
-  const year = sp.get("year") ? Number(sp.get("year")) : undefined;
-  const month = sp.get("month") ? Number(sp.get("month")) : undefined;
-  const page = Math.max(1, Number(sp.get("page") ?? "1"));
-  const limit = Math.min(200, Number(sp.get("limit") ?? "50"));
+// GET /api/journals?year=2026&month=6&page=1&limit=50 … 仕訳一覧（ページング）
+export const GET = withApi({
+  role: "viewer",
+  querySchema: z.object({
+    year: z.coerce.number().int().optional(),
+    month: z.coerce.number().int().min(1).max(12).optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+  }),
+  handler: async ({ user, db, query }) => {
+    const { year, month, page, limit } = query;
 
-  let dateFrom: Date | undefined;
-  let dateTo: Date | undefined;
-  if (year && month) {
-    dateFrom = new Date(year, month - 1, 1);
-    dateTo = new Date(year, month, 1);
-  } else if (year) {
-    dateFrom = new Date(year, 0, 1);
-    dateTo = new Date(year + 1, 0, 1);
-  }
+    let dateFrom: Date | undefined;
+    let dateTo: Date | undefined;
+    if (year && month) {
+      dateFrom = new Date(year, month - 1, 1);
+      dateTo = new Date(year, month, 1);
+    } else if (year) {
+      dateFrom = new Date(year, 0, 1);
+      dateTo = new Date(year + 1, 0, 1);
+    }
 
-  const where = {
-    tenantId,
-    ...(dateFrom ? { transactionDate: { gte: dateFrom, lt: dateTo } } : {}),
-  };
+    const where = {
+      tenantId: user.tenantId,
+      ...(dateFrom ? { transactionDate: { gte: dateFrom, lt: dateTo } } : {}),
+    };
 
-  const [total, entries] = await Promise.all([
-    db.journalEntry.count({ where }),
-    db.journalEntry.findMany({
-      where,
-      include: INCLUDE_DETAILS,
-      orderBy: { transactionDate: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-  ]);
+    const [total, entries] = await Promise.all([
+      db.journalEntry.count({ where }),
+      db.journalEntry.findMany({
+        where,
+        include: INCLUDE_WITH_RECEIPTS,
+        orderBy: { transactionDate: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+    ]);
 
-  return NextResponse.json({ data: entries, total, page, limit });
-}
-
-type DetailInput = { side: "debit" | "credit"; accountId: number; amount: number; note?: string };
+    return NextResponse.json({ data: entries, total, page, limit });
+  },
+});
 
 // POST /api/journals — 仕訳登録（ヘッダ + 明細をまとめて）
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+export const POST = withApi({
+  role: "editor",
+  schema: JournalSchema,
+  handler: async ({ user, db, body }) => {
+    const { tenantId } = user;
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    transactionDate: string;
-    description: string;
-    paymentMethod?: string;
-    taxCategory?: string;
-    details: DetailInput[];
-  };
+    const debitTotal = body.details
+      .filter((d) => d.side === "debit")
+      .reduce((s, d) => s + d.amount, 0);
+    const creditTotal = body.details
+      .filter((d) => d.side === "credit")
+      .reduce((s, d) => s + d.amount, 0);
+    if (Math.abs(debitTotal - creditTotal) > 0.01) {
+      throw badRequest(`借方合計(${debitTotal})と貸方合計(${creditTotal})が一致しません`);
+    }
 
-  if (!body.transactionDate || !body.description || !body.details?.length) {
-    return NextResponse.json(
-      { error: "transactionDate, description, details are required" },
-      { status: 400 },
-    );
-  }
-
-  const debitTotal = body.details
-    .filter((d) => d.side === "debit")
-    .reduce((s, d) => s + d.amount, 0);
-  const creditTotal = body.details
-    .filter((d) => d.side === "credit")
-    .reduce((s, d) => s + d.amount, 0);
-  if (Math.abs(debitTotal - creditTotal) > 0.01) {
-    return NextResponse.json(
-      { error: `借方合計(${debitTotal})と貸方合計(${creditTotal})が一致しません` },
-      { status: 400 },
-    );
-  }
-
-  const entry = await db.journalEntry.create({
-    data: {
-      tenantId,
-      transactionDate: new Date(body.transactionDate),
-      description: body.description,
-      paymentMethod: body.paymentMethod ?? "cash",
-      taxCategory: body.taxCategory ?? "taxable",
-      details: {
-        create: body.details.map((d) => ({
-          side: d.side,
-          accountId: d.accountId,
-          amount: d.amount,
-          note: d.note ?? null,
-        })),
+    const entry = await db.journalEntry.create({
+      data: {
+        tenantId,
+        transactionDate: new Date(body.transactionDate),
+        description: body.description,
+        paymentMethod: body.paymentMethod ?? "cash",
+        taxCategory: body.taxCategory ?? "taxable",
+        details: {
+          create: body.details.map((d) => ({
+            side: d.side,
+            accountId: d.accountId,
+            amount: d.amount,
+            note: d.note ?? null,
+          })),
+        },
       },
-    },
-    include: INCLUDE_DETAILS,
-  });
+      include: INCLUDE_WITH_RECEIPTS,
+    });
 
-  await syncToFinancialRecords(
-    tenantId,
-    entry.transactionDate,
-    entry.details.map((d) => ({ accountId: d.accountId, amount: Number(d.amount) })),
-  );
-
-  const year = entry.transactionDate.getFullYear();
-  await invalidateCache(`closing:statements:${year}`);
-  await invalidateCache(`reports:ledger:${year}:*`);
-
-  return NextResponse.json({ data: entry }, { status: 201 });
-}
-
-async function syncToFinancialRecords(
-  tenantId: number,
-  transactionDate: Date,
-  details: { accountId: number; amount: number }[],
-) {
-  const fiscalYear = transactionDate.getFullYear();
-  const month = transactionDate.getMonth() + 1;
-  const db = tenantDb(tenantId);
-
-  const period = await db.period.upsert({
-    where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
-    update: {},
-    create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
-  });
-
-  await db.financialRecord.createMany({
-    data: details.map((d) => ({
+    await syncJournalToFinancialRecords(
+      db,
       tenantId,
-      accountId: d.accountId,
-      periodId: period.id,
-      amount: d.amount,
-    })),
-  });
-}
+      entry.transactionDate,
+      entry.details.map((d) => ({ accountId: d.accountId, amount: Number(d.amount) })),
+    );
+
+    const year = entry.transactionDate.getFullYear();
+    await invalidateCache(`closing:statements:${year}`);
+    await invalidateCache(`reports:ledger:${year}:*`);
+
+    return NextResponse.json({ data: entry }, { status: 201 });
+  },
+});

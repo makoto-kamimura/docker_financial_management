@@ -15,8 +15,18 @@ import {
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { isCountedAsAsset } from "@/lib/personal-asset";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
 
-type PersonalAssetCategory = "LAND" | "BUILDING" | "VEHICLE" | "GOLD" | "OTHER";
+type PersonalAssetCategory =
+  | "LAND"
+  | "BUILDING"
+  | "VEHICLE"
+  | "GOLD"
+  | "CASH"
+  | "DEPOSIT"
+  | "SECURITIES"
+  | "OTHER";
 type PersonalAsset = {
   id: number;
   name: string;
@@ -35,18 +45,29 @@ type PersonalAsset = {
   createdAt: string;
   updatedAt: string;
 };
-type AccountRef = { id: number; code: string; name: string; category: string };
+type AccountRef = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 
 const PERSONAL_ASSET_CATEGORY_LABEL: Record<PersonalAssetCategory, string> = {
   LAND: "土地",
   BUILDING: "建物",
   VEHICLE: "車",
   GOLD: "金・貴金属",
+  CASH: "現金（タンス預金）",
+  DEPOSIT: "預金",
+  SECURITIES: "投資（株式・投資信託等）",
   OTHER: "その他",
 };
 
 function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  const sysMode = useViewMode();
   const [form, setForm] = useState({
     name: "",
     category: "LAND" as PersonalAssetCategory,
@@ -179,7 +200,7 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
                 <option value="">なし</option>
                 {(liabilityAccounts ?? []).map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.code} {a.name}
+                    {a.code} {displayName(a, sysMode)}
                   </option>
                 ))}
               </select>
@@ -246,6 +267,70 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
             {saving ? "保存中…" : "登録"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 総資産サマリ（F-8: 実物資産・銀行口座残高・ローンを含む純資産） ──────────
+type NetWorthBreakdownItem = { key: string; label: string; amount: number };
+type NetWorthSummary = {
+  year: number;
+  month: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  netWorth: number;
+  breakdown: NetWorthBreakdownItem[];
+};
+
+function NetWorthSummaryCard() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["assets-summary"],
+    queryFn: async (): Promise<NetWorthSummary> => (await fetch("/api/assets/summary")).json(),
+  });
+
+  if (isLoading || !data) {
+    return (
+      <div className="card mb-6">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  return (
+    <div className="card mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="section-title">
+          総資産サマリ（{data.year}年{data.month}月時点）
+        </h2>
+        <p className="text-xs text-slate-400">実物資産・銀行口座残高・ローンを含む純資産</p>
+      </div>
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div>
+          <p className="text-xs text-slate-500 mb-1">総資産</p>
+          <p className="text-2xl font-bold text-emerald-600">{yen(data.totalAssets)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-1">総負債</p>
+          <p className="text-2xl font-bold text-rose-600">{yen(data.totalLiabilities)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-1">純資産</p>
+          <p
+            className={`text-2xl font-bold ${data.netWorth >= 0 ? "text-indigo-600" : "text-red-600"}`}
+          >
+            {yen(data.netWorth)}
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500 border-t border-slate-100 pt-3">
+        {data.breakdown
+          .filter((b) => b.amount !== 0)
+          .map((b) => (
+            <span key={b.key}>
+              {b.label}: <span className="font-medium text-slate-700">{yen(b.amount)}</span>
+            </span>
+          ))}
       </div>
     </div>
   );
@@ -408,6 +493,8 @@ type AccountBalance = {
   id: number;
   code: string;
   name: string;
+  soleName?: string | null;
+  corporateName?: string | null;
   category: "ASSET" | "LIABILITY";
   parentId: number | null;
   parent: { id: number; code: string; name: string } | null;
@@ -458,6 +545,7 @@ async function fetchAssets(): Promise<AssetsResponse> {
 }
 
 export default function AssetsPage() {
+  const sysMode = useViewMode();
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const toggle = (id: number) =>
@@ -518,6 +606,8 @@ export default function AssetsPage() {
           </div>
         )}
       </div>
+
+      <NetWorthSummaryCard />
 
       <PersonalAssetsSection />
 
@@ -633,7 +723,7 @@ export default function AssetsPage() {
                               <span className="text-xs font-mono text-slate-400 mr-1">
                                 {a.code}
                               </span>
-                              {a.name}
+                              {displayName(a, sysMode)}
                             </span>
                           </td>
                           <td className="py-2 text-right text-emerald-700">{yen(subtotal)}</td>
@@ -706,7 +796,7 @@ export default function AssetsPage() {
                                 <span className="text-xs font-mono text-slate-400 mr-1">
                                   {a.code}
                                 </span>
-                                {a.name}
+                                {displayName(a, sysMode)}
                               </span>
                             </td>
                             <td className="py-2 text-right text-rose-700">{yen(subtotal)}</td>

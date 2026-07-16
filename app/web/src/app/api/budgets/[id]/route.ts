@@ -1,49 +1,33 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
 
 const UpdateSchema = z.object({ amount: z.number() });
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// PATCH /api/budgets/[id] … 予算金額の更新（editor 以上）
+export const PATCH = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body, audit }) => {
+    const existing = await db.budget.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const budgetId = parseInt(id, 10);
-  if (isNaN(budgetId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    const budget = await db.budget.update({ where: { id }, data: { amount: body.amount } });
+    await audit("update", `budget:${id}`);
+    return NextResponse.json({ data: budget });
+  },
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.budget.findUnique({ where: { id: budgetId, tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+// DELETE /api/budgets/[id] … 予算の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id, audit }) => {
+    const existing = await db.budget.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const parsed = UpdateSchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-
-  const budget = await db.budget.update({
-    where: { id: budgetId },
-    data: { amount: parsed.data.amount },
-  });
-  await writeAudit(auth.user.id, "update", `budget:${budgetId}`);
-  return NextResponse.json({ data: budget });
-}
-
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const budgetId = parseInt(id, 10);
-  if (isNaN(budgetId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.budget.findUnique({ where: { id: budgetId, tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.budget.delete({ where: { id: budgetId } });
-  await writeAudit(auth.user.id, "delete", `budget:${budgetId}`);
-  return new NextResponse(null, { status: 204 });
-}
+    await db.budget.delete({ where: { id } });
+    await audit("delete", `budget:${id}`);
+    return new NextResponse(null, { status: 204 });
+  },
+});

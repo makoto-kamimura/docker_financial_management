@@ -1,8 +1,11 @@
 import { PrismaClient } from "@prisma/client";
+import { seedDefaultAllocationRulesForTenant } from "../src/lib/default-allocation-rules";
 import { randomBytes, scryptSync } from "node:crypto";
 
 const prisma = new PrismaClient();
 
+// NOTE: src/lib/auth.ts の hashPassword と同一実装。auth.ts は next/headers に依存し
+// tsx（seed 実行環境）から import できないため、seed 専用に複製している。
 function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
   const derived = scryptSync(password, salt, 64).toString("hex");
@@ -3519,6 +3522,10 @@ async function main() {
     ],
   });
   console.log("  ✓ Created personal assets");
+
+  // ── 予算配分ルール（既定マスタ） ──────────────────────────────────────
+  const allocationCreated = await seedDefaultAllocationRulesForTenant(prisma, tid);
+  console.log(`  ✓ Seeded allocation rules (${allocationCreated} created)`);
 
   console.log("🎉 Seed completed!");
 }

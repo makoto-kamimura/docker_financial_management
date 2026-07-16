@@ -3,12 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName, type ViewMode } from "@/lib/display-name";
 
 // ── 型定義 ──────────────────────────────────────────────────────────────
 type AccountRow = {
   accountId: number;
   code: string;
   name: string;
+  soleName?: string | null;
+  corporateName?: string | null;
   category: string;
   total: number;
   businessRate?: number;
@@ -64,7 +68,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 // ── 損益計算書タブ ───────────────────────────────────────────────────────
-function PnlTab({ pnl }: { pnl: Statements["pnl"] }) {
+function PnlTab({ pnl, sysMode }: { pnl: Statements["pnl"]; sysMode: ViewMode }) {
   return (
     <div className="space-y-4">
       {/* 収入 */}
@@ -77,7 +81,7 @@ function PnlTab({ pnl }: { pnl: Statements["pnl"] }) {
             {pnl.revenue.map((a) => (
               <tr key={a.accountId} className="hover:bg-slate-50/60">
                 <td className="py-1.5 text-slate-500 text-xs w-20">{a.code}</td>
-                <td className="py-1.5 text-slate-700">{a.name}</td>
+                <td className="py-1.5 text-slate-700">{displayName(a, sysMode)}</td>
                 <td className="py-1.5 text-right font-medium text-emerald-700">{yen(a.total)}</td>
               </tr>
             ))}
@@ -104,7 +108,7 @@ function PnlTab({ pnl }: { pnl: Statements["pnl"] }) {
               {pnl.cogs.map((a) => (
                 <tr key={a.accountId} className="hover:bg-slate-50/60">
                   <td className="py-1.5 text-slate-500 text-xs w-20">{a.code}</td>
-                  <td className="py-1.5 text-slate-700">{a.name}</td>
+                  <td className="py-1.5 text-slate-700">{displayName(a, sysMode)}</td>
                   <td className="py-1.5 text-right font-medium text-red-600">{yen(a.total)}</td>
                 </tr>
               ))}
@@ -151,7 +155,7 @@ function PnlTab({ pnl }: { pnl: Statements["pnl"] }) {
             {pnl.expenses.map((a) => (
               <tr key={a.accountId} className="hover:bg-slate-50/60">
                 <td className="py-1.5 text-slate-500 text-xs">{a.code}</td>
-                <td className="py-1.5 text-slate-700">{a.name}</td>
+                <td className="py-1.5 text-slate-700">{displayName(a, sysMode)}</td>
                 <td className="py-1.5 text-right text-slate-700">{yen(a.total)}</td>
                 {pnl.expenses.some((e) => (e.businessRate ?? 100) < 100) && (
                   <>
@@ -205,7 +209,7 @@ function PnlTab({ pnl }: { pnl: Statements["pnl"] }) {
 }
 
 // ── 貸借対照表タブ ───────────────────────────────────────────────────────
-function BsTab({ bs }: { bs: Statements["bs"] }) {
+function BsTab({ bs, sysMode }: { bs: Statements["bs"]; sysMode: ViewMode }) {
   return (
     <div className="grid grid-cols-2 gap-6">
       <div>
@@ -217,7 +221,7 @@ function BsTab({ bs }: { bs: Statements["bs"] }) {
             {bs.assets.map((a) => (
               <tr key={a.accountId} className="hover:bg-slate-50/60">
                 <td className="py-1.5 text-slate-500 text-xs w-16">{a.code}</td>
-                <td className="py-1.5 text-slate-700 text-xs">{a.name}</td>
+                <td className="py-1.5 text-slate-700 text-xs">{displayName(a, sysMode)}</td>
                 <td className="py-1.5 text-right font-medium text-emerald-700">{yen(a.total)}</td>
               </tr>
             ))}
@@ -239,7 +243,7 @@ function BsTab({ bs }: { bs: Statements["bs"] }) {
             {bs.liabilities.map((a) => (
               <tr key={a.accountId} className="hover:bg-slate-50/60">
                 <td className="py-1.5 text-slate-500 text-xs w-16">{a.code}</td>
-                <td className="py-1.5 text-slate-700 text-xs">{a.name}</td>
+                <td className="py-1.5 text-slate-700 text-xs">{displayName(a, sysMode)}</td>
                 <td className="py-1.5 text-right font-medium text-red-600">{yen(a.total)}</td>
               </tr>
             ))}
@@ -267,7 +271,7 @@ function BsTab({ bs }: { bs: Statements["bs"] }) {
 }
 
 // ── 試算表タブ ───────────────────────────────────────────────────────────
-function TrialBalanceTab({ rows }: { rows: AccountRow[] }) {
+function TrialBalanceTab({ rows, sysMode }: { rows: AccountRow[]; sysMode: ViewMode }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -283,7 +287,7 @@ function TrialBalanceTab({ rows }: { rows: AccountRow[] }) {
           {rows.map((a) => (
             <tr key={a.accountId} className="hover:bg-slate-50/60">
               <td className="py-1.5 font-mono text-xs text-slate-500">{a.code}</td>
-              <td className="py-1.5 text-slate-700">{a.name}</td>
+              <td className="py-1.5 text-slate-700">{displayName(a, sysMode)}</td>
               <td className="py-1.5 text-xs text-slate-400">
                 {CATEGORY_LABELS[a.category] ?? a.category}
               </td>
@@ -505,6 +509,7 @@ function MonthlyTab({
 
 // ── メインページ ──────────────────────────────────────────────────────────
 export default function ClosingPage() {
+  const sysMode = useViewMode();
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const [tab, setTab] = useState<"pnl" | "bs" | "trial" | "monthly" | "ratios">("pnl");
@@ -708,9 +713,9 @@ export default function ClosingPage() {
           </div>
 
           <div className="card">
-            {tab === "pnl" && <PnlTab pnl={data.pnl} />}
-            {tab === "bs" && <BsTab bs={data.bs} />}
-            {tab === "trial" && <TrialBalanceTab rows={data.trialBalance} />}
+            {tab === "pnl" && <PnlTab pnl={data.pnl} sysMode={sysMode} />}
+            {tab === "bs" && <BsTab bs={data.bs} sysMode={sysMode} />}
+            {tab === "trial" && <TrialBalanceTab rows={data.trialBalance} sysMode={sysMode} />}
             {tab === "monthly" && (
               <MonthlyTab monthly={data.monthly} fiscalYear={data.fiscalYear} />
             )}

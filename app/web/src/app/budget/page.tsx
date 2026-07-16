@@ -1,11 +1,20 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
 
-type AccountRef = { id: number; code: string; name: string; category: string };
+type AccountRef = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 type BudgetRow = {
   id: number;
   amount: number;
@@ -32,7 +41,35 @@ type BudgetResponse = {
   personalAssetDebtOverlay?: PersonalAssetDebtOverlayRow[];
 };
 type ImportResult = { imported: number; errors: string[] };
-type Tab = "manual" | "csv";
+type Tab = "manual" | "csv" | "allocation";
+
+type AllocationRuleRef = {
+  id: number;
+  key: string;
+  label: string;
+  group: string;
+  minPercent: number;
+  maxPercent: number | null;
+  accountId: number | null;
+  sortOrder: number;
+};
+type AllocationItem = {
+  rule: AllocationRuleRef;
+  min: number;
+  max: number | null;
+  recommended: number;
+};
+type AllocationSuggestion = {
+  year: number;
+  month: number;
+  basis: "budget" | "actual";
+  basisAmount: number;
+  available: number;
+  items: AllocationItem[];
+  totalRecommended: number;
+  overRecommended: boolean;
+  summary503020: { needs: number; wants: number; savings: number };
+};
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const yen = (v: number) => Math.round(v).toLocaleString("ja-JP");
@@ -67,6 +104,7 @@ function currentFiscalYear() {
 
 export default function BudgetPage() {
   const qc = useQueryClient();
+  const sysMode = useViewMode();
   const [tab, setTab] = useState<Tab>("manual");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [form, setForm] = useState({ accountCode: "", month: 1, amount: "" });
@@ -78,6 +116,13 @@ export default function BudgetPage() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  // 配分提案タブ
+  const [allocMonth, setAllocMonth] = useState(now.getMonth() + 1);
+  const [allocBasis, setAllocBasis] = useState<"budget" | "actual">("budget");
+  const [allocAmounts, setAllocAmounts] = useState<Record<number, string>>({});
+  const [allocApplying, setAllocApplying] = useState(false);
+  const [allocMessage, setAllocMessage] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["budgets", selectedYear],
@@ -94,6 +139,61 @@ export default function BudgetPage() {
   });
 
   const year = selectedYear ?? currentFiscalYear();
+
+  const { data: allocData, isLoading: allocLoading } = useQuery({
+    queryKey: ["allocation-suggest", year, allocMonth, allocBasis],
+    queryFn: async (): Promise<AllocationSuggestion> =>
+      (
+        await (
+          await fetch(
+            `/api/budgets/allocation-suggest?year=${year}&month=${allocMonth}&basis=${allocBasis}`,
+          )
+        ).json()
+      ).data,
+    enabled: tab === "allocation",
+  });
+
+  useEffect(() => {
+    if (!allocData) return;
+    const next: Record<number, string> = {};
+    for (const item of allocData.items) next[item.rule.id] = String(item.recommended);
+    setAllocAmounts(next);
+  }, [allocData]);
+
+  async function applyAllocation() {
+    if (!allocData) return;
+    const items = allocData.items
+      .filter((i) => i.rule.accountId !== null)
+      .map((i) => ({
+        accountId: i.rule.accountId as number,
+        month: allocMonth,
+        amount: Number(allocAmounts[i.rule.id] ?? i.recommended),
+      }))
+      .filter((i) => i.amount > 0);
+    if (items.length === 0) {
+      setAllocMessage("反映する科目がありません（配分ルールに対応科目が未設定です）");
+      return;
+    }
+    setAllocApplying(true);
+    setAllocMessage(null);
+    try {
+      const res = await fetch("/api/budgets/allocation-apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, items }),
+      });
+      if (res.ok) {
+        setAllocMessage(`${items.length} 件の科目に予算を反映しました。`);
+        qc.invalidateQueries({ queryKey: ["budgets"] });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setAllocMessage(`エラー: ${err.error ?? "反映に失敗しました"}`);
+      }
+    } finally {
+      setAllocApplying(false);
+    }
+  }
+
   const grouped = groupByAccount(data?.data ?? []);
   const overlayMap = new Map<string, number>();
   for (const o of data?.housingLoanOverlay ?? []) {
@@ -133,6 +233,8 @@ export default function BudgetPage() {
         code: g.account.code,
         name: g.account.name,
         category: "",
+        soleName: null,
+        corporateName: null,
       }));
 
   async function addBudget(e: { preventDefault(): void }) {
@@ -230,7 +332,7 @@ export default function BudgetPage() {
 
       {/* タブ切り替え */}
       <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(["manual", "csv"] as const).map((t) => (
+        {(["manual", "csv", "allocation"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -241,7 +343,7 @@ export default function BudgetPage() {
                 : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
-            {t === "manual" ? "明細詳細" : "CSV インポート"}
+            {t === "manual" ? "明細詳細" : t === "csv" ? "CSV インポート" : "配分提案"}
           </button>
         ))}
       </div>
@@ -262,7 +364,7 @@ export default function BudgetPage() {
                 <option value="">選択してください</option>
                 {accounts?.map((a) => (
                   <option key={a.code} value={a.code}>
-                    {a.code} {a.name}
+                    {a.code} {displayName(a, sysMode)}
                   </option>
                 ))}
               </select>
@@ -401,6 +503,161 @@ H3000,${THIS_YEAR},1,115000`}</pre>
         </div>
       )}
 
+      {/* ── 配分提案タブ ────────────────────────────────── */}
+      {tab === "allocation" && (
+        <div className="card mb-6">
+          <h2 className="section-title mb-1">収入配分の提案</h2>
+          <p className="text-xs text-slate-500 mb-4">
+            収入合計から配分ルールに基づく推奨額を算出し、{year}年度の予算へ一括反映できます。
+          </p>
+          <div className="flex flex-wrap items-end gap-4 mb-4">
+            <div className="flex flex-col gap-1 w-28">
+              <label className="text-xs font-medium text-slate-600">対象月</label>
+              <select
+                value={allocMonth}
+                onChange={(e) => setAllocMonth(Number(e.target.value))}
+                className="input-field"
+              >
+                {MONTHS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}月
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1 w-36">
+              <label className="text-xs font-medium text-slate-600">収入基準額</label>
+              <select
+                value={allocBasis}
+                onChange={(e) => setAllocBasis(e.target.value as "budget" | "actual")}
+                className="input-field"
+              >
+                <option value="budget">予算（収入）</option>
+                <option value="actual">実績（収入）</option>
+              </select>
+            </div>
+            {allocData && (
+              <div className="text-sm text-slate-600 ml-auto text-right">
+                <div>
+                  収入基準額: <span className="font-semibold">¥{yen(allocData.basisAmount)}</span>
+                </div>
+                <div>
+                  配分可能額（ローン等控除後）:{" "}
+                  <span className="font-semibold text-indigo-700">¥{yen(allocData.available)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {allocLoading && <LoadingSpinner />}
+
+          {allocData && allocData.overRecommended && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
+              ⚠ 推奨額の合計（¥{yen(allocData.totalRecommended)}）が配分可能額（¥
+              {yen(allocData.available)}）を超えています。金額を調整してください。
+            </div>
+          )}
+
+          {allocData && (
+            <>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-center">
+                  <div className="text-xs text-slate-500">固定費</div>
+                  <div className="text-sm font-semibold text-slate-700">
+                    ¥{yen(allocData.summary503020.needs)}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-center">
+                  <div className="text-xs text-slate-500">生活費</div>
+                  <div className="text-sm font-semibold text-slate-700">
+                    ¥{yen(allocData.summary503020.wants)}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-center">
+                  <div className="text-xs text-slate-500">その他・貯蓄</div>
+                  <div className="text-sm font-semibold text-slate-700">
+                    ¥{yen(allocData.summary503020.savings)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">
+                        項目
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">
+                        対応科目
+                      </th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">
+                        目安（下限〜上限）
+                      </th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">
+                        反映額
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {allocData.items.map((item) => {
+                      const acct = accounts?.find((a) => a.id === item.rule.accountId);
+                      return (
+                        <tr key={item.rule.id}>
+                          <td className="px-3 py-2">
+                            {item.rule.label}
+                            <span className="ml-1.5 text-[10px] text-slate-400">
+                              {item.rule.group}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-slate-500">
+                            {acct ? `${acct.code} ${displayName(acct, sysMode)}` : "—未紐付け—"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-500">
+                            ¥{yen(item.min)}
+                            {item.max !== null ? ` 〜 ¥${yen(item.max)}` : " 〜"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <input
+                              type="number"
+                              value={allocAmounts[item.rule.id] ?? ""}
+                              onChange={(e) =>
+                                setAllocAmounts({
+                                  ...allocAmounts,
+                                  [item.rule.id]: e.target.value,
+                                })
+                              }
+                              disabled={item.rule.accountId === null}
+                              title={
+                                item.rule.accountId === null
+                                  ? "対応科目が未設定のため反映できません（設定タブで紐付けてください）"
+                                  : undefined
+                              }
+                              className="w-28 text-right border border-slate-300 rounded px-2 py-1 text-xs disabled:bg-slate-50 disabled:text-slate-400"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  onClick={applyAllocation}
+                  disabled={allocApplying}
+                  className="btn-primary px-5 py-2"
+                >
+                  {allocApplying ? "反映中…" : `${allocMonth}月の予算へ一括反映`}
+                </button>
+                {allocMessage && <span className="text-sm text-slate-600">{allocMessage}</span>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── 予算テーブル（タブ共通） ────────────────────── */}
       {isLoading && <LoadingSpinner />}
 
@@ -450,11 +707,11 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                     <tr key={acct.code} className="hover:bg-slate-50 group">
                       <td className="sticky left-0 bg-white group-hover:bg-slate-50 px-4 py-2 font-medium">
                         <span className="text-xs font-mono text-slate-400 mr-1.5">{acct.code}</span>
-                        <span className="text-slate-800">{acct.name}</span>
+                        <span className="text-slate-800">{displayName(acct, sysMode)}</span>
                         {hasOverlay && (
                           <span
                             className="ml-1.5 text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded"
-                            title="住宅ローンの月々の返済額が自動加算されています"
+                            title="ローンの月々の返済額が自動加算されています"
                           >
                             🏠 自動反映
                           </span>
@@ -515,7 +772,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                 </div>
                                 {auto > 0 && (
                                   <div className="text-[10px] text-indigo-500">
-                                    内 住宅ローン {yen(auto)}
+                                    内 ローン返済 {yen(auto)}
                                   </div>
                                 )}
                                 {debtAuto > 0 && (
@@ -530,7 +787,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                   <div className="text-indigo-600">
                                     {yen(auto)}
                                     <div className="text-[10px] text-indigo-400">
-                                      住宅ローン自動反映
+                                      ローン返済自動反映
                                     </div>
                                   </div>
                                 )}

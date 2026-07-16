@@ -1,85 +1,88 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
 
-export async function GET(req: NextRequest) {
-  const auth = await requireRole("accountant");
-  if (auth.error) return auth.error;
+// GET /api/closing/etax?fiscalYear=&type= … e-Tax / eLTAX 向け XML 生成（accountant 以上）
+export const GET = withApi({
+  role: "accountant",
+  querySchema: z.object({
+    fiscalYear: z.coerce.number().int().optional(),
+    type: z.enum(["blue_return", "corporate", "consumption_tax"]).default("blue_return"),
+  }),
+  handler: async ({ user, db, query }) => {
+    const { tenantId } = user;
+    const fiscalYear = query.fiscalYear ?? new Date().getFullYear();
+    const { type } = query;
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const sp = req.nextUrl.searchParams;
-  const fiscalYear = Number(sp.get("fiscalYear") ?? new Date().getFullYear());
-  const type = (sp.get("type") ?? "blue_return") as "blue_return" | "corporate" | "consumption_tax";
-
-  const profile = await db.businessProfile.findUnique({ where: { tenantId } });
-  const taxSetting = await db.taxSetting.findFirst({
-    where: { tenantId },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const records = await db.financialRecord.findMany({
-    where: { tenantId, period: { fiscalYear } },
-    include: { account: true, period: true },
-  });
-
-  const totals: Record<string, number> = {};
-  for (const r of records) {
-    const cat = r.account.category;
-    totals[cat] = (totals[cat] ?? 0) + Number(r.amount);
-  }
-
-  const revenue = totals["REVENUE"] ?? 0;
-  const cogs = totals["COGS"] ?? 0;
-  const expense = totals["EXPENSE"] ?? 0;
-  const grossProfit = revenue - cogs;
-  const netIncome = grossProfit - expense;
-
-  const now = new Date();
-  const submitAt = now.toISOString().slice(0, 10);
-  const ownerName = profile?.ownerName ?? "";
-  const tradeName = profile?.tradeName ?? profile?.ownerName ?? "";
-  const taxType = taxSetting?.taxationType ?? "exempt";
-  const taxRate = taxType === "simplified" ? 0.02 : 0.1;
-  const taxAmount = taxType === "exempt" ? 0 : Math.floor(revenue * taxRate);
-
-  let xml: string;
-
-  if (type === "blue_return") {
-    xml = buildBlueReturnXml({
-      fiscalYear,
-      submitAt,
-      ownerName,
-      tradeName,
-      revenue,
-      cogs,
-      grossProfit,
-      expense,
-      netIncome,
+    const profile = await db.businessProfile.findUnique({ where: { tenantId } });
+    const taxSetting = await db.taxSetting.findFirst({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
     });
-  } else if (type === "corporate") {
-    xml = buildCorporateTaxXml({ fiscalYear, submitAt, tradeName, revenue, expense, netIncome });
-  } else {
-    xml = buildConsumptionTaxXml({
-      fiscalYear,
-      submitAt,
-      ownerName,
-      tradeName,
-      revenue,
-      taxType,
-      taxRate,
-      taxAmount,
-    });
-  }
 
-  return new NextResponse(xml, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      "Content-Disposition": `attachment; filename="etax_${type}_${fiscalYear}.xml"`,
-    },
-  });
-}
+    const records = await db.financialRecord.findMany({
+      where: { tenantId, period: { fiscalYear } },
+      include: { account: true, period: true },
+    });
+
+    const totals: Record<string, number> = {};
+    for (const r of records) {
+      const cat = r.account.category;
+      totals[cat] = (totals[cat] ?? 0) + Number(r.amount);
+    }
+
+    const revenue = totals["REVENUE"] ?? 0;
+    const cogs = totals["COGS"] ?? 0;
+    const expense = totals["EXPENSE"] ?? 0;
+    const grossProfit = revenue - cogs;
+    const netIncome = grossProfit - expense;
+
+    const now = new Date();
+    const submitAt = now.toISOString().slice(0, 10);
+    const ownerName = profile?.ownerName ?? "";
+    const tradeName = profile?.tradeName ?? profile?.ownerName ?? "";
+    const taxType = taxSetting?.taxationType ?? "exempt";
+    const taxRate = taxType === "simplified" ? 0.02 : 0.1;
+    const taxAmount = taxType === "exempt" ? 0 : Math.floor(revenue * taxRate);
+
+    let xml: string;
+
+    if (type === "blue_return") {
+      xml = buildBlueReturnXml({
+        fiscalYear,
+        submitAt,
+        ownerName,
+        tradeName,
+        revenue,
+        cogs,
+        grossProfit,
+        expense,
+        netIncome,
+      });
+    } else if (type === "corporate") {
+      xml = buildCorporateTaxXml({ fiscalYear, submitAt, tradeName, revenue, expense, netIncome });
+    } else {
+      xml = buildConsumptionTaxXml({
+        fiscalYear,
+        submitAt,
+        ownerName,
+        tradeName,
+        revenue,
+        taxType,
+        taxRate,
+        taxAmount,
+      });
+    }
+
+    return new NextResponse(xml, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Content-Disposition": `attachment; filename="etax_${type}_${fiscalYear}.xml"`,
+      },
+    });
+  },
+});
 
 function esc(s: string | number): string {
   return String(s)

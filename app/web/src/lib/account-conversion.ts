@@ -285,3 +285,26 @@ export function badgeFor(
   if (score >= 0.5) return "review";
   return "manual";
 }
+
+// 手動マッピングを自分専用ルールとして保存する（次回以降の自動変換で TABLE 直引きに使われる）。
+// /api/account-conversion/mappings（単発編集）と /confirm（確定時の学習）で共用する。
+export async function saveManualMappingRule(
+  userId: number,
+  homeCode: string,
+  corporateCode: string | null,
+  opts?: { isConvertible?: boolean; notes?: string | null },
+): Promise<AccountMappingRule> {
+  const base = {
+    corporateCode,
+    isConvertible: opts?.isConvertible ?? true,
+    matchType: "MANUAL" as AccountMappingMatchType,
+    confidenceScore: 1.0,
+  };
+  // notes は明示的に渡されたときだけ更新する（confirm の学習では既存メモを保持）
+  const notesGiven = opts !== undefined && "notes" in opts;
+  return prisma.accountMappingRule.upsert({
+    where: { homeCode_userId: { homeCode, userId } },
+    update: { ...base, ...(notesGiven ? { notes: opts.notes ?? null } : {}) },
+    create: { homeCode, userId, ...base, notes: opts?.notes ?? null },
+  });
+}

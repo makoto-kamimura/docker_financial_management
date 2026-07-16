@@ -1,66 +1,61 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
+import { zDate } from "@/lib/zod-helpers";
 
-type Params = { params: Promise<{ id: string }> };
+const UpdateSchema = z.object({
+  supplierName: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  amount: z.number().optional(),
+  taxAmount: z.number().optional(),
+  issueDate: zDate.optional(),
+  dueDate: zDate.optional(),
+  note: z.string().optional(),
+});
 
-export async function GET(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+// GET /api/payables/[id] … 買掛金 1 件の取得
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db, id }) => {
+    const record = await db.payable.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!record) throw notFound();
+    return NextResponse.json({ data: record });
+  },
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const record = await db.payable.findUnique({ where: { id: Number(id), tenantId } });
-  if (!record) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ data: record });
-}
+// PUT /api/payables/[id] … 買掛金の更新（editor 以上）
+export const PUT = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body }) => {
+    const existing = await db.payable.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-export async function PUT(req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+    const record = await db.payable.update({
+      where: { id },
+      data: {
+        ...(body.supplierName !== undefined && { supplierName: body.supplierName }),
+        ...(body.description !== undefined && { description: body.description }),
+        ...(body.amount !== undefined && { amount: body.amount }),
+        ...(body.taxAmount !== undefined && { taxAmount: body.taxAmount }),
+        ...(body.issueDate !== undefined && { issueDate: body.issueDate }),
+        ...(body.dueDate !== undefined && { dueDate: body.dueDate }),
+        ...(body.note !== undefined && { note: body.note }),
+      },
+    });
+    return NextResponse.json({ data: record });
+  },
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.payable.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+// DELETE /api/payables/[id] … 買掛金の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.payable.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const body = (await req.json()) as Partial<{
-    supplierName: string;
-    description: string;
-    amount: number;
-    taxAmount: number;
-    issueDate: string;
-    dueDate: string;
-    note: string;
-  }>;
-
-  const record = await db.payable.update({
-    where: { id: Number(id) },
-    data: {
-      ...(body.supplierName !== undefined && { supplierName: body.supplierName }),
-      ...(body.description !== undefined && { description: body.description }),
-      ...(body.amount !== undefined && { amount: body.amount }),
-      ...(body.taxAmount !== undefined && { taxAmount: body.taxAmount }),
-      ...(body.issueDate !== undefined && { issueDate: new Date(body.issueDate) }),
-      ...(body.dueDate !== undefined && { dueDate: new Date(body.dueDate) }),
-      ...(body.note !== undefined && { note: body.note }),
-    },
-  });
-  return NextResponse.json({ data: record });
-}
-
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.payable.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.payable.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.payable.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

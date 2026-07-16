@@ -1,38 +1,41 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { notFound } from "@/lib/api-error";
+import { zDate } from "@/lib/zod-helpers";
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+const UpdateSchema = z.object({
+  status: z.string().optional(),
+  endDate: zDate.optional(),
+});
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.fiscalYear.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+// PUT /api/fiscal-years/[id] … 会計年度の更新（editor 以上）
+export const PUT = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body }) => {
+    const existing = await db.fiscalYear.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const body = (await req.json()) as { status?: string; endDate?: string };
-  const fy = await db.fiscalYear.update({
-    where: { id: Number(id) },
-    data: {
-      ...(body.status && { status: body.status }),
-      ...(body.endDate && { endDate: new Date(body.endDate) }),
-    },
-  });
-  return NextResponse.json({ data: fy });
-}
+    const fy = await db.fiscalYear.update({
+      where: { id },
+      data: {
+        ...(body.status && { status: body.status }),
+        ...(body.endDate && { endDate: body.endDate }),
+      },
+    });
+    return NextResponse.json({ data: fy });
+  },
+});
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("admin");
-  if (auth.error) return auth.error;
+// DELETE /api/fiscal-years/[id] … 会計年度の削除（admin）
+export const DELETE = withApi({
+  role: "admin",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.fiscalYear.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.fiscalYear.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.fiscalYear.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.fiscalYear.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  },
+});

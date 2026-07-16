@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import * as SecureStore from "expo-secure-store";
 
 const _devHost = Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
 const API_BASE_URL: string =
@@ -14,12 +15,56 @@ function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
 }
 
 // ── セッション・モード管理 ─────────────────────────────────────────────
+// S-14: セッショントークンは端末の Keychain / Keystore（expo-secure-store）に永続化する。
+// AsyncStorage は平文保存でありトークンの保管先として使わない。
+const SESSION_STORE_KEY = "fm_session_token";
+
 let _session = "";
-let _viewMode: ViewMode = "sole";
+// F-11: ステップ導線と整合させ、初期値は household とする（メモリ内保持のため常に起動時の既定値）
+let _viewMode: ViewMode = "household";
 
 export function getSession() { return _session; }
-export function setSession(token: string) { _session = token; }
-export function clearSession() { _session = ""; }
+
+// メモリ上のセッションを更新し、SecureStore への永続化を行う（await 可能）。
+export async function setSession(token: string) {
+  _session = token;
+  await SecureStore.setItemAsync(SESSION_STORE_KEY, token).catch((e) => {
+    console.warn("[secure-store] failed to persist session:", e);
+  });
+}
+
+export async function clearSession() {
+  _session = "";
+  await SecureStore.deleteItemAsync(SESSION_STORE_KEY).catch(() => {});
+}
+
+// アプリ起動時に呼び出す。SecureStore に保存済みのトークンがあれば読み込み、
+// GET /api/auth/me で有効性を確認したうえでユーザー情報を返す。
+// - トークンが無効（401 等）: SecureStore からも削除し null を返す
+// - ネットワークエラー: トークンは保持したまま（次回起動時に再試行できるように）null を返す
+export async function restoreSession(): Promise<UserInfo | null> {
+  const token = await SecureStore.getItemAsync(SESSION_STORE_KEY).catch(() => null);
+  if (!token) return null;
+  _session = token;
+
+  try {
+    const res = await apiFetch("/auth/me");
+    if (!res.ok) {
+      await clearSession();
+      return null;
+    }
+    const json = await res.json();
+    if (!json.user) {
+      await clearSession();
+      return null;
+    }
+    return { id: json.user.id, name: json.user.name, role: json.user.role };
+  } catch {
+    _session = "";
+    return null;
+  }
+}
+
 export function getViewMode() { return _viewMode; }
 export function setViewMode(m: ViewMode) { _viewMode = m; }
 
@@ -48,7 +93,13 @@ function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 // ── Auth ──────────────────────────────────────────────────────────────
 export type UserInfo = { id: number; name: string; role: string };
 
-export async function login(email: string, password: string): Promise<UserInfo> {
+// S-15: MFA 有効ユーザーは 1 段階目（パスワード）成功時にセッションを発行せず
+// { mfaRequired: true, mfaToken } を返す。呼び出し側は status で分岐する。
+export type LoginResult =
+  | { status: "success"; user: UserInfo }
+  | { status: "mfaRequired"; mfaToken: string };
+
+export async function login(email: string, password: string): Promise<LoginResult> {
   let res: Response;
   try {
     res = await fetchWithTimeout(`${API_BASE_URL}/auth/login`, {
@@ -62,19 +113,54 @@ export async function login(email: string, password: string): Promise<UserInfo> 
       : `ネットワークエラー: ${e instanceof Error ? e.message : String(e)}`;
     throw new Error(msg);
   }
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error ?? "ログインに失敗しました");
-  setSession(json.data.sessionId as string);
+  const json = await res.json().catch(() => ({}));
+  if (res.ok) {
+    await setSession(json.data.sessionId as string);
+    return {
+      status: "success",
+      user: { id: json.data.id, name: json.data.name, role: json.data.role },
+    };
+  }
+  if (res.status === 401 && json.mfaRequired && json.mfaToken) {
+    return { status: "mfaRequired", mfaToken: json.mfaToken as string };
+  }
+  throw new Error(json.error ?? "ログインに失敗しました");
+}
+
+// ログイン第 2 段階。TOTP コードまたはリカバリーコードで認証を完了しセッションを発行する。
+export async function verifyMfa(
+  mfaToken: string,
+  input: { code?: string; recoveryCode?: string },
+): Promise<UserInfo> {
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${API_BASE_URL}/auth/mfa/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfaToken, ...input }),
+    });
+  } catch (e) {
+    const msg = e instanceof Error && e.name === "AbortError"
+      ? `サーバーに接続できません（${API_BASE_URL}）\nDockerが起動しているか確認してください。`
+      : `ネットワークエラー: ${e instanceof Error ? e.message : String(e)}`;
+    throw new Error(msg);
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error ?? "認証コードの確認に失敗しました");
+  await setSession(json.data.sessionId as string);
   return { id: json.data.id, name: json.data.name, role: json.data.role };
 }
 
 export async function logout(): Promise<void> {
   await apiFetch("/auth/logout", { method: "POST" });
-  clearSession();
+  await clearSession();
 }
 
 // ── 共通型 ────────────────────────────────────────────────────────────
-export type Account = { id: number; code: string; name: string; category: string };
+export type Account = {
+  id: number; code: string; name: string; category: string;
+  soleName?: string | null; corporateName?: string | null;
+};
 
 export type RecentHistory = {
   historyId: number;
@@ -238,6 +324,8 @@ export async function postBudget(data: {
 }
 
 // ── 予算配分ルール（FP推奨・手取り収入ベース） ───────────────────────
+// マスタはサーバー側（GET/PUT /api/allocation-rules、テナント別に永続化）。
+// ここでの既定値はサーバー未接続時のフォールバック表示にのみ使用する。
 export type AllocationGroup = "固定費" | "生活費" | "その他";
 
 export type AllocationItem = {
@@ -248,6 +336,8 @@ export type AllocationItem = {
   /** null = 上限なし（「○％以上」の目安） */
   maxPercent: number | null;
   note?: string;
+  /** 対応する予算科目の ID（null = 未紐付け・「予算に反映」の対象外） */
+  accountId?: number | null;
 };
 
 export const DEFAULT_ALLOCATION: AllocationItem[] = [
@@ -265,15 +355,83 @@ export const DEFAULT_ALLOCATION: AllocationItem[] = [
 
 let _allocation: AllocationItem[] = DEFAULT_ALLOCATION.map(i => ({ ...i }));
 
+const ALLOCATION_GROUPS: readonly string[] = ["固定費", "生活費", "その他"];
+
+type ServerAllocationRule = {
+  key: string;
+  label: string;
+  group: string;
+  minPercent: number;
+  maxPercent: number | null;
+  note: string | null;
+  sortOrder: number;
+  account?: { id: number; code: string; name: string } | null;
+};
+
 export function getAllocation(): AllocationItem[] {
   return _allocation;
-}
-export function setAllocation(items: AllocationItem[]) {
-  _allocation = items;
 }
 export function resetAllocation(): AllocationItem[] {
   _allocation = DEFAULT_ALLOCATION.map(i => ({ ...i }));
   return _allocation;
+}
+
+// サーバーからテナントの配分ルールを取得してローカルへ反映する。
+// 取得失敗時（オフライン・旧サーバー）は現在値（既定値）を維持する。
+export async function loadAllocation(): Promise<AllocationItem[]> {
+  try {
+    const res = await apiFetch("/allocation-rules");
+    if (!res.ok) return _allocation;
+    const json = await res.json();
+    const items: AllocationItem[] = (json.data ?? [])
+      .filter((r: ServerAllocationRule) => ALLOCATION_GROUPS.includes(r.group))
+      .map((r: ServerAllocationRule) => ({
+        key: r.key,
+        label: r.label,
+        group: r.group as AllocationGroup,
+        minPercent: Number(r.minPercent),
+        maxPercent: r.maxPercent === null ? null : Number(r.maxPercent),
+        note: r.note ?? undefined,
+        accountId: r.account?.id ?? null,
+      }));
+    if (items.length > 0) _allocation = items;
+  } catch {
+    // フォールバック: 既定値のまま
+  }
+  return _allocation;
+}
+
+// 配分ルールをサーバーへ保存し、成功時にローカルへ反映する。
+export async function saveAllocation(items: AllocationItem[]): Promise<void> {
+  const res = await apiFetch("/allocation-rules", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      items: items.map(i => ({
+        key: i.key,
+        label: i.label,
+        group: i.group,
+        minPercent: i.minPercent,
+        maxPercent: i.maxPercent,
+        note: i.note ?? null,
+      })),
+    }),
+  });
+  if (!res.ok) throw new Error("予算配分ルールの保存に失敗しました");
+  _allocation = items.map(i => ({ ...i }));
+}
+
+// 収入配分の推奨額を、対応科目の予算へ一括反映する（POST /api/budgets/allocation-apply）。
+export async function applyAllocationToBudget(
+  year: number,
+  items: { accountId: number; month: number; amount: number }[],
+): Promise<void> {
+  const res = await apiFetch("/budgets/allocation-apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ year, items }),
+  });
+  if (!res.ok) throw new Error("予算への反映に失敗しました");
 }
 
 // ── 銀行口座 ──────────────────────────────────────────────────────────

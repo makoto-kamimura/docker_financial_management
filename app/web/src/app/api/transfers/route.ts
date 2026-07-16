@@ -1,8 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
+import { withApi } from "@/lib/api-handler";
 
 const TransferSchema = z
   .object({
@@ -24,31 +22,26 @@ const TransferSchema = z
     message: "出金元と入金先が同じです",
   });
 
-export async function GET() {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+// GET /api/transfers … 資金移動ルール一覧
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user, db }) => {
+    const transfers = await db.transfer.findMany({
+      where: { tenantId: user.tenantId },
+      include: { fromAccount: true, toAccount: true },
+      orderBy: [{ day: "asc" }, { id: "asc" }],
+    });
+    return NextResponse.json({ data: transfers });
+  },
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const transfers = await db.transfer.findMany({
-    where: { tenantId },
-    include: { fromAccount: true, toAccount: true },
-    orderBy: [{ day: "asc" }, { id: "asc" }],
-  });
-  return NextResponse.json({ data: transfers });
-}
-
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const parsed = TransferSchema.safeParse(await req.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const transfer = await db.transfer.create({ data: { tenantId, ...parsed.data } });
-  await writeAudit(auth.user.id, "create", `transfer:${transfer.id}`);
-  return NextResponse.json({ data: transfer }, { status: 201 });
-}
+// POST /api/transfers … 資金移動ルールの登録（editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: TransferSchema,
+  handler: async ({ user, db, body, audit }) => {
+    const transfer = await db.transfer.create({ data: { tenantId: user.tenantId, ...body } });
+    await audit("create", `transfer:${transfer.id}`);
+    return NextResponse.json({ data: transfer }, { status: 201 });
+  },
+});

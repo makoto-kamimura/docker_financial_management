@@ -22,6 +22,9 @@ import { downloadSvgAsPng } from "@/lib/export-client";
 import { KpiCards } from "@/components/KpiCards";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { useViewMode, hasSwitchedViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
+import { computeStepChecklist } from "@/lib/step-checklist";
 
 type Row = {
   period: string;
@@ -44,7 +47,14 @@ type CompositionResponse = {
   totals: { name: string; value: number }[];
   years: number[];
 };
-type AccountItem = { id: number; code: string; name: string; category: string };
+type AccountItem = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
 type BankAccount = { id: number; name: string; bankName: string };
 type SimResult = {
   accounts: { id: number; name: string }[];
@@ -92,6 +102,58 @@ function toAnnualRows(rows: Row[]): Row[] {
   });
 }
 
+// F-10: ステップ進捗チェックリスト。全ステップ達成後は非表示にする（オンボーディング用途）。
+function StepChecklistCard() {
+  const { data } = useQuery({
+    queryKey: ["onboarding-steps"],
+    queryFn: async () => {
+      const res = await fetch("/api/onboarding/steps");
+      const json = await res.json();
+      return json.data as {
+        hasIncomeBudget: boolean;
+        hasExpenseBudget: boolean;
+        hasBankAccount: boolean;
+        hasPersonalAsset: boolean;
+        hasLoan: boolean;
+      };
+    },
+  });
+  const [hasSwitchedMode, setHasSwitchedMode] = useState(false);
+
+  useEffect(() => {
+    setHasSwitchedMode(hasSwitchedViewMode());
+    const handler = () => setHasSwitchedMode(hasSwitchedViewMode());
+    window.addEventListener("viewmode-change", handler);
+    return () => window.removeEventListener("viewmode-change", handler);
+  }, []);
+
+  if (!data) return null;
+  const items = computeStepChecklist({ ...data, hasSwitchedMode });
+  const doneCount = items.filter((i) => i.done).length;
+  if (doneCount === items.length) return null;
+
+  return (
+    <div className="card mb-6">
+      <h2 className="text-sm font-semibold text-slate-700 mb-3">
+        ステップ進捗（{doneCount} / {items.length}）
+      </h2>
+      <ol className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+        {items.map((i) => (
+          <li
+            key={i.step}
+            className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
+              i.done ? "bg-green-50 text-green-700" : "bg-slate-50 text-slate-500"
+            }`}
+          >
+            <span aria-hidden="true">{i.done ? "✅" : "⬜"}</span>
+            <span>{i.label}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function DashboardContent() {
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get("tab") ?? "budget") as
@@ -104,19 +166,8 @@ function DashboardContent() {
   const [compYear, setCompYear] = useState<number | null>(null);
   const [accountCode, setAccountCode] = useState("H1000");
   const [year, setYear] = useState(new Date().getFullYear());
-  const [sysMode, setSysMode] = useState("sole");
+  const sysMode = useViewMode();
   const chartRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("viewMode");
-    if (saved && ["household", "sole", "corporate"].includes(saved)) setSysMode(saved);
-    const handler = () => {
-      const m = localStorage.getItem("viewMode");
-      if (m && ["household", "sole", "corporate"].includes(m)) setSysMode(m);
-    };
-    window.addEventListener("viewmode-change", handler);
-    return () => window.removeEventListener("viewmode-change", handler);
-  }, []);
 
   const { data: accountsData } = useQuery({
     queryKey: ["accounts-select"],
@@ -211,6 +262,8 @@ function DashboardContent() {
         </p>
       </div>
 
+      <StepChecklistCard />
+
       <div className="card mb-6">
         <KpiCards mode={sysMode} />
       </div>
@@ -269,7 +322,7 @@ function DashboardContent() {
                 >
                   {(accountsData ?? []).map((a) => (
                     <option key={a.code} value={a.code}>
-                      {a.code} {a.name}
+                      {a.code} {displayName(a, sysMode)}
                     </option>
                   ))}
                 </select>
@@ -574,6 +627,65 @@ function DashboardContent() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+            </div>
+          )}
+
+          {comp && comp.monthly.length > 0 && (
+            <div className="card overflow-hidden p-0">
+              <h2 className="section-title px-4 pt-4">月次収支サマリー（実績）</h2>
+              <p className="text-xs text-slate-400 px-4 pb-2">
+                支出が収入を上回った月は赤背景で表示しています。
+              </p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    {["月", "収入", "支出", "差引"].map((h) => (
+                      <th
+                        key={h}
+                        className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {comp.monthly.map((row) => {
+                    const revenue = Number(row.REVENUE ?? 0);
+                    const expense = Number(row.COGS ?? 0) + Number(row.EXPENSE ?? 0);
+                    const net = revenue - expense;
+                    const isDeficit = expense > revenue;
+                    return (
+                      <tr
+                        key={String(row.month)}
+                        className={
+                          isDeficit
+                            ? "bg-red-50 hover:bg-red-100 transition-colors"
+                            : "hover:bg-slate-50 transition-colors"
+                        }
+                      >
+                        <td
+                          className={`px-4 py-2.5 font-medium ${isDeficit ? "text-red-700" : "text-slate-700"}`}
+                        >
+                          {isDeficit && (
+                            <span aria-hidden="true" className="mr-1">
+                              ⚠
+                            </span>
+                          )}
+                          {row.month}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{yen(revenue)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{yen(expense)}</td>
+                        <td
+                          className={`px-4 py-2.5 text-right tabular-nums font-medium ${net < 0 ? "text-red-600" : "text-green-600"}`}
+                        >
+                          {yen(net)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </>

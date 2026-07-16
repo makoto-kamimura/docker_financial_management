@@ -1,23 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { createSession, verifyPassword } from "@/lib/auth";
-import { verifyTotp } from "@/lib/totp";
+import {
+  createSession,
+  verifyPassword,
+  hashPassword,
+  isLegacyPasswordHash,
+  DUMMY_PASSWORD_HASH,
+} from "@/lib/auth";
 import { writeAudit } from "@/lib/audit";
+import { consumeMfaChallenge, issueMfaChallenge } from "@/lib/mfa-challenge";
+import { checkRateLimit, clientIp, rateLimitResponse } from "@/lib/rate-limit";
 
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-  code: z.string().optional(), // MFA TOTP ワンタイムコード
-  recoveryCode: z.string().optional(), // MFA リカバリーコード
+  // 旧クライアント互換: password と同時に MFA コードを送る 1 段階フロー（1 リリースの間のみ許容）
+  code: z.string().optional(),
+  recoveryCode: z.string().optional(),
 });
 
 const MAX_ATTEMPTS = 5; // 最大連続失敗回数
 const LOCK_MINUTES = 15; // ロック時間 (分)
+// S-5: ユーザー不在・パスワード誤りを区別させない統一メッセージ（列挙対策）。
+// 残り試行回数はレスポンスに含めず、監査ログ（login_failed の target）にのみ記録する。
+const INVALID_CREDENTIALS_MESSAGE = "メールアドレスまたはパスワードが正しくありません";
 
-// POST /api/auth/login … メール + パスワード（+ 必要なら MFA コード or リカバリーコード）でログインする。
+// POST /api/auth/login … メール + パスワードでログインする。
+// MFA 有効なユーザーは { mfaRequired: true, mfaToken } を返す（セッションは未発行）。
+// 続けて POST /api/auth/mfa/verify に mfaToken + code|recoveryCode を送ることで完了する。
 export async function POST(req: NextRequest) {
+  const ip = clientIp(req);
+  const userAgent = req.headers.get("user-agent");
+
+  // S-9: IP 単位のレート制限（10 回 / 5 分）。ユーザー単位ロック（アカウント別）とは独立に、
+  // 多数のアカウントへの分散総当たりを IP 起点で抑止する
+  const rate = await checkRateLimit(`rl:login:ip:${ip}`, 10, 300, {
+    useMemoryFallback: true,
+  });
+  if (!rate.allowed) {
+    // S-12: 詳細設計書 §8 の記録必須イベント「rate_limited(login)」
+    await writeAudit(null, "rate_limited", `login:ip:${ip}`, { ip, userAgent });
+    return rateLimitResponse(rate.retryAfterSeconds);
+  }
+
   const parsed = LoginSchema.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -26,9 +52,12 @@ export async function POST(req: NextRequest) {
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
-    // ユーザー不在でも同一タイミング応答でメールアドレス列挙を防ぐ
-    return NextResponse.json({ error: "invalid credentials" }, { status: 401 });
+    // ユーザー不在でもダミーハッシュに対し verifyPassword を実行し、
+    // 実在ユーザーと同等の処理時間を発生させることでタイミング差による列挙を防ぐ
+    await verifyPassword(password, DUMMY_PASSWORD_HASH);
+    return NextResponse.json({ error: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
   }
+  const auditMeta = { tenantId: user.tenantId, ip, userAgent };
 
   // アカウントロック確認
   if (user.lockedUntil && user.lockedUntil > new Date()) {
@@ -39,60 +68,72 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!verifyPassword(password, user.passwordHash)) {
+  if (!(await verifyPassword(password, user.passwordHash))) {
     const attempts = user.loginAttempts + 1;
-    const lockData =
-      attempts >= MAX_ATTEMPTS
-        ? { loginAttempts: attempts, lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60 * 1000) }
-        : { loginAttempts: attempts };
+    const justLocked = attempts >= MAX_ATTEMPTS;
+    const lockData = justLocked
+      ? { loginAttempts: attempts, lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60 * 1000) }
+      : { loginAttempts: attempts };
     await prisma.user.update({ where: { id: user.id }, data: lockData });
-    await writeAudit(user.id, "login_failed", `user:${user.id} attempts:${attempts}`);
-    const remaining = MAX_ATTEMPTS - attempts;
-    const msg =
-      remaining <= 0
-        ? `ログインに失敗しました。アカウントを ${LOCK_MINUTES} 分間ロックします。`
-        : `ログインに失敗しました（残り ${remaining} 回でロック）。`;
-    return NextResponse.json({ error: msg }, { status: 401 });
+    await writeAudit(user.id, "login_failed", `user:${user.id} attempts:${attempts}`, auditMeta);
+    if (justLocked) {
+      // S-12: 詳細設計書 §8 の記録必須イベント「account_locked」
+      await writeAudit(
+        user.id,
+        "account_locked",
+        `user:${user.id} reason:password attempts:${attempts}`,
+        auditMeta,
+      );
+    }
+    return NextResponse.json({ error: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
   }
 
-  // 認証成功: 失敗カウントをリセット
-  if (user.loginAttempts > 0 || user.lockedUntil) {
+  // S-6: パスワード認証成功。旧形式ハッシュ（salt:hash）なら透過的に新形式へ再ハッシュする
+  if (isLegacyPasswordHash(user.passwordHash)) {
     await prisma.user.update({
       where: { id: user.id },
-      data: { loginAttempts: 0, lockedUntil: null },
+      data: { passwordHash: await hashPassword(password) },
     });
   }
 
-  // MFA が有効ならワンタイムコードまたはリカバリーコードを要求
-  if (user.mfaEnabled && user.totpSecret) {
-    if (!code && !recoveryCode) {
-      return NextResponse.json({ mfaRequired: true }, { status: 401 });
-    }
-
-    if (recoveryCode) {
-      // リカバリーコード認証
-      const stored: string[] = user.mfaRecoveryCodes ? JSON.parse(user.mfaRecoveryCodes) : [];
-      const hash = createHash("sha256").update(recoveryCode.trim().toUpperCase()).digest("hex");
-      const idx = stored.indexOf(hash);
-      if (idx === -1) {
-        return NextResponse.json({ error: "invalid recovery code" }, { status: 401 });
-      }
-      // 使用済みコードを削除（ワンタイム）
-      stored.splice(idx, 1);
+  // MFA 無効ならここでセッション発行・失敗カウントリセット
+  // （MFA 有効時はリセットを MFA 通過後まで遅らせる。TOTP 総当たり対策）
+  if (!user.mfaEnabled || !user.totpSecret) {
+    if (user.loginAttempts > 0 || user.lockedUntil) {
       await prisma.user.update({
         where: { id: user.id },
-        data: { mfaRecoveryCodes: JSON.stringify(stored) },
+        data: { loginAttempts: 0, lockedUntil: null },
       });
-      await writeAudit(user.id, "mfa_recovery_used", `user:${user.id}`);
-    } else if (code) {
-      if (!verifyTotp(user.totpSecret, code)) {
-        return NextResponse.json({ error: "invalid mfa code" }, { status: 401 });
-      }
     }
+    const sessionId = await createSession(user.id, req);
+    await writeAudit(user.id, "login", `user:${user.id}`, auditMeta);
+    return NextResponse.json({
+      data: { id: user.id, name: user.name, role: user.role, sessionId },
+    });
   }
 
-  const sessionId = await createSession(user.id);
-  await writeAudit(user.id, "login", `user:${user.id}`);
-  // sessionId はモバイルアプリ向けに返す（Web は Cookie を使用）
-  return NextResponse.json({ data: { id: user.id, name: user.name, role: user.role, sessionId } });
+  // 旧クライアント互換: password と同時に code/recoveryCode が送られた場合は
+  // チャレンジ発行 → 即検証を内部で連続実行する（新エンドポイントと同じ試行制限・ロックを適用）
+  if (code || recoveryCode) {
+    const token = await issueMfaChallenge(user.id);
+    const result = await consumeMfaChallenge(token, { code, recoveryCode }, { ip, userAgent });
+    if (result.status === "success") {
+      const sessionId = await createSession(user.id, req);
+      await writeAudit(user.id, "login", `user:${user.id}`, auditMeta);
+      return NextResponse.json({
+        data: { id: user.id, name: user.name, role: user.role, sessionId },
+      });
+    }
+    if (result.status === "locked") {
+      return NextResponse.json(
+        { error: `アカウントがロックされています。${result.remainSec}秒後に再試行してください。` },
+        { status: 429 },
+      );
+    }
+    return NextResponse.json({ error: "invalid mfa code" }, { status: 401 });
+  }
+
+  // 新フロー: MFA チャレンジトークンを発行してクライアントへ返す（セッションは未発行）
+  const mfaToken = await issueMfaChallenge(user.id);
+  return NextResponse.json({ mfaRequired: true, mfaToken }, { status: 401 });
 }

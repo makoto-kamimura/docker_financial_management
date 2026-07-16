@@ -1,81 +1,66 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { zDate } from "@/lib/zod-helpers";
+import { AR_ACCOUNT_CODE, postIssueRecord } from "@/lib/settlement";
 
-export async function GET(req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const ReceivableSchema = z.object({
+  customerName: z.string().min(1),
+  description: z.string().min(1),
+  amount: z.number().positive(),
+  taxAmount: z.number().default(0),
+  issueDate: zDate,
+  dueDate: zDate,
+  invoiceNumber: z.string().optional(),
+  note: z.string().optional(),
+});
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const sp = req.nextUrl.searchParams;
-  const status = sp.get("status");
-  const year = sp.get("year") ? Number(sp.get("year")) : undefined;
+// GET /api/receivables?status=&year= … 売掛金一覧
+export const GET = withApi({
+  role: "viewer",
+  querySchema: z.object({
+    status: z.string().optional(),
+    year: z.coerce.number().int().optional(),
+  }),
+  handler: async ({ user, db, query }) => {
+    const where: Record<string, unknown> = { tenantId: user.tenantId };
+    if (query.status && query.status !== "all") where.status = query.status;
+    if (query.year) {
+      where.issueDate = {
+        gte: new Date(`${query.year}-01-01`),
+        lt: new Date(`${query.year + 1}-01-01`),
+      };
+    }
 
-  const where: Record<string, unknown> = { tenantId };
-  if (status && status !== "all") where.status = status;
-  if (year) {
-    where.issueDate = {
-      gte: new Date(`${year}-01-01`),
-      lt: new Date(`${year + 1}-01-01`),
-    };
-  }
+    const list = await db.receivable.findMany({ where, orderBy: { dueDate: "asc" } });
+    return NextResponse.json({ data: list });
+  },
+});
 
-  const list = await db.receivable.findMany({ where, orderBy: { dueDate: "asc" } });
-  return NextResponse.json({ data: list });
-}
+// POST /api/receivables … 売掛金の登録（売掛金科目 1300 へ実績連動、editor 以上）
+export const POST = withApi({
+  role: "editor",
+  schema: ReceivableSchema,
+  handler: async ({ user, db, body }) => {
+    const { tenantId } = user;
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const body = (await req.json()) as {
-    customerName: string;
-    description: string;
-    amount: number;
-    taxAmount?: number;
-    issueDate: string;
-    dueDate: string;
-    invoiceNumber?: string;
-    note?: string;
-  };
-
-  if (!body.customerName || !body.description || !body.amount || !body.issueDate || !body.dueDate) {
-    return NextResponse.json(
-      { error: "customerName, description, amount, issueDate, dueDate are required" },
-      { status: 400 },
-    );
-  }
-
-  const record = await db.receivable.create({
-    data: {
-      tenantId,
-      customerName: body.customerName,
-      description: body.description,
-      amount: body.amount,
-      taxAmount: body.taxAmount ?? 0,
-      issueDate: new Date(body.issueDate),
-      dueDate: new Date(body.dueDate),
-      invoiceNumber: body.invoiceNumber ?? null,
-      note: body.note ?? null,
-    },
-  });
-
-  const arAccount = await db.account.findFirst({ where: { tenantId, code: "1300" } });
-  if (arAccount) {
-    const fiscalYear = record.issueDate.getFullYear();
-    const month = record.issueDate.getMonth() + 1;
-    const period = await db.period.upsert({
-      where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
-      update: {},
-      create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
+    const record = await db.receivable.create({
+      data: {
+        tenantId,
+        customerName: body.customerName,
+        description: body.description,
+        amount: body.amount,
+        taxAmount: body.taxAmount,
+        issueDate: body.issueDate,
+        dueDate: body.dueDate,
+        invoiceNumber: body.invoiceNumber ?? null,
+        note: body.note ?? null,
+      },
     });
-    await db.financialRecord.create({
-      data: { tenantId, accountId: arAccount.id, periodId: period.id, amount: body.amount },
-    });
-  }
 
-  return NextResponse.json({ data: record }, { status: 201 });
-}
+    // 売掛金科目（1300）があれば実績へ連動記帳する
+    await postIssueRecord(db, tenantId, AR_ACCOUNT_CODE, record.issueDate, body.amount);
+
+    return NextResponse.json({ data: record }, { status: 201 });
+  },
+});

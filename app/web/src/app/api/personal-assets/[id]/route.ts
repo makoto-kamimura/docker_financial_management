@@ -1,128 +1,79 @@
-import { NextRequest, NextResponse } from "next/server";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { parseYearMonth } from "@/lib/year-month";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
+import { badRequest, notFound } from "@/lib/api-error";
+import { zYearMonth } from "@/lib/zod-helpers";
+import { invalidateCache } from "@/lib/redis";
 
-const CATEGORIES = ["LAND", "BUILDING", "VEHICLE", "GOLD", "OTHER"] as const;
+const UpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  category: z.enum(PERSONAL_ASSET_CATEGORIES).optional(),
+  acquiredOn: z.string().nullable().optional(),
+  acquisitionCost: z.number().nullable().optional(),
+  currentValue: z.number().optional(),
+  note: z.string().nullable().optional(),
+  linkedAccountId: z.number().int().nullable().optional(),
+  debtStartOn: zYearMonth.nullable().optional(), // 支払い開始年月（"YYYY-MM"）
+  debtPayoffDue: zYearMonth.nullable().optional(), // 負債解消予定年月（"YYYY-MM"）
+  debtInitialAmount: z.number().min(0).nullable().optional(), // 当初負債額
+});
 
-type Params = { params: Promise<{ id: string }> };
+// PATCH /api/personal-assets/[id] … 実物資産の更新（editor 以上）
+export const PATCH = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body }) => {
+    const { tenantId } = user;
+    const existing = await db.personalAsset.findUnique({ where: { id, tenantId } });
+    if (!existing) throw notFound();
 
-export async function PATCH(req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
-
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.personalAsset.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const body = (await req.json()) as Partial<{
-    name: string;
-    category: string;
-    acquiredOn: string | null;
-    acquisitionCost: number | null;
-    currentValue: number;
-    note: string | null;
-    linkedAccountId: number | null;
-    debtStartOn: string | null; // 支払い開始年月（"YYYY-MM"）
-    debtPayoffDue: string | null; // 負債解消予定年月（"YYYY-MM"）
-    debtInitialAmount: number | null; // 当初負債額
-  }>;
-  if (body.category && !CATEGORIES.includes(body.category as (typeof CATEGORIES)[number])) {
-    return NextResponse.json({ error: `invalid category: ${body.category}` }, { status: 400 });
-  }
-  if (body.linkedAccountId !== undefined && body.linkedAccountId !== null) {
-    const account = await db.account.findFirst({ where: { id: body.linkedAccountId, tenantId } });
-    if (!account) {
-      return NextResponse.json(
-        { error: `invalid linkedAccountId: ${body.linkedAccountId}` },
-        { status: 400 },
-      );
+    if (body.linkedAccountId !== undefined && body.linkedAccountId !== null) {
+      const account = await db.account.findFirst({
+        where: { id: body.linkedAccountId, tenantId },
+      });
+      if (!account) throw badRequest(`invalid linkedAccountId: ${body.linkedAccountId}`);
     }
-  }
-  let debtStartOn: Date | null | undefined = undefined;
-  if (body.debtStartOn !== undefined) {
-    if (body.debtStartOn === null) {
-      debtStartOn = null;
-    } else {
-      const parsed = parseYearMonth(body.debtStartOn);
-      if (!parsed) {
-        return NextResponse.json(
-          { error: `invalid debtStartOn: ${body.debtStartOn} (expected YYYY-MM)` },
-          { status: 400 },
-        );
-      }
-      debtStartOn = parsed;
+
+    // 更新後の開始・解消予定の組み合わせで前後関係を検証する
+    const nextStartOn = body.debtStartOn !== undefined ? body.debtStartOn : existing.debtStartOn;
+    const nextPayoffDue =
+      body.debtPayoffDue !== undefined ? body.debtPayoffDue : existing.debtPayoffDue;
+    if (nextStartOn && nextPayoffDue && nextStartOn > nextPayoffDue) {
+      throw badRequest("debtStartOn must be before or equal to debtPayoffDue");
     }
-  }
-  let debtPayoffDue: Date | null | undefined = undefined;
-  if (body.debtPayoffDue !== undefined) {
-    if (body.debtPayoffDue === null) {
-      debtPayoffDue = null;
-    } else {
-      const parsed = parseYearMonth(body.debtPayoffDue);
-      if (!parsed) {
-        return NextResponse.json(
-          { error: `invalid debtPayoffDue: ${body.debtPayoffDue} (expected YYYY-MM)` },
-          { status: 400 },
-        );
-      }
-      debtPayoffDue = parsed;
-    }
-  }
-  // 更新後の開始・解消予定の組み合わせで前後関係を検証する
-  const nextStartOn = debtStartOn !== undefined ? debtStartOn : existing.debtStartOn;
-  const nextPayoffDue = debtPayoffDue !== undefined ? debtPayoffDue : existing.debtPayoffDue;
-  if (nextStartOn && nextPayoffDue && nextStartOn > nextPayoffDue) {
-    return NextResponse.json(
-      { error: "debtStartOn must be before or equal to debtPayoffDue" },
-      { status: 400 },
-    );
-  }
-  if (
-    body.debtInitialAmount !== undefined &&
-    body.debtInitialAmount !== null &&
-    body.debtInitialAmount < 0
-  ) {
-    return NextResponse.json(
-      { error: `invalid debtInitialAmount: ${body.debtInitialAmount}` },
-      { status: 400 },
-    );
-  }
 
-  const asset = await db.personalAsset.update({
-    where: { id: Number(id) },
-    data: {
-      ...(body.name !== undefined && { name: body.name }),
-      ...(body.category !== undefined && {
-        category: body.category as (typeof CATEGORIES)[number],
-      }),
-      ...(body.acquiredOn !== undefined && {
-        acquiredOn: body.acquiredOn ? new Date(body.acquiredOn) : null,
-      }),
-      ...(body.acquisitionCost !== undefined && { acquisitionCost: body.acquisitionCost }),
-      ...(body.currentValue !== undefined && { currentValue: body.currentValue }),
-      ...(body.note !== undefined && { note: body.note }),
-      ...(body.linkedAccountId !== undefined && { linkedAccountId: body.linkedAccountId }),
-      ...(debtStartOn !== undefined && { debtStartOn }),
-      ...(debtPayoffDue !== undefined && { debtPayoffDue }),
-      ...(body.debtInitialAmount !== undefined && { debtInitialAmount: body.debtInitialAmount }),
-    },
-  });
-  return NextResponse.json({ data: asset });
-}
+    const asset = await db.personalAsset.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.category !== undefined && { category: body.category }),
+        ...(body.acquiredOn !== undefined && {
+          acquiredOn: body.acquiredOn ? new Date(body.acquiredOn) : null,
+        }),
+        ...(body.acquisitionCost !== undefined && { acquisitionCost: body.acquisitionCost }),
+        ...(body.currentValue !== undefined && { currentValue: body.currentValue }),
+        ...(body.note !== undefined && { note: body.note }),
+        ...(body.linkedAccountId !== undefined && { linkedAccountId: body.linkedAccountId }),
+        ...(body.debtStartOn !== undefined && { debtStartOn: body.debtStartOn }),
+        ...(body.debtPayoffDue !== undefined && { debtPayoffDue: body.debtPayoffDue }),
+        ...(body.debtInitialAmount !== undefined && { debtInitialAmount: body.debtInitialAmount }),
+      },
+    });
+    await invalidateCache(`assets:summary:${tenantId}:*`);
+    return NextResponse.json({ data: asset });
+  },
+});
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+// DELETE /api/personal-assets/[id] … 実物資産の削除（editor 以上）
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id }) => {
+    const existing = await db.personalAsset.findUnique({ where: { id, tenantId: user.tenantId } });
+    if (!existing) throw notFound();
 
-  const { id } = await params;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const existing = await db.personalAsset.findUnique({ where: { id: Number(id), tenantId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  await db.personalAsset.delete({ where: { id: Number(id) } });
-  return NextResponse.json({ ok: true });
-}
+    await db.personalAsset.delete({ where: { id } });
+    await invalidateCache(`assets:summary:${user.tenantId}:*`);
+    return NextResponse.json({ ok: true });
+  },
+});

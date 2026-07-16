@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, useMemo } from "react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { useViewMode } from "@/lib/use-view-mode";
+import { displayName } from "@/lib/display-name";
 
 // ── 型定義 ─────────────────────────────────────────────────────────
 type Account = {
@@ -13,6 +15,8 @@ type Account = {
   category: string;
   parentId: number | null;
   parent: { id: number; code: string; name: string } | null;
+  soleName?: string | null;
+  corporateName?: string | null;
 };
 type Department = { id: number; name: string; manager: string | null };
 
@@ -28,7 +32,13 @@ type RecentHistory = {
   amount: number;
   changedAt: string;
   userId: number | null;
-  account: { code: string; name: string; category: string };
+  account: {
+    code: string;
+    name: string;
+    category: string;
+    soleName?: string | null;
+    corporateName?: string | null;
+  };
   period: { fiscalYear: number; month: number };
 };
 
@@ -36,7 +46,14 @@ type JournalDetail = {
   id: number;
   side: "debit" | "credit";
   amount: number;
-  account: { id: number; code: string; name: string; category: string };
+  account: {
+    id: number;
+    code: string;
+    name: string;
+    category: string;
+    soleName?: string | null;
+    corporateName?: string | null;
+  };
 };
 type JournalEntry = {
   id: number;
@@ -146,6 +163,7 @@ type Tab = "manual" | "calendar" | "csv";
 // ── ページ ─────────────────────────────────────────────────────────
 export default function EntryPage() {
   const queryClient = useQueryClient();
+  const sysMode = useViewMode();
 
   // ── タブ ──────────────────────────────────────────────────────
   const [tab, setTab] = useState<Tab>("manual");
@@ -615,7 +633,7 @@ export default function EntryPage() {
                       <optgroup key={cat} label={GROUP_LABELS[cat]}>
                         {items.map((a) => (
                           <option key={a.id} value={a.code}>
-                            {a.code} {a.name}
+                            {a.code} {displayName(a, sysMode)}
                           </option>
                         ))}
                       </optgroup>
@@ -850,7 +868,7 @@ export default function EntryPage() {
                                 {e.description}
                               </p>
                               <p className="text-[10px] text-slate-400 mt-0.5">
-                                {e.details.map((d) => d.account.name).join(" / ")}
+                                {e.details.map((d) => displayName(d.account, sysMode)).join(" / ")}
                               </p>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -1142,7 +1160,7 @@ HA101,${THIS_YEAR},12,500000`}</pre>
                         <span className="font-mono text-xs text-slate-400 mr-1">
                           {h.account.code}
                         </span>
-                        {h.account.name}
+                        {displayName(h.account, sysMode)}
                       </td>
                       <td className="py-2 pr-4 text-slate-600 whitespace-nowrap">
                         {h.period.fiscalYear}年 {h.period.month}月

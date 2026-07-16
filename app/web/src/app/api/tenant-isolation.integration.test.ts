@@ -49,6 +49,10 @@ import { GET as receivableListGet } from "./receivables/route";
 import { GET as invoiceGet } from "./invoices/[id]/route";
 import { GET as bankTxnGet } from "./bank-accounts/[id]/transactions/route";
 import { GET as openbankingGet, POST as openbankingPost } from "./integrations/openbanking/route";
+import { GET as uploadGet } from "./uploads/[filename]/route";
+import { POST as allocationApplyPost } from "./budgets/allocation-apply/route";
+import { PATCH as categorizePatch } from "./bank-transactions/[id]/categorize/route";
+import { emptyRouteContext } from "@/lib/api-handler";
 
 const SUFFIX = `iso_${Date.now()}`;
 
@@ -62,6 +66,11 @@ type Seed = {
   invoiceBId: number;
   bankAccountAId: number;
   bankAccountBId: number;
+  receiptBSavedName: string;
+  accountAId: number;
+  accountBId: number;
+  bankTxnAId: number;
+  bankTxnBId: number;
 };
 
 let seed: Seed;
@@ -96,6 +105,8 @@ beforeAll(async () => {
     "bank_accounts",
     "bank_transactions",
     "audit_logs",
+    "journal_entries",
+    "receipts",
   ]) {
     await resyncSequence(t);
   }
@@ -162,12 +173,60 @@ beforeAll(async () => {
   const bankB = await prisma.bankAccount.create({
     data: { tenantId: tenantB.id, name: "口座B", bankName: "銀行B" },
   });
-  await prisma.bankTransaction.create({
+  const bankTxnB = await prisma.bankTransaction.create({
     data: {
       accountId: bankB.id,
       date: new Date("2026-01-05"),
       description: "B社取引",
       amount: 500,
+    },
+  });
+
+  // S-1 回帰テスト用: テナント B の仕訳・証憑（uploads の配信認可を検証する）
+  const accountB = await prisma.account.findFirst({ where: { tenantId: tenantB.id } });
+  const journalB = await prisma.journalEntry.create({
+    data: {
+      tenantId: tenantB.id,
+      transactionDate: new Date("2026-01-10"),
+      description: "B社仕訳",
+      details: accountB
+        ? {
+            create: [
+              { side: "debit", accountId: accountB.id, amount: 100 },
+              { side: "credit", accountId: accountB.id, amount: 100 },
+            ],
+          }
+        : undefined,
+    },
+  });
+  const receiptBSavedName = `iso_receipt_${SUFFIX}.pdf`;
+  await prisma.receipt.create({
+    data: {
+      journalEntryId: journalB.id,
+      fileName: "receipt-b.pdf",
+      fileUrl: `/api/uploads/${receiptBSavedName}`,
+      savedName: receiptBSavedName,
+      mimeType: "application/pdf",
+      fileType: "pdf",
+      fileSize: 100,
+    },
+  });
+
+  // F-2/F-3 回帰テスト用: allocation-apply のテナント越境検証に使う各テナントの科目
+  const accountATest = await prisma.account.create({
+    data: { tenantId: tenantA.id, code: `A-EXP_${SUFFIX}`, name: "科目A", category: "EXPENSE" },
+  });
+  const accountBTest = await prisma.account.create({
+    data: { tenantId: tenantB.id, code: `B-EXP_${SUFFIX}`, name: "科目B", category: "EXPENSE" },
+  });
+
+  // F-5 回帰テスト用: 明細の科目紐付け・実績転記のテナント越境検証・二重転記防止に使う明細
+  const bankTxnA = await prisma.bankTransaction.create({
+    data: {
+      accountId: bankA.id,
+      date: new Date("2026-01-05"),
+      description: "A社取引",
+      amount: -3000,
     },
   });
 
@@ -193,6 +252,11 @@ beforeAll(async () => {
     invoiceBId: invB.id,
     bankAccountAId: bankA.id,
     bankAccountBId: bankB.id,
+    receiptBSavedName,
+    accountAId: accountATest.id,
+    accountBId: accountBTest.id,
+    bankTxnAId: bankTxnA.id,
+    bankTxnBId: bankTxnB.id,
   };
 
   // 既定はテナント A として振る舞う
@@ -203,11 +267,18 @@ afterAll(async () => {
   if (!seed) return;
   const tids = [seed.tenantAId, seed.tenantBId];
   // FK 順に削除
+  await prisma.financialRecord.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.bankTransaction.deleteMany({ where: { account: { tenantId: { in: tids } } } });
   await prisma.bankAccount.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.receipt.deleteMany({ where: { journalEntry: { tenantId: { in: tids } } } });
+  await prisma.journalDetail.deleteMany({ where: { journalEntry: { tenantId: { in: tids } } } });
+  await prisma.journalEntry.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.invoiceLine.deleteMany({ where: { invoice: { tenantId: { in: tids } } } });
   await prisma.invoice.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.receivable.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.budget.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.period.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.account.deleteMany({ where: { id: { in: [seed.accountAId, seed.accountBId] } } });
   await prisma.auditLog.deleteMany({ where: { userId: { in: [seed.userA.id, seed.userB.id] } } });
   await prisma.session.deleteMany({ where: { userId: { in: [seed.userA.id, seed.userB.id] } } });
   await prisma.user.deleteMany({ where: { tenantId: { in: tids } } });
@@ -246,7 +317,10 @@ describe("テナント越境分離（テナント A として操作）", () => {
   });
 
   it("receivable 一覧: 自テナント A の行のみを返し、B の行は含まれない", async () => {
-    const res = await receivableListGet(makeReq("GET", "http://x/api/receivables"));
+    const res = await receivableListGet(
+      makeReq("GET", "http://x/api/receivables"),
+      emptyRouteContext(),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     const ids: number[] = body.data.map((r: { id: number }) => r.id);
@@ -264,9 +338,25 @@ describe("テナント越境分離（テナント A として操作）", () => {
     expect(res.status).toBe(404);
   });
 
+  it("[S-1] uploads/[filename] GET: テナント B の証憑は 404（未ログインでは 401）", async () => {
+    const filenameParams = (filename: string) => ({ params: Promise.resolve({ filename }) });
+
+    actingUser = null;
+    const unauth = await uploadGet(
+      makeReq("GET", "http://x"),
+      filenameParams(seed.receiptBSavedName),
+    );
+    expect(unauth.status).toBe(401);
+
+    actingUser = seed.userA;
+    const res = await uploadGet(makeReq("GET", "http://x"), filenameParams(seed.receiptBSavedName));
+    expect(res.status).toBe(404);
+  });
+
   it("[回帰] openbanking accounts: 自テナント A の口座のみを返し、B の口座は含まれない", async () => {
     const res = await openbankingGet(
       makeReq("GET", "http://x/api/integrations/openbanking?action=accounts"),
+      emptyRouteContext(),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -281,6 +371,7 @@ describe("テナント越境分離（テナント A として操作）", () => {
         accountId: seed.bankAccountBId,
         transactions: [],
       }),
+      emptyRouteContext(),
     );
     expect(res.status).toBe(404);
   });
@@ -317,5 +408,131 @@ describe("tenantDb 拡張そのものの分離挙動", () => {
     });
     expect(created.tenantId).toBe(seed.tenantAId);
     await prisma.receivable.delete({ where: { id: created.id } });
+  });
+});
+
+describe("[F-2/F-3] budgets/allocation-apply のテナント越境検証", () => {
+  const APPLY_YEAR = 2099; // 他テストと衝突しない専用の年度
+
+  beforeAll(() => {
+    actingUser = seed.userA;
+  });
+
+  afterAll(async () => {
+    await prisma.budget.deleteMany({
+      where: { tenantId: seed.tenantAId, period: { fiscalYear: APPLY_YEAR } },
+    });
+    await prisma.period.deleteMany({ where: { tenantId: seed.tenantAId, fiscalYear: APPLY_YEAR } });
+  });
+
+  it("自テナント A の科目への適用は 201 で成功し、budgets に反映される", async () => {
+    const res = await allocationApplyPost(
+      makeReq("POST", "http://x/api/budgets/allocation-apply", {
+        year: APPLY_YEAR,
+        items: [{ accountId: seed.accountAId, month: 1, amount: 12345 }],
+      }),
+      emptyRouteContext(),
+    );
+    expect(res.status).toBe(201);
+
+    const budget = await prisma.budget.findFirst({
+      where: {
+        tenantId: seed.tenantAId,
+        accountId: seed.accountAId,
+        period: { fiscalYear: APPLY_YEAR, month: 1 },
+      },
+    });
+    expect(Number(budget?.amount)).toBe(12345);
+  });
+
+  it("テナント B の accountId が混入すると 404 になり、一切書き込まれない", async () => {
+    const res = await allocationApplyPost(
+      makeReq("POST", "http://x/api/budgets/allocation-apply", {
+        year: APPLY_YEAR,
+        items: [
+          { accountId: seed.accountAId, month: 2, amount: 11111 },
+          { accountId: seed.accountBId, month: 2, amount: 99999 },
+        ],
+      }),
+      emptyRouteContext(),
+    );
+    expect(res.status).toBe(404);
+
+    // 混在バッチの中の自テナント分（month=2）も一切書き込まれていないこと
+    const budget = await prisma.budget.findFirst({
+      where: {
+        tenantId: seed.tenantAId,
+        accountId: seed.accountAId,
+        period: { fiscalYear: APPLY_YEAR, month: 2 },
+      },
+    });
+    expect(budget).toBeNull();
+  });
+});
+
+describe("[F-5] bank-transactions/[id]/categorize のテナント越境・二重転記防止", () => {
+  beforeAll(() => {
+    actingUser = seed.userA;
+  });
+
+  it("テナント B の明細は 404（存在ごと秘匿）", async () => {
+    const res = await categorizePatch(
+      makeReq("PATCH", "http://x", { categoryAccountId: seed.accountAId }),
+      params(seed.bankTxnBId),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("他テナントの科目を categoryAccountId に指定すると 404 になり、紐付けされない", async () => {
+    const res = await categorizePatch(
+      makeReq("PATCH", "http://x", { categoryAccountId: seed.accountBId }),
+      params(seed.bankTxnAId),
+    );
+    expect(res.status).toBe(404);
+
+    const txn = await prisma.bankTransaction.findUnique({ where: { id: seed.bankTxnAId } });
+    expect(txn?.categoryAccountId).toBeNull();
+  });
+
+  it("自テナントの科目への紐付けは成功する", async () => {
+    const res = await categorizePatch(
+      makeReq("PATCH", "http://x", { categoryAccountId: seed.accountAId }),
+      params(seed.bankTxnAId),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.categoryAccountId).toBe(seed.accountAId);
+  });
+
+  it("並行 2 リクエストで転記（post: true）が 1 回だけ成功し、他方は 409 になる", async () => {
+    const [r1, r2] = await Promise.all([
+      categorizePatch(
+        makeReq("PATCH", "http://x", { categoryAccountId: seed.accountAId, post: true }),
+        params(seed.bankTxnAId),
+      ),
+      categorizePatch(
+        makeReq("PATCH", "http://x", { categoryAccountId: seed.accountAId, post: true }),
+        params(seed.bankTxnAId),
+      ),
+    ]);
+    const statuses = [r1.status, r2.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const records = await prisma.financialRecord.findMany({
+      where: { tenantId: seed.tenantAId, accountId: seed.accountAId },
+    });
+    expect(records).toHaveLength(1);
+    expect(Number(records[0].amount)).toBe(3000); // |amount| = |-3000|
+
+    const txn = await prisma.bankTransaction.findUnique({ where: { id: seed.bankTxnAId } });
+    expect(txn?.postedRecordId).toBe(records[0].id);
+  });
+
+  it("転記済み明細への再度の post は 409（二重転記防止）", async () => {
+    const res = await categorizePatch(
+      makeReq("PATCH", "http://x", { categoryAccountId: seed.accountAId, post: true }),
+      params(seed.bankTxnAId),
+    );
+    expect(res.status).toBe(409);
   });
 });

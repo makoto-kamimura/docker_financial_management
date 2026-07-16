@@ -47,4 +47,14 @@ describe("computeLatestKpi", () => {
   it("空配列なら null", () => {
     expect(computeLatestKpi([])).toBeNull();
   });
+
+  it("[F-1] 支出が収入を上回る月は operatingProfit が負になる（赤字警告の判定基準）", () => {
+    const deficitMonthly: MonthlyByCategory[] = [
+      { key: "2026-05", revenue: 1000, cogs: 200, expense: 300 },
+      { key: "2026-06", revenue: 1000, cogs: 200, expense: 2000 },
+    ];
+    const kpi = computeLatestKpi(deficitMonthly)!;
+    expect(kpi.operatingProfit).toBeLessThan(0);
+    expect(kpi.operatingProfit).toBe(-1200); // (1000-200) - 2000
+  });
 });

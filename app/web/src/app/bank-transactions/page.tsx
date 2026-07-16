@@ -4,10 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
-import type { SysMode } from "@/lib/cashflow";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
+type CategoryAccount = { id: number; code: string; name: string; category: string };
 type Txn = {
   id: number;
   date: string;
@@ -15,6 +15,9 @@ type Txn = {
   amount: number;
   balance: number | null;
   source: "MANUAL" | "CSV" | "SYNC";
+  categoryAccountId: number | null;
+  categoryAccount: { id: number; code: string; name: string } | null;
+  postedRecordId: number | null;
 };
 type Transfer = {
   id: number;
@@ -30,6 +33,7 @@ type Transfer = {
   toAccount: BankAccount | null;
 };
 type ImportResult = { inserted: number; errors: { row: number; message: string }[] };
+type MonthlyCashFlowResponse = { year: number; month: number; graph: FlowGraph };
 type TransferFlowResponse = {
   cyclic: boolean;
   graph: FlowGraph;
@@ -48,6 +52,7 @@ type TransferFlowResponse = {
 const now = new Date();
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 const CHANNEL_LABELS: Record<string, string> = {
   INCOME: "給与・収入",
@@ -90,23 +95,15 @@ export default function BankTransactionsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const [sysMode, setSysMode] = useState<SysMode>("sole");
-
   // カレンダー状態
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
-  useEffect(() => {
-    const v = localStorage.getItem("viewMode");
-    if (v === "household" || v === "corporate" || v === "sole") setSysMode(v);
-    const handler = (e: Event) => {
-      const m = (e as CustomEvent<SysMode>).detail;
-      if (m) setSysMode(m);
-    };
-    window.addEventListener("viewmode-change", handler);
-    return () => window.removeEventListener("viewmode-change", handler);
-  }, []);
+  // フロー図タブ: 設定ベース（既定）/ 実績ベース（月次・F-6）
+  const [flowSource, setFlowSource] = useState<"config" | "actual">("config");
+  const [flowYear, setFlowYear] = useState(now.getFullYear());
+  const [flowMonth, setFlowMonth] = useState(now.getMonth() + 1);
 
   // ── データ取得 ──────────────────────────────────────────────
   const { data: flowData } = useQuery({
@@ -114,6 +111,16 @@ export default function BankTransactionsPage() {
     enabled: tab === "flow",
     queryFn: async (): Promise<TransferFlowResponse> => {
       const res = await fetch("/api/transfers/flow");
+      if (!res.ok) throw new Error("failed");
+      return res.json();
+    },
+  });
+
+  const { data: monthlyFlowData, isLoading: monthlyFlowLoading } = useQuery({
+    queryKey: ["cashflow-monthly", flowYear, flowMonth],
+    enabled: tab === "flow" && flowSource === "actual",
+    queryFn: async (): Promise<MonthlyCashFlowResponse> => {
+      const res = await fetch(`/api/cashflow/monthly?year=${flowYear}&month=${flowMonth}`);
       if (!res.ok) throw new Error("failed");
       return res.json();
     },
@@ -134,6 +141,17 @@ export default function BankTransactionsPage() {
     queryFn: async (): Promise<Txn[]> =>
       (await (await fetch(`/api/bank-accounts/${accountId}/transactions`)).json()).data ?? [],
   });
+
+  const { data: categoryAccounts } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async (): Promise<CategoryAccount[]> =>
+      (await (await fetch("/api/accounts")).json()).data ?? [],
+  });
+  const categorizableAccounts = useMemo(
+    () =>
+      (categoryAccounts ?? []).filter((a) => ["REVENUE", "COGS", "EXPENSE"].includes(a.category)),
+    [categoryAccounts],
+  );
 
   const { data: allTransfers } = useQuery({
     queryKey: ["transfers"],
@@ -223,6 +241,30 @@ export default function BankTransactionsPage() {
     await fetch(`/api/bank-accounts/${accountId}/transactions?txnId=${txnId}`, {
       method: "DELETE",
     });
+    qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+  }
+
+  async function setTxnCategory(txnId: number, categoryAccountId: number | null) {
+    await fetch(`/api/bank-transactions/${txnId}/categorize`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoryAccountId }),
+    });
+    qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+  }
+
+  async function postTxnToActuals(txnId: number) {
+    const res = await fetch(`/api/bank-transactions/${txnId}/categorize`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post: true, learn: true }),
+    });
+    if (res.ok) {
+      setMsg("実績へ転記しました。");
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMsg(`転記に失敗しました: ${err.error ?? "エラー"}`);
+    }
     qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
   }
 
@@ -357,22 +399,85 @@ export default function BankTransactionsPage() {
       {/* ── フロー図タブ ─────────────────────────────────────── */}
       {tab === "flow" && (
         <>
-          <div className="card mb-4">
-            <h2 className="section-title mb-4">口座間 資金フロー図</h2>
-            {!flowData ? (
-              <div className="flex items-center justify-center h-48 text-sm text-slate-400">
-                読み込み中…
-              </div>
-            ) : flowData.cyclic ? (
-              <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                循環する資金フローが検出されたため、図を表示できません。カレンダータブで設定を確認してください。
-              </p>
-            ) : (
-              <AccountFlowDiagram data={flowData.graph} />
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-sm h-9">
+              {(["config", "actual"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setFlowSource(s)}
+                  className={`px-3 font-medium transition-colors ${flowSource === s ? "bg-indigo-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                >
+                  {s === "config" ? "設定ベース" : "実績ベース（月次）"}
+                </button>
+              ))}
+            </div>
+            {flowSource === "actual" && (
+              <>
+                <select
+                  value={flowYear}
+                  onChange={(e) => setFlowYear(Number(e.target.value))}
+                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white"
+                >
+                  {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => (
+                    <option key={y} value={y}>
+                      {y}年
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={flowMonth}
+                  onChange={(e) => setFlowMonth(Number(e.target.value))}
+                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white"
+                >
+                  {MONTHS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}月
+                    </option>
+                  ))}
+                </select>
+              </>
             )}
           </div>
 
-          {flowData && flowData.transfers.length > 0 && (
+          {flowSource === "config" ? (
+            <div className="card mb-4">
+              <h2 className="section-title mb-4">口座間 資金フロー図</h2>
+              {!flowData ? (
+                <div className="flex items-center justify-center h-48 text-sm text-slate-400">
+                  読み込み中…
+                </div>
+              ) : flowData.cyclic ? (
+                <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                  循環する資金フローが検出されたため、図を表示できません。カレンダータブで設定を確認してください。
+                </p>
+              ) : (
+                <AccountFlowDiagram data={flowData.graph} />
+              )}
+            </div>
+          ) : (
+            <div className="card mb-4">
+              <h2 className="section-title mb-4">
+                {flowYear}年{flowMonth}月 実績フロー図
+              </h2>
+              <p className="text-xs text-slate-400 mb-3">
+                科目に紐付け済み（「明細一覧」タブで紐付け）の入出金明細と資金移動ルールから生成しています。
+              </p>
+              {monthlyFlowLoading || !monthlyFlowData ? (
+                <div className="flex items-center justify-center h-48 text-sm text-slate-400">
+                  読み込み中…
+                </div>
+              ) : monthlyFlowData.graph.links.length === 0 ? (
+                <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+                  対象月に科目紐付け済みの明細がありません。「明細一覧」タブで紐付けを行ってください。
+                </p>
+              ) : (
+                <AccountFlowDiagram data={monthlyFlowData.graph} />
+              )}
+            </div>
+          )}
+
+          {flowSource === "config" && flowData && flowData.transfers.length > 0 && (
             <div className="card">
               <h2 className="section-title mb-3">資金移動スケジュール</h2>
               <table className="w-full text-sm">
@@ -495,7 +600,7 @@ export default function BankTransactionsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  {["日付", "摘要", "金額", "残高", "取得元", ""].map((h) => (
+                  {["日付", "摘要", "金額", "残高", "科目", "取得元", "実績", ""].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-left text-xs font-semibold text-slate-600"
@@ -520,8 +625,43 @@ export default function BankTransactionsPage() {
                     <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">
                       {t.balance != null ? yen(t.balance) : "—"}
                     </td>
+                    <td className="px-4 py-2.5">
+                      <select
+                        value={t.categoryAccountId ?? ""}
+                        disabled={t.postedRecordId !== null}
+                        onChange={(e) =>
+                          setTxnCategory(
+                            t.id,
+                            e.target.value === "" ? null : Number(e.target.value),
+                          )
+                        }
+                        className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white disabled:bg-slate-50 disabled:text-slate-400 min-w-32"
+                      >
+                        <option value="">未紐付け</option>
+                        {categorizableAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="px-4 py-2.5 text-xs text-slate-400">
                       {SOURCE_LABELS[t.source] ?? t.source}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {t.postedRecordId !== null ? (
+                        <span className="text-xs bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded">
+                          転記済み
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => postTxnToActuals(t.id)}
+                          disabled={t.categoryAccountId === null}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
+                        >
+                          転記する
+                        </button>
+                      )}
                     </td>
                     <td className="px-2 py-2.5 text-right">
                       <button
@@ -535,7 +675,7 @@ export default function BankTransactionsPage() {
                 ))}
                 {(txns ?? []).length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-sm">
                       明細がありません
                     </td>
                   </tr>

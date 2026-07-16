@@ -34,6 +34,7 @@ import {
   ExternalLink,
   Repeat,
   Bug,
+  GraduationCap,
 } from "lucide-react";
 
 export type ViewMode = "household" | "sole" | "corporate";
@@ -169,6 +170,12 @@ const NAV_GROUPS: NavGroup[] = [
         modes: ["sole", "corporate"],
       },
       {
+        href: "/learning",
+        label: "学習ガイド",
+        icon: GraduationCap,
+        modes: ["sole", "corporate"],
+      },
+      {
         href: "/settings",
         label: "設定",
         icon: Settings,
@@ -205,7 +212,9 @@ const TITLE: Record<ViewMode, string> = {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [viewMode, setViewMode] = useState<ViewMode>("sole");
+  // F-11: 新規ユーザー（localStorage 未設定）の初期値はステップ導線と整合させ household とする。
+  // 既存ユーザーは下の useEffect で保存済みの viewMode に上書きされるため影響しない。
+  const [viewMode, setViewMode] = useState<ViewMode>("household");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { locale, changeLocale } = useLocale();
 
@@ -220,6 +229,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const previous = viewMode;
     setViewMode(mode);
     localStorage.setItem("viewMode", mode);
+    // F-10: ステップ進捗チェックリスト「モード切替経験」の判定に使う
+    if (previous !== mode) localStorage.setItem("viewmode-switched", "true");
     window.dispatchEvent(new CustomEvent("viewmode-change", { detail: mode }));
 
     // 家庭 → 法人 への切替時は、勘定科目の変換確認画面を案内する

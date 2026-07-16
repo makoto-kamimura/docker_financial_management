@@ -1,43 +1,46 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/authz";
+import { withApi } from "@/lib/api-handler";
 import { seedDefaultAccountsForTenant } from "@/lib/default-accounts";
+import { seedDefaultAllocationRulesForTenant } from "@/lib/default-allocation-rules";
 
-export async function GET(_req: NextRequest) {
-  const auth = await requireRole("viewer");
-  if (auth.error) return auth.error;
+const TenantSchema = z.object({
+  type: z.string().default("SOLE_PROPRIETOR"),
+  name: z.string().min(1),
+  corporateNumber: z.string().optional(),
+  capitalAmount: z.number().optional(),
+  establishedOn: z.string().optional(),
+  closingMonth: z.number().int().min(1).max(12).default(12),
+});
 
-  // Each user sees only their own tenant
-  const { tenantId } = auth.user;
-  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-  return NextResponse.json({ data: tenant ? [tenant] : [] });
-}
+// GET /api/tenants … 自テナントのみ返す
+export const GET = withApi({
+  role: "viewer",
+  handler: async ({ user }) => {
+    const tenant = await prisma.tenant.findUnique({ where: { id: user.tenantId } });
+    return NextResponse.json({ data: tenant ? [tenant] : [] });
+  },
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await requireRole("admin");
-  if (auth.error) return auth.error;
-
-  const body = (await req.json()) as {
-    type?: string;
-    name: string;
-    corporateNumber?: string;
-    capitalAmount?: number;
-    establishedOn?: string;
-    closingMonth?: number;
-  };
-  if (!body.name) return NextResponse.json({ error: "name is required" }, { status: 400 });
-
-  const tenant = await prisma.tenant.create({
-    data: {
-      type: body.type ?? "SOLE_PROPRIETOR",
-      name: body.name,
-      corporateNumber: body.corporateNumber ?? null,
-      capitalAmount: body.capitalAmount ?? null,
-      establishedOn: body.establishedOn ? new Date(body.establishedOn) : null,
-      closingMonth: body.closingMonth ?? 12,
-    },
-  });
-  // 新規テナントには家庭モードの既定勘定科目一式を自動登録する
-  await seedDefaultAccountsForTenant(prisma, tenant.id);
-  return NextResponse.json({ data: tenant }, { status: 201 });
-}
+// POST /api/tenants … テナント作成（admin。既定勘定科目を自動投入）
+export const POST = withApi({
+  role: "admin",
+  schema: TenantSchema,
+  handler: async ({ body }) => {
+    const tenant = await prisma.tenant.create({
+      data: {
+        type: body.type,
+        name: body.name,
+        corporateNumber: body.corporateNumber ?? null,
+        capitalAmount: body.capitalAmount ?? null,
+        establishedOn: body.establishedOn ? new Date(body.establishedOn) : null,
+        closingMonth: body.closingMonth,
+      },
+    });
+    // 新規テナントには家庭モードの既定勘定科目一式と予算配分ルールを自動登録する
+    await seedDefaultAccountsForTenant(prisma, tenant.id);
+    await seedDefaultAllocationRulesForTenant(prisma, tenant.id);
+    return NextResponse.json({ data: tenant }, { status: 201 });
+  },
+});

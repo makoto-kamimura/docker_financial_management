@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkCsrf, isMutatingApiRequest } from "@/lib/csrf";
+import { sessionCookieName } from "@/lib/session-constants";
 
 // 保護対象パス。未ログイン（セッション Cookie 無し）なら /login へリダイレクトする。
 // NOTE: ここでは Cookie の有無のみを確認する軽量チェック。
@@ -15,6 +17,7 @@ const PROTECTED = [
   "/journals",
   "/journal-templates",
   "/account-conversion",
+  "/learning",
   "/receivables",
   "/payables",
   "/invoices",
@@ -30,14 +33,19 @@ const PROTECTED = [
   "/settings",
   "/admin",
 ];
-const SESSION_COOKIE = "fm_session";
-
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // /api/* の状態変更リクエストは Origin / Sec-Fetch-Site を検証する（CSRF 防御）。
+  // Bearer 認証（モバイル）は Cookie を使わないため checkCsrf 内で免除される。
+  if (isMutatingApiRequest(pathname, req.method) && !checkCsrf(req)) {
+    return NextResponse.json({ error: "forbidden: invalid origin" }, { status: 403 });
+  }
+
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (!isProtected) return NextResponse.next();
 
-  const hasSession = req.cookies.has(SESSION_COOKIE);
+  const hasSession = req.cookies.has(sessionCookieName());
   if (!hasSession) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
@@ -49,6 +57,7 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
+    "/api/:path*",
     "/dashboard/:path*",
     "/assets/:path*",
     "/entry/:path*",
@@ -60,6 +69,7 @@ export const config = {
     "/journals/:path*",
     "/journal-templates/:path*",
     "/account-conversion/:path*",
+    "/learning/:path*",
     "/receivables/:path*",
     "/payables/:path*",
     "/invoices/:path*",

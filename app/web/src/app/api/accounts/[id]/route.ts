@@ -1,96 +1,74 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantDb } from "@/lib/tenant-db";
-import { requireRole } from "@/lib/authz";
-import { writeAudit } from "@/lib/audit";
-
-const CATEGORIES = ["REVENUE", "COGS", "EXPENSE", "PROFIT", "ASSET", "LIABILITY", "OTHER"] as const;
+import { withApi } from "@/lib/api-handler";
+import { ACCOUNT_CATEGORIES } from "@/lib/account-category";
+import { badRequest, conflict, notFound } from "@/lib/api-error";
+import { findAccountByCode } from "@/lib/period";
 
 const UpdateSchema = z.object({
   code: z.string().min(1).max(20).optional(),
   name: z.string().min(1).optional(),
-  category: z.enum(CATEGORIES).optional(),
+  category: z.enum(ACCOUNT_CATEGORIES).optional(),
   parentCode: z.string().optional().nullable(),
   soleName: z.string().max(255).nullable().optional(),
   corporateName: z.string().max(255).nullable().optional(),
 });
 
 // PATCH /api/accounts/[id] … 勘定科目の更新（editor 以上）
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+export const PATCH = withApi({
+  role: "editor",
+  schema: UpdateSchema,
+  handler: async ({ user, db, id, body, audit }) => {
+    const { parentCode, code, ...fields } = body;
+    const { tenantId } = user;
 
-  const { id } = await params;
-  const accountId = parseInt(id, 10);
-  if (isNaN(accountId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    const before = await db.account.findUnique({ where: { id, tenantId } });
+    if (!before) throw notFound();
 
-  const parsed = UpdateSchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    if (code && code !== before.code) {
+      const dup = await findAccountByCode(db, tenantId, code);
+      if (dup) throw conflict(`コード「${code}」は既に使用されています`);
+    }
 
-  const { parentCode, code, ...fields } = parsed.data;
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
+    let parentId: number | null | undefined;
+    if (parentCode === null || parentCode === "") {
+      parentId = null;
+    } else if (parentCode) {
+      const parent = await findAccountByCode(db, tenantId, parentCode);
+      if (!parent) throw badRequest(`unknown parentCode: ${parentCode}`);
+      if (parent.id === id) throw badRequest("cannot self-reference");
+      parentId = parent.id;
+    }
 
-  const before = await db.account.findUnique({ where: { id: accountId, tenantId } });
-  if (!before) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  if (code && code !== before.code) {
-    const dup = await db.account.findUnique({
-      where: { tenantId_code: { tenantId, code } },
+    const account = await db.account.update({
+      where: { id },
+      data: {
+        ...(code ? { code } : {}),
+        ...fields,
+        ...(parentId !== undefined ? { parentId } : {}),
+      },
     });
-    if (dup)
-      return NextResponse.json(
-        { error: `コード「${code}」は既に使用されています` },
-        { status: 409 },
-      );
-  }
-
-  let parentId: number | null | undefined;
-  if (parentCode === null || parentCode === "") {
-    parentId = null;
-  } else if (parentCode) {
-    const parent = await db.account.findUnique({
-      where: { tenantId_code: { tenantId, code: parentCode } },
-    });
-    if (!parent)
-      return NextResponse.json({ error: `unknown parentCode: ${parentCode}` }, { status: 400 });
-    if (parent.id === accountId)
-      return NextResponse.json({ error: "cannot self-reference" }, { status: 400 });
-    parentId = parent.id;
-  }
-
-  const account = await db.account.update({
-    where: { id: accountId },
-    data: { ...(code ? { code } : {}), ...fields, ...(parentId !== undefined ? { parentId } : {}) },
-  });
-  await writeAudit(auth.user.id, "update", `account:${accountId}`, { before, after: account });
-  return NextResponse.json({ data: account });
-}
+    await audit("update", `account:${id}`, { before, after: account });
+    return NextResponse.json({ data: account });
+  },
+});
 
 // DELETE /api/accounts/[id] … 勘定科目の削除（editor 以上）
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireRole("editor");
-  if (auth.error) return auth.error;
+export const DELETE = withApi({
+  role: "editor",
+  handler: async ({ user, db, id, audit }) => {
+    const { tenantId } = user;
+    const before = await db.account.findUnique({ where: { id, tenantId } });
+    if (!before) throw notFound();
 
-  const { id } = await params;
-  const accountId = parseInt(id, 10);
-  if (isNaN(accountId)) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    const hasRecords = await db.financialRecord.findFirst({ where: { accountId: id, tenantId } });
+    if (hasRecords) throw conflict("実績データが存在するため削除できません");
 
-  const { tenantId } = auth.user;
-  const db = tenantDb(tenantId);
-  const before = await db.account.findUnique({ where: { id: accountId, tenantId } });
-  if (!before) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const hasChildren = await db.account.findFirst({ where: { parentId: id, tenantId } });
+    if (hasChildren) throw conflict("子勘定科目が存在するため削除できません");
 
-  const hasRecords = await db.financialRecord.findFirst({ where: { accountId, tenantId } });
-  if (hasRecords) {
-    return NextResponse.json({ error: "実績データが存在するため削除できません" }, { status: 409 });
-  }
-  const hasChildren = await db.account.findFirst({ where: { parentId: accountId, tenantId } });
-  if (hasChildren) {
-    return NextResponse.json({ error: "子勘定科目が存在するため削除できません" }, { status: 409 });
-  }
-
-  await db.account.delete({ where: { id: accountId } });
-  await writeAudit(auth.user.id, "delete", `account:${accountId}`, { before });
-  return new NextResponse(null, { status: 204 });
-}
+    await db.account.delete({ where: { id } });
+    await audit("delete", `account:${id}`, { before });
+    return new NextResponse(null, { status: 204 });
+  },
+});

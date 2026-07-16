@@ -4,11 +4,12 @@ import {
   TextInput, TouchableOpacity, View,
 } from "react-native";
 import {
-  fetchAccounts, fetchBudgets, matchesViewMode, postBudget,
+  fetchAccounts, fetchBudgets, loadAllocation, matchesViewMode, postBudget,
   type Account, type BudgetRow, type HousingLoanOverlayRow,
   type PersonalAssetDebtOverlayRow, type ViewMode,
 } from "../api";
 import { RevenueAllocationModal } from "../components/RevenueAllocationModal";
+import { displayName } from "../displayName";
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const BUDGETABLE = ["REVENUE", "COGS", "EXPENSE"];
@@ -63,6 +64,8 @@ export function BudgetScreen({ viewMode }: Props) {
   }
 
   useEffect(() => { load(year); }, [year, viewMode]);
+  // 収入配分モーダルで使う配分ルールをサーバーから取得（失敗時は既定値で表示）
+  useEffect(() => { loadAllocation(); }, []);
 
   function budgetOf(code: string): number {
     const b = budgets.find(b => b.account?.code === code && b.period?.month === month);
@@ -126,7 +129,7 @@ export function BudgetScreen({ viewMode }: Props) {
     .filter(a => a.category === "REVENUE")
     .map(a => {
       const v = valFor(a.code);
-      return { code: a.code, name: a.name, amount: v !== "" ? Number(v) : budgetOf(a.code) };
+      return { code: a.code, name: displayName(a, viewMode), amount: v !== "" ? Number(v) : budgetOf(a.code) };
     })
     .filter(l => l.amount > 0);
 
@@ -204,7 +207,7 @@ export function BudgetScreen({ viewMode }: Props) {
                   <View key={a.code} style={[s.row, edited && s.rowEdited]}>
                     <View style={s.rowInfo}>
                       <Text style={s.rowCode}>{a.code}</Text>
-                      <Text style={s.rowName} numberOfLines={1}>{a.name}</Text>
+                      <Text style={s.rowName} numberOfLines={1}>{displayName(a, viewMode)}</Text>
                       {auto > 0 && (
                         <Text style={s.rowAutoNote} numberOfLines={1}>
                           🏠 住宅ローン返済額 {yen(auto)} を自動加算中
@@ -274,6 +277,7 @@ export function BudgetScreen({ viewMode }: Props) {
         items={revenueLines}
         total={revenueTotal}
         viewMode={viewMode}
+        onApplied={() => load(year)}
       />
     </View>
   );
