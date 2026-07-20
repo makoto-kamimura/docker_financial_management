@@ -63,7 +63,12 @@ describe("checkCsrf", () => {
     }
   });
 
-  it("Sec-Fetch-Site も Origin も無い場合はフェイルクローズで拒否する", () => {
-    expect(checkCsrf(makeReq({}))).toBe(false);
+  it("Sec-Fetch-Site も Origin も無くセッション Cookie も無い場合は通過する（モバイルのログイン前リクエスト等）", () => {
+    expect(checkCsrf(makeReq({}))).toBe(true);
+  });
+
+  it("Sec-Fetch-Site も Origin も無いがセッション Cookie がある場合はフェイルクローズで拒否する", () => {
+    expect(checkCsrf(makeReq({ cookie: "fm_session=abc123" }))).toBe(false);
+    expect(checkCsrf(makeReq({ cookie: "__Host-fm_session=abc123" }))).toBe(false);
   });
 });

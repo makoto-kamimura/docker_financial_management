@@ -313,7 +313,11 @@ export default function BankAccountsPage() {
 
   const { data: flow } = useQuery({
     queryKey: ["transfer-flow"],
-    queryFn: async (): Promise<FlowResponse> => (await fetch("/api/transfers/flow")).json(),
+    queryFn: async (): Promise<FlowResponse> => {
+      const res = await fetch("/api/transfers/flow");
+      if (!res.ok) return { cyclic: false, transfers: [] };
+      return res.json();
+    },
   });
 
   const saveTx = async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Step = "credentials" | "mfa";
 
@@ -13,6 +13,11 @@ export default function LoginPage() {
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  useEffect(() => {
+    setSessionExpired(new URLSearchParams(window.location.search).get("sessionExpired") === "1");
+  }, []);
 
   async function handleCredentialsSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
@@ -86,6 +91,11 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+          {sessionExpired && (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+              セッションの有効期限が切れました。もう一度ログインしてください。
+            </p>
+          )}
           {step === "credentials" ? (
             <>
               <h2 className="text-xl font-semibold text-slate-800 mb-6">ログイン</h2>

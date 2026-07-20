@@ -4,6 +4,8 @@
 // 対象は Cookie 認証のブラウザリクエストのみ。Authorization: Bearer 認証
 // （モバイルアプリ）は Cookie を送らないため CSRF が成立せず、常に免除する。
 
+import { sessionCookieName } from "@/lib/session-constants";
+
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export function isMutatingApiRequest(pathname: string, method: string): boolean {
@@ -26,7 +28,10 @@ export function checkCsrf(req: { headers: Headers; nextUrl: { origin: string } }
     return origin === expected;
   }
 
-  // Sec-Fetch-Site も Origin も無い（古いブラウザ・curl 等）。
-  // Cookie 認証のリクエストはフェイルクローズで拒否する。
-  return false;
+  // Sec-Fetch-Site も Origin も無い（古いブラウザ・curl・モバイルアプリの
+  // ログイン前リクエスト等）。セッション Cookie を持つリクエストは既存
+  // セッションが CSRF で悪用され得るためフェイルクローズで拒否するが、
+  // Cookie を持たないリクエスト（ログイン等、悪用できるセッションが無い）は通す。
+  const hasSessionCookie = req.headers.get("cookie")?.includes(`${sessionCookieName()}=`) ?? false;
+  return !hasSessionCookie;
 }
