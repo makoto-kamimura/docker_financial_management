@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
@@ -186,7 +187,10 @@ export default function BankTransactionsPage() {
   // ── ハンドラ ────────────────────────────────────────────────
 
   async function importFile(file: File) {
-    if (accountId === null) return;
+    if (accountId === null) {
+      setImportError("口座を登録してください。");
+      return;
+    }
     if (!file.name.toLowerCase().endsWith(".csv")) {
       setImportError("CSV ファイル (.csv) のみ対応しています。");
       return;
@@ -200,9 +204,13 @@ export default function BankTransactionsPage() {
         headers: { "Content-Type": "text/csv" },
         body: file,
       });
-      const json = (await res.json()) as ImportResult;
-      setImportResult(json);
-      if (res.ok) qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+      if (res.ok) {
+        setImportResult((await res.json()) as ImportResult);
+        qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+      } else {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        setImportError(body?.error ?? "ファイルの送信中にエラーが発生しました。");
+      }
     } catch {
       setImportError("ファイルの送信中にエラーが発生しました。");
     } finally {
@@ -224,7 +232,10 @@ export default function BankTransactionsPage() {
   }
 
   async function sync() {
-    if (accountId === null) return;
+    if (accountId === null) {
+      setImportError("口座を登録してください。");
+      return;
+    }
     setImportResult(null);
     setImportError(null);
     const res = await fetch(`/api/bank-accounts/${accountId}/sync`, { method: "POST" });
@@ -270,7 +281,10 @@ export default function BankTransactionsPage() {
 
   async function submitManual(e: { preventDefault(): void }) {
     e.preventDefault();
-    if (accountId === null) return;
+    if (accountId === null) {
+      setMsg("口座を登録してください。");
+      return;
+    }
     const rawAmt = Number(manual.amount);
     const amount = manual.type === "expense" ? -Math.abs(rawAmt) : Math.abs(rawAmt);
     const res = await fetch(`/api/bank-accounts/${accountId}/transactions`, {
@@ -292,7 +306,10 @@ export default function BankTransactionsPage() {
 
   async function submitRecurring(e: { preventDefault(): void }) {
     e.preventDefault();
-    if (accountId === null) return;
+    if (accountId === null) {
+      setMsg("口座を登録してください。");
+      return;
+    }
     const body = {
       fromAccountId: recurring.direction === "out" ? accountId : null,
       toAccountId: recurring.direction === "in" ? accountId : null,
@@ -365,6 +382,18 @@ export default function BankTransactionsPage() {
           ))}
         </select>
       </div>
+
+      {accounts && accounts.length === 0 && (
+        <div className="mb-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2.5 flex items-center justify-between gap-3">
+          <span>口座が登録されていません。入出金を記録するには、先に口座を登録してください。</span>
+          <Link
+            href="/bank-accounts"
+            className="shrink-0 text-amber-900 font-medium underline underline-offset-2 hover:text-amber-700"
+          >
+            口座を登録する
+          </Link>
+        </div>
+      )}
 
       {/* タブ */}
       <div className="flex gap-1 mb-4 border-b border-slate-200">
