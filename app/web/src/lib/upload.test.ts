@@ -3,6 +3,7 @@ import {
   classifyFileType,
   contentTypeForExtension,
   matchesMagicBytes,
+  resolveReceiptFileUrl,
   resolveUploadExtension,
 } from "./upload";
 
@@ -81,5 +82,19 @@ describe("matchesMagicBytes (S-8)", () => {
   it("バッファがシグネチャより短い場合は false", () => {
     expect(matchesMagicBytes(Buffer.from("PD"), "pdf")).toBe(false);
     expect(matchesMagicBytes(Buffer.alloc(0), "png")).toBe(false);
+  });
+});
+
+describe("resolveReceiptFileUrl (D-7)", () => {
+  it("savedName があれば /api/uploads/<savedName> を導出する（保存済み fileUrl は無視）", () => {
+    expect(
+      resolveReceiptFileUrl({ savedName: "abc123.pdf", fileUrl: "/api/uploads/stale-value.pdf" }),
+    ).toBe("/api/uploads/abc123.pdf");
+  });
+
+  it("savedName が null の旧行は保存済み fileUrl にフォールバックする", () => {
+    expect(resolveReceiptFileUrl({ savedName: null, fileUrl: "/legacy/old-receipt.pdf" })).toBe(
+      "/legacy/old-receipt.pdf",
+    );
   });
 });

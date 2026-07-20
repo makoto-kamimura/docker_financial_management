@@ -17,10 +17,15 @@ export const PUT = withApi({
     const existing = await db.fiscalYear.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!existing) throw notFound();
 
+    // D-2: status は決算確定（/closing/finalize）と同じ FiscalYear 行を共有するため、
+    // ここでの手動トグルも closedAt を連動させて整合を保つ
     const fy = await db.fiscalYear.update({
       where: { id },
       data: {
-        ...(body.status && { status: body.status }),
+        ...(body.status && {
+          status: body.status,
+          closedAt: body.status === "closed" ? new Date() : null,
+        }),
         ...(body.endDate && { endDate: body.endDate }),
       },
     });

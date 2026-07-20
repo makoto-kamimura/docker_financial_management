@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
-import { JOURNAL_DETAILS_INCLUDE } from "@/lib/journal";
+import { deleteFinancialRecordsForJournalEntry, JOURNAL_DETAILS_INCLUDE } from "@/lib/journal";
 
 // GET /api/journals/[id] … 仕訳 1 件の取得
 export const GET = withApi({
@@ -23,7 +23,11 @@ export const DELETE = withApi({
     const entry = await db.journalEntry.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!entry) throw notFound();
 
-    await db.journalEntry.delete({ where: { id } });
+    // D-5a: 同期済み FinancialRecord 行を先に削除してから仕訳を削除する（孤立行を防ぐ）
+    await db.$transaction(async (tx) => {
+      await deleteFinancialRecordsForJournalEntry(tx, id);
+      await tx.journalEntry.delete({ where: { id } });
+    });
     return NextResponse.json({ ok: true });
   },
 });

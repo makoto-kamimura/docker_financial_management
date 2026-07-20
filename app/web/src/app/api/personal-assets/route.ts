@@ -5,6 +5,7 @@ import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import { badRequest } from "@/lib/api-error";
 import { zYearMonth } from "@/lib/zod-helpers";
 import { computeDebtSchedule } from "@/lib/debt-schedule";
+import { serializeAssetWithDebt, buildDebtLoanData } from "@/lib/personal-asset-debt";
 import { invalidateCache } from "@/lib/redis";
 
 const CreateSchema = z
@@ -25,25 +26,20 @@ const CreateSchema = z
   });
 
 // GET /api/personal-assets … 実物資産一覧（負債スケジュール付き）
+// D-4: 負債の実体は Loan（personal_assets.loanId）。レスポンスは旧フィールド名を維持する
 export const GET = withApi({
   role: "viewer",
   handler: async ({ user, db }) => {
     const assets = await db.personalAsset.findMany({
       where: { tenantId: user.tenantId },
       orderBy: { createdAt: "asc" },
+      include: { loan: true },
     });
-    // 負債スケジュールが設定済みの資産には、経過月数から算出した現在残高を付与する
     const data = assets.map((a) => {
-      const schedule =
-        a.debtInitialAmount !== null && a.debtStartOn && a.debtPayoffDue
-          ? computeDebtSchedule(Number(a.debtInitialAmount), a.debtStartOn, a.debtPayoffDue)
-          : null;
-      return {
-        ...a,
-        debtMonthly: schedule?.monthly ?? null,
-        debtRemaining: schedule?.remaining ?? null,
-        debtRemainingMonths: schedule ? schedule.totalMonths - schedule.paidMonths : null,
-      };
+      const schedule = a.loan
+        ? computeDebtSchedule(Number(a.loan.amount), a.loan.borrowedOn, a.loan.repaymentDate)
+        : null;
+      return serializeAssetWithDebt(a, schedule);
     });
     return NextResponse.json({ data });
   },
@@ -63,22 +59,37 @@ export const POST = withApi({
       if (!account) throw badRequest(`invalid linkedAccountId: ${body.linkedAccountId}`);
     }
 
-    const asset = await db.personalAsset.create({
-      data: {
-        tenantId,
-        name: body.name,
-        category: body.category,
-        acquiredOn: body.acquiredOn ? new Date(body.acquiredOn) : null,
-        acquisitionCost: body.acquisitionCost ?? null,
-        currentValue: body.currentValue,
-        note: body.note ?? null,
-        linkedAccountId: body.linkedAccountId ?? null,
-        debtStartOn: body.debtStartOn ?? null,
-        debtPayoffDue: body.debtPayoffDue ?? null,
-        debtInitialAmount: body.debtInitialAmount ?? null,
-      },
+    const debtData = buildDebtLoanData(body.name, {
+      debtStartOn: body.debtStartOn ?? null,
+      debtPayoffDue: body.debtPayoffDue ?? null,
+      debtInitialAmount: body.debtInitialAmount ?? null,
+    });
+
+    const asset = await db.$transaction(async (tx) => {
+      const loan = debtData ? await tx.loan.create({ data: { tenantId, ...debtData } }) : null;
+      return tx.personalAsset.create({
+        data: {
+          tenantId,
+          name: body.name,
+          category: body.category,
+          acquiredOn: body.acquiredOn ? new Date(body.acquiredOn) : null,
+          acquisitionCost: body.acquisitionCost ?? null,
+          currentValue: body.currentValue,
+          note: body.note ?? null,
+          linkedAccountId: body.linkedAccountId ?? null,
+          loanId: loan?.id ?? null,
+        },
+        include: { loan: true },
+      });
     });
     await invalidateCache(`assets:summary:${tenantId}:*`);
-    return NextResponse.json({ data: asset }, { status: 201 });
+    const schedule = asset.loan
+      ? computeDebtSchedule(
+          Number(asset.loan.amount),
+          asset.loan.borrowedOn,
+          asset.loan.repaymentDate,
+        )
+      : null;
+    return NextResponse.json({ data: serializeAssetWithDebt(asset, schedule) }, { status: 201 });
   },
 });

@@ -65,7 +65,7 @@ vi.mock("@/lib/prisma", () => ({
     apportionment: {
       findMany: vi.fn().mockResolvedValue([]),
     },
-    fiscalYearClose: {
+    fiscalYear: {
       findUnique: vi.fn().mockResolvedValue(null),
     },
     $transaction: vi.fn().mockImplementation(async (ops: unknown[]) => {
@@ -301,5 +301,64 @@ describe("GET /api/business-profile", () => {
       emptyRouteContext(),
     );
     expect(res.status).toBe(200);
+  });
+});
+
+// D-6: 課税方式は年度別 TaxSetting を優先し、対象年度の設定が無い場合のみ
+// BusinessProfile.taxationType（既定値）へフォールバックすることを検証する。
+describe("GET /api/closing/etax（課税方式の優先順位）", () => {
+  it("対象年度の TaxSetting がある場合は BusinessProfile と異なっていてもそちらを使う", async () => {
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.businessProfile.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      tenantId: 1,
+      ownerName: "山田太郎",
+      tradeName: "山田商店",
+      taxationType: "general", // BusinessProfile 側は原則課税
+    });
+    (prisma.taxSetting.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      tenantId: 1,
+      taxYear: 2026,
+      taxationType: "simplified", // 2026 年度は簡易課税を年度別に設定済み
+      simplifiedRate: 60,
+    });
+
+    const { GET } = await import("@/app/api/closing/etax/route");
+    const req = makeReq(
+      "GET",
+      "http://localhost:3000/api/closing/etax?fiscalYear=2026&type=consumption_tax",
+    );
+    const res = await GET(req, emptyRouteContext());
+    expect(res.status).toBe(200);
+
+    // TaxSetting は対象年度で一意に引く（tenantId_taxYear の複合ユニークキー）
+    expect(prisma.taxSetting.findUnique).toHaveBeenCalledWith({
+      where: { tenantId_taxYear: { tenantId: 1, taxYear: 2026 } },
+    });
+
+    const xml = await res.text();
+    expect(xml).toContain("簡易課税"); // TaxSetting（年度別）の値が使われる
+    expect(xml).not.toContain("原則課税"); // BusinessProfile 側の値は使われない
+  });
+
+  it("対象年度の TaxSetting が無い場合は BusinessProfile.taxationType へフォールバックする", async () => {
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.businessProfile.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      tenantId: 1,
+      ownerName: "山田太郎",
+      tradeName: "山田商店",
+      taxationType: "general",
+    });
+    (prisma.taxSetting.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+
+    const { GET } = await import("@/app/api/closing/etax/route");
+    const req = makeReq(
+      "GET",
+      "http://localhost:3000/api/closing/etax?fiscalYear=2031&type=consumption_tax",
+    );
+    const res = await GET(req, emptyRouteContext());
+    expect(res.status).toBe(200);
+
+    const xml = await res.text();
+    expect(xml).toContain("原則課税"); // フォールバックで BusinessProfile の値が使われる
   });
 });

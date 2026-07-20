@@ -111,3 +111,11 @@ export function tenantDb(tenantId: number) {
 
 // ルートで型注釈が必要なときのための型エイリアス。
 export type TenantDb = ReturnType<typeof tenantDb>;
+
+// db.$transaction(async (tx) => ...) のコールバック引数は TenantDb から
+// $connect/$disconnect/$transaction/$extends を除いた型になる。lib 関数がトランザクション内
+// からも呼べるよう、モデル操作のみを要求するこちらの型を引数に使う（TenantDb はこれを満たす）。
+export type TenantDbClient = Omit<
+  TenantDb,
+  "$connect" | "$disconnect" | "$transaction" | "$extends"
+>;

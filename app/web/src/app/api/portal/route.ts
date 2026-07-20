@@ -28,8 +28,9 @@ export const GET = withApi({
     const cogs = totals["COGS"] ?? 0;
     const netIncome = revenue - cogs - expense;
 
-    const closeStatus = await db.fiscalYearClose.findUnique({
-      where: { tenantId_fiscalYear: { tenantId, fiscalYear } },
+    // D-2: 締め状態は FiscalYear（旧 FiscalYearClose を統合）で管理する
+    const closeStatus = await db.fiscalYear.findUnique({
+      where: { tenantId_year: { tenantId, year: fiscalYear } },
     });
 
     const pendingApprovals = await db.journalApproval.count({

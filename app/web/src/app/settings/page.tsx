@@ -126,7 +126,9 @@ function BusinessProfileSection() {
             />
           </label>
           <label className="block">
-            <span className="text-xs font-medium text-slate-600">消費税課税方式</span>
+            <span className="text-xs font-medium text-slate-600">
+              既定の課税方式（年度別設定が無い場合に使用）
+            </span>
             <select
               className="input-field mt-1 w-full"
               value={form.taxationType}
@@ -138,6 +140,9 @@ function BusinessProfileSection() {
                 </option>
               ))}
             </select>
+            <p className="text-[11px] text-slate-400 mt-1">
+              「消費税設定」タブで対象年度の設定があれば、そちらが優先されます。
+            </p>
           </label>
         </div>
         <label className="block">
@@ -481,13 +486,45 @@ const BLANK: FormState = {
   note: "",
 };
 
+// D-1: 銀行口座は BankAccount（/api/bank-accounts）、カードは LinkedAccount（/api/linked-accounts）
+// を正とし、本セクションは両者を横断表示する。
+type BankAccountItem = {
+  id: number;
+  name: string;
+  bankName: string;
+  branchName: string | null;
+  accountType: string;
+  role: string;
+  lastFour: string | null;
+  account: AccountRef | null;
+  note: string | null;
+  balance: number;
+};
+
+// 編集モーダル用の共通形（kind で PATCH 先を出し分ける）
+type EditItem = {
+  kind: "BANK" | "CREDIT_CARD";
+  id: number;
+  name: string;
+  institution: string; // BANK は bankName
+  lastFour: string;
+  accountCode: string;
+  note: string;
+};
+
 function LinkedAccountsSection() {
   const qc = useQueryClient();
 
-  const { data: items } = useQuery({
+  const { data: cards } = useQuery({
     queryKey: ["linked-accounts"],
     queryFn: async (): Promise<LinkedAccount[]> =>
       (await (await fetch("/api/linked-accounts")).json()).data ?? [],
+  });
+
+  const { data: banks } = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: async (): Promise<BankAccountItem[]> =>
+      (await (await fetch("/api/bank-accounts")).json()).data ?? [],
   });
 
   const { data: accounts } = useQuery({
@@ -497,95 +534,142 @@ function LinkedAccountsSection() {
   });
 
   const [form, setForm] = useState(BLANK);
-  const [editItem, setEditItem] = useState<LinkedAccount | null>(null);
+  const [editItem, setEditItem] = useState<EditItem | null>(null);
 
   const assetAccounts =
     accounts?.filter((a) => a.category === "ASSET" || a.category === "LIABILITY") ?? [];
-  const banks = items?.filter((i) => i.type === "BANK") ?? [];
-  const cards = items?.filter((i) => i.type === "CREDIT_CARD") ?? [];
+
+  function invalidate() {
+    qc.invalidateQueries({ queryKey: ["linked-accounts"] });
+    qc.invalidateQueries({ queryKey: ["bank-accounts"] });
+  }
 
   async function addItem(e: React.FormEvent) {
     e.preventDefault();
-    const body: Record<string, string> = {
-      name: form.name,
-      type: form.type,
-      institution: form.institution,
-    };
+    const body: Record<string, string> = { name: form.name };
     if (form.lastFour) body.lastFour = form.lastFour;
     if (form.accountCode) body.accountCode = form.accountCode;
     if (form.note) body.note = form.note;
-    await fetch("/api/linked-accounts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    if (form.type === "BANK") {
+      body.bankName = form.institution;
+      await fetch("/api/bank-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } else {
+      body.type = "CREDIT_CARD";
+      body.institution = form.institution;
+      await fetch("/api/linked-accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
     setForm(BLANK);
-    qc.invalidateQueries({ queryKey: ["linked-accounts"] });
+    invalidate();
   }
 
   async function saveEdit() {
     if (!editItem) return;
-    await fetch(`/api/linked-accounts/${editItem.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: editItem.name,
-        type: editItem.type,
-        institution: editItem.institution,
-        lastFour: editItem.lastFour ?? "",
-        accountCode: editItem.account?.code ?? "",
-        note: editItem.note ?? "",
-      }),
-    });
+    const common = {
+      name: editItem.name,
+      lastFour: editItem.lastFour,
+      accountCode: editItem.accountCode,
+      note: editItem.note,
+    };
+    if (editItem.kind === "BANK") {
+      await fetch(`/api/bank-accounts/${editItem.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...common, bankName: editItem.institution }),
+      });
+    } else {
+      await fetch(`/api/linked-accounts/${editItem.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...common, institution: editItem.institution }),
+      });
+    }
     setEditItem(null);
-    qc.invalidateQueries({ queryKey: ["linked-accounts"] });
+    invalidate();
   }
 
-  async function deleteItem(item: LinkedAccount) {
+  async function deleteItem(item: EditItem) {
     if (!confirm(`「${item.name}」を削除してよいですか？`)) return;
-    await fetch(`/api/linked-accounts/${item.id}`, { method: "DELETE" });
-    qc.invalidateQueries({ queryKey: ["linked-accounts"] });
+    const url =
+      item.kind === "BANK" ? `/api/bank-accounts/${item.id}` : `/api/linked-accounts/${item.id}`;
+    const res = await fetch(url, { method: "DELETE" });
+    if (res.status === 409) {
+      const { error } = await res.json().catch(() => ({ error: "削除できません" }));
+      alert(error);
+      return;
+    }
+    invalidate();
   }
 
-  const ItemList = ({ list }: { list: LinkedAccount[] }) => (
+  const bankItems: EditItem[] = (banks ?? []).map((b) => ({
+    kind: "BANK",
+    id: b.id,
+    name: b.name,
+    institution: b.bankName,
+    lastFour: b.lastFour ?? "",
+    accountCode: b.account?.code ?? "",
+    note: b.note ?? "",
+  }));
+  const cardItems: EditItem[] = (cards ?? []).map((c) => ({
+    kind: "CREDIT_CARD",
+    id: c.id,
+    name: c.name,
+    institution: c.institution,
+    lastFour: c.lastFour ?? "",
+    accountCode: c.account?.code ?? "",
+    note: c.note ?? "",
+  }));
+  const accountByCode = new Map(assetAccounts.map((a) => [a.code, a]));
+
+  const ItemList = ({ list }: { list: EditItem[] }) => (
     <ul className="divide-y divide-slate-100">
       {list.length === 0 && <p className="text-xs text-slate-400 py-3">登録なし</p>}
-      {list.map((item) => (
-        <li key={item.id} className="py-3 group flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-medium text-slate-800">{item.name}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded-full ${TYPE_BADGE[item.type]}`}>
-                {TYPE_LABEL[item.type]}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {item.institution}
-              {item.lastFour ? ` ****${item.lastFour}` : ""}
-            </p>
-            {item.account && (
-              <p className="text-xs text-indigo-600 mt-0.5">
-                → {item.account.code} {item.account.name}
+      {list.map((item) => {
+        const account = item.accountCode ? accountByCode.get(item.accountCode) : null;
+        return (
+          <li key={`${item.kind}-${item.id}`} className="py-3 group flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-medium text-slate-800">{item.name}</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${TYPE_BADGE[item.kind]}`}>
+                  {TYPE_LABEL[item.kind]}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {item.institution}
+                {item.lastFour ? ` ****${item.lastFour}` : ""}
               </p>
-            )}
-            {item.note && <p className="text-xs text-slate-400 mt-0.5">{item.note}</p>}
-          </div>
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <button
-              onClick={() => setEditItem(item)}
-              className="text-xs text-slate-400 hover:text-indigo-600"
-            >
-              ✏️
-            </button>
-            <button
-              onClick={() => deleteItem(item)}
-              className="text-xs text-slate-400 hover:text-red-600"
-            >
-              🗑
-            </button>
-          </div>
-        </li>
-      ))}
+              {account && (
+                <p className="text-xs text-indigo-600 mt-0.5">
+                  → {account.code} {account.name}
+                </p>
+              )}
+              {item.note && <p className="text-xs text-slate-400 mt-0.5">{item.note}</p>}
+            </div>
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <button
+                onClick={() => setEditItem(item)}
+                className="text-xs text-slate-400 hover:text-indigo-600"
+              >
+                ✏️
+              </button>
+              <button
+                onClick={() => deleteItem(item)}
+                className="text-xs text-slate-400 hover:text-red-600"
+              >
+                🗑
+              </button>
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 
@@ -595,7 +679,9 @@ function LinkedAccountsSection() {
       {editItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
           <div className="bg-white rounded-xl shadow-xl p-6 w-96">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4">口座・カードを編集</h3>
+            <h3 className="text-sm font-semibold text-slate-800 mb-4">
+              {TYPE_LABEL[editItem.kind]}を編集
+            </h3>
             <div className="space-y-3">
               <input
                 className="input-field w-full"
@@ -603,16 +689,6 @@ function LinkedAccountsSection() {
                 value={editItem.name}
                 onChange={(e) => setEditItem({ ...editItem, name: e.target.value })}
               />
-              <select
-                className="input-field w-full"
-                value={editItem.type}
-                onChange={(e) =>
-                  setEditItem({ ...editItem, type: e.target.value as "BANK" | "CREDIT_CARD" })
-                }
-              >
-                <option value="BANK">銀行口座</option>
-                <option value="CREDIT_CARD">クレジットカード</option>
-              </select>
               <input
                 className="input-field w-full"
                 placeholder="金融機関名"
@@ -623,16 +699,13 @@ function LinkedAccountsSection() {
                 className="input-field w-full"
                 placeholder="下4桁（任意）"
                 maxLength={4}
-                value={editItem.lastFour ?? ""}
+                value={editItem.lastFour}
                 onChange={(e) => setEditItem({ ...editItem, lastFour: e.target.value })}
               />
               <select
                 className="input-field w-full"
-                value={editItem.account?.code ?? ""}
-                onChange={(e) => {
-                  const acct = assetAccounts.find((a) => a.code === e.target.value) ?? null;
-                  setEditItem({ ...editItem, account: acct, accountId: acct?.id ?? null });
-                }}
+                value={editItem.accountCode}
+                onChange={(e) => setEditItem({ ...editItem, accountCode: e.target.value })}
               >
                 <option value="">勘定科目と紐付けない</option>
                 {assetAccounts.map((a) => (
@@ -644,7 +717,7 @@ function LinkedAccountsSection() {
               <input
                 className="input-field w-full"
                 placeholder="メモ（任意）"
-                value={editItem.note ?? ""}
+                value={editItem.note}
                 onChange={(e) => setEditItem({ ...editItem, note: e.target.value })}
               />
             </div>
@@ -745,7 +818,7 @@ function LinkedAccountsSection() {
         <div className="grid gap-5 lg:grid-cols-2">
           <div className="card">
             <div className="flex items-center justify-between mb-1">
-              <h2 className="section-title">銀行口座 ({banks.length})</h2>
+              <h2 className="section-title">銀行口座 ({bankItems.length})</h2>
               <div className="flex gap-2">
                 <a
                   href="/bank-accounts"
@@ -761,11 +834,11 @@ function LinkedAccountsSection() {
                 </a>
               </div>
             </div>
-            <ItemList list={banks} />
+            <ItemList list={bankItems} />
           </div>
           <div className="card">
-            <h2 className="section-title mb-1">クレジットカード ({cards.length})</h2>
-            <ItemList list={cards} />
+            <h2 className="section-title mb-1">クレジットカード ({cardItems.length})</h2>
+            <ItemList list={cardItems} />
           </div>
         </div>
       </div>

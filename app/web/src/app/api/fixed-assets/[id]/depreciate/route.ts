@@ -4,6 +4,12 @@ import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
 import { resolvePeriod } from "@/lib/period";
 
+// D-5d-4: 償却費科目。従来は実在しない "H3400" を参照しており実績連動が常に no-op になっていた
+// （調査で判明した既存バグの修正）。モード別の科目コード（個人事業主 7600 / 法人 C7300）に対応する。
+const DEPRECIATION_EXPENSE_ACCOUNT_CODES = ["7600", "C7300"];
+// 減価償却累計額（対照科目）。現状どのテナントにも未整備のため、存在する場合のみ監査証跡仕訳を作る。
+const ACCUMULATED_DEPRECIATION_ACCOUNT_CODE = "2400";
+
 // POST /api/fixed-assets/[id]/depreciate?year= … 年次償却の計上（editor 以上）
 export const POST = withApi({
   role: "editor",
@@ -43,12 +49,38 @@ export const POST = withApi({
       }),
     ]);
 
-    const deprAccount = await db.account.findFirst({ where: { tenantId, code: "H3400" } });
+    const deprAccount = await db.account.findFirst({
+      where: { tenantId, code: { in: DEPRECIATION_EXPENSE_ACCOUNT_CODES } },
+    });
     if (deprAccount) {
       const period = await resolvePeriod(db, tenantId, fiscalYear, 12);
       await db.financialRecord.create({
         data: { tenantId, accountId: deprAccount.id, periodId: period.id, amount },
       });
+
+      // D-5d-4: 監査証跡として複式仕訳（Dr 減価償却費/Cr 減価償却累計額）も記録する
+      // （対照科目が整備されている場合のみ）。choke-point 同期は呼ばない — 既に上で直接
+      // FinancialRecord を書いているため、同期すると同じ科目に二重計上してしまう。
+      const accumulatedAccount = await db.account.findFirst({
+        where: { tenantId, code: ACCUMULATED_DEPRECIATION_ACCOUNT_CODE },
+      });
+      if (accumulatedAccount) {
+        await db.journalEntry.create({
+          data: {
+            tenantId,
+            transactionDate: new Date(fiscalYear, 11, 31),
+            description: `${asset.name} ${fiscalYear}年度償却（自動仕訳）`,
+            paymentMethod: "other",
+            taxCategory: "non_taxable",
+            details: {
+              create: [
+                { side: "debit", accountId: deprAccount.id, amount },
+                { side: "credit", accountId: accumulatedAccount.id, amount },
+              ],
+            },
+          },
+        });
+      }
     }
 
     return NextResponse.json({ data: depreciation }, { status: 201 });

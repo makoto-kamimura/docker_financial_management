@@ -64,6 +64,7 @@ model Account {
   allocationRules      AllocationRule[]
   categorizedTxns      BankTransaction[]
   txnCategoryRules     TxnCategoryRule[]
+  bankAccounts         BankAccount[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -143,22 +144,28 @@ model AllocationRule {
 
 // 実績データ
 model FinancialRecord {
-  id           Int         @id @default(autoincrement())
-  tenantId     Int
-  account      Account     @relation(fields: [accountId], references: [id])
-  accountId    Int
-  department   Department? @relation(fields: [departmentId], references: [id])
-  departmentId Int?
-  period       Period      @relation(fields: [periodId], references: [id])
-  periodId     Int
-  amount       Decimal     @db.Decimal(18, 2)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id             Int           @id @default(autoincrement())
+  tenantId       Int
+  account        Account       @relation(fields: [accountId], references: [id])
+  accountId      Int
+  department     Department?   @relation(fields: [departmentId], references: [id])
+  departmentId   Int?
+  period         Period        @relation(fields: [periodId], references: [id])
+  periodId       Int
+  amount         Decimal       @db.Decimal(18, 2)
+  // D-5a: 発生元の仕訳（syncJournalToFinancialRecords() 経由で作成された行のみ設定される。
+  // 手動 /api/financials・CSV 取込・F-5 明細転記等の直接書き込みは null のまま）。
+  // 仕訳削除時にこの逆参照で同期済み行を辿って一緒に削除し、孤立行の発生を防ぐ。
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  journalEntryId Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   history       FinancialRecordHistory[]
   postedFromTxn BankTransaction?
 
   @@index([tenantId, accountId, periodId])
+  @@index([journalEntryId])
   @@map("financial_records")
 }
 
@@ -193,15 +200,15 @@ model Forecast {
   @@map("forecasts")
 }
 
-// 銀行口座・クレジットカード 連携情報
+// クレジットカード台帳（D-1: 銀行口座は BankAccount に一本化し、本モデルはカード専用）
 model LinkedAccount {
   id          Int      @id @default(autoincrement())
   tenantId    Int
-  name        String // 口座名・カード名（表示名）
-  type        String // BANK | CREDIT_CARD
-  institution String // 金融機関名
-  lastFour    String? // 口座番号・カード番号の下4桁
-  accountId   Int? // 紐付く勘定科目（ASSET/LIABILITY）
+  name        String // カード名（表示名）
+  type        String // CREDIT_CARD 固定（歴史的経緯でカラムを維持）
+  institution String // カード会社名
+  lastFour    String? // カード番号の下4桁
+  accountId   Int? // 紐付く勘定科目（LIABILITY）
   account     Account? @relation(fields: [accountId], references: [id])
   note        String? // メモ
   createdAt   DateTime @default(now())
@@ -345,6 +352,9 @@ model BusinessProfile {
   openedOn      DateTime? // 開業日
   blueReturn    Boolean   @default(false) // 青色申告
   invoiceNumber String? // インボイス登録番号（T + 13桁）
+  // D-6: 課税方式の既定値（フォールバック用）。対象年度の TaxSetting 行が存在する場合は
+  // そちらが正であり、このカラムは新年度作成時の初期値・年度別設定が未登録の場合の
+  // フォールバックとしてのみ参照される（例: api/closing/etax）。
   taxationType  String    @default("exempt") // exempt / general / simplified
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -353,11 +363,13 @@ model BusinessProfile {
 }
 
 // F012 消費税設定（年度別）
+// D-6: 課税方式は本モデルが正。tenantId + taxYear の行が存在すればこちらの
+// taxationType を採用し、存在しない年度のみ BusinessProfile.taxationType にフォールバックする。
 model TaxSetting {
   id             Int      @id @default(autoincrement())
   tenantId       Int
   taxYear        Int // 適用年度
-  taxationType   String // exempt / general / simplified
+  taxationType   String // exempt / general / simplified（年度別・正）
   simplifiedRate Decimal? @db.Decimal(5, 2) // 簡易課税みなし仕入率（%）
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -375,14 +387,14 @@ model JournalEntry {
   description     String // 摘要
   paymentMethod   String   @default("cash") // cash / bank / card / transfer
   taxCategory     String   @default("taxable") // taxable / exempt / non_taxable
-  receiptUrl      String? // 証憑ファイル URL
   approvalStatus  String   @default("approved") // draft / pending / approved / rejected
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  details   JournalDetail[]
-  receipts  Receipt[]
-  approvals JournalApproval[]
+  details          JournalDetail[]
+  receipts         Receipt[]
+  approvals        JournalApproval[]
+  financialRecords FinancialRecord[] // D-5a: 同期済み実績行の逆参照（削除時のクリーンアップに使用）
 
   @@index([tenantId, transactionDate])
   @@index([tenantId, approvalStatus])
@@ -523,22 +535,23 @@ enum PersonalAssetCategory {
 }
 
 // 実物資産台帳（家計の資産管理: 土地・建物・車・金など）
+// D-4: 紐付け負債（旧 debtStartOn/debtPayoffDue/debtInitialAmount）は Loan に一本化し、
+// loanId で参照する。API は旧フィールド名の入出力を維持し、内部で Loan へ読み替える。
 model PersonalAsset {
-  id                Int                   @id @default(autoincrement())
-  tenantId          Int
-  name              String // 資産名（例: 自宅土地）
-  category          PersonalAssetCategory @default(OTHER)
-  acquiredOn        DateTime? // 取得日
-  acquisitionCost   Decimal?              @db.Decimal(18, 2) // 取得価格
-  currentValue      Decimal               @db.Decimal(18, 2) // 現在評価額
-  note              String?
-  linkedAccountId   Int? // 紐付く負債科目（例: 住宅ローン）
-  linkedAccount     Account?              @relation(fields: [linkedAccountId], references: [id])
-  debtStartOn       DateTime? // 負債の支払い開始年月。月初日で保存
-  debtPayoffDue     DateTime? // 負債解消（完済）予定年月。月初日で保存
-  debtInitialAmount Decimal?              @db.Decimal(18, 2) // 当初負債額。開始月〜解消予定月で月割りして予算に自動計上し、経過月数から残高を算出
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  id              Int                   @id @default(autoincrement())
+  tenantId        Int
+  name            String // 資産名（例: 自宅土地）
+  category        PersonalAssetCategory @default(OTHER)
+  acquiredOn      DateTime? // 取得日
+  acquisitionCost Decimal?              @db.Decimal(18, 2) // 取得価格
+  currentValue    Decimal               @db.Decimal(18, 2) // 現在評価額
+  note            String?
+  linkedAccountId Int? // 紐付く負債科目（例: 住宅ローン）
+  linkedAccount   Account?              @relation(fields: [linkedAccountId], references: [id])
+  loanId          Int?                  @unique // 紐付け負債の実体（Loan）。null = 負債なし
+  loan            Loan?                 @relation(fields: [loanId], references: [id])
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
 
   @@index([tenantId])
   @@index([linkedAccountId])
@@ -562,6 +575,8 @@ model Apportionment {
 }
 
 // F010 売掛金管理
+// D-3: invoiceId は「請求書発行から自動生成された売掛金」を示す（POST /api/receivables 経由の
+// 手動計上は null のまま）。リンク済みの場合、金額・得意先名は Invoice を正とする。
 model Receivable {
   id            Int       @id @default(autoincrement())
   tenantId      Int
@@ -576,6 +591,8 @@ model Receivable {
   paidAmount    Decimal?  @db.Decimal(18, 2) // 入金金額
   invoiceNumber String? // 請求書番号
   note          String?
+  invoiceId     Int?      @unique // 発行元インボイス（自動生成の場合のみ）
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -633,17 +650,19 @@ model Tenant {
   @@map("tenants")
 }
 
-// 会計年度（テナント別）
+// 会計年度（テナント別）。D-2 で FiscalYearClose を統合し、年度の存在と締め状態を単一行で管理する
 model FiscalYear {
-  id        Int      @id @default(autoincrement())
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id        Int       @id @default(autoincrement())
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   tenantId  Int
   year      Int
   startDate DateTime
   endDate   DateTime
-  status    String   @default("open") // open / closed
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status    String    @default("open") // open / closed
+  netIncome Decimal?  @db.Decimal(18, 2) // 決算確定時の当期純利益（closing/finalize が設定）
+  closedAt  DateTime? // 決算確定日時
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@unique([tenantId, year])
   @@map("fiscal_years")
@@ -686,7 +705,7 @@ model JournalTemplateLine {
 // 法人・統合会計 — Phase 3: 在庫・銀行・借入金管理
 // ============================================================
 
-// 銀行口座
+// 銀行口座（D-1 で LinkedAccount(BANK) を統合した唯一の銀行口座マスタ）
 model BankAccount {
   id          Int             @id @default(autoincrement())
   tenantId    Int
@@ -695,6 +714,10 @@ model BankAccount {
   branchName  String? // 支店名
   accountType String          @default("普通") // 普通 / 当座
   role        BankAccountRole @default(OTHER)
+  lastFour    String? // 口座番号の下4桁
+  accountId   Int? // 紐付く勘定科目（ASSET）。資産サマリの二重計上除外に使用
+  account     Account?        @relation(fields: [accountId], references: [id])
+  note        String? // メモ
   createdAt   DateTime        @default(now())
 
   outgoing     Transfer[]        @relation("from")
@@ -702,6 +725,7 @@ model BankAccount {
   transactions BankTransaction[]
 
   @@index([tenantId])
+  @@index([accountId])
   @@map("bank_accounts")
 }
 
@@ -786,7 +810,8 @@ model Loan {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  repayments LoanRepayment[]
+  repayments    LoanRepayment[]
+  personalAsset PersonalAsset? // D-4: 実物資産の紐付け負債として作成された場合の逆参照
 
   @@index([tenantId])
   @@index([linkedAccountId])
@@ -828,7 +853,8 @@ model Invoice {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  lines InvoiceLine[]
+  lines      InvoiceLine[]
+  receivable Receivable? // D-3: 発行（issued）時に自動生成される売掛金
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
@@ -1069,19 +1095,3 @@ model AiConversionUsage {
 // ============================================================
 // F013 決算年度管理（既存）
 // ============================================================
-
-// F013 決算年度管理
-model FiscalYearClose {
-  id         Int       @id @default(autoincrement())
-  tenantId   Int
-  fiscalYear Int
-  status     String    @default("open") // open / closed
-  netIncome  Decimal?  @db.Decimal(18, 2)
-  closedAt   DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  @@unique([tenantId, fiscalYear])
-  @@index([tenantId])
-  @@map("fiscal_year_closes")
-}

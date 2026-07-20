@@ -3287,24 +3287,17 @@ async function main() {
     prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "1100" } } }),
     prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "3100" } } }),
   ]);
+  // D-1: 銀行口座の勘定科目紐付け・下4桁は bank_accounts に統合された
+  await prisma.bankAccount.update({
+    where: { id: 4 },
+    data: { lastFour: "1234", accountId: laAsset?.id, note: "メイン事業口座" },
+  });
+  await prisma.bankAccount.update({
+    where: { id: 5 },
+    data: { lastFour: "5678", accountId: laAsset?.id, note: "税金積立専用" },
+  });
   await prisma.linkedAccount.createMany({
     data: [
-      {
-        name: "三井住友銀行 事業用口座",
-        type: "BANK",
-        institution: "三井住友銀行",
-        lastFour: "1234",
-        accountId: laAsset?.id,
-        note: "メイン事業口座",
-      },
-      {
-        name: "ゆうちょ銀行 納税積立",
-        type: "BANK",
-        institution: "ゆうちょ銀行",
-        lastFour: "5678",
-        accountId: laAsset?.id,
-        note: "税金積立専用",
-      },
       {
         name: "三井住友VISAカード",
         type: "CREDIT_CARD",
@@ -3323,7 +3316,7 @@ async function main() {
       },
     ].map((r) => ({ ...r, tenantId: tid })),
   });
-  console.log("  ✓ Created linked accounts");
+  console.log("  ✓ Created linked accounts (cards) & bank account mappings");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 21. 決算整理仕訳（未収収益・未払費用）───────────────────────────────

@@ -12,6 +12,7 @@ const PaySchema = z.object({
 });
 
 // POST /api/receivables/[id]/pay … 売掛金の入金消込（自動仕訳、editor 以上）
+// D-3: 請求書から自動生成された売掛金（invoiceId あり）の場合、リンク先の Invoice も paid に揃える
 export const POST = withApi({
   role: "editor",
   schema: PaySchema,
@@ -32,9 +33,15 @@ export const POST = withApi({
       missingAccountsMessage: "勘定科目が見つかりません（1300/入金科目）",
     });
 
-    const updated = await db.receivable.update({
-      where: { id },
-      data: { status: "paid", paidOn: body.paidOn, paidAmount: body.paidAmount },
+    const updated = await db.$transaction(async (tx) => {
+      const r = await tx.receivable.update({
+        where: { id },
+        data: { status: "paid", paidOn: body.paidOn, paidAmount: body.paidAmount },
+      });
+      if (receivable.invoiceId) {
+        await tx.invoice.update({ where: { id: receivable.invoiceId }, data: { status: "paid" } });
+      }
+      return r;
     });
 
     return NextResponse.json({ data: updated });

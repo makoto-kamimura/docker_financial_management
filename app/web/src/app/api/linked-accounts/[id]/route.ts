@@ -4,7 +4,8 @@ import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
 import { requireAccountByCode } from "@/lib/period";
 
-const TYPES = ["BANK", "CREDIT_CARD"] as const;
+// D-1: 銀行口座は /api/bank-accounts に一本化。本 API はクレジットカード専用
+const TYPES = ["CREDIT_CARD"] as const;
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -15,7 +16,7 @@ const UpdateSchema = z.object({
   note: z.string().optional().nullable(),
 });
 
-// PATCH /api/linked-accounts/[id] … 口座・カードの更新（editor 以上）
+// PATCH /api/linked-accounts/[id] … クレジットカードの更新（editor 以上）
 export const PATCH = withApi({
   role: "editor",
   schema: UpdateSchema,
@@ -43,7 +44,7 @@ export const PATCH = withApi({
   },
 });
 
-// DELETE /api/linked-accounts/[id] … 口座・カードの削除（editor 以上）
+// DELETE /api/linked-accounts/[id] … クレジットカードの削除（editor 以上）
 export const DELETE = withApi({
   role: "editor",
   handler: async ({ user, db, id, audit }) => {

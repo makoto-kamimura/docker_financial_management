@@ -9,6 +9,7 @@ import {
   classifyFileType,
   matchesMagicBytes,
   MAX_UPLOAD_BYTES,
+  resolveReceiptFileUrl,
   resolveUploadExtension,
   tenantUploadDir,
 } from "@/lib/upload";
@@ -24,7 +25,9 @@ export const GET = withApi({
       where: { journalEntryId: id },
       orderBy: { uploadedAt: "desc" },
     });
-    return NextResponse.json({ data: receipts });
+    // D-7: fileUrl は savedName からの導出値で応答する（保存済みカラムは信用しない）
+    const data = receipts.map((r) => ({ ...r, fileUrl: resolveReceiptFileUrl(r) }));
+    return NextResponse.json({ data });
   },
 });
 
@@ -69,6 +72,8 @@ export const POST = withApi({
       data: {
         journalEntryId: id,
         fileName: file.name,
+        // D-7: fileUrl 列は 1 リリース据え置き後に削除予定のため書き込みは維持するが、
+        // レスポンスは resolveReceiptFileUrl() の導出値を返す（下記）
         fileUrl: `/api/uploads/${savedName}`,
         savedName,
         mimeType: file.type,
@@ -76,6 +81,9 @@ export const POST = withApi({
         fileSize: file.size,
       },
     });
-    return NextResponse.json({ data: receipt }, { status: 201 });
+    return NextResponse.json(
+      { data: { ...receipt, fileUrl: resolveReceiptFileUrl(receipt) } },
+      { status: 201 },
+    );
   },
 });

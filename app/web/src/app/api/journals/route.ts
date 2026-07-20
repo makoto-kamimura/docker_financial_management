@@ -4,11 +4,22 @@ import { withApi } from "@/lib/api-handler";
 import { badRequest } from "@/lib/api-error";
 import { JOURNAL_DETAILS_INCLUDE, syncJournalToFinancialRecords } from "@/lib/journal";
 import { invalidateCache } from "@/lib/redis";
+import { resolveReceiptFileUrl } from "@/lib/upload";
 
 const INCLUDE_WITH_RECEIPTS = {
   ...JOURNAL_DETAILS_INCLUDE,
   receipts: { orderBy: { uploadedAt: "desc" as const } },
 };
+
+// D-7: receipts[].fileUrl は savedName からの導出値で応答する（保存済みカラムは信用しない）
+function withResolvedReceiptUrls<
+  T extends { receipts: { savedName: string | null; fileUrl: string }[] },
+>(entry: T): T {
+  return {
+    ...entry,
+    receipts: entry.receipts.map((r) => ({ ...r, fileUrl: resolveReceiptFileUrl(r) })),
+  };
+}
 
 const JournalSchema = z.object({
   transactionDate: z.string().min(1),
@@ -65,7 +76,7 @@ export const GET = withApi({
       }),
     ]);
 
-    return NextResponse.json({ data: entries, total, page, limit });
+    return NextResponse.json({ data: entries.map(withResolvedReceiptUrls), total, page, limit });
   },
 });
 
@@ -108,14 +119,20 @@ export const POST = withApi({
     await syncJournalToFinancialRecords(
       db,
       tenantId,
+      entry.id,
       entry.transactionDate,
-      entry.details.map((d) => ({ accountId: d.accountId, amount: Number(d.amount) })),
+      entry.details.map((d) => ({
+        accountId: d.accountId,
+        category: d.account.category,
+        side: d.side,
+        amount: Number(d.amount),
+      })),
     );
 
     const year = entry.transactionDate.getFullYear();
     await invalidateCache(`closing:statements:${year}`);
     await invalidateCache(`reports:ledger:${year}:*`);
 
-    return NextResponse.json({ data: entry }, { status: 201 });
+    return NextResponse.json({ data: withResolvedReceiptUrls(entry) }, { status: 201 });
   },
 });

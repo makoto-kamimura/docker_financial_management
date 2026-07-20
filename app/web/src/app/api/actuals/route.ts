@@ -3,7 +3,11 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
 import { findAccountByCode } from "@/lib/period";
-import { JOURNAL_DETAILS_INCLUDE } from "@/lib/journal";
+import {
+  deleteFinancialRecordsForJournalEntry,
+  JOURNAL_DETAILS_INCLUDE,
+  syncJournalToFinancialRecords,
+} from "@/lib/journal";
 
 const ActualSchema = z.object({
   date: z.string().min(1),
@@ -72,6 +76,20 @@ export const POST = withApi({
       include: JOURNAL_DETAILS_INCLUDE,
     });
 
+    // D-5c: カレンダー入力（自動 2 行仕訳）も choke-point 経由で月次実績へ同期する
+    await syncJournalToFinancialRecords(
+      db,
+      tenantId,
+      entry.id,
+      entry.transactionDate,
+      entry.details.map((d) => ({
+        accountId: d.accountId,
+        category: d.account.category,
+        side: d.side,
+        amount: Number(d.amount),
+      })),
+    );
+
     await audit("create", `journal_entry:${entry.id}`);
     return NextResponse.json({ data: entry }, { status: 201 });
   },
@@ -87,7 +105,12 @@ export const DELETE = withApi({
     });
     if (!entry) throw notFound();
 
-    await db.journalEntry.delete({ where: { id: query.id } });
+    // D-5a: 同期済み FinancialRecord 行があれば一緒に削除する（現状 actuals は未同期のため
+    // no-op だが、D-5c で同期対象になった時点でこの処理がそのまま効くようにしておく）
+    await db.$transaction(async (tx) => {
+      await deleteFinancialRecordsForJournalEntry(tx, query.id);
+      await tx.journalEntry.delete({ where: { id: query.id } });
+    });
     await audit("delete", `journal_entry:${query.id}`);
     return NextResponse.json({ ok: true });
   },

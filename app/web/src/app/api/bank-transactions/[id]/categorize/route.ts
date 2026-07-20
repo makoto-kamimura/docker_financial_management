@@ -5,6 +5,7 @@ import { conflict, notFound } from "@/lib/api-error";
 import { resolvePeriodForDate } from "@/lib/period";
 import { normalizeKeyword } from "@/lib/banktxn-import";
 import { serializeBankTransaction } from "@/lib/bank-transactions";
+import { JOURNAL_DETAILS_INCLUDE, syncJournalToFinancialRecords } from "@/lib/journal";
 
 const Schema = z.object({
   categoryAccountId: z.number().int().positive().nullable().optional(),
@@ -63,9 +64,65 @@ export const PATCH = withApi({
         if (categoryAccountId === null) throw conflict("科目が未設定のため転記できません");
 
         const amount = Math.abs(Number(txn.amount));
-        const record = await tx.financialRecord.create({
-          data: { tenantId, accountId: categoryAccountId, periodId: period!.id, amount },
-        });
+
+        // D-5d: 口座に勘定科目（ASSET）が紐付いており、かつ分類科目が P/L 科目なら
+        // 複式仕訳を作って choke-point 経由で同期する（試算表・総勘定元帳にも計上される）。
+        // 口座が未紐付け、または分類科目が B/S 科目の場合は従来どおりの単側直接書き込みに留める
+        // （B/S 科目はスナップショット意味論のため choke-point の対象外 — 再設計詳細設計書.md §12.3）。
+        const [bankAccount, categoryAccount] = await Promise.all([
+          tx.bankAccount.findUnique({ where: { id: txn.accountId } }),
+          tx.account.findUnique({ where: { id: categoryAccountId } }),
+        ]);
+        const canJournalize =
+          bankAccount?.accountId != null &&
+          categoryAccount != null &&
+          categoryAccount.category !== "ASSET" &&
+          categoryAccount.category !== "LIABILITY";
+
+        let record: { id: number };
+        if (canJournalize) {
+          const isIncome = Number(txn.amount) > 0;
+          const [debitId, creditId] = isIncome
+            ? [bankAccount!.accountId!, categoryAccountId]
+            : [categoryAccountId, bankAccount!.accountId!];
+
+          const entry = await tx.journalEntry.create({
+            data: {
+              tenantId,
+              transactionDate: txn.date,
+              description: txn.description,
+              paymentMethod: "bank",
+              taxCategory: "taxable",
+              details: {
+                create: [
+                  { side: "debit", accountId: debitId, amount },
+                  { side: "credit", accountId: creditId, amount },
+                ],
+              },
+            },
+            include: JOURNAL_DETAILS_INCLUDE,
+          });
+          await syncJournalToFinancialRecords(
+            tx,
+            tenantId,
+            entry.id,
+            entry.transactionDate,
+            entry.details.map((d) => ({
+              accountId: d.accountId,
+              category: d.account.category,
+              side: d.side,
+              amount: Number(d.amount),
+            })),
+          );
+          record = await tx.financialRecord.findFirstOrThrow({
+            where: { journalEntryId: entry.id },
+          });
+        } else {
+          record = await tx.financialRecord.create({
+            data: { tenantId, accountId: categoryAccountId, periodId: period!.id, amount },
+          });
+        }
+
         await tx.financialRecordHistory.create({
           data: { recordId: record.id, userId: user.id, action: "create", amount },
         });

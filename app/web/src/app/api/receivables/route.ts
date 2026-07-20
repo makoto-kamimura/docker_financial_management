@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { zDate } from "@/lib/zod-helpers";
-import { AR_ACCOUNT_CODE, postIssueRecord } from "@/lib/settlement";
+import { postIssueRecord } from "@/lib/settlement";
 
 const ReceivableSchema = z.object({
   customerName: z.string().min(1),
@@ -58,8 +58,8 @@ export const POST = withApi({
       },
     });
 
-    // 売掛金科目（1300）があれば実績へ連動記帳する
-    await postIssueRecord(db, tenantId, AR_ACCOUNT_CODE, record.issueDate, body.amount);
+    // 売掛金科目（1300）があれば実績へ連動記帳する（D-5d-2: 監査証跡の仕訳も併せて記録）
+    await postIssueRecord(db, tenantId, "receivable", record.issueDate, body.amount);
 
     return NextResponse.json({ data: record }, { status: 201 });
   },

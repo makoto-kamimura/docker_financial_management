@@ -24,7 +24,9 @@ export async function computeLoanOverlay(
   year: number,
 ): Promise<LoanOverlayItem[]> {
   const loans = await db.loan.findMany({
-    where: { tenantId, linkedAccountId: { not: null } },
+    // D-4: 実物資産の紐付け負債（personalAsset あり）は computePersonalAssetDebtOverlay 側で
+    // 資産名付きで計上するため、ここでは除外して二重計上を防ぐ
+    where: { tenantId, linkedAccountId: { not: null }, personalAsset: { is: null } },
     include: { linkedAccount: { select: { id: true, code: true } } },
   });
 
@@ -61,36 +63,30 @@ export async function computeLoanOverlay(
 // 後方互換のためのエイリアス（旧名: 住宅ローンのみ対象だったが、現在は全ローンを対象に計算する）。
 export const computeHousingLoanOverlay = computeLoanOverlay;
 
-// 実物資産に紐付く負債（ローン等）の当初負債額を、支払い開始年月〜解消予定年月で均等割りし、
-// 紐付け負債科目の予算に上乗せする額。
+// 実物資産に紐付く負債（D-4 で Loan に一本化。personal_assets.loanId 経由で参照）の
+// 当初負債額を支払い開始年月〜解消予定年月で均等割りし、紐付け負債科目の予算に上乗せする額。
 export async function computePersonalAssetDebtOverlay(
   db: TenantDb,
   tenantId: number,
   year: number,
 ): Promise<PersonalAssetDebtOverlayItem[]> {
   const assets = await db.personalAsset.findMany({
-    where: {
-      tenantId,
-      linkedAccountId: { not: null },
-      debtStartOn: { not: null },
-      debtPayoffDue: { not: null },
-      debtInitialAmount: { not: null },
-    },
-    include: { linkedAccount: { select: { id: true, code: true } } },
+    where: { tenantId, linkedAccountId: { not: null }, loanId: { not: null } },
+    include: { linkedAccount: { select: { id: true, code: true } }, loan: true },
   });
 
   const overlay: PersonalAssetDebtOverlayItem[] = [];
   for (const asset of assets) {
-    if (!asset.linkedAccount || !asset.debtStartOn || !asset.debtPayoffDue) continue;
+    if (!asset.linkedAccount || !asset.loan) continue;
     const schedule = computeDebtSchedule(
-      Number(asset.debtInitialAmount),
-      asset.debtStartOn,
-      asset.debtPayoffDue,
+      Number(asset.loan.amount),
+      asset.loan.borrowedOn,
+      asset.loan.repaymentDate,
     );
     if (!schedule) continue;
 
-    const startYm = ymIndex(asset.debtStartOn);
-    const payoffYm = ymIndex(asset.debtPayoffDue);
+    const startYm = ymIndex(asset.loan.borrowedOn);
+    const payoffYm = ymIndex(asset.loan.repaymentDate);
     for (let month = 1; month <= 12; month++) {
       const ym = year * 12 + (month - 1);
       if (ym < startYm || ym > payoffYm) continue;

@@ -14,11 +14,14 @@ export const GET = withApi({
     const fiscalYear = query.fiscalYear ?? new Date().getFullYear();
     const { type } = query;
 
-    const profile = await db.businessProfile.findUnique({ where: { tenantId } });
-    const taxSetting = await db.taxSetting.findFirst({
-      where: { tenantId },
-      orderBy: { createdAt: "desc" },
-    });
+    // D-6: 課税方式は年度別 TaxSetting を正とし、対象年度の設定が無い場合のみ
+    // BusinessProfile.taxationType（既定値）へフォールバックする。
+    const [profile, taxSetting] = await Promise.all([
+      db.businessProfile.findUnique({ where: { tenantId } }),
+      db.taxSetting.findUnique({
+        where: { tenantId_taxYear: { tenantId, taxYear: fiscalYear } },
+      }),
+    ]);
 
     const records = await db.financialRecord.findMany({
       where: { tenantId, period: { fiscalYear } },
@@ -41,7 +44,7 @@ export const GET = withApi({
     const submitAt = now.toISOString().slice(0, 10);
     const ownerName = profile?.ownerName ?? "";
     const tradeName = profile?.tradeName ?? profile?.ownerName ?? "";
-    const taxType = taxSetting?.taxationType ?? "exempt";
+    const taxType = taxSetting?.taxationType ?? profile?.taxationType ?? "exempt";
     const taxRate = taxType === "simplified" ? 0.02 : 0.1;
     const taxAmount = taxType === "exempt" ? 0 : Math.floor(revenue * taxRate);
 

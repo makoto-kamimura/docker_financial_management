@@ -43,6 +43,18 @@ export function classifyFileType(mimeType: string): "image" | "pdf" | "other" {
   return "other";
 }
 
+// D-7: Receipt.fileUrl は savedName から機械的に導出できる値（/api/uploads/<savedName>）の
+// 重複保存になっている。API レスポンス組み立て時はこの関数で savedName から導出した値を優先し、
+// 保存済みカラムは信用しない（カラム自体は 1 リリース据え置き後に削除予定のためまだ残す）。
+// savedName が null の旧行（S-1 移行時に fileUrl から逆算できなかった行）だけ、保存済み
+// fileUrl にフォールバックする（ダウンロードが壊れないようにするため）。
+export function resolveReceiptFileUrl(receipt: {
+  savedName: string | null;
+  fileUrl: string;
+}): string {
+  return receipt.savedName ? `/api/uploads/${receipt.savedName}` : receipt.fileUrl;
+}
+
 // S-8: マジックバイト（ファイル先頭のバイト列）が拡張子と整合するか検証する。
 // ファイル名・Content-Type だけを詐称したアップロード（例: スクリプトを .pdf にリネーム）を
 // 拡張子・MIME チェックだけでは検出できないため、実際のバイト内容も確認する。

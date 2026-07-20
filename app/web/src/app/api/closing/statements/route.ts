@@ -47,7 +47,11 @@ export const GET = withApi({
         parentId: number | null;
       };
 
+      // D-5c/再設計詳細設計書.md §12.4: B/S 科目（ASSET/LIABILITY）は assets/summary と同じ
+      // 「年内最も新しい月」のスナップショットを残高として採用する（全行の単純合計は二重計上になる）。
+      // P/L 科目（REVENUE/COGS/EXPENSE 等）は従来どおり年内全行を単純合計する。
       const summaryMap = new Map<number, AccountSummary>();
+      const latestBsMonthByAccount = new Map<number, number>();
       for (const r of records) {
         const key = r.accountId;
         if (!summaryMap.has(key)) {
@@ -62,7 +66,17 @@ export const GET = withApi({
             total: 0,
           });
         }
-        summaryMap.get(key)!.total += Number(r.amount);
+        const entry = summaryMap.get(key)!;
+        const isBalanceSheet = r.account.category === "ASSET" || r.account.category === "LIABILITY";
+        if (isBalanceSheet) {
+          const latestMonth = latestBsMonthByAccount.get(key);
+          if (latestMonth === undefined || r.period.month > latestMonth) {
+            latestBsMonthByAccount.set(key, r.period.month);
+            entry.total = Number(r.amount);
+          }
+        } else {
+          entry.total += Number(r.amount);
+        }
       }
 
       const all = [...summaryMap.values()];
@@ -114,8 +128,9 @@ export const GET = withApi({
 
       const trialBalance = all.sort((a, b) => a.code.localeCompare(b.code));
 
-      const closeStatus = await db.fiscalYearClose.findUnique({
-        where: { tenantId_fiscalYear: { tenantId, fiscalYear } },
+      // D-2: 締め状態は FiscalYear（旧 FiscalYearClose を統合）で管理する
+      const closeStatus = await db.fiscalYear.findUnique({
+        where: { tenantId_year: { tenantId, year: fiscalYear } },
       });
 
       const businessProfile = await db.businessProfile.findUnique({ where: { tenantId } });
