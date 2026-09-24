@@ -3281,6 +3281,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 20. 外部サービス連携 ─────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
+  // 固定決済はカードを参照する（FK は RESTRICT）ので、カードより先に消す
+  await prisma.cardRecurringPayment.deleteMany({});
   await prisma.linkedAccount.deleteMany({});
 
   const [laAsset, laLiab] = await Promise.all([
@@ -3314,9 +3316,18 @@ async function main() {
         accountId: laLiab?.id,
         note: "EC・消耗品購入用",
       },
+      // 電子マネー（Suica・PayPay 等）もカードと同じ台帳で扱い、明細管理から利用履歴を登録する
+      {
+        name: "モバイルSuica",
+        type: "E_MONEY",
+        institution: "JR東日本",
+        lastFour: null,
+        accountId: laLiab?.id,
+        note: "交通費・少額決済用",
+      },
     ].map((r) => ({ ...r, tenantId: tid })),
   });
-  console.log("  ✓ Created linked accounts (cards) & bank account mappings");
+  console.log("  ✓ Created linked accounts (cards / e-money) & bank account mappings");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 21. 決算整理仕訳（未収収益・未払費用）───────────────────────────────

@@ -50,21 +50,24 @@ model Account {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  records              FinancialRecord[]
-  forecasts            Forecast[]
-  budgets              Budget[]
-  linkedAccounts       LinkedAccount[]
-  journalDetails       JournalDetail[]
-  apportionments       Apportionment[]
-  journalTemplateLines JournalTemplateLine[]
-  accruedRevenues      AccruedRevenue[]
-  accruedExpenses      AccruedExpense[]
-  loans                Loan[]
-  personalAssets       PersonalAsset[]
-  allocationRules      AllocationRule[]
-  categorizedTxns      BankTransaction[]
-  txnCategoryRules     TxnCategoryRule[]
-  bankAccounts         BankAccount[]
+  records               FinancialRecord[]
+  forecasts             Forecast[]
+  budgets               Budget[]
+  budgetHistories       BudgetHistory[]
+  linkedAccounts        LinkedAccount[]
+  journalDetails        JournalDetail[]
+  apportionments        Apportionment[]
+  journalTemplateLines  JournalTemplateLine[]
+  accruedRevenues       AccruedRevenue[]
+  accruedExpenses       AccruedExpense[]
+  loans                 Loan[]
+  personalAssets        PersonalAsset[]
+  allocationRules       AllocationRule[]
+  categorizedTxns       BankTransaction[]
+  categorizedCardTxns   CardTransaction[]
+  txnCategoryRules      TxnCategoryRule[]
+  bankAccounts          BankAccount[]
+  cardRecurringPayments CardRecurringPayment[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -95,9 +98,10 @@ model Period {
   quarter    Int // 1-4
   month      Int // 1-12
 
-  records   FinancialRecord[]
-  forecasts Forecast[]
-  budgets   Budget[]
+  records         FinancialRecord[]
+  forecasts       Forecast[]
+  budgets         Budget[]
+  budgetHistories BudgetHistory[]
 
   @@unique([tenantId, fiscalYear, month])
   @@index([tenantId])
@@ -115,9 +119,33 @@ model Budget {
   amount    Decimal  @db.Decimal(18, 2)
   createdAt DateTime @default(now())
 
+  histories BudgetHistory[]
+
   @@unique([tenantId, accountId, periodId])
   @@index([tenantId])
   @@map("budgets")
+}
+
+// 予算データの変更履歴（入力・更新・削除の日時とユーザーを記録）。
+// 実績の FinancialRecordHistory と同じ役割だが、予算は削除されても履歴を残したいため
+// budgetId を nullable にし、勘定科目・期間は履歴側に持たせて参照断を避ける。
+model BudgetHistory {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  budget    Budget?  @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  budgetId  Int?
+  account   Account  @relation(fields: [accountId], references: [id])
+  accountId Int
+  period    Period   @relation(fields: [periodId], references: [id])
+  periodId  Int
+  userId    Int? // 操作ユーザー（null = CSV インポート等のシステム操作）
+  action    String // "create" | "update" | "delete"
+  amount    Decimal  @db.Decimal(18, 2) // 操作時点の金額
+  changedAt DateTime @default(now())
+
+  @@index([tenantId, changedAt])
+  @@index([budgetId])
+  @@map("budget_histories")
 }
 
 // 予算配分ルール（FP 推奨の収入比率マスタ。ステップ 2 の配分提案に使用）
@@ -161,8 +189,9 @@ model FinancialRecord {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  history       FinancialRecordHistory[]
-  postedFromTxn BankTransaction?
+  history           FinancialRecordHistory[]
+  postedFromTxn     BankTransaction?
+  postedFromCardTxn CardTransaction?
 
   @@index([tenantId, accountId, periodId])
   @@index([journalEntryId])
@@ -205,7 +234,9 @@ model LinkedAccount {
   id          Int      @id @default(autoincrement())
   tenantId    Int
   name        String // カード名（表示名）
-  type        String // CREDIT_CARD 固定（歴史的経緯でカラムを維持）
+  // CREDIT_CARD（クレジットカード）/ DEBIT_CARD（デビットカード）/
+  // PREPAID_CARD（プリペイドカード）/ E_MONEY（電子マネー・QR 決済）
+  type        String
   institution String // カード会社名
   lastFour    String? // カード番号の下4桁
   accountId   Int? // 紐付く勘定科目（LIABILITY）
@@ -214,8 +245,107 @@ model LinkedAccount {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  transactions            CardTransaction[]
+  transfers               Transfer[]
+  // このカード・電子マネーへのチャージとして扱われている他カードの明細（CardTransaction.transferToAccount の逆側）
+  chargedFrom             CardTransaction[]      @relation("CardTransferTo")
+  // このカード・電子マネーへのチャージとして扱われている銀行明細（BankTransaction.chargeToAccount の逆側）
+  bankCharges             BankTransaction[]      @relation("BankCharge")
+  cardTransferRules       CardTransferRule[]     @relation("CardTransferRuleTarget")
+  cardTransferRulesOnCard CardTransferRule[]     @relation("CardTransferRuleSource")
+  recurringPayments       CardRecurringPayment[]
+
   @@index([tenantId])
   @@map("linked_accounts")
+}
+
+// クレジットカード利用明細（取込・入力したトランザクション）。
+// BankTransaction と同構造・同機能を維持する（銀行側の仕様はそのまま。カード側を新規追加するのみ）。
+// amount は +利用（支出） / -返金。account(LinkedAccount) は LIABILITY 科目に紐づく。
+model CardTransaction {
+  id                  Int              @id @default(autoincrement())
+  account             LinkedAccount    @relation(fields: [accountId], references: [id])
+  accountId           Int
+  date                DateTime // 利用日
+  description         String // 摘要（利用先）
+  amount              Decimal          @db.Decimal(18, 2) // +利用（支出） / -返金
+  source              TxnSource        @default(MANUAL)
+  externalId          String? // 重複取込防止用の外部ID
+  categoryAccountId   Int? // 紐付けた費目科目（Account、通常 EXPENSE）
+  categoryAccount     Account?         @relation(fields: [categoryAccountId], references: [id])
+  postedRecordId      Int?             @unique // 転記済み FinancialRecord（unique で二重転記を DB 層でも防止）
+  postedRecord        FinancialRecord? @relation(fields: [postedRecordId], references: [id])
+  // 他のカード・電子マネーへのチャージ（資金移動）である場合のチャージ先。
+  // 例: 三井住友カードの「[信] ＪＡＬ Ｐａｙ」は JAL Global Wallet へのチャージであり、
+  // 実際の支出は JAL 側の利用明細で計上される。両方を科目に紐付けると二重計上になるため、
+  // この値を持つ行は銀行の transferGroupId と同じく科目紐付け・実績転記の対象外にする。
+  transferToAccountId Int?
+  transferToAccount   LinkedAccount?   @relation("CardTransferTo", fields: [transferToAccountId], references: [id])
+  // チャージ元の明細と、チャージ先に入った明細を対にする識別子（銀行の transferGroupId と同じ考え方）。
+  // チャージ先の CSV に入金行が出てくる場合、両方を持ったままだと「どのチャージがどの入金か」が
+  // 分からず、入金行を科目に紐付けて収入として二重計上してしまう。対にした行はどちら側も
+  // 科目紐付け・実績転記の対象外にする。bank_transactions.chargeGroupId と同じ ID 空間
+  // （銀行 → プリペイド・デビットのチャージは銀行明細とカード明細の組になる）。
+  chargeGroupId       String?
+  createdAt           DateTime         @default(now())
+
+  @@unique([accountId, externalId])
+  @@index([accountId, date])
+  @@index([categoryAccountId])
+  @@index([transferToAccountId])
+  @@index([chargeGroupId])
+  @@map("card_transactions")
+}
+
+// カード明細の摘要キーワードから「チャージ（資金移動）」を自動判定するルール。
+// TxnCategoryRule が科目を自動で埋めるのと同じ位置付けで、こちらは transferToAccountId を埋める。
+// 明細一覧の一括操作（摘要一致でまとめてチャージにする）で作られ、以後の CSV 取込にも適用される。
+model CardTransferRule {
+  id                  Int           @id @default(autoincrement())
+  tenantId            Int
+  // 対象のカード（このカードの明細にだけ適用する。同じ摘要が別カードで別の意味を持つため）
+  accountId           Int
+  account             LinkedAccount @relation("CardTransferRuleSource", fields: [accountId], references: [id])
+  keyword             String // 摘要の部分一致キーワード（大文字小文字無視で評価）
+  // チャージ先のカード・電子マネー
+  transferToAccountId Int
+  transferToAccount   LinkedAccount @relation("CardTransferRuleTarget", fields: [transferToAccountId], references: [id])
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@unique([accountId, keyword])
+  @@index([tenantId])
+  @@map("card_transfer_rules")
+}
+
+// カードで毎月固定決済される支払い（サブスク・通信費など）。
+//
+// Transfer（資金移動ルール）と役割は似ているが、あちらは「銀行口座から現金が出る日」を表す。
+// カード払いのサブスクは利用時点で現金が動かず、実際の出金はカード全体の引き落とし 1 本に
+// まとまるため、Transfer として登録すると同じ支出が資金繰りに二重で乗る。そのため
+// 銀行の資金繰り・残高予測には influence させない独立したモデルとして持つ。
+//
+// 用途は「このカードで毎月いくら固定で決済されるか」の把握（カード管理のサマリ・明細一覧）。
+model CardRecurringPayment {
+  id                Int           @id @default(autoincrement())
+  tenantId          Int
+  // 決済に使うカード・電子マネー
+  account           LinkedAccount @relation(fields: [accountId], references: [id])
+  accountId         Int
+  label             String // 摘要（例: Netflix、携帯料金）
+  amount            Decimal       @db.Decimal(18, 2)
+  day               Int // 決済日 (1-31)
+  categoryAccountId Int? // 費目科目（Account、通常 EXPENSE）
+  categoryAccount   Account?      @relation(fields: [categoryAccountId], references: [id])
+  note              String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // 同じカードに同じ摘要を重複登録させない（明細から登録するため取り違えやすい）
+  @@unique([accountId, label])
+  @@index([tenantId])
+  @@index([categoryAccountId])
+  @@map("card_recurring_payments")
 }
 
 // ユーザー（認証）
@@ -328,8 +458,8 @@ enum TransferKind {
 // 資金移動のチャネル（口座引き落とし・カード引き落とし・入金・支出など）
 enum TransferChannel {
   BANK_TRANSFER // 口座間振込
-  AUTO_DEBIT // 口座引き落とし
-  CARD_PAYMENT // クレジットカード引き落とし
+  AUTO_DEBIT // 銀行引き落とし（登録済み銀行口座を紐付け可能）
+  CARD_PAYMENT // カード引き落とし（登録済みカード・電子マネーを紐付け可能）
   INCOME // 入金（給与等・外部から）
   EXPENSE // 支出（外部へ）
 }
@@ -545,6 +675,11 @@ model PersonalAsset {
   acquiredOn      DateTime? // 取得日
   acquisitionCost Decimal?              @db.Decimal(18, 2) // 取得価格
   currentValue    Decimal               @db.Decimal(18, 2) // 現在評価額
+  // 純資産（総資産サマリ）に評価額を計上するか。false = 負債のみ反映。
+  // ローンに含まれる諸費用（登記費用・手数料等）のように、借入はあるが資産価値を持たない
+  // 項目を除外するためのフラグ。以前はカテゴリ（LAND/BUILDING 以外を除外）で代用していたが、
+  // 車・金など価値のある資産まで除外されてしまうため明示フラグへ移行した。
+  countAsAsset    Boolean               @default(true)
   note            String?
   linkedAccountId Int? // 紐付く負債科目（例: 住宅ローン）
   linkedAccount   Account?              @relation(fields: [linkedAccountId], references: [id])
@@ -707,18 +842,21 @@ model JournalTemplateLine {
 
 // 銀行口座（D-1 で LinkedAccount(BANK) を統合した唯一の銀行口座マスタ）
 model BankAccount {
-  id          Int             @id @default(autoincrement())
-  tenantId    Int
-  name        String // 表示名（例: 給与口座）
-  bankName    String // 銀行名
-  branchName  String? // 支店名
-  accountType String          @default("普通") // 普通 / 当座
-  role        BankAccountRole @default(OTHER)
-  lastFour    String? // 口座番号の下4桁
-  accountId   Int? // 紐付く勘定科目（ASSET）。資産サマリの二重計上除外に使用
-  account     Account?        @relation(fields: [accountId], references: [id])
-  note        String? // メモ
-  createdAt   DateTime        @default(now())
+  id                Int             @id @default(autoincrement())
+  tenantId          Int
+  name              String // 表示名（例: 給与口座）
+  bankName          String // 銀行名
+  branchName        String? // 支店名
+  accountType       String          @default("普通") // 普通 / 当座
+  role              BankAccountRole @default(OTHER)
+  lastFour          String? // 口座番号の下4桁
+  accountId         Int? // 紐付く勘定科目（ASSET）。資産サマリの二重計上除外に使用
+  account           Account?        @relation(fields: [accountId], references: [id])
+  note              String? // メモ
+  // 明細の合計と実際の残高との差額（円）。取込開始前から口座にあった残高（期首残高）や
+  // 取り込めなかった明細を吸収する。残高＝SUM(bank_transactions.amount) + balanceAdjustment。
+  balanceAdjustment Decimal         @default(0) @db.Decimal(18, 2)
+  createdAt         DateTime        @default(now())
 
   outgoing     Transfer[]        @relation("from")
   incoming     Transfer[]        @relation("to")
@@ -729,26 +867,31 @@ model BankAccount {
   @@map("bank_accounts")
 }
 
-// 資金移動ルール（振込 / 口座引き落とし / カード引き落とし / 入金 / 支出）
+// 資金移動ルール（振込 / 銀行引き落とし / カード引き落とし / 入金 / 支出）
 // fromAccountId / toAccountId は null 可（null = 外部＝給与・カード会社・各種支出先）
 model Transfer {
-  id            Int             @id @default(autoincrement())
-  tenantId      Int
-  fromAccount   BankAccount?    @relation("from", fields: [fromAccountId], references: [id])
-  fromAccountId Int?
-  toAccount     BankAccount?    @relation("to", fields: [toAccountId], references: [id])
-  toAccountId   Int?
-  amount        Decimal         @db.Decimal(18, 2)
-  kind          TransferKind    @default(AUTO)
-  channel       TransferChannel @default(BANK_TRANSFER)
-  label         String? // 外部側の名称（例: 給与、◯◯カード、家賃）
-  day           Int // 振込日 / 引き落とし日 (1-31)
-  note          String?
-  createdAt     DateTime        @default(now())
+  id              Int             @id @default(autoincrement())
+  tenantId        Int
+  fromAccount     BankAccount?    @relation("from", fields: [fromAccountId], references: [id])
+  fromAccountId   Int?
+  toAccount       BankAccount?    @relation("to", fields: [toAccountId], references: [id])
+  toAccountId     Int?
+  // カード引き落とし（CARD_PAYMENT）で、引き落とし対象の登録済みカード・電子マネーを紐付ける。
+  // 銀行引き落とし（AUTO_DEBIT）で相手が自口座の場合は from/toAccountId 側で表現する。
+  linkedAccount   LinkedAccount?  @relation(fields: [linkedAccountId], references: [id])
+  linkedAccountId Int?
+  amount          Decimal         @db.Decimal(18, 2)
+  kind            TransferKind    @default(AUTO)
+  channel         TransferChannel @default(BANK_TRANSFER)
+  label           String? // 外部側の名称（例: 給与、◯◯カード、家賃）
+  day             Int // 振込日 / 引き落とし日 (1-31)
+  note            String?
+  createdAt       DateTime        @default(now())
 
   @@index([tenantId])
   @@index([fromAccountId])
   @@index([toAccountId])
+  @@index([linkedAccountId])
   @@map("transfers")
 }
 
@@ -767,11 +910,25 @@ model BankTransaction {
   categoryAccount   Account?         @relation(fields: [categoryAccountId], references: [id])
   postedRecordId    Int?             @unique // 転記済み FinancialRecord（unique で二重転記を DB 層でも防止）
   postedRecord      FinancialRecord? @relation(fields: [postedRecordId], references: [id])
+  // 口座間振替で対になる 2 行（出金元の −amount と入金先の +amount）を結ぶ ID。
+  // 自己口座間の移動は収入でも支出でもないため、この値を持つ行は科目紐付け・実績転記の対象外にする
+  // （集計は categoryAccountId を起点にしているので、未紐付けのままなら二重計上されない）。
+  transferGroupId   String?
+  // デビット・プリペイド・電子マネーへのチャージ（銀行 → カード台帳の資金移動）の場合のチャージ先。
+  // 口座間振替（transferGroupId）と同じく自己資金の移動なので科目紐付け・実績転記の対象外にする
+  // （実際の支出はチャージ先の利用明細で計上される）。card_transactions.transferToAccountId の銀行版。
+  chargeToAccountId Int?
+  chargeToAccount   LinkedAccount?   @relation("BankCharge", fields: [chargeToAccountId], references: [id])
+  // チャージ先の明細（CardTransaction）と対にする識別子。card_transactions.chargeGroupId と同じ ID 空間
+  chargeGroupId     String?
   createdAt         DateTime         @default(now())
 
   @@unique([accountId, externalId])
   @@index([accountId, date])
   @@index([categoryAccountId])
+  @@index([transferGroupId])
+  @@index([chargeToAccountId])
+  @@index([chargeGroupId])
   @@map("bank_transactions")
 }
 
@@ -793,29 +950,61 @@ model TxnCategoryRule {
 
 // 借入金
 model Loan {
-  id              Int      @id @default(autoincrement())
-  tenantId        Int
-  lenderName      String
-  amount          Decimal  @db.Decimal(18, 2)
-  interestRate    Decimal  @db.Decimal(5, 4)
-  borrowedOn      DateTime
-  repaymentDate   DateTime // 完済予定/支払い完了年月
-  remainingAmount Decimal  @db.Decimal(18, 2)
-  status          String   @default("active") // active / repaid
-  note            String?
-  loanType        String   @default("business") // business（事業性）/ housing（住宅ローン）
-  linkedAccountId Int? // 住宅ローン: 返済額を自動反映する予算科目（例: 家賃）
-  linkedAccount   Account? @relation(fields: [linkedAccountId], references: [id])
-  monthlyPayment  Decimal? @db.Decimal(18, 2) // 住宅ローン: 月々の返済額（予算に自動加算）
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                     Int      @id @default(autoincrement())
+  tenantId               Int
+  lenderName             String
+  amount                 Decimal  @db.Decimal(18, 2)
+  interestRate           Decimal  @db.Decimal(5, 4)
+  borrowedOn             DateTime
+  repaymentDate          DateTime // 完済予定/支払い完了年月
+  remainingAmount        Decimal  @db.Decimal(18, 2)
+  status                 String   @default("active") // active / repaid
+  note                   String?
+  loanType               String   @default("business") // business（事業性）/ housing（住宅ローン）
+  linkedAccountId        Int? // 住宅ローン: 返済額を自動反映する予算科目（例: 家賃）
+  linkedAccount          Account? @relation(fields: [linkedAccountId], references: [id])
+  monthlyPayment         Decimal? @db.Decimal(18, 2) // 住宅ローン: 月々の返済額（予算に自動加算）
+  // 残価設定ローン（カーローン等）で最終回に一括して支払う据置額。null / 0 = 通常ローン。
+  // 毎月の返済はこの額を除いた分だけを償却するため月額が低くなり、最終回に残価が残る。
+  residualValue          Decimal? @db.Decimal(18, 2)
+  // true = monthlyPayment は金融機関の通知額を人が入力した「実額」。
+  // 変動金利には 5 年ルール（金利が変わっても 5 年間は返済額を据え置き、内訳だけが変わる）が
+  // あり、金利から計算した額と実額は一致しない。実額が入っている間は自動計算で上書きしない。
+  monthlyPaymentIsManual Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   repayments    LoanRepayment[]
+  rateChanges   LoanInterestRateChange[]
   personalAsset PersonalAsset? // D-4: 実物資産の紐付け負債として作成された場合の逆参照
 
   @@index([tenantId])
   @@index([linkedAccountId])
   @@map("loans")
+}
+
+// 変動金利の履歴。loans.interestRate は「現在の金利」を保持し、
+// 変更の都度この表に1行積む（過去分は消さず、変動前後のスケジュール比較に使う）。
+model LoanInterestRateChange {
+  id                       Int      @id @default(autoincrement())
+  loan                     Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  loanId                   Int
+  effectiveOn              DateTime // 金利変更日（この月以降の返済に適用）
+  interestRate             Decimal  @db.Decimal(5, 4) // 変更後の年利（%）
+  previousRate             Decimal  @db.Decimal(5, 4) // 変更前の年利（%）。履歴表示用
+  // 改定後の実際の月々返済額（金融機関の通知額）。null = 未入力（通知待ち／未確認）。
+  // 入力されると loans.monthlyPayment へ反映され、以降の償還計算がこの額で走る。
+  monthlyPayment           Decimal? @db.Decimal(18, 2)
+  // 改定直前の月々返済額（loans.monthlyPayment のスナップショット）。旧金利時の月額を残す
+  previousMonthlyPayment   Decimal? @db.Decimal(18, 2)
+  // 「残高 × 残回数」で機械的に算出した参考月額。実額との差を UI で示すために保持する
+  calculatedMonthlyPayment Decimal? @db.Decimal(18, 2)
+  note                     String?
+  createdAt                DateTime @default(now())
+
+  @@unique([loanId, effectiveOn])
+  @@index([loanId])
+  @@map("loan_interest_rate_changes")
 }
 
 model LoanRepayment {
