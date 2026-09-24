@@ -20,6 +20,10 @@ platform/.env
 docs/private/
 docs/work/
 docs/
+Docs/
+*.work*
+
 
 # DB data (host bind mount)
 platform/db/
+backups/
