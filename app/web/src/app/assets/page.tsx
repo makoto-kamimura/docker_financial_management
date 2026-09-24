@@ -2,31 +2,13 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from "recharts";
 import { AppShell } from "@/components/AppShell";
-import { LoadingSpinner, EmptyState } from "@/components/StateViews";
+import { LoadingSpinner } from "@/components/StateViews";
 import { isCountedAsAsset } from "@/lib/personal-asset";
 import { useViewMode } from "@/lib/use-view-mode";
 import { displayName } from "@/lib/display-name";
+import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/labels";
 
-type PersonalAssetCategory =
-  | "LAND"
-  | "BUILDING"
-  | "VEHICLE"
-  | "GOLD"
-  | "CASH"
-  | "DEPOSIT"
-  | "SECURITIES"
-  | "OTHER";
 type PersonalAsset = {
   id: number;
   name: string;
@@ -34,11 +16,17 @@ type PersonalAsset = {
   acquiredOn: string | null;
   acquisitionCost: number | string | null;
   currentValue: number | string;
+  /** 純資産に評価額を計上するか。false = 負債のみ反映（ローンの諸費用等） */
+  countAsAsset: boolean;
   note: string | null;
   linkedAccountId: number | null;
   debtStartOn: string | null;
   debtPayoffDue: string | null;
   debtInitialAmount: number | string | null;
+  /** 年利（小数。0.0081 = 0.810%） */
+  debtInterestRate: number | string | null;
+  /** 残価設定ローンの据置額（最終回に一括支払い）。null / 0 = 通常ローン */
+  debtResidualValue: number | string | null;
   debtMonthly: number | null;
   debtRemaining: number | null;
   debtRemainingMonths: number | null;
@@ -54,32 +42,39 @@ type AccountRef = {
   corporateName?: string | null;
 };
 
-const PERSONAL_ASSET_CATEGORY_LABEL: Record<PersonalAssetCategory, string> = {
-  LAND: "土地",
-  BUILDING: "建物",
-  VEHICLE: "車",
-  GOLD: "金・貴金属",
-  CASH: "現金（タンス預金）",
-  DEPOSIT: "預金",
-  SECURITIES: "投資（株式・投資信託等）",
-  OTHER: "その他",
-};
+const str = (v: number | string | null) => (v === null || v === undefined ? "" : String(v));
 
-function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
+// 実物資産の登録・編集（asset を渡すと編集。モバイル版 AssetsScreen の登録・編集シートと同じ項目）
+function PersonalAssetFormModal({
+  asset,
+  onClose,
+}: {
+  asset?: PersonalAsset;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const sysMode = useViewMode();
   const [form, setForm] = useState({
-    name: "",
-    category: "LAND" as PersonalAssetCategory,
-    acquiredOn: "",
-    acquisitionCost: "",
-    currentValue: "",
-    note: "",
-    linkedAccountId: "",
-    debtStartOn: "",
-    debtPayoffDue: "",
-    debtInitialAmount: "",
+    name: asset?.name ?? "",
+    category: (asset?.category ?? "LAND") as PersonalAssetCategory,
+    acquiredOn: asset?.acquiredOn?.slice(0, 10) ?? "",
+    acquisitionCost: str(asset?.acquisitionCost ?? null),
+    currentValue: str(asset?.currentValue ?? null),
+    countAsAsset: asset?.countAsAsset ?? true,
+    note: asset?.note ?? "",
+    linkedAccountId: str(asset?.linkedAccountId ?? null),
+    debtStartOn: asset?.debtStartOn?.slice(0, 7) ?? "",
+    debtPayoffDue: asset?.debtPayoffDue?.slice(0, 7) ?? "",
+    debtInitialAmount: str(asset?.debtInitialAmount ?? null),
+    // 画面は「％」で入力し、API へは小数（0.810 → 0.0081）に直して送る
+    debtInterestPercent:
+      asset?.debtInterestRate != null
+        ? String(Number((Number(asset.debtInterestRate) * 100).toPrecision(6)))
+        : "",
+    // 残価設定ローン（カーローン等）の据置額。最終回に一括で支払う
+    debtResidualValue: str(asset?.debtResidualValue ?? null),
   });
+  const isEdit = asset !== undefined;
 
   const { data: liabilityAccounts } = useQuery({
     queryKey: ["accounts", "LIABILITY"],
@@ -91,7 +86,7 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const f = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }));
+  const f = (k: keyof typeof form, v: string | boolean) => setForm((p) => ({ ...p, [k]: v }));
 
   async function submit() {
     if (!form.name || !form.currentValue) {
@@ -104,24 +99,36 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
     }
     setSaving(true);
     setError(null);
-    const res = await fetch("/api/personal-assets", {
-      method: "POST",
+    // 未入力の項目は、登録では送らず（サーバー既定値）、編集では null で送って消す
+    const empty = isEdit ? null : undefined;
+    const linked = form.linkedAccountId !== "";
+    const res = await fetch(isEdit ? `/api/personal-assets/${asset.id}` : "/api/personal-assets", {
+      method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: form.name,
         category: form.category,
-        acquiredOn: form.acquiredOn || undefined,
-        acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : undefined,
+        acquiredOn: form.acquiredOn || empty,
+        acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : empty,
         currentValue: Number(form.currentValue),
-        note: form.note || undefined,
-        linkedAccountId: form.linkedAccountId ? Number(form.linkedAccountId) : undefined,
-        debtStartOn: form.debtStartOn || undefined,
-        debtPayoffDue: form.debtPayoffDue || undefined,
-        debtInitialAmount: form.debtInitialAmount ? Number(form.debtInitialAmount) : undefined,
+        countAsAsset: form.countAsAsset,
+        note: form.note || empty,
+        linkedAccountId: linked ? Number(form.linkedAccountId) : empty,
+        // 負債の項目は紐付け負債科目があるときだけ意味を持つ
+        debtStartOn: (linked && form.debtStartOn) || empty,
+        debtPayoffDue: (linked && form.debtPayoffDue) || empty,
+        debtInitialAmount:
+          linked && form.debtInitialAmount ? Number(form.debtInitialAmount) : empty,
+        debtInterestRate:
+          linked && form.debtInterestPercent ? Number(form.debtInterestPercent) / 100 : empty,
+        debtResidualValue:
+          linked && form.debtResidualValue ? Number(form.debtResidualValue) : empty,
       }),
     });
     if (res.ok) {
+      // 評価額・負債は総資産サマリの元データでもあるので一緒に取り直す
       qc.invalidateQueries({ queryKey: ["personal-assets"] });
+      qc.invalidateQueries({ queryKey: ["assets-summary"] });
       onClose();
     } else {
       const j = await res.json().catch(() => ({}));
@@ -131,9 +138,12 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-[480px] p-6">
-        <h2 className="text-lg font-semibold text-slate-800 mb-4">実物資産 登録</h2>
+    // 画面が低いと入力欄が枠外に出るため、オーバーレイ側で縦スクロールできるようにする
+    <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-[480px] my-auto p-6">
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">
+          {isEdit ? "実物資産 編集" : "実物資産 登録"}
+        </h2>
         <div className="space-y-3">
           <label className="block">
             <span className="text-xs font-medium text-slate-600">資産名 *</span>
@@ -217,12 +227,37 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
               />
             </label>
             <label className="block">
+              <span className="text-xs font-medium text-slate-600">年利（％）</span>
+              <input
+                type="number"
+                step="0.001"
+                min={0}
+                placeholder="例: 0.810"
+                className="input-field mt-1 w-full"
+                value={form.debtInterestPercent}
+                onChange={(e) => f("debtInterestPercent", e.target.value)}
+                disabled={!form.linkedAccountId}
+              />
+            </label>
+            <label className="block">
               <span className="text-xs font-medium text-slate-600">支払い開始年月</span>
               <input
                 type="month"
                 className="input-field mt-1 w-full"
                 value={form.debtStartOn}
                 onChange={(e) => f("debtStartOn", e.target.value)}
+                disabled={!form.linkedAccountId}
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">残価（円）</span>
+              <input
+                type="number"
+                min={0}
+                placeholder="残価設定ローンのみ"
+                className="input-field mt-1 w-full"
+                value={form.debtResidualValue}
+                onChange={(e) => f("debtResidualValue", e.target.value)}
                 disabled={!form.linkedAccountId}
               />
             </label>
@@ -238,8 +273,22 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
             </label>
           </div>
           <p className="text-[10px] text-slate-400">
-            当初負債額・開始年月・解消予定年月を設定すると、開始月〜解消予定月で月割りした金額を予算に自動計上し、経過月数から負債残高を算出して表示します。負債科目に紐付けた項目のうち資産として計上されるのは土地・建物のみで、その他の項目は負債のみに反映されます
+            当初負債額・開始年月・解消予定年月を設定すると、開始月〜解消予定月の毎月の返済額を予算に自動計上し、負債残高を算出して表示します。年利を入力すると元利均等返済で計算します（未入力は無利子＝元本の月割り）。残価設定ローン（カーローン等）は残価を入力すると、最終回に残価を一括で支払う前提で月額と残高を計算します
           </p>
+          <label className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={form.countAsAsset}
+              onChange={(e) => f("countAsAsset", e.target.checked)}
+            />
+            <span className="text-xs text-slate-600">
+              純資産に評価額を計上する
+              <span className="mt-0.5 block text-[10px] text-slate-400">
+                ローンに含まれる登記費用・手数料など、借入はあるが資産価値を持たない項目はオフにしてください。オフにすると負債だけが純資産に反映されます
+              </span>
+            </span>
+          </label>
           <label className="block">
             <span className="text-xs font-medium text-slate-600">備考</span>
             <input
@@ -264,7 +313,7 @@ function NewPersonalAssetModal({ onClose }: { onClose: () => void }) {
             disabled={saving}
             className="btn-primary text-sm px-5 py-2"
           >
-            {saving ? "保存中…" : "登録"}
+            {saving ? "保存中…" : isEdit ? "保存" : "登録"}
           </button>
         </div>
       </div>
@@ -339,6 +388,13 @@ function NetWorthSummaryCard() {
 function PersonalAssetsSection() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [editAsset, setEditAsset] = useState<PersonalAsset | null>(null);
+
+  // 評価額・資産計上・負債は総資産サマリの元データでもあるので一緒に取り直す
+  const invalidateAssets = () => {
+    qc.invalidateQueries({ queryKey: ["personal-assets"] });
+    qc.invalidateQueries({ queryKey: ["assets-summary"] });
+  };
   const [editId, setEditId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
 
@@ -357,12 +413,23 @@ function PersonalAssetsSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ currentValue: vars.currentValue }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-assets"] }),
+    onSuccess: invalidateAssets,
   });
 
   const delMut = useMutation({
     mutationFn: (id: number) => fetch(`/api/personal-assets/${id}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["personal-assets"] }),
+    onSuccess: invalidateAssets,
+  });
+
+  // 純資産に計上するかの切り替え（ローンの諸費用などを資産計上外にする）
+  const countMut = useMutation({
+    mutationFn: (vars: { id: number; countAsAsset: boolean }) =>
+      fetch(`/api/personal-assets/${vars.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ countAsAsset: vars.countAsAsset }),
+      }),
+    onSuccess: invalidateAssets,
   });
 
   const assets = data ?? [];
@@ -380,7 +447,7 @@ function PersonalAssetsSection() {
             {totalDebt > 0 && (
               <span className="text-amber-600"> ・ 負債残高合計: {yen(totalDebt)}</span>
             )}
-            {hasExcluded && <span> ・ ローン紐付きは土地・建物のみ資産計上</span>}
+            {hasExcluded && <span> ・ 「資産計上外」の項目は負債のみ反映</span>}
           </p>
         </div>
         <button
@@ -409,11 +476,23 @@ function PersonalAssetsSection() {
                     {PERSONAL_ASSET_CATEGORY_LABEL[a.category]}
                   </span>
                   <span className="font-medium text-slate-800 text-sm">{a.name}</span>
-                  {!isCountedAsAsset(a) && (
-                    <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full">
-                      資産計上外
-                    </span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => countMut.mutate({ id: a.id, countAsAsset: !a.countAsAsset })}
+                    disabled={countMut.isPending}
+                    title={
+                      isCountedAsAsset(a)
+                        ? "クリックすると純資産の評価額から除外します（ローンの諸費用など）"
+                        : "クリックすると純資産に評価額を計上します"
+                    }
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-colors disabled:opacity-50 ${
+                      isCountedAsAsset(a)
+                        ? "bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
+                        : "bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100"
+                    }`}
+                  >
+                    {isCountedAsAsset(a) ? "資産計上" : "資産計上外"}
+                  </button>
                 </div>
                 <div className="text-xs text-slate-400 mt-1">
                   {a.acquiredOn && <span>取得日: {a.acquiredOn.slice(0, 10)} ・ </span>}
@@ -425,7 +504,14 @@ function PersonalAssetsSection() {
                 {a.debtRemaining !== null && (
                   <div className="text-xs text-amber-600 mt-0.5">
                     負債残高: {yen(a.debtRemaining)}（残り{a.debtRemainingMonths}回・月
-                    {yen(a.debtMonthly ?? 0)}・{a.debtPayoffDue?.slice(0, 7)}解消予定）
+                    {yen(a.debtMonthly ?? 0)}・年利
+                    {(Number(a.debtInterestRate ?? 0) * 100).toFixed(3)}%・
+                    {a.debtPayoffDue?.slice(0, 7)}解消予定）
+                    {Number(a.debtResidualValue ?? 0) > 0 && (
+                      <span className="block">
+                        残価設定ローン: 最終回に {yen(Number(a.debtResidualValue))} を一括支払い
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -471,6 +557,13 @@ function PersonalAssetsSection() {
                 )}
                 <button
                   type="button"
+                  onClick={() => setEditAsset(a)}
+                  className="text-xs text-indigo-500 hover:text-indigo-700"
+                >
+                  編集
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     if (confirm("削除しますか？")) delMut.mutate(a.id);
                   }}
@@ -484,360 +577,32 @@ function PersonalAssetsSection() {
         </div>
       )}
 
-      {showModal && <NewPersonalAssetModal onClose={() => setShowModal(false)} />}
+      {showModal && <PersonalAssetFormModal onClose={() => setShowModal(false)} />}
+      {editAsset && <PersonalAssetFormModal asset={editAsset} onClose={() => setEditAsset(null)} />}
     </div>
   );
 }
-
-type AccountBalance = {
-  id: number;
-  code: string;
-  name: string;
-  soleName?: string | null;
-  corporateName?: string | null;
-  category: "ASSET" | "LIABILITY";
-  parentId: number | null;
-  parent: { id: number; code: string; name: string } | null;
-  balances: { fiscalYear: number; month: number; amount: number }[];
-};
-
-type AssetsResponse = {
-  years: number[];
-  accounts: AccountBalance[];
-};
 
 const yen = (v: number) =>
   v >= 1_0000
     ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
     : v.toLocaleString("ja-JP") + "円";
 
-function latestBalance(balances: AccountBalance["balances"], year: number): number {
-  const ys = balances.filter((b) => b.fiscalYear === year);
-  if (!ys.length) return 0;
-  return ys.reduce((best, b) => (b.month > best.month ? b : best)).amount;
-}
-
-function leafOf(accounts: AccountBalance[], cat: "ASSET" | "LIABILITY"): AccountBalance[] {
-  return accounts.filter(
-    (a): a is AccountBalance => a.category === cat && !accounts.some((c) => c.parentId === a.id),
-  );
-}
-
-function buildTrendData(accounts: AccountBalance[], years: number[]) {
-  const assetLeaves = leafOf(accounts, "ASSET");
-  const liabLeaves = leafOf(accounts, "LIABILITY");
-  return years.map((year) => {
-    const totalAsset = assetLeaves.reduce((s, a) => s + latestBalance(a.balances, year), 0);
-    const totalLiab = liabLeaves.reduce((s, a) => s + latestBalance(a.balances, year), 0);
-    return {
-      year: String(year),
-      資産合計: Math.round(totalAsset / 1_0000),
-      負債合計: Math.round(totalLiab / 1_0000),
-      純資産: Math.round((totalAsset - totalLiab) / 1_0000),
-    };
-  });
-}
-
-async function fetchAssets(): Promise<AssetsResponse> {
-  const res = await fetch("/api/assets");
-  if (!res.ok) throw new Error("failed to load assets");
-  return res.json() as Promise<AssetsResponse>;
-}
-
+// 資産管理は「総資産サマリ（実物資産・銀行口座残高・ローンを含む純資産）」と「実物資産」の
+// 2 つに絞る。ASSET / LIABILITY 科目の残高から作っていた KPI カード（資産合計・負債合計・
+// 純資産）と純資産推移グラフは、家計モードでは科目側に残高を積まないため常に 0 円になり、
+// 同じ数字は総資産サマリが実データ（銀行口座・実物資産・ローン）から出しているため撤去した。
 export default function AssetsPage() {
-  const sysMode = useViewMode();
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const toggle = (id: number) =>
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["assets"],
-    queryFn: fetchAssets,
-  });
-
-  const year = selectedYear ?? data?.years.at(-1) ?? new Date().getFullYear();
-  const accounts = data?.accounts ?? [];
-  const years = data?.years ?? [];
-
-  const topAssets = accounts.filter((a) => a.category === "ASSET" && a.parentId === null);
-  const topLiabs = accounts.filter((a) => a.category === "LIABILITY" && a.parentId === null);
-
-  const totalAsset = leafOf(accounts, "ASSET").reduce(
-    (s, a) => s + latestBalance(a.balances, year),
-    0,
-  );
-  const totalLiab = leafOf(accounts, "LIABILITY").reduce(
-    (s, a) => s + latestBalance(a.balances, year),
-    0,
-  );
-  const netWorth = totalAsset - totalLiab;
-
-  const trendData = buildTrendData(accounts, years);
-
-  const childrenOf = (parentId: number): AccountBalance[] =>
-    accounts.filter((a) => a.parentId === parentId);
-
   return (
     <AppShell>
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="page-title">資産管理</h1>
-          <p className="text-sm text-slate-500 mt-0.5">バランスシート・純資産推移</p>
-        </div>
-        {years.length > 0 && (
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">表示年</label>
-            <select
-              value={year}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {years.map((y) => (
-                <option key={y} value={y}>
-                  {y}年
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+      <div className="mb-6">
+        <h1 className="page-title">資産管理</h1>
+        <p className="text-sm text-slate-500 mt-0.5">バランスシート・実物資産</p>
       </div>
 
       <NetWorthSummaryCard />
 
       <PersonalAssetsSection />
-
-      {isLoading && <LoadingSpinner />}
-
-      {!isLoading && accounts.length === 0 && (
-        <EmptyState
-          title="資産データがありません"
-          description="ASSET / LIABILITY カテゴリの勘定科目を登録し assets_lifeplan.csv をインポートしてください。"
-        />
-      )}
-
-      {accounts.length > 0 && (
-        <>
-          {/* KPI カード */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="card text-center">
-              <p className="text-xs text-slate-500 mb-1">資産合計</p>
-              <p className="text-2xl font-bold text-emerald-600">{yen(totalAsset)}</p>
-            </div>
-            <div className="card text-center">
-              <p className="text-xs text-slate-500 mb-1">負債合計</p>
-              <p className="text-2xl font-bold text-rose-600">{yen(totalLiab)}</p>
-            </div>
-            <div className="card text-center">
-              <p className="text-xs text-slate-500 mb-1">純資産</p>
-              <p
-                className={`text-2xl font-bold ${netWorth >= 0 ? "text-indigo-600" : "text-red-600"}`}
-              >
-                {yen(netWorth)}
-              </p>
-            </div>
-          </div>
-
-          {/* 純資産推移グラフ */}
-          {trendData.length > 0 && (
-            <div className="card mb-6">
-              <h2 className="section-title mb-4">純資産推移（万円）</h2>
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => `${v.toLocaleString()}万円`} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line
-                    type="monotone"
-                    dataKey="資産合計"
-                    stroke="#10b981"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="負債合計"
-                    stroke="#f43f5e"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="純資産"
-                    stroke="#6366f1"
-                    strokeWidth={2.5}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          {/* バランスシート詳細テーブル */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* 資産の部 */}
-            <div className="card">
-              <h2 className="section-title">資産の部</h2>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-slate-500 border-b border-slate-100">
-                    <th className="text-left py-1.5 font-medium">勘定科目</th>
-                    <th className="text-right py-1.5 font-medium">{year}年末残高</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {topAssets.map((a) => {
-                    const children = childrenOf(a.id);
-                    const subtotal = children.reduce(
-                      (s, c) => s + latestBalance(c.balances, year),
-                      0,
-                    );
-                    const open = expandedIds.has(a.id);
-                    return (
-                      <>
-                        <tr
-                          key={a.id}
-                          className="font-medium bg-slate-50/60 cursor-pointer select-none hover:bg-slate-100/80"
-                          onClick={() => toggle(a.id)}
-                        >
-                          <td className="py-2 text-slate-800">
-                            <span className="inline-flex items-center gap-1">
-                              <svg
-                                className="w-3 h-3 text-slate-400 shrink-0 transition-transform"
-                                style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                              >
-                                <path
-                                  fillRule="evenodd"
-                                  d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                              <span className="text-xs font-mono text-slate-400 mr-1">
-                                {a.code}
-                              </span>
-                              {displayName(a, sysMode)}
-                            </span>
-                          </td>
-                          <td className="py-2 text-right text-emerald-700">{yen(subtotal)}</td>
-                        </tr>
-                        {open &&
-                          children.map((c) => (
-                            <tr key={c.id} className="text-slate-600">
-                              <td className="py-1.5 pl-6">
-                                <span className="text-xs font-mono text-slate-300 mr-2">
-                                  {c.code}
-                                </span>
-                                {c.name}
-                              </td>
-                              <td className="py-1.5 text-right">
-                                {yen(latestBalance(c.balances, year))}
-                              </td>
-                            </tr>
-                          ))}
-                      </>
-                    );
-                  })}
-                  <tr className="font-bold border-t border-slate-200">
-                    <td className="py-2.5 text-slate-800">資産合計</td>
-                    <td className="py-2.5 text-right text-emerald-700">{yen(totalAsset)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* 負債・純資産の部 */}
-            <div className="card">
-              <h2 className="section-title">負債・純資産の部</h2>
-              {topLiabs.length > 0 && (
-                <table className="w-full text-sm mb-4">
-                  <thead>
-                    <tr className="text-xs text-slate-500 border-b border-slate-100">
-                      <th className="text-left py-1.5 font-medium">勘定科目</th>
-                      <th className="text-right py-1.5 font-medium">{year}年末残高</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {topLiabs.map((a) => {
-                      const children = childrenOf(a.id);
-                      const subtotal = children.reduce(
-                        (s, c) => s + latestBalance(c.balances, year),
-                        0,
-                      );
-                      const open = expandedIds.has(a.id);
-                      return (
-                        <>
-                          <tr
-                            key={a.id}
-                            className="font-medium bg-slate-50/60 cursor-pointer select-none hover:bg-slate-100/80"
-                            onClick={() => toggle(a.id)}
-                          >
-                            <td className="py-2 text-slate-800">
-                              <span className="inline-flex items-center gap-1">
-                                <svg
-                                  className="w-3 h-3 text-slate-400 shrink-0 transition-transform"
-                                  style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
-                                  viewBox="0 0 20 20"
-                                  fill="currentColor"
-                                >
-                                  <path
-                                    fillRule="evenodd"
-                                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                                    clipRule="evenodd"
-                                  />
-                                </svg>
-                                <span className="text-xs font-mono text-slate-400 mr-1">
-                                  {a.code}
-                                </span>
-                                {displayName(a, sysMode)}
-                              </span>
-                            </td>
-                            <td className="py-2 text-right text-rose-700">{yen(subtotal)}</td>
-                          </tr>
-                          {open &&
-                            children.map((c) => (
-                              <tr key={c.id} className="text-slate-600">
-                                <td className="py-1.5 pl-6">
-                                  <span className="text-xs font-mono text-slate-300 mr-2">
-                                    {c.code}
-                                  </span>
-                                  {c.name}
-                                </td>
-                                <td className="py-1.5 text-right">
-                                  {yen(latestBalance(c.balances, year))}
-                                </td>
-                              </tr>
-                            ))}
-                        </>
-                      );
-                    })}
-                    <tr className="font-bold border-t border-slate-200">
-                      <td className="py-2 text-slate-800">負債合計</td>
-                      <td className="py-2 text-right text-rose-700">{yen(totalLiab)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              )}
-              {topLiabs.length === 0 && (
-                <p className="text-xs text-slate-400 mt-2 mb-4">負債データなし</p>
-              )}
-              <div className="pt-3 border-t border-slate-200 flex justify-between font-bold text-sm">
-                <span className="text-slate-800">純資産</span>
-                <span className={netWorth >= 0 ? "text-indigo-700" : "text-red-700"}>
-                  {yen(netWorth)}
-                </span>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
     </AppShell>
   );
 }

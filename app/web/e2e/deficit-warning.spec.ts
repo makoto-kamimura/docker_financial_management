@@ -24,7 +24,7 @@ test.describe("収支マイナス警告", () => {
   });
 
   test("黒字時は警告が表示されない", async ({ page }) => {
-    await expect(page.getByText("今月は支出が収入を上回っています")).toHaveCount(0);
+    await expect(page.getByText("は支出が収入を上回っています")).toHaveCount(0);
   });
 
   test("赤字月は KPI カードと月次サマリーに赤字警告が表示される", async ({ page, baseURL }) => {
@@ -43,11 +43,11 @@ test.describe("収支マイナス警告", () => {
 
     try {
       await page.reload();
-      await expect(page.getByText("今月は支出が収入を上回っています")).toBeVisible();
+      await expect(page.getByText("は支出が収入を上回っています")).toBeVisible();
       // 赤字時はラベルの先頭に警告アイコン（⚠）が付き "⚠貯蓄額" になるため部分一致で確認する。
       await expect(page.getByText("貯蓄額")).toBeVisible();
 
-      await page.getByRole("button", { name: "構成比グラフ" }).click();
+      // 予実対比タブは廃止し、ダッシュボードは KPI + 構成比グラフ + 月次収支サマリーの 1 画面。
       await expect(page.getByText("月次収支サマリー")).toBeVisible();
       await expect(page.getByText("支出が収入を上回った月は赤背景")).toBeVisible();
     } finally {

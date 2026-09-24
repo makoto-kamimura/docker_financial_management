@@ -21,8 +21,8 @@ import {
   SplitSquareHorizontal,
   TrendingUp,
   Landmark,
-  ArrowLeftRight,
   CreditCard,
+  Wallet,
   Plug,
   FileBarChart2,
   Building,
@@ -33,17 +33,12 @@ import {
   ScrollText,
   ExternalLink,
   Repeat,
-  Bug,
   GraduationCap,
+  Menu,
+  X,
 } from "lucide-react";
-
-export type ViewMode = "household" | "sole" | "corporate";
-
-const VIEW_MODES: { value: ViewMode; label: string; short: string }[] = [
-  { value: "household", label: "家計簿", short: "家計" },
-  { value: "sole", label: "個人会計", short: "個人" },
-  { value: "corporate", label: "法人", short: "法人" },
-];
+import type { ViewMode } from "@/lib/display-name";
+import { VIEW_MODES } from "@/lib/mode-labels";
 
 type NavItem = { href: string; label: string; icon: LucideIcon; modes: ViewMode[] };
 type NavGroup = { group: string; items: NavItem[] };
@@ -116,21 +111,21 @@ const NAV_GROUPS: NavGroup[] = [
         modes: ["household", "sole", "corporate"],
       },
       {
+        href: "/loans",
+        label: "借入金管理",
+        icon: CreditCard,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
         href: "/bank-accounts",
         label: "銀行管理",
         icon: Landmark,
         modes: ["household", "sole", "corporate"],
       },
       {
-        href: "/bank-transactions",
-        label: "入出金管理",
-        icon: ArrowLeftRight,
-        modes: ["household", "sole", "corporate"],
-      },
-      {
-        href: "/loans",
-        label: "借入金管理",
-        icon: CreditCard,
+        href: "/card-transactions",
+        label: "カード・電子マネー管理",
+        icon: Wallet,
         modes: ["household", "sole", "corporate"],
       },
       {
@@ -260,31 +255,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* モバイルメニューボタン */}
-      <button
-        type="button"
-        onClick={() => setSidebarOpen(true)}
-        className="fixed top-3 left-3 z-30 md:hidden bg-slate-800 text-white p-2 rounded-lg shadow-lg"
-        aria-label="メニューを開く"
-        aria-expanded={sidebarOpen}
-        aria-controls="app-sidebar"
-      >
-        <svg
-          className="w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          aria-hidden="true"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 6h16M4 12h16M4 18h16"
-          />
-        </svg>
-      </button>
-
       <aside
         id="app-sidebar"
         className={`w-56 flex-shrink-0 bg-slate-900 flex flex-col
@@ -294,9 +264,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-label="サイドバーナビゲーション"
       >
         <div className="px-4 py-4 border-b border-slate-700/60">
-          <span className="text-white font-semibold text-xs tracking-wide leading-tight block mb-3">
-            {TITLE[viewMode]}
-          </span>
+          <div className="flex items-start gap-2 mb-3">
+            <span className="text-white font-semibold text-xs tracking-wide leading-tight block flex-1">
+              カケイカイケイ
+              <span className="block mt-0.5 text-slate-400 font-normal">{TITLE[viewMode]}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              className="md:hidden -mt-1 -mr-1 p-1 text-slate-400 hover:text-white rounded"
+              aria-label="メニューを閉じる"
+            >
+              <X size={16} strokeWidth={2} aria-hidden="true" />
+            </button>
+          </div>
           {/* 観点切り替え switcher */}
           <div className="flex rounded-lg overflow-hidden border border-slate-600 text-xs">
             {VIEW_MODES.map(({ value, short }) => (
@@ -365,15 +346,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             ))}
           </div>
-          <a
-            href="https://github.com/makoto-kamimura/docker_financial_management/issues/new"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-          >
-            <Bug size={14} strokeWidth={1.8} className="flex-shrink-0 opacity-80" />
-            {locale === "en" ? "Report a bug" : "バグ報告"}
-          </a>
           <button
             type="button"
             onClick={logout}
@@ -385,6 +357,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex-1 overflow-auto min-w-0">
+        {/* モバイルヘッダー: サイドメニューが隠れる幅では、ここのハンバーガーから開く */}
+        <header className="md:hidden sticky top-0 z-10 flex items-center gap-2 bg-slate-900 text-white px-3 py-2.5 shadow">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="p-1.5 -ml-1 rounded-lg hover:bg-slate-800"
+            aria-label="メニューを開く"
+            aria-expanded={sidebarOpen}
+            aria-controls="app-sidebar"
+          >
+            <Menu size={20} strokeWidth={2} aria-hidden="true" />
+          </button>
+          <span className="font-semibold text-sm truncate">{TITLE[viewMode]}</span>
+          {/* 観点切り替えはヘッダーからも操作できるようにする（サイドバーを開かずに済む） */}
+          <div className="ml-auto flex rounded-lg overflow-hidden border border-slate-600 text-[11px]">
+            {VIEW_MODES.map(({ value, short }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => changeViewMode(value)}
+                className={`px-2 py-1 font-medium transition-colors ${
+                  viewMode === value
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-400 hover:text-white hover:bg-slate-700"
+                }`}
+              >
+                {short}
+              </button>
+            ))}
+          </div>
+        </header>
+
         <main
           id="main-content"
           className="px-4 sm:px-8 py-6 sm:py-8 max-w-5xl mx-auto"

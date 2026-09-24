@@ -13,111 +13,23 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { amortizationSchedule, ymIndex } from "@/lib/debt-schedule";
+import { LOAN_TYPES, LOAN_TYPE_LABEL } from "@/lib/labels";
+import {
+  balanceKey,
+  buildRateComparison,
+  buildScheduleData,
+  LOAN_COLORS as COLORS,
+  pendingRateChange,
+  ratePercent,
+  rateForecastKey,
+  rateKey,
+  referenceMonthly,
+  todayLabel,
+  type Loan,
+} from "@/lib/loan-schedule";
+import { VariableRateHelp } from "@/components/HelpTip";
 
-// ── 型 ──────────────────────────────────────────────────────────
-type Repayment = {
-  id: number;
-  repaidOn: string;
-  principal: string;
-  interest: string;
-  totalAmount: string;
-};
-type Loan = {
-  id: number;
-  lenderName: string;
-  amount: string;
-  interestRate: string;
-  borrowedOn: string;
-  repaymentDate: string;
-  remainingAmount: string;
-  status: string;
-  note: string | null;
-  loanType: string;
-  linkedAccountId: number | null;
-  linkedAccount: { id: number; code: string; name: string } | null;
-  monthlyPayment: string | null;
-  repayments: Repayment[];
-};
 type AccountRef = { id: number; code: string; name: string; category: string };
-
-// ── グラフ用スケジュール計算 ───────────────────────────────────
-const COLORS = ["#2563eb", "#f97316", "#16a34a", "#9333ea", "#dc2626", "#0891b2"];
-
-type ChartPoint = { date: string; [key: string]: number | string };
-
-function buildScheduleData(loans: Loan[]): ChartPoint[] {
-  if (!loans.length) return [];
-
-  // 全ローンの開始〜終了を含む月次軸を生成
-  const allDates = loans.flatMap((l) => [new Date(l.borrowedOn), new Date(l.repaymentDate)]);
-  const minD = new Date(Math.min(...allDates.map((d) => d.getTime())));
-  const maxD = new Date(Math.max(...allDates.map((d) => d.getTime())));
-  const cursor = new Date(minD.getFullYear(), minD.getMonth(), 1);
-  const endM = new Date(maxD.getFullYear(), maxD.getMonth(), 1);
-  const today = new Date();
-
-  const points: ChartPoint[] = [];
-
-  while (cursor <= endM) {
-    const label = `${cursor.getFullYear()}/${String(cursor.getMonth() + 1).padStart(2, "0")}`;
-    const pt: ChartPoint = { date: label };
-
-    for (const loan of loans) {
-      const start = new Date(loan.borrowedOn);
-      const loanEnd = new Date(loan.repaymentDate);
-      const startM = new Date(start.getFullYear(), start.getMonth(), 1);
-      const endMDate = new Date(loanEnd.getFullYear(), loanEnd.getMonth(), 1);
-      const key = `l${loan.id}`;
-
-      if (cursor < startM) continue; // まだ始まっていない
-
-      if (cursor > endMDate) {
-        pt[key] = 0;
-        continue;
-      }
-
-      // ここまでの実績返済額を累積（実績がある月は実績値を優先する）
-      const sorted = [...loan.repayments].sort((a, b) => a.repaidOn.localeCompare(b.repaidOn));
-      let balance = Number(loan.amount);
-      for (const r of sorted) {
-        if (new Date(r.repaidOn) <= cursor) balance -= Number(r.principal);
-      }
-
-      // 今日以降は元利均等の償還スケジュール（amortizationSchedule）から残高を再計算する。
-      // monthlyPayment が入力済みならその値を、未入力なら年利から計算した金額を毎月の返済額とする。
-      // amortizationSchedule/ymIndex は UTC 基準で月数を数えるため、ブラウザのタイムゾーンによる
-      // ズレ（正の UTC オフセットではローカル日付が UTC で前月にずれ得る）を避けて
-      // Date.UTC で構築した日付を渡す。
-      if (cursor > today) {
-        const todayMonthStartUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), 1));
-        const endMDateUtc = new Date(Date.UTC(endMDate.getFullYear(), endMDate.getMonth(), 1));
-        const cursorUtc = new Date(Date.UTC(cursor.getFullYear(), cursor.getMonth(), 1));
-        const rows = amortizationSchedule(
-          Number(loan.remainingAmount),
-          Number(loan.interestRate),
-          todayMonthStartUtc,
-          endMDateUtc,
-          loan.monthlyPayment ? Number(loan.monthlyPayment) : undefined,
-        );
-        const offset = ymIndex(cursorUtc) - ymIndex(todayMonthStartUtc);
-        balance = offset >= 0 && offset < rows.length ? rows[offset].remaining : 0;
-      }
-
-      pt[key] = Math.max(0, Math.round(balance));
-    }
-
-    points.push(pt);
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-
-  return points;
-}
-
-const todayLabel = (() => {
-  const d = new Date();
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}`;
-})();
 
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
@@ -127,6 +39,8 @@ export default function LoansPage() {
   const [accounts, setAccounts] = useState<AccountRef[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  // 返済スケジュールグラフに適用金利（右軸）を重ねるか
+  const [showRates, setShowRates] = useState(true);
   const [payForm, setPayForm] = useState<{
     loanId: number | null;
     principal: string;
@@ -153,8 +67,35 @@ export default function LoansPage() {
     loanId: number | null;
     repaymentDate: string;
     monthlyPayment: string;
+    residualValue: string;
     linkedAccountCode: string;
-  }>({ loanId: null, repaymentDate: "", monthlyPayment: "", linkedAccountCode: "" });
+  }>({
+    loanId: null,
+    repaymentDate: "",
+    monthlyPayment: "",
+    residualValue: "",
+    linkedAccountCode: "",
+  });
+  const [rateForm, setRateForm] = useState<{
+    loanId: number | null;
+    effectiveOn: string;
+    interestRate: string;
+    monthlyPayment: string;
+    note: string;
+  }>({
+    loanId: null,
+    effectiveOn: new Date().toISOString().slice(0, 10),
+    interestRate: "",
+    monthlyPayment: "",
+    note: "",
+  });
+  const [rateError, setRateError] = useState<string | null>(null);
+  // 改定後の実額を後から入力するフォーム（改定登録時に通知が届いていなかった場合）
+  const [pendingForm, setPendingForm] = useState<{
+    loanId: number | null;
+    changeId: number | null;
+    monthlyPayment: string;
+  }>({ loanId: null, changeId: null, monthlyPayment: "" });
 
   const load = () => {
     setLoading(true);
@@ -181,12 +122,8 @@ export default function LoansPage() {
         ...newLoan,
         amount: Number(newLoan.amount),
         interestRate: Number(newLoan.interestRate),
-        linkedAccountCode:
-          newLoan.loanType === "housing" ? newLoan.linkedAccountCode || undefined : undefined,
-        monthlyPayment:
-          newLoan.loanType === "housing" && newLoan.monthlyPayment
-            ? Number(newLoan.monthlyPayment)
-            : undefined,
+        linkedAccountCode: newLoan.linkedAccountCode || undefined,
+        monthlyPayment: newLoan.monthlyPayment ? Number(newLoan.monthlyPayment) : undefined,
       }),
     });
     if (r.ok) {
@@ -212,11 +149,51 @@ export default function LoansPage() {
     }
   };
 
+  // 金利変更の登録。履歴に1行積み、最新の変更なら現在金利も更新される（API 側）。
+  // 月々の返済額は実額が入力されたときだけ反映される（未入力なら従来額を据え置き、後から入力可能）
+  const saveRateChange = async () => {
+    if (!rateForm.loanId) return;
+    setRateError(null);
+    const r = await fetch(`/api/loans/${rateForm.loanId}/interest-rates`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        effectiveOn: rateForm.effectiveOn,
+        interestRate: Number(rateForm.interestRate),
+        monthlyPayment: rateForm.monthlyPayment ? Number(rateForm.monthlyPayment) : null,
+        note: rateForm.note || undefined,
+      }),
+    });
+    if (r.ok) {
+      setRateForm((f) => ({ ...f, loanId: null, interestRate: "", monthlyPayment: "", note: "" }));
+      load();
+    } else {
+      const j = await r.json().catch(() => null);
+      setRateError(j?.error ?? "金利変更の登録に失敗しました");
+    }
+  };
+
+  // 金利改定後の実額を後から入力する
+  const savePendingMonthly = async () => {
+    const { loanId, changeId, monthlyPayment } = pendingForm;
+    if (!loanId || !changeId || !monthlyPayment) return;
+    const r = await fetch(`/api/loans/${loanId}/interest-rates/${changeId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monthlyPayment: Number(monthlyPayment) }),
+    });
+    if (r.ok) {
+      setPendingForm({ loanId: null, changeId: null, monthlyPayment: "" });
+      load();
+    }
+  };
+
   const openEdit = (l: Loan) => {
     setEditForm({
       loanId: l.id,
       repaymentDate: l.repaymentDate.slice(0, 10),
       monthlyPayment: l.monthlyPayment ?? "",
+      residualValue: l.residualValue ?? "",
       linkedAccountCode: l.linkedAccount?.code ?? "",
     });
   };
@@ -229,6 +206,7 @@ export default function LoansPage() {
       body: JSON.stringify({
         repaymentDate: editForm.repaymentDate,
         monthlyPayment: editForm.monthlyPayment ? Number(editForm.monthlyPayment) : null,
+        residualValue: editForm.residualValue ? Number(editForm.residualValue) : null,
         linkedAccountCode: editForm.linkedAccountCode || null,
       }),
     });
@@ -247,12 +225,7 @@ export default function LoansPage() {
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="page-title">借入金管理</h1>
-        <button onClick={() => setShowForm(true)} className="btn-primary px-4 py-2 text-sm">
-          借入追加
-        </button>
-      </div>
+      <h1 className="page-title mb-6">借入金管理</h1>
 
       {/* KPI カード */}
       <div className="grid grid-cols-2 gap-4 mb-6">
@@ -269,39 +242,71 @@ export default function LoansPage() {
       {/* 返済スケジュールグラフ */}
       {!loading && scheduleData.length > 0 && (
         <div className="card mb-6">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h2 className="section-title">返済スケジュール</h2>
-            <span className="text-xs text-slate-400">実線=実績・点線=予測（今日以降）</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-400">
+                今日以降の残高は償還スケジュールからの予測です
+              </span>
+              {/* 金利は右軸に重ねる。ローンが多いと線が増えるため切り替えられるようにする */}
+              <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showRates}
+                  onChange={(e) => setShowRates(e.target.checked)}
+                  className="accent-indigo-600"
+                />
+                金利を重ねて表示
+              </label>
+            </div>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={scheduleData} margin={{ top: 8, right: 24, bottom: 8, left: 16 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={28} />
               <YAxis
+                yAxisId="balance"
                 tickFormatter={(v) => `${Math.round(v / 10000)}万`}
                 tick={{ fontSize: 10 }}
                 width={48}
               />
+              {/* 右軸: 適用金利（%）。残高（万円）と桁が違うため別軸にする */}
+              {showRates && (
+                <YAxis
+                  yAxisId="rate"
+                  orientation="right"
+                  tickFormatter={(v) => `${Number(v).toFixed(2)}%`}
+                  tick={{ fontSize: 10 }}
+                  width={52}
+                  domain={[0, "auto"]}
+                />
+              )}
               <Tooltip
-                formatter={(v: number, name: string) => [yen(v), name]}
+                formatter={(v: number, name: string, item: { dataKey?: string | number }) =>
+                  String(item?.dataKey ?? "").startsWith("l")
+                    ? [yen(v), name]
+                    : [`${Number(v).toFixed(3)}%`, name]
+                }
                 labelStyle={{ fontSize: 11 }}
                 contentStyle={{ fontSize: 12 }}
               />
               <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
               {/* 今日の基準線 */}
               <ReferenceLine
-                x={todayLabel}
+                x={todayLabel()}
                 stroke="#94a3b8"
                 strokeDasharray="4 4"
                 label={{ value: "今日", fontSize: 10, fill: "#94a3b8" }}
+                yAxisId="balance"
               />
               {/* ゼロライン */}
-              <ReferenceLine y={0} stroke="#dc2626" strokeDasharray="4 4" />
+              <ReferenceLine y={0} stroke="#dc2626" strokeDasharray="4 4" yAxisId="balance" />
               {loans.map((loan, i) => (
                 <Line
                   key={loan.id}
+                  yAxisId="balance"
                   type="monotone"
-                  dataKey={`l${loan.id}`}
+                  dataKey={balanceKey(loan.id)}
                   name={loan.lenderName}
                   stroke={COLORS[i % COLORS.length]}
                   strokeWidth={2}
@@ -309,8 +314,47 @@ export default function LoansPage() {
                   connectNulls
                 />
               ))}
+              {/* 適用金利。今日までは履歴どおりの実績、今日以降は将来の改定と
+                  履歴の傾向からの予測（破線）。残高と同じ色の細線で対応付ける。 */}
+              {showRates &&
+                loans.flatMap((loan, i) => [
+                  <Line
+                    key={`rate-${loan.id}`}
+                    yAxisId="rate"
+                    type="stepAfter"
+                    dataKey={rateKey(loan.id)}
+                    name={`${loan.lenderName} 金利`}
+                    stroke={COLORS[i % COLORS.length]}
+                    strokeWidth={1}
+                    strokeOpacity={0.7}
+                    dot={false}
+                    connectNulls
+                  />,
+                  <Line
+                    key={`rate-forecast-${loan.id}`}
+                    yAxisId="rate"
+                    type="stepAfter"
+                    dataKey={rateForecastKey(loan.id)}
+                    name={`${loan.lenderName} 金利（予測）`}
+                    stroke={COLORS[i % COLORS.length]}
+                    strokeWidth={1}
+                    strokeOpacity={0.7}
+                    strokeDasharray="4 3"
+                    dot={false}
+                    connectNulls
+                    legendType="none"
+                  />,
+                ])}
             </LineChart>
           </ResponsiveContainer>
+
+          {showRates && (
+            <p className="mt-2 text-xs text-slate-400">
+              金利は右軸。今日以降の破線は、登録済みの将来の改定と
+              「これまでと同じ間隔・同じ幅で改定が続いたら」という前提で履歴から外挿した予測です
+              （金利変更履歴が 2 件以上あるローンのみ予測します）。
+            </p>
+          )}
 
           {/* 各ローンの返済期限サマリ */}
           {activeLoans.length > 0 && (
@@ -343,6 +387,13 @@ export default function LoansPage() {
         </div>
       )}
 
+      {/* 借入追加。返済スケジュールの下・ローン一覧の直前に置く */}
+      <div className="flex justify-end mb-3">
+        <button onClick={() => setShowForm(true)} className="btn-primary px-4 py-2 text-sm">
+          借入追加
+        </button>
+      </div>
+
       {/* ローン一覧 */}
       {loading ? (
         <p className="text-slate-400 text-sm">読み込み中…</p>
@@ -368,11 +419,9 @@ export default function LoansPage() {
                     >
                       {l.status === "active" ? "返済中" : "完済"}
                     </span>
-                    {l.loanType === "housing" && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                        🏠 住宅ローン
-                      </span>
-                    )}
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                      {LOAN_TYPE_LABEL[l.loanType] ?? l.loanType}
+                    </span>
                   </div>
                   <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-sm text-slate-600 mt-1 pl-4">
                     <span>借入額: {yen(Number(l.amount))}</span>
@@ -383,10 +432,18 @@ export default function LoansPage() {
                     </span>
                     <span>支払い完了年月: {l.repaymentDate.slice(0, 7)}</span>
                   </div>
-                  {l.loanType === "housing" && (
+                  {(l.monthlyPayment || l.linkedAccount) && (
                     <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-xs text-indigo-600 mt-1 pl-4">
                       {l.monthlyPayment && (
-                        <span>月々の返済額: {yen(Number(l.monthlyPayment))}</span>
+                        <span>
+                          月々の返済額: {yen(Number(l.monthlyPayment))}
+                          <span className="ml-1 text-slate-400">
+                            {l.monthlyPaymentIsManual ? "（実額）" : "（計算値）"}
+                          </span>
+                        </span>
+                      )}
+                      {Number(l.residualValue ?? 0) > 0 && (
+                        <span>残価: {yen(Number(l.residualValue))}（最終回に一括）</span>
                       )}
                       {l.linkedAccount && (
                         <span>
@@ -395,6 +452,43 @@ export default function LoansPage() {
                       )}
                     </div>
                   )}
+                  {/* 金利が改定されたが、改定後の実額返済額がまだ入力されていない */}
+                  {(() => {
+                    const pending = pendingRateChange(l);
+                    if (!pending) return null;
+                    const calc = pending.calculatedMonthlyPayment;
+                    return (
+                      <div className="mt-2 ml-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="text-xs font-semibold text-amber-800">
+                            {pending.effectiveOn.slice(0, 7)} に金利が
+                            {ratePercent(pending.interestRate).toFixed(2)}%
+                            へ改定されました。改定後の返済額を入力してください
+                          </span>
+                          <VariableRateHelp />
+                          <button
+                            onClick={() =>
+                              setPendingForm({
+                                loanId: l.id,
+                                changeId: pending.id,
+                                monthlyPayment: calc ?? "",
+                              })
+                            }
+                            className="ml-auto rounded-lg bg-amber-600 px-2.5 py-1 text-xs text-white hover:bg-amber-700"
+                          >
+                            入力する
+                          </button>
+                        </div>
+                        <p className="mt-1 text-[11px] text-amber-700">
+                          現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
+                          で計算中です。
+                          {calc && `計算上の目安は ${yen(Number(calc))} ですが、`}5
+                          年ルールのローンでは返済額が据え置かれるため、
+                          金融機関の通知額を入力してください。
+                        </p>
+                      </div>
+                    );
+                  })()}
                   {/* 返済進捗バー */}
                   {Number(l.amount) > 0 && (
                     <div className="mt-2 ml-4 flex items-center gap-2">
@@ -420,6 +514,21 @@ export default function LoansPage() {
                     className="px-3 py-1.5 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
                   >
                     編集
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRateError(null);
+                      setRateForm({
+                        loanId: l.id,
+                        effectiveOn: new Date().toISOString().slice(0, 10),
+                        interestRate: l.interestRate,
+                        monthlyPayment: "",
+                        note: "",
+                      });
+                    }}
+                    className="px-3 py-1.5 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"
+                  >
+                    金利変更
                   </button>
                   {l.status === "active" && (
                     <button
@@ -467,6 +576,171 @@ export default function LoansPage() {
                   </table>
                 </details>
               )}
+
+              {/* 金利変更履歴と、変動前後の比較 */}
+              {l.rateChanges.length > 0 && (
+                <details className="text-sm mt-2">
+                  <summary className="text-amber-700 cursor-pointer hover:underline text-xs">
+                    金利変更履歴 ({l.rateChanges.length}件) と 変動前後の比較
+                  </summary>
+                  <div className="overflow-x-auto">
+                    <table className="mt-2 w-full min-w-[560px] text-xs">
+                      <thead className="text-slate-500">
+                        <tr>
+                          {["適用日", "金利", "増減", "返済額（改定前 → 改定後）", "メモ"].map(
+                            (h) => (
+                              <th key={h} className="text-left pb-1 pr-4 whitespace-nowrap">
+                                {h}
+                                {h.startsWith("返済額") && <VariableRateHelp className="ml-1" />}
+                              </th>
+                            ),
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {l.rateChanges.map((c) => {
+                          const diff = ratePercent(c.interestRate) - ratePercent(c.previousRate);
+                          const before = c.previousMonthlyPayment;
+                          const after = c.monthlyPayment;
+                          const calc = c.calculatedMonthlyPayment;
+                          return (
+                            <tr key={c.id} className="align-top">
+                              <td className="pr-4 py-0.5 whitespace-nowrap">
+                                {c.effectiveOn.slice(0, 10)}
+                              </td>
+                              <td className="pr-4 whitespace-nowrap">
+                                {ratePercent(c.previousRate).toFixed(2)}% →{" "}
+                                <span className="font-medium">
+                                  {ratePercent(c.interestRate).toFixed(2)}%
+                                </span>
+                              </td>
+                              <td
+                                className={`pr-4 whitespace-nowrap ${diff > 0 ? "text-red-600" : diff < 0 ? "text-green-600" : "text-slate-400"}`}
+                              >
+                                {diff > 0 ? "+" : ""}
+                                {diff.toFixed(2)}pt
+                              </td>
+                              <td className="pr-4">
+                                <span className="whitespace-nowrap">
+                                  {before ? yen(Number(before)) : "—"} →{" "}
+                                  {after ? (
+                                    <span className="font-medium text-slate-700">
+                                      {yen(Number(after))}
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() =>
+                                        setPendingForm({
+                                          loanId: l.id,
+                                          changeId: c.id,
+                                          monthlyPayment: calc ?? "",
+                                        })
+                                      }
+                                      className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 hover:bg-amber-200"
+                                    >
+                                      未入力
+                                    </button>
+                                  )}
+                                </span>
+                                {calc && (
+                                  <span className="block text-[10px] text-slate-400">
+                                    計算上の目安 {yen(Number(calc))}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="text-slate-500">{c.note ?? "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {(() => {
+                    const cmp = buildRateComparison(l);
+                    if (!cmp) return null;
+                    const diffTotal = cmp.afterTotal - cmp.beforeTotal;
+                    return (
+                      <div className="mt-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <div className="text-[10px] text-slate-500">総支払額（変動前）</div>
+                            <div className="text-xs font-semibold text-slate-700">
+                              {yen(cmp.beforeTotal)}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <div className="text-[10px] text-slate-500">総支払額（変動後）</div>
+                            <div className="text-xs font-semibold text-slate-700">
+                              {yen(cmp.afterTotal)}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-3 py-2">
+                            <div className="text-[10px] text-slate-500">総利息（変動前 → 後）</div>
+                            <div className="text-xs font-semibold text-slate-700">
+                              {yen(cmp.beforeInterest)} → {yen(cmp.afterInterest)}
+                            </div>
+                          </div>
+                          <div
+                            className={`rounded-lg px-3 py-2 ${diffTotal > 0 ? "bg-red-50" : "bg-green-50"}`}
+                          >
+                            <div className="text-[10px] text-slate-500">総支払額の差</div>
+                            <div
+                              className={`text-xs font-semibold ${diffTotal > 0 ? "text-red-600" : "text-green-600"}`}
+                            >
+                              {diffTotal > 0 ? "+" : ""}
+                              {yen(diffTotal)}
+                            </div>
+                          </div>
+                        </div>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <LineChart
+                            data={cmp.points}
+                            margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="date" tick={{ fontSize: 9 }} minTickGap={28} />
+                            <YAxis
+                              tickFormatter={(v) => `${Math.round(v / 10000)}万`}
+                              tick={{ fontSize: 9 }}
+                              width={44}
+                            />
+                            <Tooltip
+                              formatter={(v: number, name: string) => [yen(v), name]}
+                              contentStyle={{ fontSize: 12 }}
+                            />
+                            <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+                            <Line
+                              type="monotone"
+                              dataKey="before"
+                              name="変動前（当初金利のまま）"
+                              stroke="#94a3b8"
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
+                              dot={false}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="after"
+                              name="変動後（金利変更を反映）"
+                              stroke="#dc2626"
+                              strokeWidth={2}
+                              dot={false}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          借入額 {yen(Number(l.amount))} を借入日〜支払い完了年月で償還した場合の
+                          残高推移。
+                          {l.monthlyPayment
+                            ? `月々の返済額は${l.monthlyPaymentIsManual ? "入力された実額" : "登録済みの金額"}で据え置き（金利上昇分は元本充当が減ります）。`
+                            : "金利変更月に残高と残回数から月額を再計算しています。"}
+                        </p>
+                      </div>
+                    );
+                  })()}
+                </details>
+              )}
             </div>
           ))}
         </div>
@@ -474,8 +748,8 @@ export default function LoansPage() {
 
       {/* 借入追加モーダル */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
             <h2 className="text-lg font-bold text-slate-800 mb-4">借入追加</h2>
             <div className="space-y-3">
               {(
@@ -504,51 +778,51 @@ export default function LoansPage() {
                   onChange={(e) => setNewLoan((f) => ({ ...f, loanType: e.target.value }))}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 >
-                  <option value="business">事業性借入</option>
-                  <option value="housing">住宅ローン</option>
+                  {LOAN_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
                 </select>
               </div>
-              {newLoan.loanType === "housing" && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">
-                      予算連携先科目（例: 家賃）
-                    </label>
-                    <select
-                      value={newLoan.linkedAccountCode}
-                      onChange={(e) =>
-                        setNewLoan((f) => ({ ...f, linkedAccountCode: e.target.value }))
-                      }
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                    >
-                      <option value="">選択してください</option>
-                      {accounts
-                        .filter((a) => a.category === "EXPENSE")
-                        .map((a) => (
-                          <option key={a.code} value={a.code}>
-                            {a.code} {a.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">
-                      月々の返済額（円）
-                    </label>
-                    <input
-                      type="number"
-                      value={newLoan.monthlyPayment}
-                      onChange={(e) =>
-                        setNewLoan((f) => ({ ...f, monthlyPayment: e.target.value }))
-                      }
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                    />
-                    <p className="text-xs text-slate-400 mt-1">
-                      支払い完了年月まで、連携先科目の予算に毎月自動加算されます。
-                    </p>
-                  </div>
-                </>
-              )}
+              {/* 予算連携は住宅ローン以外（カーローン等）でも使えるよう常に表示する */}
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    予算連携先科目（例: 家賃・借入返済）
+                  </label>
+                  <select
+                    value={newLoan.linkedAccountCode}
+                    onChange={(e) =>
+                      setNewLoan((f) => ({ ...f, linkedAccountCode: e.target.value }))
+                    }
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">選択してください</option>
+                    {accounts
+                      .filter((a) => a.category === "EXPENSE")
+                      .map((a) => (
+                        <option key={a.code} value={a.code}>
+                          {a.code} {a.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    月々の返済額（円）
+                  </label>
+                  <input
+                    type="number"
+                    value={newLoan.monthlyPayment}
+                    onChange={(e) => setNewLoan((f) => ({ ...f, monthlyPayment: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    支払い完了年月まで、連携先科目の予算に毎月自動加算されます。
+                  </p>
+                </div>
+              </>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">備考</label>
                 <input
@@ -578,8 +852,8 @@ export default function LoansPage() {
 
       {/* 借入編集モーダル（支払い完了年月・月々の返済額・予算連携先） */}
       {editForm.loanId && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
             <h2 className="text-lg font-bold text-slate-800 mb-4">借入条件の編集</h2>
             <div className="space-y-3">
               <div>
@@ -615,8 +889,9 @@ export default function LoansPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
+                <label className="flex items-center gap-1.5 text-sm font-medium text-slate-600 mb-1">
                   月々の返済額（円）
+                  <VariableRateHelp />
                 </label>
                 <input
                   type="number"
@@ -626,6 +901,22 @@ export default function LoansPage() {
                 />
                 <p className="text-xs text-slate-400 mt-1">
                   連携先科目を設定すると、支払い完了年月まで予算に毎月自動加算されます。
+                  入力した金額は実額として扱われ、金利改定や資産の編集では上書きされません。
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">残価（円）</label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="残価設定ローンのみ"
+                  value={editForm.residualValue}
+                  onChange={(e) => setEditForm((f) => ({ ...f, residualValue: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  残価設定ローン（カーローン等）で最終回に一括して支払う据置額。
+                  入力すると毎月はこの額を除いた分だけを償却し、最終回に残価が残る計算になります。
                 </p>
               </div>
             </div>
@@ -641,6 +932,156 @@ export default function LoansPage() {
                 className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
               >
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 金利変更モーダル */}
+      {rateForm.loanId &&
+        (() => {
+          const loan = loans.find((l) => l.id === rateForm.loanId);
+          const ref =
+            loan && rateForm.interestRate !== ""
+              ? referenceMonthly(loan, rateForm.effectiveOn, Number(rateForm.interestRate))
+              : null;
+          const current = loan?.monthlyPayment ? Number(loan.monthlyPayment) : null;
+          return (
+            <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
+              <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm my-auto">
+                <h2 className="text-lg font-bold text-slate-800 mb-1">金利変更の登録</h2>
+                <p className="text-xs text-slate-500 mb-4">
+                  変更前の金利は履歴として残り、変動前後の返済スケジュールを比較できます。
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">
+                      金利変更日（適用開始）
+                    </label>
+                    <input
+                      type="date"
+                      value={rateForm.effectiveOn}
+                      onChange={(e) => setRateForm((f) => ({ ...f, effectiveOn: e.target.value }))}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">
+                      変更後の年利率（例: 0.03 = 3%）
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={rateForm.interestRate}
+                      onChange={(e) => setRateForm((f) => ({ ...f, interestRate: e.target.value }))}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      現在: {ratePercent(rateForm.interestRate || 0).toFixed(2)}%
+                    </p>
+                  </div>
+                  <div className="border-t border-slate-100 pt-3">
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-slate-600 mb-1">
+                      改定後の月々の返済額（実額）
+                      <VariableRateHelp />
+                    </label>
+                    <input
+                      type="number"
+                      placeholder={ref ? `参考: ${ref.monthly}` : "金融機関の通知額"}
+                      value={rateForm.monthlyPayment}
+                      onChange={(e) =>
+                        setRateForm((f) => ({ ...f, monthlyPayment: e.target.value }))
+                      }
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                    <div className="mt-1.5 space-y-1 text-xs">
+                      <p className="text-slate-500">
+                        金融機関から通知された金額を入力してください。入力するとこの額で残高・
+                        予算が再計算されます。
+                      </p>
+                      {current !== null && (
+                        <p className="text-slate-400">現在の返済額: {yen(current)}</p>
+                      )}
+                      {ref && (
+                        <p className="text-slate-400">
+                          計算上の目安: {yen(ref.monthly)}（残高 {yen(ref.balance)} ÷ 残り{" "}
+                          {ref.remainingMonths}回）
+                        </p>
+                      )}
+                      {ref && current !== null && current !== ref.monthly && (
+                        <p className="rounded bg-amber-50 px-2 py-1.5 text-amber-700">
+                          5 年ルールのローンなら、金利が変わっても返済額は{yen(current)}
+                          のまま据え置かれます。通知が届いていなければ空欄のままで構いません（後から
+                          入力できます）。
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">メモ</label>
+                    <input
+                      type="text"
+                      placeholder="例: 変動金利見直し"
+                      value={rateForm.note}
+                      onChange={(e) => setRateForm((f) => ({ ...f, note: e.target.value }))}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                  {rateError && <p className="text-xs text-red-600">{rateError}</p>}
+                </div>
+                <div className="flex justify-end gap-2 mt-5">
+                  <button
+                    onClick={() => setRateForm((f) => ({ ...f, loanId: null }))}
+                    className="px-4 py-2 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    onClick={saveRateChange}
+                    disabled={rateForm.interestRate === ""}
+                    className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-40"
+                  >
+                    登録
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+      {/* 金利改定後の実額を後から入力するモーダル */}
+      {pendingForm.changeId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <h2 className="flex items-center gap-1.5 text-lg font-bold text-slate-800 mb-1">
+              改定後の返済額を入力
+              <VariableRateHelp />
+            </h2>
+            <p className="text-xs text-slate-500 mb-4">
+              金融機関から通知された、改定後の月々の返済額を入力してください。以降の残高・
+              予算がこの額で計算されます。
+            </p>
+            <input
+              type="number"
+              autoFocus
+              value={pendingForm.monthlyPayment}
+              onChange={(e) => setPendingForm((f) => ({ ...f, monthlyPayment: e.target.value }))}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            />
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setPendingForm({ loanId: null, changeId: null, monthlyPayment: "" })}
+                className="px-4 py-2 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={savePendingMonthly}
+                disabled={pendingForm.monthlyPayment === ""}
+                className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-40"
+              >
+                反映
               </button>
             </div>
           </div>

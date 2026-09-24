@@ -7,7 +7,8 @@ const pct = (v: number, total: number) =>
 // kept for backward compat with CashFlowResponse type in page.tsx
 export type SankeyData = {
   nodes: { name: string }[];
-  links: { source: number; target: number; value: number }[];
+  // estimated: 実績が未入力のため過去の履歴から推測した線（描画側で色・線種を変える）
+  links: { source: number; target: number; value: number; estimated?: boolean }[];
 };
 
 type Totals = {

@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { LoadingSpinner } from "@/components/StateViews";
+// 区分名は予算管理・実績管理と同じ（lib/labels.ts）
+import { CATEGORY_LABEL } from "@/lib/labels";
 
 // ── 共通型 ──────────────────────────────────────────────────────
 type BusinessProfile = {
@@ -15,18 +20,6 @@ type BusinessProfile = {
   taxationType: string;
 };
 type TaxSetting = { taxYear: number; taxationType: string; simplifiedRate: string };
-type AccountRef = { id: number; code: string; name: string; category: string };
-type LinkedAccount = {
-  id: number;
-  name: string;
-  type: "BANK" | "CREDIT_CARD";
-  institution: string;
-  lastFour: string | null;
-  accountId: number | null;
-  account: AccountRef | null;
-  note: string | null;
-};
-
 // ── 定数 ────────────────────────────────────────────────────────
 const TAX_TYPE_LABELS: Record<string, string> = {
   exempt: "免税事業者",
@@ -38,14 +31,8 @@ const PAYMENT_METHODS: Record<string, string> = {
   general: "原則課税",
   simplified: "簡易課税",
 };
-const TYPE_LABEL = { BANK: "銀行口座", CREDIT_CARD: "クレジットカード" } as const;
-const TYPE_BADGE = {
-  BANK: "bg-blue-50 text-blue-700",
-  CREDIT_CARD: "bg-violet-50 text-violet-700",
-} as const;
-
 // ── タブ型 ──────────────────────────────────────────────────────
-type Tab = "profile" | "tax" | "security" | "accounts" | "accountNames" | "allocationRules";
+type Tab = "profile" | "tax" | "security" | "accountNames" | "departments";
 
 // ── 事業者情報セクション ─────────────────────────────────────────
 function BusinessProfileSection() {
@@ -311,6 +298,19 @@ function TaxSettingsSection() {
 
 // ── セキュリティセクション（MFA + リカバリー）────────────────────
 function SecuritySection() {
+  const qc = useQueryClient();
+
+  // 現在のログインユーザー。MFA が有効かどうかで画面の出し分けをする
+  const { data: me } = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: async (): Promise<{ mfaEnabled: boolean } | null> => {
+      const res = await fetch("/api/auth/me");
+      if (!res.ok) return null;
+      return (await res.json()).user ?? null;
+    },
+  });
+  const mfaEnabled = me?.mfaEnabled ?? false;
+
   // MFA セットアップ
   const [secret, setSecret] = useState<string | null>(null);
   const [uri, setUri] = useState<string | null>(null);
@@ -332,11 +332,51 @@ function SecuritySection() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
     });
-    setMfaMsg(
-      res.ok
-        ? { ok: true, text: "MFA を有効化しました。" }
-        : { ok: false, text: "コードが正しくありません。" },
-    );
+    if (res.ok) {
+      setSecret(null);
+      setUri(null);
+      setCode("");
+      setMfaMsg({ ok: true, text: "MFA を有効化しました。" });
+      qc.invalidateQueries({ queryKey: ["auth-me"] });
+    } else {
+      setMfaMsg({ ok: false, text: "コードが正しくありません。" });
+    }
+  }
+
+  // MFA 解除。認証アプリのコードで本人確認したうえで無効化する
+  // （サーバ側でシークレットとリカバリーコードを破棄する）
+  const [disableCode, setDisableCode] = useState("");
+  const [disabling, setDisabling] = useState(false);
+
+  async function disable() {
+    if (
+      !confirm(
+        "MFA を解除します。以後はパスワードだけでログインできるようになり、" +
+          "発行済みのリカバリーコードも使えなくなります。よろしいですか？",
+      )
+    )
+      return;
+    setDisabling(true);
+    setMfaMsg(null);
+    const res = await fetch("/api/auth/mfa/disable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: disableCode }),
+    });
+    setDisabling(false);
+    setDisableCode("");
+    if (res.ok) {
+      setSecret(null);
+      setUri(null);
+      setCode("");
+      setMfaMsg({
+        ok: true,
+        text: "MFA を解除しました。再度有効にする場合は改めて設定してください。",
+      });
+      qc.invalidateQueries({ queryKey: ["auth-me"] });
+    } else {
+      setMfaMsg({ ok: false, text: "コードが正しくありません。" });
+    }
   }
 
   // リカバリーコード
@@ -370,15 +410,31 @@ function SecuritySection() {
     <div className="space-y-6 max-w-lg">
       {/* MFA セットアップ */}
       <div className="card">
-        <h2 className="section-title">多要素認証（MFA / TOTP）</h2>
-        <ol className="space-y-1 text-sm text-slate-600 mb-4 list-decimal list-inside">
+        <div className="flex items-center gap-3 mb-1">
+          <h2 className="section-title mb-0">多要素認証（MFA / TOTP）</h2>
+          <span
+            className={`text-xs font-medium rounded-full px-2 py-0.5 border ${
+              mfaEnabled
+                ? "text-green-700 bg-green-50 border-green-200"
+                : "text-slate-500 bg-slate-50 border-slate-200"
+            }`}
+          >
+            {mfaEnabled ? "有効" : "無効"}
+          </span>
+        </div>
+        <ol className="space-y-1 text-sm text-slate-600 mt-3 mb-4 list-decimal list-inside">
           <li>「シークレット発行」を押す</li>
           <li>表示されたシークレットを認証アプリに登録</li>
           <li>アプリに表示された 6 桁コードを入力して有効化</li>
         </ol>
         <button type="button" onClick={setup} className="btn-primary">
-          シークレット発行
+          {mfaEnabled ? "シークレットを再発行（認証アプリの登録し直し）" : "シークレット発行"}
         </button>
+        {mfaEnabled && (
+          <p className="mt-2 text-xs text-slate-400">
+            再発行すると新しいシークレットに切り替わります。有効化するまでは今の認証アプリのコードが有効です。
+          </p>
+        )}
         {secret && (
           <div className="mt-5 space-y-4 pt-5 border-t border-slate-100">
             <div>
@@ -403,6 +459,34 @@ function SecuritySection() {
               />
               <button type="button" onClick={enable} className="btn-primary">
                 有効化
+              </button>
+            </div>
+          </div>
+        )}
+        {/* 解除。認証アプリを機種変更・削除する前にここで無効化する。
+            本人確認のため現在の 6 桁コードを求める（サーバ側でも検証する）。 */}
+        {mfaEnabled && (
+          <div className="mt-5 pt-5 border-t border-slate-100">
+            <p className="text-xs font-medium text-slate-500 mb-1">MFA の解除</p>
+            <p className="text-xs text-slate-400 mb-3">
+              認証アプリのコードで本人確認のうえ無効化します。シークレットと発行済みの
+              リカバリーコードは破棄されるため、再び有効にするときは登録し直しになります。
+            </p>
+            <div className="flex gap-2">
+              <input
+                placeholder="6 桁コード"
+                value={disableCode}
+                onChange={(e) => setDisableCode(e.target.value)}
+                maxLength={6}
+                className="input-field w-36 text-center tracking-widest font-mono"
+              />
+              <button
+                type="button"
+                onClick={disable}
+                disabled={disabling || disableCode.length !== 6}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                {disabling ? "解除中…" : "MFA を解除"}
               </button>
             </div>
           </div>
@@ -433,7 +517,9 @@ function SecuritySection() {
           <button
             type="button"
             onClick={generateRecovery}
-            disabled={generating || totpCode.length !== 6}
+            // MFA が無効なときはサーバが 400 を返すので、押せないようにしておく
+            disabled={generating || totpCode.length !== 6 || !mfaEnabled}
+            title={mfaEnabled ? undefined : "MFA を有効化すると発行できます"}
             className="btn-primary text-sm px-3 py-1.5 disabled:opacity-50"
           >
             {generating ? "生成中…" : "リカバリーコードを発行"}
@@ -468,384 +554,6 @@ function SecuritySection() {
   );
 }
 
-// ── 口座・カード管理セクション ───────────────────────────────────
-type FormState = {
-  name: string;
-  type: "BANK" | "CREDIT_CARD";
-  institution: string;
-  lastFour: string;
-  accountCode: string;
-  note: string;
-};
-const BLANK: FormState = {
-  name: "",
-  type: "BANK",
-  institution: "",
-  lastFour: "",
-  accountCode: "",
-  note: "",
-};
-
-// D-1: 銀行口座は BankAccount（/api/bank-accounts）、カードは LinkedAccount（/api/linked-accounts）
-// を正とし、本セクションは両者を横断表示する。
-type BankAccountItem = {
-  id: number;
-  name: string;
-  bankName: string;
-  branchName: string | null;
-  accountType: string;
-  role: string;
-  lastFour: string | null;
-  account: AccountRef | null;
-  note: string | null;
-  balance: number;
-};
-
-// 編集モーダル用の共通形（kind で PATCH 先を出し分ける）
-type EditItem = {
-  kind: "BANK" | "CREDIT_CARD";
-  id: number;
-  name: string;
-  institution: string; // BANK は bankName
-  lastFour: string;
-  accountCode: string;
-  note: string;
-};
-
-function LinkedAccountsSection() {
-  const qc = useQueryClient();
-
-  const { data: cards } = useQuery({
-    queryKey: ["linked-accounts"],
-    queryFn: async (): Promise<LinkedAccount[]> =>
-      (await (await fetch("/api/linked-accounts")).json()).data ?? [],
-  });
-
-  const { data: banks } = useQuery({
-    queryKey: ["bank-accounts"],
-    queryFn: async (): Promise<BankAccountItem[]> =>
-      (await (await fetch("/api/bank-accounts")).json()).data ?? [],
-  });
-
-  const { data: accounts } = useQuery({
-    queryKey: ["accounts"],
-    queryFn: async (): Promise<AccountRef[]> =>
-      (await (await fetch("/api/accounts")).json()).data ?? [],
-  });
-
-  const [form, setForm] = useState(BLANK);
-  const [editItem, setEditItem] = useState<EditItem | null>(null);
-
-  const assetAccounts =
-    accounts?.filter((a) => a.category === "ASSET" || a.category === "LIABILITY") ?? [];
-
-  function invalidate() {
-    qc.invalidateQueries({ queryKey: ["linked-accounts"] });
-    qc.invalidateQueries({ queryKey: ["bank-accounts"] });
-  }
-
-  async function addItem(e: React.FormEvent) {
-    e.preventDefault();
-    const body: Record<string, string> = { name: form.name };
-    if (form.lastFour) body.lastFour = form.lastFour;
-    if (form.accountCode) body.accountCode = form.accountCode;
-    if (form.note) body.note = form.note;
-    if (form.type === "BANK") {
-      body.bankName = form.institution;
-      await fetch("/api/bank-accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } else {
-      body.type = "CREDIT_CARD";
-      body.institution = form.institution;
-      await fetch("/api/linked-accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    }
-    setForm(BLANK);
-    invalidate();
-  }
-
-  async function saveEdit() {
-    if (!editItem) return;
-    const common = {
-      name: editItem.name,
-      lastFour: editItem.lastFour,
-      accountCode: editItem.accountCode,
-      note: editItem.note,
-    };
-    if (editItem.kind === "BANK") {
-      await fetch(`/api/bank-accounts/${editItem.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...common, bankName: editItem.institution }),
-      });
-    } else {
-      await fetch(`/api/linked-accounts/${editItem.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...common, institution: editItem.institution }),
-      });
-    }
-    setEditItem(null);
-    invalidate();
-  }
-
-  async function deleteItem(item: EditItem) {
-    if (!confirm(`「${item.name}」を削除してよいですか？`)) return;
-    const url =
-      item.kind === "BANK" ? `/api/bank-accounts/${item.id}` : `/api/linked-accounts/${item.id}`;
-    const res = await fetch(url, { method: "DELETE" });
-    if (res.status === 409) {
-      const { error } = await res.json().catch(() => ({ error: "削除できません" }));
-      alert(error);
-      return;
-    }
-    invalidate();
-  }
-
-  const bankItems: EditItem[] = (banks ?? []).map((b) => ({
-    kind: "BANK",
-    id: b.id,
-    name: b.name,
-    institution: b.bankName,
-    lastFour: b.lastFour ?? "",
-    accountCode: b.account?.code ?? "",
-    note: b.note ?? "",
-  }));
-  const cardItems: EditItem[] = (cards ?? []).map((c) => ({
-    kind: "CREDIT_CARD",
-    id: c.id,
-    name: c.name,
-    institution: c.institution,
-    lastFour: c.lastFour ?? "",
-    accountCode: c.account?.code ?? "",
-    note: c.note ?? "",
-  }));
-  const accountByCode = new Map(assetAccounts.map((a) => [a.code, a]));
-
-  const ItemList = ({ list }: { list: EditItem[] }) => (
-    <ul className="divide-y divide-slate-100">
-      {list.length === 0 && <p className="text-xs text-slate-400 py-3">登録なし</p>}
-      {list.map((item) => {
-        const account = item.accountCode ? accountByCode.get(item.accountCode) : null;
-        return (
-          <li key={`${item.kind}-${item.id}`} className="py-3 group flex items-start gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-slate-800">{item.name}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${TYPE_BADGE[item.kind]}`}>
-                  {TYPE_LABEL[item.kind]}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {item.institution}
-                {item.lastFour ? ` ****${item.lastFour}` : ""}
-              </p>
-              {account && (
-                <p className="text-xs text-indigo-600 mt-0.5">
-                  → {account.code} {account.name}
-                </p>
-              )}
-              {item.note && <p className="text-xs text-slate-400 mt-0.5">{item.note}</p>}
-            </div>
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button
-                onClick={() => setEditItem(item)}
-                className="text-xs text-slate-400 hover:text-indigo-600"
-              >
-                ✏️
-              </button>
-              <button
-                onClick={() => deleteItem(item)}
-                className="text-xs text-slate-400 hover:text-red-600"
-              >
-                🗑
-              </button>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-
-  return (
-    <>
-      {/* 編集モーダル */}
-      {editItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-96">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4">
-              {TYPE_LABEL[editItem.kind]}を編集
-            </h3>
-            <div className="space-y-3">
-              <input
-                className="input-field w-full"
-                placeholder="名称"
-                value={editItem.name}
-                onChange={(e) => setEditItem({ ...editItem, name: e.target.value })}
-              />
-              <input
-                className="input-field w-full"
-                placeholder="金融機関名"
-                value={editItem.institution}
-                onChange={(e) => setEditItem({ ...editItem, institution: e.target.value })}
-              />
-              <input
-                className="input-field w-full"
-                placeholder="下4桁（任意）"
-                maxLength={4}
-                value={editItem.lastFour}
-                onChange={(e) => setEditItem({ ...editItem, lastFour: e.target.value })}
-              />
-              <select
-                className="input-field w-full"
-                value={editItem.accountCode}
-                onChange={(e) => setEditItem({ ...editItem, accountCode: e.target.value })}
-              >
-                <option value="">勘定科目と紐付けない</option>
-                {assetAccounts.map((a) => (
-                  <option key={a.code} value={a.code}>
-                    {a.code} {a.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input-field w-full"
-                placeholder="メモ（任意）"
-                value={editItem.note}
-                onChange={(e) => setEditItem({ ...editItem, note: e.target.value })}
-              />
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={saveEdit} className="btn-primary flex-1 py-1.5 text-sm">
-                保存
-              </button>
-              <button
-                onClick={() => setEditItem(null)}
-                className="btn-secondary flex-1 py-1.5 text-sm"
-              >
-                キャンセル
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-5">
-        {/* 登録フォーム */}
-        <div className="card">
-          <h2 className="section-title mb-4">新規登録</h2>
-          <form onSubmit={addItem} className="flex gap-2 flex-wrap items-end">
-            <div className="flex flex-col gap-1 min-w-28">
-              <label className="text-xs text-slate-500">名称</label>
-              <input
-                placeholder="例: 住信SBI普通"
-                value={form.name}
-                required
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="input-field"
-              />
-            </div>
-            <div className="flex flex-col gap-1 w-32">
-              <label className="text-xs text-slate-500">種別</label>
-              <select
-                value={form.type}
-                onChange={(e) =>
-                  setForm({ ...form, type: e.target.value as "BANK" | "CREDIT_CARD" })
-                }
-                className="input-field"
-              >
-                <option value="BANK">銀行口座</option>
-                <option value="CREDIT_CARD">クレジットカード</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-1 min-w-28">
-              <label className="text-xs text-slate-500">金融機関</label>
-              <input
-                placeholder="例: 住信SBIネット銀行"
-                value={form.institution}
-                required
-                onChange={(e) => setForm({ ...form, institution: e.target.value })}
-                className="input-field"
-              />
-            </div>
-            <div className="flex flex-col gap-1 w-20">
-              <label className="text-xs text-slate-500">下4桁</label>
-              <input
-                placeholder="1234"
-                maxLength={4}
-                value={form.lastFour}
-                onChange={(e) => setForm({ ...form, lastFour: e.target.value })}
-                className="input-field"
-              />
-            </div>
-            <div className="flex flex-col gap-1 min-w-36">
-              <label className="text-xs text-slate-500">紐付き勘定科目</label>
-              <select
-                value={form.accountCode}
-                onChange={(e) => setForm({ ...form, accountCode: e.target.value })}
-                className="input-field"
-              >
-                <option value="">なし</option>
-                {assetAccounts.map((a) => (
-                  <option key={a.code} value={a.code}>
-                    {a.code} {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1 flex-1 min-w-24">
-              <label className="text-xs text-slate-500">メモ</label>
-              <input
-                placeholder="任意"
-                value={form.note}
-                onChange={(e) => setForm({ ...form, note: e.target.value })}
-                className="input-field"
-              />
-            </div>
-            <button type="submit" className="btn-primary px-4">
-              追加
-            </button>
-          </form>
-        </div>
-
-        {/* 一覧 */}
-        <div className="grid gap-5 lg:grid-cols-2">
-          <div className="card">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="section-title">銀行口座 ({bankItems.length})</h2>
-              <div className="flex gap-2">
-                <a
-                  href="/bank-accounts"
-                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 transition-colors"
-                >
-                  銀行管理 →
-                </a>
-                <a
-                  href="/dashboard?tab=simulation"
-                  className="text-xs text-slate-500 hover:text-slate-700 font-medium px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 transition-colors"
-                >
-                  残高シミュレーション →
-                </a>
-              </div>
-            </div>
-            <ItemList list={bankItems} />
-          </div>
-          <div className="card">
-            <h2 className="section-title mb-1">クレジットカード ({cardItems.length})</h2>
-            <ItemList list={cardItems} />
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
 // ── 科目名設定セクション（モード別表示名の管理）──────────────────
 type AccountNameRow = {
   id: number;
@@ -856,24 +564,20 @@ type AccountNameRow = {
   category: string;
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  REVENUE: "収入",
-  COGS: "変動費",
-  EXPENSE: "固定費・経費",
-  PROFIT: "利益",
-  ASSET: "資産",
-  LIABILITY: "負債",
-  OTHER: "その他",
-};
-
 function AccountNamesSection() {
   const [rows, setRows] = useState<AccountNameRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [dirty, setDirty] = useState<Record<number, { soleName: string; corporateName: string }>>(
-    {},
-  );
+  // 変更中の行（家庭科目名・区分・モード別表示名）
+  type NameEdit = {
+    code: string;
+    name: string;
+    category: string;
+    soleName: string;
+    corporateName: string;
+  };
+  const [dirty, setDirty] = useState<Record<number, NameEdit>>({});
 
   const load = () => {
     setLoading(true);
@@ -889,11 +593,14 @@ function AccountNamesSection() {
     load();
   }, []);
 
-  const setField = (id: number, key: "soleName" | "corporateName", value: string) => {
+  const setField = (id: number, key: keyof NameEdit, value: string) => {
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [key]: value } : r)));
     setDirty((d) => {
       const row = rows.find((r) => r.id === id)!;
       const base = d[id] ?? {
+        code: row.code,
+        name: row.name,
+        category: row.category,
         soleName: row.soleName ?? "",
         corporateName: row.corporateName ?? "",
       };
@@ -904,11 +611,18 @@ function AccountNamesSection() {
   const save = async () => {
     const items = Object.entries(dirty).map(([id, v]) => ({
       id: Number(id),
+      code: v.code.trim(),
+      name: v.name.trim(),
+      category: v.category,
       soleName: v.soleName,
       corporateName: v.corporateName,
     }));
     if (items.length === 0) {
       setMsg({ ok: false, text: "変更がありません。" });
+      return;
+    }
+    if (items.some((i) => i.name === "" || i.code === "")) {
+      setMsg({ ok: false, text: "コードまたは家庭科目名が空の行があります。" });
       return;
     }
     setSaving(true);
@@ -923,7 +637,7 @@ function AccountNamesSection() {
       const j = await res.json();
       setRows(j.data ?? []);
       setDirty({});
-      setMsg({ ok: true, text: `${items.length} 件の科目名を保存しました。` });
+      setMsg({ ok: true, text: `${items.length} 件の科目を保存しました。` });
     } else {
       setMsg({ ok: false, text: "保存に失敗しました。" });
     }
@@ -931,14 +645,56 @@ function AccountNamesSection() {
 
   const dirtyCount = Object.keys(dirty).length;
 
+  const deleteAccount = async (row: AccountNameRow) => {
+    if (!confirm(`「${row.code} ${row.name}」を削除してよいですか？`)) return;
+    const res = await fetch(`/api/accounts/${row.id}`, { method: "DELETE" });
+    if (res.ok) {
+      load();
+      setMsg({ ok: true, text: `科目「${row.code} ${row.name}」を削除しました。` });
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMsg({ ok: false, text: err.error ?? "科目の削除に失敗しました。" });
+    }
+  };
+
+  // 新規科目の追加（コードは同じ区分の既存コードから自動採番される）
+  const [newCategory, setNewCategory] = useState("EXPENSE");
+  const [newName, setNewName] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const addAccount = async () => {
+    const name = newName.trim();
+    if (name === "") {
+      setMsg({ ok: false, text: "追加する科目名を入力してください。" });
+      return;
+    }
+    setAdding(true);
+    setMsg(null);
+    const res = await fetch("/api/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, category: newCategory }),
+    });
+    setAdding(false);
+    if (res.ok) {
+      const j = await res.json();
+      setNewName("");
+      load();
+      setMsg({ ok: true, text: `科目「${j.data.code} ${j.data.name}」を追加しました。` });
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMsg({ ok: false, text: err.error ?? "科目の追加に失敗しました。" });
+    }
+  };
+
   return (
     <div className="card">
       <div className="flex items-start justify-between mb-2">
         <div>
-          <h2 className="section-title">科目名設定（モード別表示名）</h2>
+          <h2 className="section-title">科目名設定</h2>
           <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            各勘定科目は家庭モードの科目名で登録されています。個人事業主モード・法人モードで表示する際の科目名をここで設定できます。
-            空欄にすると家庭科目名がそのまま使われます。既定値は勘定科目変換マスタ（account-master-mapping.md）に基づきます。
+            家庭科目名と区分（収入・固定費など）、および個人事業主モード・法人モードでの表示名をここで変更できます。
+            モード別表示名を空欄にすると家庭科目名がそのまま使われます。既定値は勘定科目変換マスタ（account-master-mapping.md）に基づきます。
           </p>
         </div>
         <button
@@ -977,18 +733,39 @@ function AccountNamesSection() {
                 <th className="text-left py-2 pr-3 whitespace-nowrap">家庭科目名</th>
                 <th className="text-left py-2 pr-3 whitespace-nowrap">区分</th>
                 <th className="text-left py-2 pr-3">個人事業主モード表示名</th>
-                <th className="text-left py-2">法人モード表示名</th>
+                <th className="text-left py-2 pr-3">法人モード表示名</th>
+                <th className="py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td className="py-1.5 pr-3 text-slate-400 tabular-nums whitespace-nowrap">
-                    {r.code}
+                  <td className="py-1.5 pr-3">
+                    <input
+                      value={r.code}
+                      onChange={(e) => setField(r.id, "code", e.target.value)}
+                      className="input-field w-24 font-mono"
+                    />
                   </td>
-                  <td className="py-1.5 pr-3 whitespace-nowrap">{r.name}</td>
-                  <td className="py-1.5 pr-3 text-xs text-slate-500 whitespace-nowrap">
-                    {CATEGORY_LABEL[r.category] ?? r.category}
+                  <td className="py-1.5 pr-3">
+                    <input
+                      value={r.name}
+                      onChange={(e) => setField(r.id, "name", e.target.value)}
+                      className="input-field w-full min-w-[10rem]"
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <select
+                      value={r.category}
+                      onChange={(e) => setField(r.id, "category", e.target.value)}
+                      className="input-field w-32"
+                    >
+                      {Object.entries(CATEGORY_LABEL).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="py-1.5 pr-3">
                     <input
@@ -998,7 +775,7 @@ function AccountNamesSection() {
                       className="input-field w-full min-w-[12rem]"
                     />
                   </td>
-                  <td className="py-1.5">
+                  <td className="py-1.5 pr-3">
                     <input
                       value={r.corporateName ?? ""}
                       placeholder={r.name}
@@ -1006,8 +783,62 @@ function AccountNamesSection() {
                       className="input-field w-full min-w-[12rem]"
                     />
                   </td>
+                  <td className="py-1.5">
+                    <button
+                      type="button"
+                      aria-label="この科目を削除"
+                      title="削除"
+                      onClick={() => deleteAccount(r)}
+                      className="text-slate-300 hover:text-red-500"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  </td>
                 </tr>
               ))}
+              {/* 新規科目の追加行（コードは自動採番） */}
+              <tr className="bg-slate-50/60">
+                <td className="py-2 pr-3 text-xs text-slate-400 whitespace-nowrap">自動採番</td>
+                <td className="py-2 pr-3">
+                  <input
+                    value={newName}
+                    placeholder="追加する科目名"
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addAccount();
+                    }}
+                    className="input-field w-full min-w-[10rem]"
+                  />
+                </td>
+                <td className="py-2 pr-3">
+                  <select
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    className="input-field w-32"
+                  >
+                    {Object.entries(CATEGORY_LABEL).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="py-2 pr-3" colSpan={3}>
+                  <button
+                    type="button"
+                    onClick={addAccount}
+                    disabled={adding}
+                    aria-label="科目を追加"
+                    className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                  >
+                    <Plus className="w-4 h-4" aria-hidden="true" />
+                    {adding ? "追加中…" : "科目を追加"}
+                  </button>
+                  <span className="ml-2 text-[11px] text-slate-400">
+                    コードは同じ区分の既存コードから自動で採番されます。
+                  </span>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -1016,259 +847,168 @@ function AccountNamesSection() {
   );
 }
 
-// ── 予算配分ルール設定 ───────────────────────────────────────────
-type AllocationRuleServerRow = {
-  id: number;
-  key: string;
-  label: string;
-  group: string;
-  minPercent: number;
-  maxPercent: number | null;
-  note: string | null;
-  sortOrder: number;
-  account: { id: number; code: string; name: string } | null;
-};
-type RuleEdit = {
-  origKey: string | null; // null = 新規（保存前）
-  key: string;
-  label: string;
-  group: string;
-  minPercent: string;
-  maxPercent: string; // 空 = 上限なし
-  note: string;
-  accountCode: string; // 空 = 未紐付け
-};
-const ALLOCATION_GROUPS_UI = ["固定費", "生活費", "その他"] as const;
+// ── 部門・担当（実績管理のマスタ管理から移設）─────────────────────
+type Department = { id: number; name: string; manager: string | null };
 
-function toEdit(r: AllocationRuleServerRow): RuleEdit {
-  return {
-    origKey: r.key,
-    key: r.key,
-    label: r.label,
-    group: r.group,
-    minPercent: String(r.minPercent),
-    maxPercent: r.maxPercent === null ? "" : String(r.maxPercent),
-    note: r.note ?? "",
-    accountCode: r.account?.code ?? "",
-  };
-}
-
-function AllocationRulesSection() {
-  const [rules, setRules] = useState<RuleEdit[]>([]);
-  const [removedKeys, setRemovedKeys] = useState<string[]>([]);
-  const [accounts, setAccounts] = useState<AccountRef[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+function DepartmentsSection() {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ name: "", manager: "" });
+  const [editItem, setEditItem] = useState<Department | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const load = () => {
-    setLoading(true);
-    Promise.all([
-      fetch("/api/allocation-rules").then((r) => r.json()),
-      fetch("/api/accounts").then((r) => r.json()),
-    ]).then(([rulesJson, accountsJson]) => {
-      setRules((rulesJson.data ?? []).map(toEdit));
-      setAccounts(accountsJson.data ?? []);
-      setRemovedKeys([]);
-      setLoading(false);
-    });
-  };
-  useEffect(() => {
-    load();
-  }, []);
+  const { data: departments } = useQuery({
+    queryKey: ["departments"],
+    queryFn: async (): Promise<Department[]> =>
+      (await (await fetch("/api/departments")).json()).data ?? [],
+  });
 
-  const setField = (index: number, field: keyof RuleEdit, value: string) => {
-    setRules((rs) => rs.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
-  };
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["departments"] });
 
-  const addRule = () => {
-    setRules((rs) => [
-      ...rs,
-      {
-        origKey: null,
-        key: "",
-        label: "",
-        group: ALLOCATION_GROUPS_UI[0],
-        minPercent: "0",
-        maxPercent: "",
-        note: "",
-        accountCode: "",
-      },
-    ]);
-  };
-
-  const removeRule = (index: number) => {
-    setRules((rs) => {
-      const target = rs[index];
-      if (target.origKey) setRemovedKeys((keys) => [...keys, target.origKey!]);
-      return rs.filter((_, i) => i !== index);
-    });
-  };
-
-  const save = async () => {
-    setSaving(true);
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
     setMsg(null);
-    const items = rules.map((r) => ({
-      key: r.key.trim(),
-      label: r.label.trim(),
-      group: r.group,
-      minPercent: Number(r.minPercent) || 0,
-      maxPercent: r.maxPercent.trim() === "" ? null : Number(r.maxPercent),
-      note: r.note.trim() === "" ? null : r.note.trim(),
-      accountCode: r.accountCode === "" ? null : r.accountCode,
-    }));
-    if (items.some((i) => !i.key || !i.label)) {
-      setSaving(false);
-      setMsg({ ok: false, text: "項目名（key・ラベル）が未入力の行があります。" });
-      return;
-    }
-    const res = await fetch("/api/allocation-rules", {
-      method: "PUT",
+    const res = await fetch("/api/departments", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items, removedKeys: removedKeys.length ? removedKeys : undefined }),
+      body: JSON.stringify({ name: form.name, ...(form.manager ? { manager: form.manager } : {}) }),
     });
-    setSaving(false);
     if (res.ok) {
-      const j = await res.json();
-      setRules((j.data ?? []).map(toEdit));
-      setRemovedKeys([]);
-      setMsg({ ok: true, text: "予算配分ルールを保存しました。" });
+      setForm({ name: "", manager: "" });
+      invalidate();
     } else {
-      const err = await res.json().catch(() => ({}));
-      setMsg({ ok: false, text: err.error ?? "保存に失敗しました。" });
+      setMsg({ ok: false, text: "部門の追加に失敗しました。" });
     }
-  };
+  }
+
+  async function saveEdit() {
+    if (!editItem) return;
+    await fetch(`/api/departments/${editItem.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: editItem.name, manager: editItem.manager ?? "" }),
+    });
+    setEditItem(null);
+    invalidate();
+  }
+
+  async function remove(d: Department) {
+    if (!confirm(`「${d.name}」を削除してよいですか？`)) return;
+    const res = await fetch(`/api/departments/${d.id}`, { method: "DELETE" });
+    if (res.ok) invalidate();
+    else {
+      const err = await res.json().catch(() => ({}));
+      setMsg({ ok: false, text: err.error ?? "部門の削除に失敗しました。" });
+    }
+  }
 
   return (
-    <div className="card">
-      <div className="flex items-start justify-between mb-2">
-        <div>
-          <h2 className="section-title">予算配分ルール</h2>
-          <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            収入配分の提案（予算管理の「配分提案」タブ）で使う推奨割合（%）です。対応科目を紐付けると、
-            推奨額をその科目の予算へワンクリックで一括反映できます。
-          </p>
+    <>
+      {editItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-white rounded-xl shadow-xl p-5 w-full max-w-sm">
+            <h3 className="text-sm font-semibold text-slate-800 mb-3">部門を編集</h3>
+            <div className="space-y-2">
+              <input
+                className="input-field w-full"
+                value={editItem.name}
+                onChange={(e) => setEditItem({ ...editItem, name: e.target.value })}
+                placeholder="部門名"
+              />
+              <input
+                className="input-field w-full"
+                value={editItem.manager ?? ""}
+                onChange={(e) => setEditItem({ ...editItem, manager: e.target.value })}
+                placeholder="担当者名（任意）"
+              />
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={saveEdit} className="btn-primary flex-1 py-1.5 text-sm">
+                保存
+              </button>
+              <button
+                onClick={() => setEditItem(null)}
+                className="btn-secondary flex-1 py-1.5 text-sm"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
         </div>
-        <button
-          onClick={save}
-          disabled={saving}
-          className="btn-primary px-4 py-2 whitespace-nowrap disabled:opacity-50"
-        >
-          {saving ? "保存中…" : "変更を保存"}
-        </button>
-      </div>
+      )}
 
-      {msg && (
-        <p
-          className={`text-xs rounded px-2 py-1.5 mb-3 border ${
-            msg.ok
-              ? "text-green-700 bg-green-50 border-green-200"
-              : "text-red-600 bg-red-50 border-red-200"
-          }`}
-        >
-          {msg.text}
+      <div className="card max-w-2xl">
+        <h2 className="section-title mb-1">部門・担当</h2>
+        <p className="text-xs text-slate-500 mb-4">
+          実績を部門別に集計する場合に登録します（実績管理のマスタ管理から移設）。
         </p>
-      )}
 
-      {loading ? (
-        <p className="text-slate-400 text-sm">読み込み中…</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs text-slate-500 border-b border-slate-200">
-              <tr>
-                <th className="text-left py-2 pr-3 whitespace-nowrap">グループ</th>
-                <th className="text-left py-2 pr-3">ラベル</th>
-                <th className="text-left py-2 pr-3 whitespace-nowrap">下限%</th>
-                <th className="text-left py-2 pr-3 whitespace-nowrap">上限%</th>
-                <th className="text-left py-2 pr-3">対応科目</th>
-                <th className="text-left py-2 pr-3">補足</th>
-                <th className="py-2"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {rules.map((r, i) => (
-                <tr key={r.origKey ?? `new-${i}`}>
-                  <td className="py-1.5 pr-3">
-                    <select
-                      value={r.group}
-                      onChange={(e) => setField(i, "group", e.target.value)}
-                      className="input-field w-28"
-                    >
-                      {ALLOCATION_GROUPS_UI.map((g) => (
-                        <option key={g} value={g}>
-                          {g}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <input
-                      value={r.label}
-                      placeholder={r.origKey ? undefined : "例: 貯蓄・投資"}
-                      onChange={(e) => setField(i, "label", e.target.value)}
-                      className="input-field w-full min-w-[10rem]"
-                    />
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <input
-                      type="number"
-                      value={r.minPercent}
-                      onChange={(e) => setField(i, "minPercent", e.target.value)}
-                      className="input-field w-20"
-                    />
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <input
-                      type="number"
-                      value={r.maxPercent}
-                      placeholder="上限なし"
-                      onChange={(e) => setField(i, "maxPercent", e.target.value)}
-                      className="input-field w-20"
-                    />
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <select
-                      value={r.accountCode}
-                      onChange={(e) => setField(i, "accountCode", e.target.value)}
-                      className="input-field w-full min-w-[10rem]"
-                    >
-                      <option value="">— 未紐付け —</option>
-                      {accounts.map((a) => (
-                        <option key={a.code} value={a.code}>
-                          {a.code} {a.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <input
-                      value={r.note}
-                      onChange={(e) => setField(i, "note", e.target.value)}
-                      className="input-field w-full min-w-[8rem]"
-                    />
-                  </td>
-                  <td className="py-1.5">
-                    <button
-                      onClick={() => removeRule(i)}
-                      className="text-xs text-slate-300 hover:text-red-500"
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button
-            onClick={addRule}
-            className="mt-3 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+        {msg && (
+          <p
+            className={`text-xs rounded px-2 py-1.5 mb-3 border ${
+              msg.ok
+                ? "text-green-700 bg-green-50 border-green-200"
+                : "text-red-600 bg-red-50 border-red-200"
+            }`}
           >
-            + ルールを追加
+            {msg.text}
+          </p>
+        )}
+
+        <form onSubmit={add} className="flex gap-2 mb-4 flex-wrap">
+          <input
+            placeholder="部門名"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            required
+            className="input-field flex-1 min-w-32"
+          />
+          <input
+            placeholder="担当者名（任意）"
+            value={form.manager}
+            onChange={(e) => setForm({ ...form, manager: e.target.value })}
+            className="input-field w-36"
+          />
+          <button type="submit" className="btn-primary px-4 inline-flex items-center gap-1">
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            追加
           </button>
-        </div>
-      )}
-    </div>
+        </form>
+
+        <ul className="divide-y divide-slate-100">
+          {(departments ?? []).length === 0 && (
+            <p className="text-xs text-slate-400 py-3">登録なし</p>
+          )}
+          {(departments ?? []).map((d) => (
+            <li key={d.id} className="flex items-center gap-2 py-2 group">
+              <span className="text-sm text-slate-800 flex-1">{d.name}</span>
+              {d.manager && (
+                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                  担当: {d.manager}
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label="この部門を編集"
+                title="編集"
+                onClick={() => setEditItem(d)}
+                className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                aria-label="この部門を削除"
+                title="削除"
+                onClick={() => remove(d)}
+                className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
   );
 }
 
@@ -1277,13 +1017,18 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "profile", label: "基本設定" },
   { id: "tax", label: "消費税設定" },
   { id: "accountNames", label: "科目名設定" },
-  { id: "allocationRules", label: "予算配分ルール" },
-  { id: "accounts", label: "口座・カード管理" },
+  { id: "departments", label: "部門・担当" },
   { id: "security", label: "セキュリティ" },
 ];
 
-export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>("profile");
+function SettingsContent() {
+  const searchParams = useSearchParams();
+  // 他画面から ?tab=departments のように開けるようにする
+  // （予算配分ルールと口座・カード管理は、それぞれ予算管理・銀行/カード管理へ移設した）
+  const initialTab = TABS.some((t) => t.id === searchParams.get("tab"))
+    ? (searchParams.get("tab") as Tab)
+    : "profile";
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   return (
     <AppShell>
@@ -1311,9 +1056,16 @@ export default function SettingsPage() {
       {tab === "profile" && <BusinessProfileSection />}
       {tab === "tax" && <TaxSettingsSection />}
       {tab === "accountNames" && <AccountNamesSection />}
-      {tab === "allocationRules" && <AllocationRulesSection />}
+      {tab === "departments" && <DepartmentsSection />}
       {tab === "security" && <SecuritySection />}
-      {tab === "accounts" && <LinkedAccountsSection />}
     </AppShell>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <SettingsContent />
+    </Suspense>
   );
 }

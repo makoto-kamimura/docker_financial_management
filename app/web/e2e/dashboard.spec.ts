@@ -13,10 +13,11 @@ test.describe("ダッシュボードと主要フロー", () => {
 
   test("ダッシュボードに KPI と推移グラフが表示される", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
-    // KPI カード（F-11: 初期 viewMode は household。exact: true でオプション要素との strict mode 違反を回避）
-    await expect(page.getByText("収入", { exact: true })).toBeVisible();
+    // KPI カード（F-11: 初期 viewMode は household）。
+    // 「収入」は KPI カード・構成比グラフの凡例・月次収支サマリーの見出しにも出るため first() で先頭を見る。
+    await expect(page.getByText("収入", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("貯蓄額")).toBeVisible();
-    // 予測手法セレクタ
+    // 予測手法セレクタ（構成比グラフの将来月の予測に使う）
     await expect(page.getByText("予測手法")).toBeVisible();
   });
 
@@ -25,15 +26,6 @@ test.describe("ダッシュボードと主要フロー", () => {
     const select = page.locator('select:has(option[value="holt_winters"])');
     await select.selectOption("holt_winters");
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
-  });
-
-  test("レポートページへ遷移して表が表示される", async ({ page }) => {
-    await page.goto("/reports");
-    await expect(page).toHaveURL(/\/reports/);
-    await expect(page.getByRole("heading", { name: "レポート" })).toBeVisible();
-    await expect(page.getByText("達成率")).toBeVisible();
-    // CSV 出力リンクが存在する
-    await expect(page.getByRole("link", { name: "CSV 出力" })).toBeVisible();
   });
 
   test("実績管理画面へ遷移できる", async ({ page }) => {

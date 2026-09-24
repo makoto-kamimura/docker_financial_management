@@ -2,10 +2,25 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, useMemo } from "react";
+import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { useViewMode } from "@/lib/use-view-mode";
+import { useMonthColumnScroll } from "@/hooks/useMonthColumnScroll";
 import { displayName } from "@/lib/display-name";
+import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
+import {
+  buildFinancialMatrix,
+  editableRecord,
+  MATRIX_MONTHS,
+  type MatrixRecord,
+} from "@/lib/financial-matrix";
+import {
+  CATEGORY_LABEL as GROUP_LABELS,
+  CATEGORY_ORDER as GROUP_ORDER,
+  CHANGE_ACTION_LABEL as ACTION_LABEL,
+  categoryRank,
+} from "@/lib/labels";
 
 // ── 型定義 ─────────────────────────────────────────────────────────
 type Account = {
@@ -18,10 +33,10 @@ type Account = {
   soleName?: string | null;
   corporateName?: string | null;
 };
-type Department = { id: number; name: string; manager: string | null };
-
 type ImportResult = {
   inserted: number;
+  /** すでに同じ内容が登録済みでスキップした行数 */
+  skipped?: number;
   errors: { row: number; message: string }[];
 };
 
@@ -33,6 +48,7 @@ type RecentHistory = {
   changedAt: string;
   userId: number | null;
   account: {
+    id: number;
     code: string;
     name: string;
     category: string;
@@ -40,6 +56,29 @@ type RecentHistory = {
     corporateName?: string | null;
   };
   period: { fiscalYear: number; month: number };
+};
+
+// 履歴のページングとソート
+const HISTORY_PAGE_SIZE = 30;
+type HistorySort = "changedAt" | "account" | "amount";
+type HistoryResponse = { data: RecentHistory[]; total: number };
+
+// 実績 1 行の出どころ（GET /api/financials/matrix）。セルの内訳モーダルで表示する
+type RecordSource = {
+  kind: "bank" | "card" | "journal" | "direct";
+  date: string | null;
+  description: string | null;
+  accountName: string | null;
+};
+type MatrixEntry = MatrixRecord & {
+  journalEntryId: number | null;
+  createdAt: string;
+  source: RecordSource;
+};
+type MatrixResponse = {
+  year: number;
+  data: MatrixEntry[];
+  years: number[];
 };
 
 type JournalDetail = {
@@ -64,41 +103,11 @@ type JournalEntry = {
 };
 
 // ── 定数 ───────────────────────────────────────────────────────────
-const ACTION_LABEL: Record<string, string> = { create: "登録", update: "更新", delete: "削除" };
 const ACTION_COLOR: Record<string, string> = {
   create: "text-green-700 bg-green-50",
   update: "text-amber-700 bg-amber-50",
   delete: "text-red-700 bg-red-50",
 };
-
-const GROUP_ORDER = [
-  "ASSET",
-  "LIABILITY",
-  "REVENUE",
-  "COGS",
-  "EXPENSE",
-  "PROFIT",
-  "OTHER",
-] as const;
-const GROUP_LABELS: Record<string, string> = {
-  ASSET: "資産",
-  LIABILITY: "負債",
-  REVENUE: "収入",
-  COGS: "変動費",
-  EXPENSE: "固定費",
-  PROFIT: "貯蓄/利益",
-  OTHER: "その他",
-};
-
-const CATEGORIES = [
-  { value: "REVENUE", label: "収入" },
-  { value: "COGS", label: "変動費" },
-  { value: "EXPENSE", label: "固定費" },
-  { value: "PROFIT", label: "貯蓄/利益" },
-  { value: "ASSET", label: "資産" },
-  { value: "LIABILITY", label: "負債" },
-  { value: "OTHER", label: "その他" },
-];
 
 const CATEGORY_BADGE: Record<string, string> = {
   REVENUE: "bg-blue-50 text-blue-700",
@@ -109,9 +118,6 @@ const CATEGORY_BADGE: Record<string, string> = {
   LIABILITY: "bg-rose-50 text-rose-700",
   OTHER: "bg-slate-100 text-slate-600",
 };
-
-const BLANK_ACCT = { code: "", name: "", category: "OTHER", parentCode: "" };
-const BLANK_DEPT = { name: "", manager: "" };
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const PAY_METHODS = [
@@ -134,6 +140,20 @@ const BLANK_CAL_FORM = {
 };
 
 const yen = (v: number) => v.toLocaleString("ja-JP") + "円";
+
+// セル内訳モーダルに出す「どこから入った実績か」のラベル
+const SOURCE_LABEL: Record<RecordSource["kind"], string> = {
+  bank: "銀行明細から転記",
+  card: "カード明細から転記",
+  journal: "仕訳と連動",
+  direct: "手入力・CSV 取込",
+};
+const SOURCE_BADGE: Record<RecordSource["kind"], string> = {
+  bank: "bg-sky-50 text-sky-700",
+  card: "bg-violet-50 text-violet-700",
+  journal: "bg-amber-50 text-amber-700",
+  direct: "bg-slate-100 text-slate-600",
+};
 const fmtDate = (iso: string) => {
   const d = new Date(iso);
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -158,7 +178,7 @@ const now = new Date();
 const THIS_YEAR = now.getFullYear();
 const THIS_MONTH = now.getMonth() + 1;
 
-type Tab = "manual" | "calendar" | "csv";
+type Tab = "manual" | "calendar" | "csv" | "history";
 
 // ── ページ ─────────────────────────────────────────────────────────
 export default function EntryPage() {
@@ -174,34 +194,87 @@ export default function EntryPage() {
     queryFn: async (): Promise<Account[]> => (await (await fetch("/api/accounts")).json()).data,
   });
 
-  const { data: departments } = useQuery({
-    queryKey: ["departments"],
-    queryFn: async (): Promise<Department[]> =>
-      (await (await fetch("/api/departments")).json()).data,
-  });
+  const [histOffset, setHistOffset] = useState(0);
+  const [histSort, setHistSort] = useState<HistorySort>("changedAt");
+  const [histOrder, setHistOrder] = useState<"asc" | "desc">("desc");
 
-  const { data: recentHistory, isLoading: histLoading } = useQuery({
-    queryKey: ["recent-history"],
-    queryFn: async (): Promise<RecentHistory[]> => {
-      const res = await fetch("/api/financials/recent?limit=30");
-      return (await res.json()).data ?? [];
+  const { data: history, isLoading: histLoading } = useQuery({
+    queryKey: ["recent-history", histOffset, histSort, histOrder],
+    queryFn: async (): Promise<HistoryResponse> => {
+      const res = await fetch(
+        `/api/financials/recent?limit=${HISTORY_PAGE_SIZE}&offset=${histOffset}` +
+          `&sort=${histSort}&order=${histOrder}`,
+      );
+      const json = await res.json();
+      return { data: json.data ?? [], total: json.total ?? 0 };
     },
+    // 履歴タブを開いているときだけ取得・更新する
+    enabled: tab === "history",
     refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
   });
+  const recentHistory = history?.data;
+  const histTotal = history?.total ?? 0;
 
-  // ── 手入力フォーム ────────────────────────────────────────────
-  const [form, setForm] = useState({
-    accountCode: "",
-    fiscalYear: THIS_YEAR,
-    month: THIS_MONTH,
-    amount: 0,
+  const [matrixYear, setMatrixYear] = useState<number | null>(null);
+  const [matrixEdit, setMatrixEdit] = useState<{ id: number; amount: string } | null>(null);
+  const [matrixAdd, setMatrixAdd] = useState<{
+    accountCode: string;
+    month: number;
+    amount: string;
+  } | null>(null);
+  const [matrixError, setMatrixError] = useState<string | null>(null);
+  // 「◯件」を押して開くセル内訳モーダル（同じ科目・月に複数の実績があるセル）
+  const [cellDetail, setCellDetail] = useState<{ accountCode: string; month: number } | null>(null);
+  // 内訳モーダル内での金額編集（テーブル本体の matrixEdit とは独立させる）
+  const [detailEdit, setDetailEdit] = useState<{ id: number; amount: string } | null>(null);
+
+  const { data: matrixData, isLoading: matrixLoading } = useQuery({
+    queryKey: ["financials-matrix", matrixYear],
+    enabled: tab === "manual",
+    queryFn: async (): Promise<MatrixResponse> => {
+      const url = matrixYear
+        ? `/api/financials/matrix?year=${matrixYear}`
+        : "/api/financials/matrix";
+      return (await fetch(url)).json();
+    },
+    placeholderData: (prev) => prev,
   });
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const matrixCurrentYear = matrixData?.year ?? matrixYear ?? THIS_YEAR;
 
-  const [nameEditOpen, setNameEditOpen] = useState(false);
-  const [nameEditValue, setNameEditValue] = useState("");
-  const [nameEditMsg, setNameEditMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [nameEditSaving, setNameEditSaving] = useState(false);
+  // 明細一覧は当月の列を左端に寄せて開く（当年以外を表示中は 1 月始まりのまま）
+  const monthScrollRef = useMonthColumnScroll(matrixCurrentYear === THIS_YEAR ? THIS_MONTH : null);
+
+  // 科目 × 月へ組み替え、予算管理と同じカテゴリ順（資産→負債→収入→…）で並べる
+  const matrixRows = useMemo(() => {
+    const rows = buildFinancialMatrix(matrixData?.data ?? []);
+    return rows.sort(
+      (a, b) =>
+        categoryRank(a.account.category) - categoryRank(b.account.category) ||
+        a.account.code.localeCompare(b.account.code),
+    );
+  }, [matrixData]);
+
+  // 内訳モーダルの対象セル。削除で 0 件になったセルは detailCell が null になる
+  const detailCell = useMemo(() => {
+    if (!cellDetail) return null;
+    const row = matrixRows.find((r) => r.account.code === cellDetail.accountCode);
+    return row?.byMonth.get(cellDetail.month) ?? null;
+  }, [cellDetail, matrixRows]);
+  const detailAccount = cellDetail
+    ? (matrixRows.find((r) => r.account.code === cellDetail.accountCode)?.account ?? null)
+    : null;
+
+  // ソート列見出しのクリック: 同じ列なら昇順/降順を反転、別の列なら既定の向きから
+  function toggleHistorySort(key: HistorySort) {
+    if (key === histSort) {
+      setHistOrder(histOrder === "desc" ? "asc" : "desc");
+    } else {
+      setHistSort(key);
+      setHistOrder(key === "account" ? "asc" : "desc");
+    }
+    setHistOffset(0);
+  }
 
   // ── CSV インポート ─────────────────────────────────────────────
   const fileRef = useRef<HTMLInputElement>(null);
@@ -225,7 +298,8 @@ export default function EntryPage() {
     enabled: tab === "calendar",
   });
 
-  const calEntries = journalData?.data ?? [];
+  // 参照が毎回変わると下の useMemo が無駄に再計算されるため、ここで安定させる
+  const calEntries = useMemo(() => journalData?.data ?? [], [journalData]);
 
   const byDay = useMemo(() => {
     const m = new Map<number, JournalEntry[]>();
@@ -242,80 +316,116 @@ export default function EntryPage() {
   const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
   const selectedEntries = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
 
+  // 表示中の月に入力された実績の合計（カレンダー上部に表示する）
+  const monthTotals = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    for (const e of calEntries) {
+      const a = entryAmount(e);
+      income += a.income;
+      expense += a.expense;
+    }
+    return { income, expense, net: income - expense, count: calEntries.length };
+  }, [calEntries]);
+
   const incomeAccounts = (accounts ?? []).filter((a) => INCOME_CATS.includes(a.category));
   const expenseAccounts = (accounts ?? []).filter((a) => EXPENSE_CATS.includes(a.category));
   const assetAccounts = (accounts ?? []).filter((a) => ASSET_CATS.includes(a.category));
   const calMainAccounts = calForm.direction === "income" ? incomeAccounts : expenseAccounts;
-
-  // ── マスタ: 勘定科目 ─────────────────────────────────────────
-  const [acct, setAcct] = useState(BLANK_ACCT);
-  const [editAcct, setEditAcct] = useState<Account | null>(null);
-  const [editAcctCode, setEditAcctCode] = useState("");
-  const [editAcctName, setEditAcctName] = useState("");
-  const [editAcctCat, setEditAcctCat] = useState("OTHER");
-  const [acctEditMsg, setAcctEditMsg] = useState<string | null>(null);
-
-  // ── マスタ: 部門 ─────────────────────────────────────────────
-  const [dept, setDept] = useState(BLANK_DEPT);
-  const [editDept, setEditDept] = useState<Department | null>(null);
 
   const byCategory = (accounts ?? []).reduce<Record<string, Account[]>>((acc, a) => {
     (acc[a.category] ??= []).push(a);
     return acc;
   }, {});
 
-  const selectedAccount = (accounts ?? []).find((a) => a.code === form.accountCode) ?? null;
-
-  // ── 手入力ハンドラ ───────────────────────────────────────────
-  function onAccountChange(code: string) {
-    setForm((f) => ({ ...f, accountCode: code }));
-    setNameEditOpen(false);
-    setNameEditMsg(null);
-  }
-
-  function openNameEdit() {
-    if (!selectedAccount) return;
-    setNameEditValue(selectedAccount.name);
-    setNameEditMsg(null);
-    setNameEditOpen(true);
-  }
-
-  async function saveNameEdit() {
-    if (!selectedAccount) return;
-    setNameEditSaving(true);
-    setNameEditMsg(null);
-    const res = await fetch(`/api/accounts/${selectedAccount.id}`, {
+  // 履歴の勘定科目インライン編集。転記元の銀行/カード明細がある場合はサーバ側で
+  // categoryAccountId も追随して更新される（PATCH /api/financials/[id]）。
+  const [historyAcctError, setHistoryAcctError] = useState<Record<number, string>>({});
+  async function updateHistoryAccount(recordId: number, accountId: number) {
+    setHistoryAcctError((m) => ({ ...m, [recordId]: "" }));
+    const res = await fetch(`/api/financials/${recordId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nameEditValue }),
+      body: JSON.stringify({ accountId }),
     });
-    const json = await res.json();
     if (res.ok) {
-      await queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      setNameEditMsg({ ok: true, text: "保存しました。" });
-      setNameEditOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["recent-history"] });
     } else {
-      setNameEditMsg({ ok: false, text: json.error ?? "保存に失敗しました。" });
+      const err = await res.json().catch(() => ({}));
+      setHistoryAcctError((m) => ({
+        ...m,
+        [recordId]: err.error ?? "勘定科目の変更に失敗しました。",
+      }));
     }
-    setNameEditSaving(false);
   }
 
-  async function handleSubmit(e: { preventDefault(): void }) {
-    e.preventDefault();
-    setMessage(null);
+  // ── テーブル表示モード（勘定科目 × 月）のハンドラ ───────────────
+  function invalidateRecords() {
+    queryClient.invalidateQueries({ queryKey: ["financials-matrix"] });
+    queryClient.invalidateQueries({ queryKey: ["recent-history"] });
+  }
+
+  // 実績 1 行の金額更新。テーブルのセル編集とセル内訳モーダルの両方から使う
+  async function updateRecordAmount(id: number, amount: number): Promise<boolean> {
+    setMatrixError(null);
+    const res = await fetch(`/api/financials/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount }),
+    });
+    if (res.ok) {
+      invalidateRecords();
+      return true;
+    }
+    const err = await res.json().catch(() => ({}));
+    setMatrixError(err.error ?? "更新に失敗しました。");
+    return false;
+  }
+
+  async function saveMatrixCell() {
+    if (!matrixEdit) return;
+    if (await updateRecordAmount(matrixEdit.id, Number(matrixEdit.amount))) setMatrixEdit(null);
+  }
+
+  // 内訳モーダルからの更新・削除。削除は取り消せないので確認を挟む
+  async function saveDetailAmount() {
+    if (!detailEdit) return;
+    if (await updateRecordAmount(detailEdit.id, Number(detailEdit.amount))) setDetailEdit(null);
+  }
+
+  async function deleteDetailRecord(r: MatrixEntry) {
+    if (!confirm(`${yen(Number(r.amount))} の実績を削除します。よろしいですか？`)) return;
+    if (detailEdit?.id === r.id) setDetailEdit(null);
+    await deleteMatrixCell(r.id);
+  }
+
+  async function deleteMatrixCell(id: number) {
+    setMatrixError(null);
+    const res = await fetch(`/api/financials/${id}`, { method: "DELETE" });
+    if (res.ok) invalidateRecords();
+    else setMatrixError("削除に失敗しました。");
+  }
+
+  async function addMatrixCell() {
+    if (!matrixAdd || matrixAdd.amount === "") return;
+    setMatrixError(null);
     const res = await fetch("/api/financials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        accountCode: form.accountCode,
-        fiscalYear: Number(form.fiscalYear),
-        month: Number(form.month),
-        amount: Number(form.amount),
+        accountCode: matrixAdd.accountCode,
+        fiscalYear: matrixCurrentYear,
+        month: matrixAdd.month,
+        amount: Number(matrixAdd.amount),
       }),
     });
-    setMessage(
-      res.ok ? { ok: true, text: "登録しました。" } : { ok: false, text: "登録に失敗しました。" },
-    );
+    if (res.ok) {
+      setMatrixAdd(null);
+      invalidateRecords();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMatrixError(err.error ?? "登録に失敗しました。");
+    }
   }
 
   // ── CSV ハンドラ ─────────────────────────────────────────────
@@ -333,9 +443,13 @@ export default function EntryPage() {
         headers: { "Content-Type": "text/csv; charset=utf-8" },
         body: file,
       });
+      if (!res.ok) {
+        setImportError(await importErrorMessage(res));
+        return;
+      }
       setImportResult((await res.json()) as ImportResult);
     } catch {
-      setImportError("ファイルの送信中にエラーが発生しました。");
+      setImportError(importNetworkErrorMessage);
     } finally {
       setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -404,196 +518,44 @@ export default function EntryPage() {
     queryClient.invalidateQueries({ queryKey: ["actuals", viewYear, viewMonth] });
   }
 
-  // ── 勘定科目 CRUD ────────────────────────────────────────────
-  async function addAccount(e: { preventDefault(): void }) {
-    e.preventDefault();
-    const body: Record<string, string> = {
-      code: acct.code,
-      name: acct.name,
-      category: acct.category,
-    };
-    if (acct.parentCode) body.parentCode = acct.parentCode;
-    await fetch("/api/accounts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setAcct(BLANK_ACCT);
-    queryClient.invalidateQueries({ queryKey: ["accounts"] });
-  }
-
-  function startEditAcct(a: Account) {
-    setEditAcct(a);
-    setEditAcctCode(a.code);
-    setEditAcctName(a.name);
-    setEditAcctCat(a.category);
-    setAcctEditMsg(null);
-  }
-
-  async function saveEditAcct() {
-    if (!editAcct) return;
-    setAcctEditMsg(null);
-    const res = await fetch(`/api/accounts/${editAcct.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: editAcctCode, name: editAcctName, category: editAcctCat }),
-    });
-    if (!res.ok) {
-      setAcctEditMsg((await res.json()).error ?? "保存に失敗しました");
-      return;
-    }
-    setEditAcct(null);
-    queryClient.invalidateQueries({ queryKey: ["accounts"] });
-  }
-
-  async function deleteAccount(a: Account) {
-    if (!confirm(`「${a.name}」を削除してよいですか？`)) return;
-    const res = await fetch(`/api/accounts/${a.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      alert((await res.json()).error);
-      return;
-    }
-    queryClient.invalidateQueries({ queryKey: ["accounts"] });
-  }
-
-  // ── 部門 CRUD ────────────────────────────────────────────────
-  async function addDepartment(e: { preventDefault(): void }) {
-    e.preventDefault();
-    await fetch("/api/departments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: dept.name, ...(dept.manager ? { manager: dept.manager } : {}) }),
-    });
-    setDept(BLANK_DEPT);
-    queryClient.invalidateQueries({ queryKey: ["departments"] });
-  }
-
-  async function saveEditDept() {
-    if (!editDept) return;
-    await fetch(`/api/departments/${editDept.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: editDept.name, manager: editDept.manager ?? "" }),
-    });
-    setEditDept(null);
-    queryClient.invalidateQueries({ queryKey: ["departments"] });
-  }
-
-  async function deleteDept(d: Department) {
-    if (!confirm(`「${d.name}」を削除してよいですか？`)) return;
-    const res = await fetch(`/api/departments/${d.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      alert((await res.json()).error);
-      return;
-    }
-    queryClient.invalidateQueries({ queryKey: ["departments"] });
-  }
-
   return (
     <AppShell>
-      {/* 編集モーダル: 勘定科目 */}
-      {editAcct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-96">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4">勘定科目を編集</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">コード</label>
-                <input
-                  className="input-field w-full font-mono"
-                  value={editAcctCode}
-                  onChange={(e) => setEditAcctCode(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">名称</label>
-                <input
-                  className="input-field w-full"
-                  value={editAcctName}
-                  onChange={(e) => setEditAcctName(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">カテゴリ</label>
-                <select
-                  className="input-field w-full"
-                  value={editAcctCat}
-                  onChange={(e) => setEditAcctCat(e.target.value)}
-                >
-                  {CATEGORIES.map((c) => (
-                    <option key={c.value} value={c.value}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {acctEditMsg && (
-              <p className="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
-                {acctEditMsg}
-              </p>
-            )}
-            <div className="flex gap-2 mt-4">
-              <button onClick={saveEditAcct} className="btn-primary flex-1 py-1.5 text-sm">
-                保存
-              </button>
-              <button
-                onClick={() => setEditAcct(null)}
-                className="btn-secondary flex-1 py-1.5 text-sm"
-              >
-                キャンセル
-              </button>
-            </div>
-          </div>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="page-title">実績管理</h1>
+          <p className="text-sm text-slate-500 mt-0.5">月次の財務実績を登録します</p>
         </div>
-      )}
-
-      {/* 編集モーダル: 部門 */}
-      {editDept && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-80">
-            <h3 className="text-sm font-semibold text-slate-800 mb-4">部門を編集</h3>
-            <div className="space-y-3">
-              <input
-                className="input-field w-full"
-                placeholder="部門名"
-                value={editDept.name}
-                onChange={(e) => setEditDept({ ...editDept, name: e.target.value })}
-              />
-              <input
-                className="input-field w-full"
-                placeholder="担当者名（任意）"
-                value={editDept.manager ?? ""}
-                onChange={(e) => setEditDept({ ...editDept, manager: e.target.value })}
-              />
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={saveEditDept} className="btn-primary flex-1 py-1.5 text-sm">
-                保存
-              </button>
-              <button
-                onClick={() => setEditDept(null)}
-                className="btn-secondary flex-1 py-1.5 text-sm"
-              >
-                キャンセル
-              </button>
-            </div>
+        {/* 年度は予算管理と同じくページ上部に置く（科目×月テーブルの対象年度） */}
+        {tab === "manual" && (
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-600">年度</label>
+            <select
+              value={matrixCurrentYear}
+              onChange={(e) => {
+                setMatrixYear(Number(e.target.value));
+                setMatrixEdit(null);
+                setMatrixAdd(null);
+              }}
+              className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {(matrixData?.years?.length ? matrixData.years : [matrixCurrentYear]).map((y) => (
+                <option key={y} value={y}>
+                  {y}年度
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-      )}
-
-      <div className="mb-6">
-        <h1 className="page-title">実績管理</h1>
-        <p className="text-sm text-slate-500 mt-0.5">月次の財務実績を登録します</p>
+        )}
       </div>
 
       {/* タブ切り替え */}
       <div className="flex gap-1 mb-6 border-b border-slate-200">
         {(
           [
-            ["manual", "明細詳細"],
+            ["manual", "明細一覧"],
             ["calendar", "カレンダー"],
             ["csv", "CSV インポート"],
+            ["history", "履歴"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
           <button
@@ -611,129 +573,8 @@ export default function EntryPage() {
         ))}
       </div>
 
-      {/* ── 手入力タブ ────────────────────────────────────────── */}
-      {tab === "manual" && (
-        <div className="card mb-6">
-          <h2 className="section-title mb-4">新規登録</h2>
-          <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 items-end">
-            <div className="flex flex-col gap-1 w-72">
-              <label className="text-xs font-medium text-slate-600">勘定科目</label>
-              <div className="flex gap-2">
-                <select
-                  value={form.accountCode}
-                  onChange={(e) => onAccountChange(e.target.value)}
-                  required
-                  className="input-field flex-1"
-                >
-                  <option value="">選択してください</option>
-                  {GROUP_ORDER.map((cat) => {
-                    const items = byCategory[cat] ?? [];
-                    if (items.length === 0) return null;
-                    return (
-                      <optgroup key={cat} label={GROUP_LABELS[cat]}>
-                        {items.map((a) => (
-                          <option key={a.id} value={a.code}>
-                            {a.code} {displayName(a, sysMode)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
-                </select>
-                {selectedAccount && !nameEditOpen && (
-                  <button
-                    type="button"
-                    onClick={openNameEdit}
-                    className="shrink-0 text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors whitespace-nowrap"
-                  >
-                    名前変更
-                  </button>
-                )}
-              </div>
-              {nameEditOpen && selectedAccount && (
-                <div className="mt-1 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                  <p className="text-xs font-medium text-slate-600">
-                    「{selectedAccount.name}」の名前を変更
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={nameEditValue}
-                      onChange={(e) => setNameEditValue(e.target.value)}
-                      className="input-field flex-1 text-sm"
-                      placeholder="新しい名前"
-                    />
-                    <button
-                      type="button"
-                      onClick={saveNameEdit}
-                      disabled={nameEditSaving || nameEditValue.trim() === ""}
-                      className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                    >
-                      {nameEditSaving ? "保存中…" : "保存"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNameEditOpen(false);
-                        setNameEditMsg(null);
-                      }}
-                      className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors"
-                    >
-                      キャンセル
-                    </button>
-                  </div>
-                  {nameEditMsg && (
-                    <p
-                      className={`text-xs rounded px-2 py-1 ${nameEditMsg.ok ? "text-green-700 bg-green-50" : "text-red-600 bg-red-50"}`}
-                    >
-                      {nameEditMsg.text}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="flex flex-col gap-1 w-24">
-              <label className="text-xs font-medium text-slate-600">年度</label>
-              <input
-                type="number"
-                value={form.fiscalYear}
-                onChange={(e) => setForm({ ...form, fiscalYear: Number(e.target.value) })}
-                className="input-field"
-              />
-            </div>
-            <div className="flex flex-col gap-1 w-20">
-              <label className="text-xs font-medium text-slate-600">月</label>
-              <input
-                type="number"
-                min={1}
-                max={12}
-                value={form.month}
-                onChange={(e) => setForm({ ...form, month: Number(e.target.value) })}
-                className="input-field"
-              />
-            </div>
-            <div className="flex flex-col gap-1 w-36">
-              <label className="text-xs font-medium text-slate-600">金額（円）</label>
-              <input
-                type="number"
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })}
-                className="input-field"
-              />
-            </div>
-            <button type="submit" className="btn-primary px-5 py-2 self-end ml-auto">
-              登録
-            </button>
-          </form>
-          {message && (
-            <p
-              className={`mt-3 text-sm rounded-lg px-3 py-2 border ${message.ok ? "text-green-700 bg-green-50 border-green-200" : "text-red-600 bg-red-50 border-red-200"}`}
-            >
-              {message.text}
-            </p>
-          )}
-        </div>
-      )}
+      {/* 実績の新規登録は下の「科目×月テーブル」のセルから行う（旧「新規登録」フォームは廃止）。
+          科目名の変更は「設定 › 科目名設定」に集約した。 */}
 
       {/* ── カレンダータブ ────────────────────────────────────── */}
       {tab === "calendar" && (
@@ -768,6 +609,32 @@ export default function EntryPage() {
                   />
                 </svg>
               </button>
+            </div>
+            {/* 当月に入力された実績の合計 */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2.5 border-b border-slate-100 bg-slate-50">
+              <span className="text-xs text-slate-500">
+                収入合計{" "}
+                <span className="text-sm font-semibold text-emerald-600 tabular-nums">
+                  {yen(monthTotals.income)}
+                </span>
+              </span>
+              <span className="text-xs text-slate-500">
+                支出合計{" "}
+                <span className="text-sm font-semibold text-rose-600 tabular-nums">
+                  {yen(monthTotals.expense)}
+                </span>
+              </span>
+              <span className="text-xs text-slate-500">
+                差引{" "}
+                <span
+                  className={`text-sm font-semibold tabular-nums ${
+                    monthTotals.net < 0 ? "text-red-600" : "text-indigo-600"
+                  }`}
+                >
+                  {yen(monthTotals.net)}
+                </span>
+              </span>
+              <span className="text-xs text-slate-400 ml-auto">{monthTotals.count} 件の実績</span>
             </div>
             <div className="grid grid-cols-7 border-b border-slate-100">
               {WEEKDAYS.map((w, i) => (
@@ -853,6 +720,26 @@ export default function EntryPage() {
                     {viewYear}年{viewMonth}月{selectedDay}日
                   </p>
                   <p className="text-xs text-slate-400 mt-0.5">{selectedEntries.length} 件の実績</p>
+                  {selectedEntries.length > 0 &&
+                    (() => {
+                      const income = selectedEntries.reduce((s, e) => s + entryAmount(e).income, 0);
+                      const expense = selectedEntries.reduce(
+                        (s, e) => s + entryAmount(e).expense,
+                        0,
+                      );
+                      return (
+                        <p className="text-xs text-slate-500 mt-1">
+                          {income > 0 && (
+                            <span className="text-emerald-600 font-medium mr-3">
+                              収入 {yen(income)}
+                            </span>
+                          )}
+                          {expense > 0 && (
+                            <span className="text-rose-600 font-medium">支出 {yen(expense)}</span>
+                          )}
+                        </p>
+                      );
+                    })()}
                 </div>
 
                 {selectedEntries.length > 0 && (
@@ -1066,6 +953,12 @@ export default function EntryPage() {
                   <p className="text-sm font-semibold text-slate-800">
                     {importResult.inserted.toLocaleString()} 件を登録しました
                   </p>
+                  {(importResult.skipped ?? 0) > 0 && (
+                    <p className="text-xs text-slate-600">
+                      {importResult.skipped!.toLocaleString()}{" "}
+                      件は既に同じ内容（科目・年月・金額）が登録済みのためスキップしました
+                    </p>
+                  )}
                   {importResult.errors.length > 0 && (
                     <p className="text-xs text-amber-700">
                       {importResult.errors.length} 件のエラーがあります
@@ -1122,183 +1015,558 @@ HA101,${THIS_YEAR},12,500000`}</pre>
               </li>
             </ul>
           </div>
-        </div>
-      )}
 
-      {/* ── 入力履歴（手入力タブのみ表示） ─────────────────────── */}
-      {tab === "manual" && (
-        <div className="mt-10">
-          <h2 className="section-title mb-4">入力履歴（直近 30 件）</h2>
-          {histLoading ? (
-            <LoadingSpinner label="履歴を読み込み中…" />
-          ) : recentHistory && recentHistory.length > 0 ? (
-            <div className="card overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-slate-500 border-b border-slate-200">
-                    <th className="text-left py-2 pr-4 font-medium">日時</th>
-                    <th className="text-left py-2 pr-4 font-medium">操作</th>
-                    <th className="text-left py-2 pr-4 font-medium">勘定科目</th>
-                    <th className="text-left py-2 pr-4 font-medium">期間</th>
-                    <th className="text-right py-2 font-medium">金額</th>
+          {/* 給与明細の項目は、下の科目コードを使ってこの CSV から登録する
+              （旧「給与明細 CSV の取込」は廃止し、科目マスタ側に項目を用意した） */}
+          <div className="card bg-slate-50">
+            <h3 className="text-xs font-semibold text-slate-700 mb-2">
+              給与明細の内容を登録する場合の科目コード
+            </h3>
+            <p className="text-xs text-slate-500 mb-2">
+              給与明細（マネーフォワード等）の各項目は、次の科目コードで上の CSV
+              から登録できます。内訳をまとめたい場合は「社会保険（H-3009）」に合算してください。
+            </p>
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-slate-200">
+                {[
+                  ["総支給額・基本給", "H-1001 給与"],
+                  ["賞与", "H-1002 賞与"],
+                  ["通勤手当", "H-1017 通勤手当"],
+                  ["残業手当", "H-1018 残業手当"],
+                  ["住宅手当・家族手当", "H-1019 住宅手当・家族手当"],
+                  ["健康保険料", "H-3035 健康保険料"],
+                  ["介護保険料", "H-3036 介護保険料"],
+                  ["厚生年金保険料", "H-3037 厚生年金保険料"],
+                  ["雇用保険料", "H-3038 雇用保険料"],
+                  ["社会保険（内訳をまとめる場合）", "H-3009 社会保険"],
+                  ["所得税", "H-3030 所得税"],
+                  ["住民税", "H-3014 住民税"],
+                ].map(([item, code]) => (
+                  <tr key={item}>
+                    <td className="py-1 pr-3 text-slate-600">{item}</td>
+                    <td className="py-1 font-mono text-slate-700">{code}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {recentHistory.map((h) => (
-                    <tr key={h.historyId} className="hover:bg-slate-50">
-                      <td className="py-2 pr-4 text-slate-500 whitespace-nowrap text-xs font-mono">
-                        {fmtDate(h.changedAt)}
-                      </td>
-                      <td className="py-2 pr-4">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLOR[h.action] ?? ""}`}
-                        >
-                          {ACTION_LABEL[h.action] ?? h.action}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-4 text-slate-700">
-                        <span className="font-mono text-xs text-slate-400 mr-1">
-                          {h.account.code}
-                        </span>
-                        {displayName(h.account, sysMode)}
-                      </td>
-                      <td className="py-2 pr-4 text-slate-600 whitespace-nowrap">
-                        {h.period.fiscalYear}年 {h.period.month}月
-                      </td>
-                      <td className="py-2 text-right font-mono text-slate-800">{yen(h.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400">まだ入力履歴はありません。</p>
-          )}
-        </div>
-      )}
-
-      {/* ── マスタ管理（手入力タブのみ表示） ────────────────────── */}
-      {tab === "manual" && (
-        <div className="mt-10 grid gap-6 lg:grid-cols-2">
-          <div className="card">
-            <h2 className="section-title">勘定科目</h2>
-            <form onSubmit={addAccount} className="flex gap-2 mb-4 flex-wrap">
-              <input
-                placeholder="コード"
-                value={acct.code}
-                onChange={(e) => setAcct({ ...acct, code: e.target.value })}
-                required
-                className="input-field w-20 font-mono"
-              />
-              <input
-                placeholder="名称"
-                value={acct.name}
-                onChange={(e) => setAcct({ ...acct, name: e.target.value })}
-                required
-                className="input-field flex-1 min-w-28"
-              />
-              <select
-                value={acct.category}
-                onChange={(e) => setAcct({ ...acct, category: e.target.value })}
-                className="input-field w-24"
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
                 ))}
-              </select>
-              <input
-                placeholder="親コード（任意）"
-                value={acct.parentCode}
-                onChange={(e) => setAcct({ ...acct, parentCode: e.target.value })}
-                className="input-field w-28 font-mono"
-              />
-              <button type="submit" className="btn-primary px-3">
-                追加
-              </button>
-            </form>
-            <ul className="divide-y divide-slate-100">
-              {accounts?.map((a) => (
-                <li key={a.id} className="flex items-center gap-2 py-2 group">
-                  <span className="text-xs font-mono text-slate-400 w-14 shrink-0">{a.code}</span>
-                  <span className="text-sm text-slate-800 flex-1 min-w-0 truncate">
-                    {a.parent && <span className="text-xs text-slate-400 mr-1">└ </span>}
-                    {a.name}
-                  </span>
-                  <span
-                    className={`text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${CATEGORY_BADGE[a.category] ?? CATEGORY_BADGE.OTHER}`}
-                  >
-                    {CATEGORIES.find((c) => c.value === a.category)?.label}
-                  </span>
-                  <button
-                    onClick={() => startEditAcct(a)}
-                    className="text-xs text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    title="編集"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={() => deleteAccount(a)}
-                    className="text-xs text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    title="削除"
-                  >
-                    🗑
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="card">
-            <h2 className="section-title">部門・担当</h2>
-            <form onSubmit={addDepartment} className="flex gap-2 mb-4 flex-wrap">
-              <input
-                placeholder="部門名"
-                value={dept.name}
-                onChange={(e) => setDept({ ...dept, name: e.target.value })}
-                required
-                className="input-field flex-1 min-w-28"
-              />
-              <input
-                placeholder="担当者名（任意）"
-                value={dept.manager}
-                onChange={(e) => setDept({ ...dept, manager: e.target.value })}
-                className="input-field w-28"
-              />
-              <button type="submit" className="btn-primary px-3">
-                追加
-              </button>
-            </form>
-            <ul className="divide-y divide-slate-100">
-              {departments?.map((d) => (
-                <li key={d.id} className="flex items-center gap-2 py-2 group">
-                  <span className="text-sm text-slate-800 flex-1">{d.name}</span>
-                  {d.manager && (
-                    <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                      担当: {d.manager}
-                    </span>
-                  )}
-                  <button
-                    onClick={() => setEditDept(d)}
-                    className="text-xs text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="編集"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={() => deleteDept(d)}
-                    className="text-xs text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="削除"
-                  >
-                    🗑
-                  </button>
-                </li>
-              ))}
-            </ul>
+              </tbody>
+            </table>
           </div>
         </div>
       )}
+
+      {/* ── 実績一覧（明細一覧タブ = 科目×月テーブル / 履歴タブ = 変更履歴）── */}
+      {(tab === "manual" || tab === "history") && (
+        <div>
+          {tab === "history" && histTotal > 0 && (
+            <p className="text-xs text-slate-500 mb-3">
+              全 {histTotal} 件中 {histOffset + 1}〜
+              {Math.min(histOffset + HISTORY_PAGE_SIZE, histTotal)} 件を表示
+            </p>
+          )}
+
+          {/* ── 科目×月テーブル（明細一覧タブ）───────────────────── */}
+          {tab === "manual" && (
+            <>
+              {matrixError && (
+                <p className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {matrixError}
+                </p>
+              )}
+              {matrixLoading && !matrixData ? (
+                <LoadingSpinner label="実績を読み込み中…" />
+              ) : matrixRows.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  {matrixCurrentYear}
+                  年度の実績がありません。CSV インポートまたはカレンダーから登録してください。
+                </p>
+              ) : (
+                <div className="card overflow-hidden p-0">
+                  <div ref={monthScrollRef} className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="sticky left-0 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-600 min-w-44">
+                            勘定科目
+                          </th>
+                          {MATRIX_MONTHS.map((m) => (
+                            <th
+                              key={m}
+                              data-month={m}
+                              className="px-3 py-3 text-right text-xs font-semibold text-slate-600 whitespace-nowrap min-w-24"
+                            >
+                              {m}月
+                            </th>
+                          ))}
+                          <th className="px-3 py-3 text-right text-xs font-semibold text-slate-600 min-w-28">
+                            年間合計
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {matrixRows.map((row) => (
+                          <tr key={row.account.code} className="hover:bg-slate-50 group">
+                            <td className="sticky left-0 bg-white group-hover:bg-slate-50 px-4 py-2 font-medium">
+                              <span className="text-xs font-mono text-slate-400 mr-1.5">
+                                {row.account.code}
+                              </span>
+                              <span className="text-slate-800">
+                                {displayName(
+                                  accounts?.find((a) => a.code === row.account.code) ?? row.account,
+                                  sysMode,
+                                )}
+                              </span>
+                              <span
+                                className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${CATEGORY_BADGE[row.account.category] ?? ""}`}
+                              >
+                                {GROUP_LABELS[row.account.category] ?? row.account.category}
+                              </span>
+                            </td>
+                            {MATRIX_MONTHS.map((m) => {
+                              const cell = row.byMonth.get(m);
+                              const single = editableRecord(cell);
+                              const editing =
+                                single && matrixEdit?.id === single.id ? matrixEdit : null;
+                              const adding =
+                                matrixAdd &&
+                                matrixAdd.accountCode === row.account.code &&
+                                matrixAdd.month === m
+                                  ? matrixAdd
+                                  : null;
+                              return (
+                                <td key={m} className="px-3 py-1.5 text-right tabular-nums">
+                                  {editing ? (
+                                    <div className="flex items-center gap-1 justify-end">
+                                      <input
+                                        type="number"
+                                        value={editing.amount}
+                                        onChange={(e) =>
+                                          setMatrixEdit({ ...editing, amount: e.target.value })
+                                        }
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") saveMatrixCell();
+                                          if (e.key === "Escape") setMatrixEdit(null);
+                                        }}
+                                        autoFocus
+                                        className="w-24 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
+                                      />
+                                      <button
+                                        type="button"
+                                        aria-label="保存"
+                                        title="保存"
+                                        onClick={saveMatrixCell}
+                                        className="text-indigo-600 hover:text-indigo-700"
+                                      >
+                                        <Check className="w-4 h-4" aria-hidden="true" />
+                                      </button>
+                                    </div>
+                                  ) : adding ? (
+                                    <div className="flex items-center gap-1 justify-end">
+                                      <input
+                                        type="number"
+                                        value={adding.amount}
+                                        placeholder="金額"
+                                        onChange={(e) =>
+                                          setMatrixAdd({ ...adding, amount: e.target.value })
+                                        }
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") addMatrixCell();
+                                          if (e.key === "Escape") setMatrixAdd(null);
+                                        }}
+                                        autoFocus
+                                        className="w-24 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
+                                      />
+                                      <button
+                                        type="button"
+                                        aria-label="登録"
+                                        title="登録"
+                                        onClick={addMatrixCell}
+                                        className="text-indigo-600 hover:text-indigo-700"
+                                      >
+                                        <Check className="w-4 h-4" aria-hidden="true" />
+                                      </button>
+                                    </div>
+                                  ) : cell ? (
+                                    <div className="flex items-center justify-end gap-1 group/cell">
+                                      <span>{cell.total.toLocaleString("ja-JP")}</span>
+                                      {cell.records.length > 1 ? (
+                                        // 複数件のセルはその場で編集できないため、内訳モーダルで
+                                        // 1 行ずつ内容を確認して編集・削除する
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setCellDetail({
+                                              accountCode: row.account.code,
+                                              month: m,
+                                            })
+                                          }
+                                          title="この月の実績の内訳を表示"
+                                          className="text-[10px] text-indigo-500 hover:text-indigo-700 underline underline-offset-2 whitespace-nowrap"
+                                        >
+                                          {cell.records.length}件
+                                        </button>
+                                      ) : single && single.journalEntryId !== null ? (
+                                        <span
+                                          className="text-[10px] text-slate-400"
+                                          title="仕訳と連動した実績のため、金額は仕訳帳から修正してください。"
+                                        >
+                                          仕訳
+                                        </span>
+                                      ) : (
+                                        single && (
+                                          <>
+                                            <button
+                                              type="button"
+                                              aria-label="この実績を編集"
+                                              title="編集"
+                                              onClick={() =>
+                                                setMatrixEdit({
+                                                  id: single.id,
+                                                  amount: String(single.amount),
+                                                })
+                                              }
+                                              className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover/cell:opacity-100"
+                                            >
+                                              <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              aria-label="この実績を削除"
+                                              title="削除"
+                                              onClick={() => deleteMatrixCell(single.id)}
+                                              className="text-slate-300 hover:text-red-500 opacity-0 group-hover/cell:opacity-100"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                            </button>
+                                          </>
+                                        )
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setMatrixAdd({
+                                          accountCode: row.account.code,
+                                          month: m,
+                                          amount: "",
+                                        })
+                                      }
+                                      className="text-slate-300 hover:text-indigo-500"
+                                      title={`${row.account.code} の ${m}月に実績を追加`}
+                                    >
+                                      —
+                                    </button>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700">
+                              {row.annual.toLocaleString("ja-JP")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── 履歴（履歴タブ）─────────────────────────── */}
+          {tab === "history" &&
+            (histLoading ? (
+              <LoadingSpinner label="履歴を読み込み中…" />
+            ) : recentHistory && recentHistory.length > 0 ? (
+              <div className="card overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-slate-500 border-b border-slate-200">
+                      <th className="text-left py-2 pr-4 font-medium">
+                        <button
+                          type="button"
+                          onClick={() => toggleHistorySort("changedAt")}
+                          className={`inline-flex items-center gap-1 hover:text-slate-700 ${
+                            histSort === "changedAt" ? "text-indigo-700 font-semibold" : ""
+                          }`}
+                        >
+                          日時
+                          <span className="text-[10px]">
+                            {histSort === "changedAt" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
+                          </span>
+                        </button>
+                      </th>
+                      <th className="text-left py-2 pr-4 font-medium">操作</th>
+                      <th className="text-left py-2 pr-4 font-medium">
+                        <button
+                          type="button"
+                          onClick={() => toggleHistorySort("account")}
+                          className={`inline-flex items-center gap-1 hover:text-slate-700 ${
+                            histSort === "account" ? "text-indigo-700 font-semibold" : ""
+                          }`}
+                        >
+                          勘定科目
+                          <span className="text-[10px]">
+                            {histSort === "account" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
+                          </span>
+                        </button>
+                      </th>
+                      <th className="text-left py-2 pr-4 font-medium">期間</th>
+                      <th className="text-right py-2 font-medium">
+                        <button
+                          type="button"
+                          onClick={() => toggleHistorySort("amount")}
+                          className={`inline-flex items-center gap-1 hover:text-slate-700 ${
+                            histSort === "amount" ? "text-indigo-700 font-semibold" : ""
+                          }`}
+                        >
+                          金額
+                          <span className="text-[10px]">
+                            {histSort === "amount" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
+                          </span>
+                        </button>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {recentHistory.map((h) => (
+                      <tr key={h.historyId} className="hover:bg-slate-50">
+                        <td className="py-2 pr-4 text-slate-500 whitespace-nowrap text-xs font-mono">
+                          {fmtDate(h.changedAt)}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLOR[h.action] ?? ""}`}
+                          >
+                            {ACTION_LABEL[h.action] ?? h.action}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 text-slate-700">
+                          {h.action === "delete" ? (
+                            <>
+                              <span className="font-mono text-xs text-slate-400 mr-1">
+                                {h.account.code}
+                              </span>
+                              {displayName(h.account, sysMode)}
+                            </>
+                          ) : (
+                            <div className="flex flex-col gap-0.5">
+                              <select
+                                value={h.account.id}
+                                onChange={(e) =>
+                                  updateHistoryAccount(h.recordId, Number(e.target.value))
+                                }
+                                className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-40"
+                              >
+                                {GROUP_ORDER.map((cat) => {
+                                  const items = byCategory[cat] ?? [];
+                                  if (items.length === 0) return null;
+                                  return (
+                                    <optgroup key={cat} label={GROUP_LABELS[cat]}>
+                                      {items.map((a) => (
+                                        <option key={a.id} value={a.id}>
+                                          {a.code} {displayName(a, sysMode)}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  );
+                                })}
+                              </select>
+                              {historyAcctError[h.recordId] && (
+                                <span className="text-[10px] text-red-500">
+                                  {historyAcctError[h.recordId]}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4 text-slate-600 whitespace-nowrap">
+                          {h.period.fiscalYear}年 {h.period.month}月
+                        </td>
+                        <td className="py-2 text-right font-mono text-slate-800">
+                          {yen(h.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setHistOffset(Math.max(0, histOffset - HISTORY_PAGE_SIZE))}
+                    disabled={histOffset === 0}
+                    className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    ← 前の {HISTORY_PAGE_SIZE} 件
+                  </button>
+                  <span className="text-xs text-slate-400">
+                    {Math.floor(histOffset / HISTORY_PAGE_SIZE) + 1} /{" "}
+                    {Math.max(1, Math.ceil(histTotal / HISTORY_PAGE_SIZE))} ページ
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setHistOffset(histOffset + HISTORY_PAGE_SIZE)}
+                    disabled={histOffset + HISTORY_PAGE_SIZE >= histTotal}
+                    className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    次の {HISTORY_PAGE_SIZE} 件 →
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">まだ履歴はありません。</p>
+            ))}
+        </div>
+      )}
+
+      {/* ── セル内訳モーダル（「◯件」を押したとき）─────────────────
+          同じ科目・月に複数の実績があるセルは合計しか出せないため、
+          1 件ずつの金額・登録日時・出どころをここで確認し、編集・削除もできるようにする。 */}
+      {cellDetail && (
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-2xl my-auto">
+            <div className="flex items-start justify-between gap-4 mb-1">
+              <h2 className="text-lg font-bold text-slate-800">
+                {detailAccount
+                  ? displayName(
+                      accounts?.find((a) => a.code === detailAccount.code) ?? detailAccount,
+                      sysMode,
+                    )
+                  : "実績の内訳"}
+                <span className="ml-2 text-sm font-normal text-slate-500">
+                  {matrixCurrentYear}年{cellDetail.month}月
+                </span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setCellDetail(null);
+                  setDetailEdit(null);
+                }}
+                className="text-sm text-slate-400 hover:text-slate-600"
+              >
+                閉じる
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              このセルに登録されている実績の一覧です。合計 {yen(detailCell?.total ?? 0)}（
+              {detailCell?.records.length ?? 0} 件）
+            </p>
+
+            {matrixError && <p className="text-xs text-red-600 mb-2">{matrixError}</p>}
+
+            {detailCell && detailCell.records.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-slate-500 border-b border-slate-200">
+                      <th className="text-left py-2 pr-4 font-medium">登録日時</th>
+                      <th className="text-left py-2 pr-4 font-medium">出どころ</th>
+                      <th className="text-left py-2 pr-4 font-medium">内容</th>
+                      <th className="text-right py-2 pr-2 font-medium">金額</th>
+                      <th className="py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {detailCell.records.map((r) => {
+                      const editing = detailEdit?.id === r.id ? detailEdit : null;
+                      return (
+                        <tr key={r.id} className="hover:bg-slate-50">
+                          <td className="py-2 pr-4 text-xs font-mono text-slate-500 whitespace-nowrap">
+                            {fmtDate(r.createdAt)}
+                          </td>
+                          <td className="py-2 pr-4 whitespace-nowrap">
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded ${SOURCE_BADGE[r.source.kind]}`}
+                            >
+                              {SOURCE_LABEL[r.source.kind]}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-xs text-slate-600">
+                            {r.source.description ? (
+                              <>
+                                {r.source.date &&
+                                  `${new Date(r.source.date).toLocaleDateString("ja-JP")} · `}
+                                {r.source.description}
+                                {r.source.accountName && (
+                                  <span className="text-slate-400">（{r.source.accountName}）</span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
+                            {editing ? (
+                              <input
+                                type="number"
+                                value={editing.amount}
+                                onChange={(e) =>
+                                  setDetailEdit({ ...editing, amount: e.target.value })
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveDetailAmount();
+                                  if (e.key === "Escape") setDetailEdit(null);
+                                }}
+                                autoFocus
+                                className="w-28 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
+                              />
+                            ) : (
+                              yen(Number(r.amount))
+                            )}
+                          </td>
+                          <td className="py-2 text-right whitespace-nowrap">
+                            {editing ? (
+                              <button
+                                type="button"
+                                aria-label="保存"
+                                title="保存"
+                                onClick={saveDetailAmount}
+                                className="text-indigo-600 hover:text-indigo-700"
+                              >
+                                <Check className="w-4 h-4" aria-hidden="true" />
+                              </button>
+                            ) : r.journalEntryId !== null ? (
+                              // 仕訳と連動した実績は仕訳側が正なのでここでは触らせない
+                              <span className="text-[10px] text-slate-400">仕訳から修正</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  aria-label="この実績を編集"
+                                  title="編集"
+                                  onClick={() =>
+                                    setDetailEdit({ id: r.id, amount: String(r.amount) })
+                                  }
+                                  className="text-slate-300 hover:text-indigo-500"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="この実績を削除"
+                                  title="削除"
+                                  onClick={() => deleteDetailRecord(r)}
+                                  className="text-slate-300 hover:text-red-500"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">このセルの実績はすべて削除されました。</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 勘定科目・部門のマスタ管理は「設定 › 科目名設定 / 部門・担当」へ移設した。 */}
     </AppShell>
   );
 }

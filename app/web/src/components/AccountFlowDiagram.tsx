@@ -5,7 +5,8 @@
 
 export type FlowGraph = {
   nodes: { name: string }[];
-  links: { source: number; target: number; value: number }[];
+  // estimated: 実績が未入力のため過去の履歴から推測した線（破線＋アンバーで描画する）
+  links: { source: number; target: number; value: number; estimated?: boolean }[];
 };
 
 // ── レイアウト定数 ─────────────────────────────────────────────────────
@@ -54,7 +55,7 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
       <p className="text-sm text-slate-400 py-10 text-center">
         口座間の資金移動が登録されていません。
         <br />
-        「カレンダー」タブで口座間フローを設定してください。
+        銀行管理の「入出金」タブのカレンダーで口座間フローを設定してください。
       </p>
     );
   }
@@ -116,7 +117,7 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
   }
 
   // エッジ描画パラメータ計算
-  const edgeParams = links.map(({ source, target, value }) => {
+  const edgeParams = links.map(({ source, target, value, estimated }) => {
     const outs = outByNode.get(source) ?? [];
     const idx = outs.findIndex((o) => o.target === target);
     const total = outs.length;
@@ -135,7 +136,7 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
     const lx = (x1 + x2) / 2;
     const ly = (y1 + y2) / 2 - 10;
 
-    return { x1, y1, x2, y2, cx, sw, lx, ly, value };
+    return { x1, y1, x2, y2, cx, sw, lx, ly, value, estimated: estimated === true };
   });
 
   return (
@@ -147,20 +148,21 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
         style={{ fontFamily: "system-ui, sans-serif" }}
       >
         {/* ── エッジ ────────────────────────────────────────────── */}
-        {edgeParams.map(({ x1, y1, x2, y2, cx, sw, lx, ly, value }, i) => (
+        {edgeParams.map(({ x1, y1, x2, y2, cx, sw, lx, ly, value, estimated }, i) => (
           <g key={i}>
             <path
               d={`M ${x1} ${y1} C ${cx} ${y1} ${cx} ${y2} ${x2} ${y2}`}
               fill="none"
-              stroke="#c7d2fe"
+              stroke={estimated ? "#fcd34d" : "#c7d2fe"}
               strokeWidth={sw}
               strokeLinecap="round"
+              strokeDasharray={estimated ? "6 4" : undefined}
               opacity={0.8}
             />
             {/* 矢印先端 */}
             <polygon
               points={`${x2},${y2} ${x2 - 7},${y2 - 4} ${x2 - 7},${y2 + 4}`}
-              fill="#818cf8"
+              fill={estimated ? "#f59e0b" : "#818cf8"}
               opacity={0.6}
             />
             {/* 金額ラベル（背景付き） */}
@@ -179,7 +181,7 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
               textAnchor="middle"
               dominantBaseline="middle"
               fontSize={10}
-              fill="#4f46e5"
+              fill={estimated ? "#b45309" : "#4f46e5"}
               fontWeight="700"
             >
               {manFmt(value)}
@@ -242,6 +244,22 @@ export function AccountFlowDiagram({ data }: { data?: FlowGraph }) {
             </span>
           </div>
         ))}
+        {links.some((l) => l.estimated) && (
+          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+            <svg width={22} height={8} aria-hidden="true">
+              <line
+                x1={0}
+                y1={4}
+                x2={22}
+                y2={4}
+                stroke="#fcd34d"
+                strokeWidth={3}
+                strokeDasharray="6 4"
+              />
+            </svg>
+            <span className="font-medium text-amber-700">推測（過去実績から）</span>
+          </div>
+        )}
         <span className="text-xs text-slate-400 ml-auto">矢印の太さ ∝ 金額</span>
       </div>
     </div>

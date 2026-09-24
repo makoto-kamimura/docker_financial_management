@@ -1,8 +1,8 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { HelpCircle } from "lucide-react";
 import {
   PieChart,
   Pie,
@@ -16,55 +16,44 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { BudgetActualChart } from "@/components/BudgetActualChart";
-import { BalanceChart, type BalancePoint } from "@/components/BalanceChart";
 import { downloadSvgAsPng } from "@/lib/export-client";
 import { KpiCards } from "@/components/KpiCards";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { useViewMode, hasSwitchedViewMode } from "@/lib/use-view-mode";
-import { displayName } from "@/lib/display-name";
 import { computeStepChecklist } from "@/lib/step-checklist";
+import { DEFAULT_FORECAST_METHOD, FORECAST_METHODS } from "@/lib/forecast-methods";
 
-type Row = {
+type TrendMonth = {
+  key: string;
+  isForecast: boolean;
+  REVENUE: number;
+  COGS: number;
+  EXPENSE: number;
+  PROFIT: number;
+  OTHER: number;
+  savings: number | null;
+  savingsForecast: number | null;
+};
+type TrendResponse = {
   period: string;
-  budget: number;
-  actual: number | null;
-  forecast: number | null;
-  variance: number | null;
-  achievementRate: number | null;
-};
-type Report = {
-  accountCode: string;
-  year: number;
-  method: string;
-  rows: Row[];
-  totals: { budget: number; actual: number; forecast: number; variance: number };
-};
-type CompositionResponse = {
-  year: number;
-  monthly: Record<string, number | string>[];
-  totals: { name: string; value: number }[];
+  year: number | null;
+  months: TrendMonth[];
   years: number[];
 };
-type AccountItem = {
-  id: number;
-  code: string;
-  name: string;
-  category: string;
-  soleName?: string | null;
-  corporateName?: string | null;
-};
-type BankAccount = { id: number; name: string; bankName: string };
-type SimResult = {
-  accounts: { id: number; name: string }[];
-  timeline: BalancePoint[];
-  shortfalls: { date: string; accountId: number; accountName: string; balance: number }[];
-};
+
+// 対象月を中心とした表示範囲（前 6 か月・後 6 か月＝予測 6 か月分）
+const TREND_BACK = 6;
+const TREND_FORWARD = 6;
 
 const yen = (v: number | null) => (v == null ? "—" : v.toLocaleString("ja-JP"));
-const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 const man = (v: number) => `${Math.round(v / 10000).toLocaleString()}万`;
+// "2026-07" → "2026年7月"
+const periodLabel = (key: string) => {
+  const [y, m] = key.split("-");
+  return `${y}年${Number(m)}月`;
+};
+const monthLabel = (key: string) => `${Number(key.split("-")[1])}月`;
 
 const CAT_LABEL: Record<string, string> = {
   REVENUE: "収入",
@@ -80,27 +69,6 @@ const CAT_COLORS: Record<string, string> = {
   PROFIT: "#10b981",
   OTHER: "#94a3b8",
 };
-
-function toAnnualRows(rows: Row[]): Row[] {
-  const byYear = new Map<string, Row[]>();
-  for (const r of rows) {
-    const y = r.period.slice(0, 4);
-    if (!byYear.has(y)) byYear.set(y, []);
-    byYear.get(y)!.push(r);
-  }
-  return Array.from(byYear.entries()).map(([year, ys]) => {
-    const budget = ys.reduce((s, r) => s + r.budget, 0);
-    const actualSum = ys.filter((r) => r.actual != null).reduce((s, r) => s + (r.actual ?? 0), 0);
-    const actual = ys.some((r) => r.actual != null) ? actualSum : null;
-    const forecastSum = ys
-      .filter((r) => r.forecast != null)
-      .reduce((s, r) => s + (r.forecast ?? 0), 0);
-    const forecast = ys.some((r) => r.forecast != null) ? forecastSum : null;
-    const variance = actual != null ? actual - budget : null;
-    const achievementRate = actual != null && budget > 0 ? actual / budget : null;
-    return { period: `${year}年`, budget, actual, forecast, variance, achievementRate };
-  });
-}
 
 // F-10: ステップ進捗チェックリスト。全ステップ達成後は非表示にする（オンボーディング用途）。
 function StepChecklistCard() {
@@ -154,428 +122,171 @@ function StepChecklistCard() {
   );
 }
 
-function DashboardContent() {
-  const searchParams = useSearchParams();
-  const initialTab = (searchParams.get("tab") ?? "budget") as
-    | "budget"
-    | "composition"
-    | "simulation";
-  const [tab, setTab] = useState<"budget" | "composition" | "simulation">(initialTab);
-  const [method, setMethod] = useState("moving_average");
-  const [viewMode, setViewMode] = useState<"monthly" | "annual">("monthly");
+// ダッシュボードは KPI と構成比グラフに絞る（予実対比は「レポート」へ集約した）。
+export default function DashboardPage() {
+  const [method, setMethod] = useState(DEFAULT_FORECAST_METHOD);
   const [compYear, setCompYear] = useState<number | null>(null);
-  const [accountCode, setAccountCode] = useState("H1000");
-  const [year, setYear] = useState(new Date().getFullYear());
   const sysMode = useViewMode();
   const chartRef = useRef<HTMLDivElement>(null);
 
-  const { data: accountsData } = useQuery({
-    queryKey: ["accounts-select"],
-    queryFn: async (): Promise<AccountItem[]> => {
-      const res = await fetch("/api/accounts");
-      const json = await res.json();
-      return (json.data as AccountItem[]).filter((a) =>
-        ["REVENUE", "COGS", "EXPENSE", "PROFIT"].includes(a.category),
-      );
-    },
-  });
+  // KPI カードで選んだ対象月。グラフはこの月を中心に前後 6 か月を描く。
+  const [kpiPeriod, setKpiPeriod] = useState<string | null>(null);
+  // 構成比グラフの表示範囲。既定は対象月を中心とした前後 6 か月
+  const [compRange, setCompRange] = useState<"window" | "year">("window");
 
-  const { data, isLoading: budgetLoading } = useQuery({
-    queryKey: ["budget-actual", accountCode, year, method],
-    queryFn: async (): Promise<Report | null> => {
-      const res = await fetch(
-        `/api/reports/budget-actual?accountCode=${accountCode}&year=${year}&method=${method}`,
-      );
-      // 科目未登録のテナント等ではエラーレスポンス（rows なし）が返るため null に落とす
-      if (!res.ok) return null;
-      const json = (await res.json()) as Report;
-      return json.rows ? json : null;
-    },
-  });
+  const centerYear = kpiPeriod ? Number(kpiPeriod.slice(0, 4)) : new Date().getFullYear();
+  const yearForComp = compYear ?? centerYear;
 
-  const { data: comp, isLoading: compLoading } = useQuery({
-    queryKey: ["composition", compYear],
-    queryFn: async (): Promise<CompositionResponse> => {
-      const url = compYear
-        ? `/api/reports/composition?year=${compYear}`
-        : "/api/reports/composition";
+  // 対象月±6か月（window）と年度（year）で同じ API を使う。
+  // どちらも実績が確定している月より後は予測値で埋まる。
+  const { data: trend, isLoading } = useQuery({
+    queryKey: ["monthly-trend", compRange, kpiPeriod, yearForComp, method],
+    enabled: compRange === "year" || kpiPeriod !== null,
+    queryFn: async (): Promise<TrendResponse> => {
+      const url =
+        compRange === "year"
+          ? `/api/reports/monthly-trend?year=${yearForComp}&method=${method}`
+          : `/api/reports/monthly-trend?period=${kpiPeriod}&back=${TREND_BACK}` +
+            `&forward=${TREND_FORWARD}&method=${method}`;
       const res = await fetch(url);
       return res.json();
     },
+    placeholderData: (prev) => prev,
   });
 
-  // ── 残高シミュレーション ───────────────────────────────────────────
-  const [openings, setOpenings] = useState<Record<number, number>>({});
-  const [months, setMonths] = useState(3);
-  const [autoRan, setAutoRan] = useState(false);
+  const months = trend?.months ?? [];
+  const hasForecast = months.some((m) => m.isForecast);
 
-  const { data: bankAccounts } = useQuery({
-    queryKey: ["bank-accounts"],
-    queryFn: async (): Promise<BankAccount[]> =>
-      (await (await fetch("/api/bank-accounts")).json()).data ?? [],
-  });
-
-  const sim = useMutation({
-    mutationFn: async (): Promise<SimResult> => {
-      const res = await fetch("/api/transfers/simulate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          openings: Object.fromEntries(Object.entries(openings).map(([k, v]) => [k, Number(v)])),
-          months,
-          startYear: now.getFullYear(),
-          startMonth: now.getMonth() + 1,
-        }),
-      });
-      if (!res.ok) throw new Error("simulation failed");
-      return res.json();
-    },
-  });
-
-  useEffect(() => {
-    if (!bankAccounts || bankAccounts.length === 0) return;
-    setOpenings((prev) =>
-      Object.keys(prev).length > 0 ? prev : Object.fromEntries(bankAccounts.map((a) => [a.id, 0])),
-    );
-  }, [bankAccounts]);
-
-  useEffect(() => {
-    if (tab !== "simulation" || autoRan || !bankAccounts || bankAccounts.length === 0) return;
-    setAutoRan(true);
-    sim.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, bankAccounts]);
-
-  // ── 共通計算 ──────────────────────────────────────────────────────
-  const csvUrl = `/api/reports/budget-actual/export?accountCode=${accountCode}&year=${year}&method=${method}`;
-  const displayRows = data ? (viewMode === "annual" ? toAnnualRows(data.rows) : data.rows) : [];
-  const now = new Date();
-  const fiscalYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-  const yearForComp = compYear ?? fiscalYear;
+  // 円グラフ: 表示範囲の合計。実績が未入力の将来月は予測値を含める。
+  const totals = Object.keys(CAT_COLORS)
+    .map((cat) => ({
+      name: cat,
+      value: months.reduce((s, m) => s + Number(m[cat as keyof TrendMonth] ?? 0), 0),
+    }))
+    .filter((d) => d.value > 0);
 
   return (
     <AppShell>
       <div className="mb-6">
         <h1 className="page-title">ダッシュボード</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          {sysMode === "household" ? "収支 KPI・予実管理" : "財務 KPI・予実管理"}
+          {sysMode === "household" ? "収支 KPI・構成比" : "財務 KPI・構成比"}
         </p>
       </div>
 
       <StepChecklistCard />
 
       <div className="card mb-6">
-        <KpiCards mode={sysMode} />
+        <KpiCards mode={sysMode} onPeriodChange={setKpiPeriod} />
       </div>
 
-      {/* タブ */}
-      <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(
-          [
-            ["budget", "予実対比"],
-            ["composition", "構成比グラフ"],
-            ["simulation", "残高シミュレーション"],
-          ] as ["budget" | "composition" | "simulation", string][]
-        ).map(([t, label]) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t
-                ? "border-indigo-600 text-indigo-700"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* ── 構成比グラフ ────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+          {(["window", "year"] as const).map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setCompRange(r)}
+              className={`text-xs px-3 py-1 rounded-md font-medium transition-colors ${
+                compRange === r
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {r === "window" ? `対象月±${TREND_BACK}か月` : "年度"}
+            </button>
+          ))}
+        </div>
 
-      {/* ── 予実対比タブ ─────────────────────── */}
-      {tab === "budget" && (
-        <>
-          <div className="card mb-6">
-            <div className="flex flex-wrap items-center gap-3 mb-5">
-              <div className="flex items-center gap-1.5">
-                <label className="text-xs font-medium text-slate-600 whitespace-nowrap">年度</label>
-                <select
-                  value={year}
-                  onChange={(e) => setYear(Number(e.target.value))}
-                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  {Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - 2 + i).map(
-                    (y) => (
-                      <option key={y} value={y}>
-                        {y}年
-                      </option>
-                    ),
-                  )}
-                </select>
-              </div>
-              <div className="flex items-center gap-1.5 flex-1">
-                <label className="text-xs font-medium text-slate-600 whitespace-nowrap">科目</label>
-                <select
-                  value={accountCode}
-                  onChange={(e) => setAccountCode(e.target.value)}
-                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[200px]"
-                >
-                  {(accountsData ?? []).map((a) => (
-                    <option key={a.code} value={a.code}>
-                      {a.code} {displayName(a, sysMode)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
-                  予測手法
-                </label>
-                <select
-                  value={method}
-                  onChange={(e) => setMethod(e.target.value)}
-                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="linear_regression">線形回帰</option>
-                  <option value="moving_average">移動平均</option>
-                  <option value="growth_rate">成長率</option>
-                  <option value="holt">指数平滑(Holt)</option>
-                  <option value="holt_winters">季節性(Holt-Winters)</option>
-                </select>
-              </div>
-              <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
-                {(["monthly", "annual"] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setViewMode(m)}
-                    className={`text-xs px-3 py-1 rounded-md font-medium transition-colors ${
-                      viewMode === m
-                        ? "bg-white text-slate-800 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    {m === "monthly" ? "月次" : "年次"}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <a href={csvUrl} className="btn-secondary text-xs px-3 py-1.5">
-                  CSV 出力
-                </a>
-                <button
-                  type="button"
-                  onClick={() => downloadSvgAsPng(chartRef.current, "budget-actual.png")}
-                  className="btn-secondary text-xs px-3 py-1.5"
-                >
-                  PNG 出力
-                </button>
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="btn-secondary text-xs px-3 py-1.5"
-                >
-                  PDF 出力
-                </button>
-              </div>
-            </div>
-            {budgetLoading && <LoadingSpinner />}
-            {viewMode === "monthly" && (
-              <div ref={chartRef}>
-                {data && (
-                  <BudgetActualChart
-                    data={data.rows.map((r) => ({
-                      period: r.period,
-                      budget: r.budget,
-                      actual: r.actual,
-                      forecast: r.forecast,
-                    }))}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-
-          {data && displayRows.length > 0 && (
-            <div className="card overflow-hidden p-0">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    {["期間", "予算", "実績", "予測", "差異", "達成率"].map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {displayRows.map((r) => (
-                    <tr key={r.period} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-2.5 font-medium text-slate-700">{r.period}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{yen(r.budget)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{yen(r.actual)}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-orange-600">
-                        {yen(r.forecast)}
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 text-right tabular-nums font-medium ${(r.variance ?? 0) < 0 ? "text-red-600" : "text-green-600"}`}
-                      >
-                        {yen(r.variance)}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {pct(r.achievementRate)}
-                      </td>
-                    </tr>
-                  ))}
-                  {viewMode === "monthly" && data && (
-                    <tr className="bg-slate-50 font-semibold border-t-2 border-slate-200">
-                      <td className="px-4 py-2.5 text-slate-700">合計</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {yen(data.totals.budget)}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {yen(data.totals.actual)}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-orange-600">
-                        {yen(data.totals.forecast)}
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 text-right tabular-nums ${data.totals.variance < 0 ? "text-red-600" : "text-green-600"}`}
-                      >
-                        {yen(data.totals.variance)}
-                      </td>
-                      <td className="px-4 py-2.5 text-right">—</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── 残高シミュレーションタブ ─────────────── */}
-      {tab === "simulation" && (
-        <>
-          <div className="card mb-4">
-            <h2 className="section-title mb-3">条件設定</h2>
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {bankAccounts?.map((a) => (
-                  <div key={a.id}>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      {a.name} <span className="text-slate-400">期首残高</span>
-                    </label>
-                    <input
-                      type="number"
-                      className="input-field"
-                      value={openings[a.id] ?? 0}
-                      onChange={(e) =>
-                        setOpenings((prev) => ({ ...prev, [a.id]: Number(e.target.value) }))
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-end gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">期間</label>
-                  <select
-                    className="input-field w-28"
-                    value={months}
-                    onChange={(e) => setMonths(Number(e.target.value))}
-                  >
-                    {[3, 6, 12].map((m) => (
-                      <option key={m} value={m}>
-                        {m}か月
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  type="button"
-                  className="btn-primary px-5 py-2"
-                  onClick={() => sim.mutate()}
-                  disabled={sim.isPending}
-                >
-                  {sim.isPending ? "計算中…" : "シミュレーション実行"}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {sim.isPending && <div className="text-center text-sm text-slate-400 py-8">計算中…</div>}
-          {sim.data && (
-            <>
-              {(sim.data.shortfalls?.length ?? 0) > 0 ? (
-                <div className="card mb-4 border border-red-200 bg-red-50">
-                  <h2 className="section-title text-red-700 mb-2">⚠️ 残高不足の警告</h2>
-                  <ul className="text-sm text-red-700 space-y-1">
-                    {[
-                      ...new Map(
-                        sim.data.shortfalls.map((s) => [`${s.date}-${s.accountId}`, s]),
-                      ).values(),
-                    ]
-                      .slice(0, 10)
-                      .map((s, i) => (
-                        <li key={i}>
-                          {s.date}：<strong>{s.accountName}</strong> が{" "}
-                          {s.balance.toLocaleString("ja-JP", {
-                            style: "currency",
-                            currency: "JPY",
-                          })}
-                          （マイナス）
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              ) : (
-                <div className="card mb-4 border border-green-200 bg-green-50">
-                  <p className="text-sm text-green-700">
-                    ✅ {months}か月間、残高不足は発生しません。
-                  </p>
-                </div>
-              )}
-              <div className="card">
-                <h2 className="section-title mb-3">残高推移（{months}か月）</h2>
-                <BalanceChart timeline={sim.data.timeline} accounts={sim.data.accounts} />
-              </div>
-            </>
-          )}
-        </>
-      )}
-
-      {/* ── 構成比タブ ────────────────────────── */}
-      {tab === "composition" && (
-        <>
-          <div className="flex items-center gap-2 mb-6">
+        {compRange === "year" ? (
+          <div className="flex items-center gap-2">
             <label className="text-xs font-medium text-slate-600">年度</label>
             <select
               value={yearForComp}
               onChange={(e) => setCompYear(Number(e.target.value))}
               className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              {(comp?.years ?? []).map((y) => (
+              {(trend?.years ?? [yearForComp]).map((y) => (
                 <option key={y} value={y}>
                   {y}年度
                 </option>
               ))}
             </select>
           </div>
+        ) : (
+          trend && (
+            <span className="text-xs text-slate-500">
+              対象月 {periodLabel(trend.period)} を中心に前後 {TREND_BACK} か月
+            </span>
+          )
+        )}
 
-          {compLoading && <LoadingSpinner />}
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs font-medium text-slate-600 whitespace-nowrap">予測手法</label>
+          {/* 各手法の違いを説明する（ホバー / フォーカスで表示） */}
+          <span className="group relative inline-flex">
+            <button
+              type="button"
+              aria-label="予測手法の説明"
+              className="inline-flex text-slate-400 hover:text-slate-600 focus:text-slate-600 focus:outline-none"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+            </button>
+            <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-80 rounded-md bg-slate-800 px-3 py-2 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover:block group-focus-within:block">
+              実績が未入力の月を、どの計算方法で見積もるかを選びます。
+              <span className="mt-1.5 block space-y-1">
+                {FORECAST_METHODS.map((m) => (
+                  <span key={m.value} className="block">
+                    <span className="font-semibold">{m.label}</span>：{m.help}
+                  </span>
+                ))}
+              </span>
+            </span>
+          </span>
+          <select
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+            className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            {FORECAST_METHODS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
 
-          {comp && (
-            <div className="grid gap-6 lg:grid-cols-2 mb-6">
-              <div className="card">
-                <h2 className="section-title mb-4">年間カテゴリ構成比</h2>
+        <button
+          type="button"
+          onClick={() => downloadSvgAsPng(chartRef.current, "composition.png")}
+          className="btn-secondary text-xs px-3 py-1.5 ml-auto"
+        >
+          PNG 出力
+        </button>
+      </div>
+
+      {isLoading && <LoadingSpinner />}
+
+      {trend && (
+        <div className="grid gap-6 lg:grid-cols-2 mb-6">
+          <div className="card">
+            <h2 className="section-title mb-1">カテゴリ構成比</h2>
+            <p className="text-xs text-slate-400 mb-3">
+              {hasForecast
+                ? "実績が未入力の月は予測値を含めて集計しています。"
+                : "表示範囲の実績を集計しています。"}
+            </p>
+            {totals.length === 0 ? (
+              <p className="text-sm text-slate-400 py-8 text-center">
+                この期間に集計できるデータがありません。
+              </p>
+            ) : (
+              <>
                 <ResponsiveContainer width="100%" height={280}>
                   <PieChart>
                     <Pie
-                      data={comp.totals}
+                      data={totals}
                       dataKey="value"
                       nameKey="name"
                       cx="50%"
@@ -585,7 +296,7 @@ function DashboardContent() {
                         `${CAT_LABEL[name] ?? name} ${(percent * 100).toFixed(1)}%`
                       }
                     >
-                      {comp.totals.map((entry) => (
+                      {totals.map((entry) => (
                         <Cell key={entry.name} fill={CAT_COLORS[entry.name] ?? "#cbd5e1"} />
                       ))}
                     </Pie>
@@ -595,7 +306,7 @@ function DashboardContent() {
                   </PieChart>
                 </ResponsiveContainer>
                 <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 justify-center">
-                  {comp.totals.map((d) => (
+                  {totals.map((d) => (
                     <li key={d.name} className="flex items-center gap-1.5 text-xs text-slate-600">
                       <span
                         className="w-3 h-3 rounded-sm shrink-0"
@@ -605,99 +316,115 @@ function DashboardContent() {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </>
+            )}
+          </div>
 
-              <div className="card">
-                <h2 className="section-title mb-4">月別カテゴリ内訳（万円）</h2>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={comp.monthly} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                    <YAxis
-                      tickFormatter={(v) => `${Math.round(v / 10000)}`}
-                      tick={{ fontSize: 10 }}
-                    />
-                    <Tooltip
-                      formatter={(v: number, name: string) => [man(v), CAT_LABEL[name] ?? name]}
-                    />
-                    <Legend formatter={(v) => CAT_LABEL[v] ?? v} wrapperStyle={{ fontSize: 11 }} />
-                    {Object.keys(CAT_COLORS).map((cat) => (
-                      <Bar key={cat} dataKey={cat} stackId="a" fill={CAT_COLORS[cat]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+          <div className="card">
+            <h2 className="section-title mb-1">月別カテゴリ内訳（万円）</h2>
+            <p className="text-xs text-slate-400 mb-3">
+              薄い色の月は予測値です（実績が未入力の月を予測で補完しています）。
+            </p>
+            <div ref={chartRef}>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={months} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="key"
+                    tickFormatter={compRange === "year" ? monthLabel : undefined}
+                    tick={{ fontSize: 9 }}
+                  />
+                  <YAxis
+                    tickFormatter={(v) => `${Math.round(v / 10000)}`}
+                    tick={{ fontSize: 10 }}
+                  />
+                  <Tooltip
+                    formatter={(v: number, name: string) => [man(v), CAT_LABEL[name] ?? name]}
+                    labelFormatter={(k: string) =>
+                      `${periodLabel(k)}${months.find((m) => m.key === k)?.isForecast ? "（予測）" : ""}`
+                    }
+                  />
+                  <Legend formatter={(v) => CAT_LABEL[v] ?? v} wrapperStyle={{ fontSize: 11 }} />
+                  {Object.keys(CAT_COLORS).map((cat) => (
+                    <Bar key={cat} dataKey={cat} stackId="a" fill={CAT_COLORS[cat]}>
+                      {months.map((m) => (
+                        <Cell key={m.key} fillOpacity={m.isForecast ? 0.4 : 1} />
+                      ))}
+                    </Bar>
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-          )}
+          </div>
+        </div>
+      )}
 
-          {comp && comp.monthly.length > 0 && (
-            <div className="card overflow-hidden p-0">
-              <h2 className="section-title px-4 pt-4">月次収支サマリー（実績）</h2>
-              <p className="text-xs text-slate-400 px-4 pb-2">
-                支出が収入を上回った月は赤背景で表示しています。
-              </p>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    {["月", "収入", "支出", "差引"].map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide"
-                      >
-                        {h}
-                      </th>
-                    ))}
+      {months.length > 0 && (
+        <div className="card overflow-hidden p-0">
+          <h2 className="section-title px-4 pt-4">
+            月次収支サマリー（
+            {compRange === "year" ? `${yearForComp}年度` : `対象月±${TREND_BACK}か月`}）
+          </h2>
+          <p className="text-xs text-slate-400 px-4 pb-2">
+            支出が収入を上回った月は赤背景で表示しています。実績が未入力の月は予測値（「予測」表示）です。
+          </p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                {["月", "収入", "支出", "差引"].map((h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {months.map((m) => {
+                const revenue = Number(m.REVENUE ?? 0);
+                const expense = Number(m.COGS ?? 0) + Number(m.EXPENSE ?? 0);
+                const net = revenue - expense;
+                const isDeficit = expense > revenue;
+                return (
+                  <tr
+                    key={m.key}
+                    className={
+                      isDeficit
+                        ? "bg-red-50 hover:bg-red-100 transition-colors"
+                        : "hover:bg-slate-50 transition-colors"
+                    }
+                  >
+                    <td
+                      className={`px-4 py-2.5 font-medium ${isDeficit ? "text-red-700" : "text-slate-700"}`}
+                    >
+                      {isDeficit && (
+                        <span aria-hidden="true" className="mr-1">
+                          ⚠
+                        </span>
+                      )}
+                      {compRange === "year" ? monthLabel(m.key) : periodLabel(m.key)}
+                      {m.isForecast && (
+                        <span className="ml-1.5 text-[10px] font-normal text-orange-500 border border-orange-200 bg-orange-50 rounded px-1 py-0.5 align-middle">
+                          予測
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{yen(revenue)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{yen(expense)}</td>
+                    <td
+                      className={`px-4 py-2.5 text-right tabular-nums font-medium ${net < 0 ? "text-red-600" : "text-green-600"}`}
+                    >
+                      {yen(net)}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {comp.monthly.map((row) => {
-                    const revenue = Number(row.REVENUE ?? 0);
-                    const expense = Number(row.COGS ?? 0) + Number(row.EXPENSE ?? 0);
-                    const net = revenue - expense;
-                    const isDeficit = expense > revenue;
-                    return (
-                      <tr
-                        key={String(row.month)}
-                        className={
-                          isDeficit
-                            ? "bg-red-50 hover:bg-red-100 transition-colors"
-                            : "hover:bg-slate-50 transition-colors"
-                        }
-                      >
-                        <td
-                          className={`px-4 py-2.5 font-medium ${isDeficit ? "text-red-700" : "text-slate-700"}`}
-                        >
-                          {isDeficit && (
-                            <span aria-hidden="true" className="mr-1">
-                              ⚠
-                            </span>
-                          )}
-                          {row.month}
-                        </td>
-                        <td className="px-4 py-2.5 text-right tabular-nums">{yen(revenue)}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums">{yen(expense)}</td>
-                        <td
-                          className={`px-4 py-2.5 text-right tabular-nums font-medium ${net < 0 ? "text-red-600" : "text-green-600"}`}
-                        >
-                          {yen(net)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </AppShell>
-  );
-}
-
-export default function DashboardPage() {
-  return (
-    <Suspense>
-      <DashboardContent />
-    </Suspense>
   );
 }

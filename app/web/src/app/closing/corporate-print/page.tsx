@@ -425,7 +425,7 @@ function CorporatePrint() {
 
         {/* フッター */}
         <div className="text-center text-sm text-gray-400 mt-12 border-t pt-4">
-          <p>作成日: {today} | 決算管理システム</p>
+          <p>作成日: {today} | カケイカイケイ</p>
         </div>
       </div>
     </>

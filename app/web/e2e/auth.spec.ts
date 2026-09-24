@@ -9,8 +9,10 @@ test.describe("認証ガード", () => {
     await expect(page).toHaveURL(/redirect=%2Fdashboard/);
   });
 
-  test("/reports も保護されている", async ({ page }) => {
-    await page.goto("/reports");
+  // /reports 配下（総勘定元帳）も前方一致で保護される。
+  // /reports 自体の画面はタスク 96 で削除したので、配下のページで確認する。
+  test("/reports/ledger も保護されている", async ({ page }) => {
+    await page.goto("/reports/ledger");
     await expect(page).toHaveURL(/\/login/);
   });
 
