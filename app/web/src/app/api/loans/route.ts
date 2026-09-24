@@ -15,6 +15,8 @@ const LoanSchema = z.object({
   loanType: z.string().optional(),
   linkedAccountCode: z.string().optional(),
   monthlyPayment: z.number().optional(),
+  // 残価設定ローンの据置額（最終回に一括支払い）。カーローン等
+  residualValue: z.number().min(0).nullable().optional(),
 });
 
 // GET /api/loans?status=active … 借入金一覧
@@ -26,6 +28,7 @@ export const GET = withApi({
       where: { tenantId: user.tenantId, ...(query.status ? { status: query.status } : {}) },
       include: {
         repayments: { orderBy: { repaidOn: "desc" } },
+        rateChanges: { orderBy: { effectiveOn: "asc" } },
         linkedAccount: { select: { id: true, code: true, name: true } },
       },
       orderBy: { borrowedOn: "desc" },
@@ -61,6 +64,7 @@ export const POST = withApi({
         loanType: body.loanType ?? "business",
         linkedAccountId,
         monthlyPayment: body.monthlyPayment ?? null,
+        residualValue: body.residualValue ?? null,
       },
       include: { linkedAccount: { select: { id: true, code: true, name: true } } },
     });

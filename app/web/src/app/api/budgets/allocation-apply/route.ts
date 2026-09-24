@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { recordBudgetHistory } from "@/lib/budget-history";
 import { notFound } from "@/lib/api-error";
 import { resolvePeriod } from "@/lib/period";
 import { zMoney } from "@/lib/schemas";
@@ -54,16 +55,26 @@ export const POST = withApi({
     const beforeTotal = before.reduce((sum, b) => sum + Number(b.amount), 0);
     const afterTotal = items.reduce((sum, i) => sum + i.amount, 0);
 
-    await db.$transaction(
-      items.map((item) => {
-        const periodId = periods.get(item.month)!.id;
-        return db.budget.upsert({
-          where: { tenantId_accountId_periodId: { tenantId, accountId: item.accountId, periodId } },
-          update: { amount: item.amount },
-          create: { tenantId, accountId: item.accountId, periodId, amount: item.amount },
-        });
-      }),
-    );
+    for (const item of items) {
+      const periodId = periods.get(item.month)!.id;
+      const prev = await db.budget.findUnique({
+        where: { tenantId_accountId_periodId: { tenantId, accountId: item.accountId, periodId } },
+      });
+      const budget = await db.budget.upsert({
+        where: { tenantId_accountId_periodId: { tenantId, accountId: item.accountId, periodId } },
+        update: { amount: item.amount },
+        create: { tenantId, accountId: item.accountId, periodId, amount: item.amount },
+      });
+      await recordBudgetHistory(db, {
+        tenantId,
+        budgetId: budget.id,
+        accountId: item.accountId,
+        periodId,
+        userId: user.id,
+        action: prev ? "update" : "create",
+        amount: item.amount,
+      });
+    }
 
     await audit("allocation_apply", `budgets:${items.length}`, {
       before: { total: beforeTotal },

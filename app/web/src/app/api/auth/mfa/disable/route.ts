@@ -22,9 +22,12 @@ export const POST = withApi({
     );
     if (!ok) throw new ApiError(401, "invalid code");
 
+    // リカバリーコードも同時に破棄する。残したままにすると、後から別のシークレットで
+    // MFA を再設定したときに古いコードが復活し、解除前に流出していた分で second factor を
+    // 迂回できてしまう（再設定後は改めて発行する）
     await prisma.user.update({
       where: { id: user.id },
-      data: { mfaEnabled: false, totpSecret: null },
+      data: { mfaEnabled: false, totpSecret: null, mfaRecoveryCodes: null },
     });
     await audit("mfa_disable", `user:${user.id}`);
     return NextResponse.json({ ok: true });

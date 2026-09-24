@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { recordBudgetHistory } from "@/lib/budget-history";
 import { resolvePeriod, requireAccountByCode } from "@/lib/period";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
 
@@ -60,6 +61,13 @@ export const POST = withApi({
     const account = await requireAccountByCode(db, tenantId, accountCode);
     const period = await resolvePeriod(db, tenantId, fiscalYear, month);
 
+    // 既存有無で履歴の action（create / update）を分ける
+    const before = await db.budget.findUnique({
+      where: {
+        tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
+      },
+    });
+
     const budget = await db.budget.upsert({
       where: {
         tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
@@ -70,6 +78,15 @@ export const POST = withApi({
         account: { select: { id: true, code: true, name: true } },
         period: { select: { fiscalYear: true, month: true } },
       },
+    });
+    await recordBudgetHistory(db, {
+      tenantId,
+      budgetId: budget.id,
+      accountId: account.id,
+      periodId: period.id,
+      userId: user.id,
+      action: before ? "update" : "create",
+      amount,
     });
 
     await audit("upsert", `budget:${budget.id}`);

@@ -5,7 +5,12 @@ import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import { badRequest, notFound } from "@/lib/api-error";
 import { zYearMonth } from "@/lib/zod-helpers";
 import { computeDebtSchedule } from "@/lib/debt-schedule";
-import { serializeAssetWithDebt, buildDebtLoanData } from "@/lib/personal-asset-debt";
+import {
+  serializeAssetWithDebt,
+  buildDebtLoanData,
+  ratePercentOf,
+  manualMonthlyPaymentOf,
+} from "@/lib/personal-asset-debt";
 import { invalidateCache } from "@/lib/redis";
 
 const UpdateSchema = z.object({
@@ -14,11 +19,17 @@ const UpdateSchema = z.object({
   acquiredOn: z.string().nullable().optional(),
   acquisitionCost: z.number().nullable().optional(),
   currentValue: z.number().optional(),
+  // 純資産に評価額を計上するか。false = 負債のみ反映（ローンの諸費用等）
+  countAsAsset: z.boolean().optional(),
   note: z.string().nullable().optional(),
   linkedAccountId: z.number().int().nullable().optional(),
   debtStartOn: zYearMonth.nullable().optional(), // 支払い開始年月（"YYYY-MM"）
   debtPayoffDue: zYearMonth.nullable().optional(), // 負債解消予定年月（"YYYY-MM"）
   debtInitialAmount: z.number().min(0).nullable().optional(), // 当初負債額
+  // 年利（Loan.interestRate と同じ小数表記。0.0081 = 0.810%）
+  debtInterestRate: z.number().min(0).max(1).nullable().optional(),
+  // 残価設定ローンの据置額（最終回に一括支払い）。カーローン等
+  debtResidualValue: z.number().min(0).nullable().optional(),
 });
 
 // PATCH /api/personal-assets/[id] … 実物資産の更新（editor 以上）
@@ -59,11 +70,30 @@ export const PATCH = withApi({
     }
 
     const nextName = body.name ?? existing.name;
-    const debtData = buildDebtLoanData(nextName, {
-      debtStartOn: nextStartOn,
-      debtPayoffDue: nextPayoffDue,
-      debtInitialAmount: nextInitialAmount,
-    });
+    const nextInterestRate =
+      body.debtInterestRate !== undefined
+        ? body.debtInterestRate
+        : (Number(existing.loan?.interestRate ?? 0) ?? 0);
+
+    const nextResidualValue =
+      body.debtResidualValue !== undefined
+        ? body.debtResidualValue
+        : Number(existing.loan?.residualValue ?? 0);
+
+    // 実額が入力済みの返済額は資産側の編集で潰さない（5 年ルールで計算値と一致しないため）
+    const manualMonthly = manualMonthlyPaymentOf(existing.loan);
+
+    const debtData = buildDebtLoanData(
+      nextName,
+      {
+        debtStartOn: nextStartOn,
+        debtPayoffDue: nextPayoffDue,
+        debtInitialAmount: nextInitialAmount,
+        debtInterestRate: nextInterestRate,
+        debtResidualValue: nextResidualValue,
+      },
+      manualMonthly,
+    );
 
     const asset = await db.$transaction(async (tx) => {
       let loanId: number | null | undefined;
@@ -89,6 +119,7 @@ export const PATCH = withApi({
           }),
           ...(body.acquisitionCost !== undefined && { acquisitionCost: body.acquisitionCost }),
           ...(body.currentValue !== undefined && { currentValue: body.currentValue }),
+          ...(body.countAsAsset !== undefined && { countAsAsset: body.countAsAsset }),
           ...(body.note !== undefined && { note: body.note }),
           ...(body.linkedAccountId !== undefined && { linkedAccountId: body.linkedAccountId }),
           ...(loanId !== undefined && { loanId }),
@@ -106,6 +137,10 @@ export const PATCH = withApi({
           Number(asset.loan.amount),
           asset.loan.borrowedOn,
           asset.loan.repaymentDate,
+          new Date(),
+          ratePercentOf(Number(asset.loan.interestRate)),
+          manualMonthlyPaymentOf(asset.loan),
+          Number(asset.loan.residualValue ?? 0),
         )
       : null;
     return NextResponse.json({ data: serializeAssetWithDebt(asset, schedule) });

@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { ACCOUNT_CATEGORIES } from "@/lib/account-category";
-import { badRequest } from "@/lib/api-error";
+import { badRequest, conflict } from "@/lib/api-error";
 import { findAccountByCode } from "@/lib/period";
+import { nextAccountCode } from "@/lib/next-account-code";
 
 const AccountSchema = z.object({
-  code: z.string().min(1),
+  // 省略時は同じ区分の既存コードから自動採番する（設定「科目名設定」の追加ボタン）
+  code: z.string().min(1).optional(),
   name: z.string().min(1),
   category: z.enum(ACCOUNT_CATEGORIES).default("OTHER"),
   parentCode: z.string().optional(),
@@ -29,12 +31,12 @@ export const GET = withApi({
   },
 });
 
-// POST /api/accounts … 勘定科目の登録（editor 以上）
+// POST /api/accounts … 勘定科目の登録（editor 以上）。code 省略時は自動採番。
 export const POST = withApi({
   role: "editor",
   schema: AccountSchema,
   handler: async ({ user, db, body, audit }) => {
-    const { parentCode, ...fields } = body;
+    const { parentCode, code, ...fields } = body;
     const { tenantId } = user;
 
     let parentId: number | undefined;
@@ -44,7 +46,25 @@ export const POST = withApi({
       parentId = parent.id;
     }
 
-    const account = await db.account.create({ data: { tenantId, ...fields, parentId } });
+    let resolvedCode = code;
+    if (resolvedCode) {
+      const dup = await findAccountByCode(db, tenantId, resolvedCode);
+      if (dup) throw conflict(`コード「${resolvedCode}」は既に使用されています`);
+    } else {
+      const existing = await db.account.findMany({
+        where: { tenantId },
+        select: { code: true, category: true },
+      });
+      resolvedCode = nextAccountCode(
+        existing.filter((a) => a.category === fields.category).map((a) => a.code),
+        fields.category,
+        existing.map((a) => a.code),
+      );
+    }
+
+    const account = await db.account.create({
+      data: { tenantId, code: resolvedCode, ...fields, parentId },
+    });
     await audit("create", `account:${account.id}`);
     return NextResponse.json({ data: account }, { status: 201 });
   },

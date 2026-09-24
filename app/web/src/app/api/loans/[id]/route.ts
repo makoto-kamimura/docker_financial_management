@@ -13,6 +13,8 @@ const UpdateSchema = z.object({
   loanType: z.string().optional(),
   linkedAccountCode: z.string().nullable().optional(),
   monthlyPayment: z.number().nullable().optional(),
+  // 残価設定ローンの据置額（最終回に一括支払い）。カーローン等
+  residualValue: z.number().min(0).nullable().optional(),
 });
 
 // PATCH /api/loans/[id] … 借入条件の編集（支払い完了年月・月々の返済額・連携科目 等）
@@ -44,7 +46,12 @@ export const PATCH = withApi({
         ...(body.note !== undefined && { note: body.note }),
         ...(body.loanType !== undefined && { loanType: body.loanType }),
         ...(linkedAccountId !== undefined && { linkedAccountId }),
-        ...(body.monthlyPayment !== undefined && { monthlyPayment: body.monthlyPayment }),
+        ...(body.residualValue !== undefined && { residualValue: body.residualValue }),
+        // 人が金額を入れた＝実額。以降は自動計算で上書きしない（クリア時はフラグも戻す）
+        ...(body.monthlyPayment !== undefined && {
+          monthlyPayment: body.monthlyPayment,
+          monthlyPaymentIsManual: body.monthlyPayment !== null,
+        }),
       },
       include: {
         repayments: { orderBy: { repaidOn: "desc" } },

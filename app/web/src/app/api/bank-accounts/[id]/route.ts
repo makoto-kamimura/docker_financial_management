@@ -14,6 +14,8 @@ const UpdateSchema = z.object({
   lastFour: z.string().max(4).optional().nullable(),
   accountCode: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
+  // 明細合計と実際の残高との差額（期首残高相当）。残高算出は lib/bank-balance.ts を参照
+  balanceAdjustment: z.number().optional(),
 });
 
 // PATCH /api/bank-accounts/[id] … 銀行口座の更新（editor 以上）

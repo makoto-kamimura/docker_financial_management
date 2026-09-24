@@ -1,12 +1,20 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { buildMonthlyCashFlow, type MonthlyTxnEdgeInput } from "@/lib/cashflow-monthly";
+import {
+  buildMonthlyCashFlow,
+  estimateMissingEdges,
+  type MonthlyTxnEdgeInput,
+} from "@/lib/cashflow-monthly";
 import type { TransferChannel, TransferInput } from "@/lib/transferflow";
+
+// 推測フローの学習に使う過去の月数（対象月の直前 N か月）
+const HISTORY_MONTHS = 3;
 
 // GET /api/cashflow/monthly?year=&month=
 // 実績ベースの月間資金フロー図（収入源 → 口座 → カード/引落 → 支払項目）。
-// 紐付け済み（categoryAccountId 設定済み）の入出金明細と資金移動ルールから構築する。
+// 紐付け済み（categoryAccountId 設定済み）の入出金明細と資金移動ルールから構築し、
+// 対象月に実績がまだ無い口座 × 科目は直近 3 か月の平均から推測して破線で描く。
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({
@@ -36,7 +44,7 @@ export const GET = withApi({
     const daysInMonth = new Date(year, month, 0).getDate();
     const transfers = await db.transfer.findMany({
       where: { tenantId, day: { lte: daysInMonth } },
-      include: { fromAccount: true, toAccount: true },
+      include: { fromAccount: true, toAccount: true, linkedAccount: true },
     });
 
     const txnInputs: MonthlyTxnEdgeInput[] = txns.map((t) => ({
@@ -54,11 +62,42 @@ export const GET = withApi({
       toName: t.toAccount?.name ?? null,
       amount: Number(t.amount),
       channel: t.channel as TransferChannel,
-      label: t.label,
+      // カード引き落としは紐付けたカード名を外部ノードのラベルに使う（未設定ならラベル→種別名）
+      label: t.label ?? t.linkedAccount?.name ?? null,
     }));
 
-    const graph = buildMonthlyCashFlow(txnInputs, transferInputs);
+    // 実績がまだ入力されていない口座 × 科目は、直近 HISTORY_MONTHS か月の平均から推測して補う
+    // （フロー図では破線・アンバーで描画される）
+    const historyStart = new Date(year, month - 1 - HISTORY_MONTHS, 1);
+    const historyTxns = await db.bankTransaction.findMany({
+      where: {
+        account: { tenantId },
+        date: { gte: historyStart, lt: start },
+        categoryAccountId: { not: null },
+      },
+      include: {
+        account: { select: { id: true, name: true } },
+        categoryAccount: { select: { id: true, name: true } },
+      },
+    });
 
-    return NextResponse.json({ year, month, graph });
+    const historyInputs: MonthlyTxnEdgeInput[] = historyTxns.map((t) => ({
+      accountId: t.accountId,
+      accountName: t.account.name,
+      amount: Number(t.amount),
+      categoryAccountId: t.categoryAccountId,
+      categoryName: t.categoryAccount?.name ?? null,
+    }));
+
+    const estimated = estimateMissingEdges(txnInputs, historyInputs, HISTORY_MONTHS);
+    const graph = buildMonthlyCashFlow(txnInputs, transferInputs, estimated);
+
+    return NextResponse.json({
+      year,
+      month,
+      graph,
+      estimatedCount: estimated.length,
+      historyMonths: HISTORY_MONTHS,
+    });
   },
 });

@@ -14,7 +14,7 @@ export const GET = withApi({
   handler: async ({ user, db }) => {
     const transfers = await db.transfer.findMany({
       where: { tenantId: user.tenantId },
-      include: { fromAccount: true, toAccount: true },
+      include: { fromAccount: true, toAccount: true, linkedAccount: true },
       orderBy: [{ day: "asc" }, { id: "asc" }],
     });
 
@@ -25,7 +25,8 @@ export const GET = withApi({
       toName: t.toAccount?.name ?? null,
       amount: Number(t.amount),
       channel: t.channel as TransferChannel,
-      label: t.label,
+      // カード引き落としは紐付けたカード名を外部ノードのラベルに使う（未設定ならラベル→種別名）
+      label: t.label ?? t.linkedAccount?.name ?? null,
     }));
 
     const cyclic = hasCycle(inputs);
@@ -43,6 +44,8 @@ export const GET = withApi({
         channel: t.channel,
         channelLabel: CHANNEL_LABELS[t.channel as TransferChannel],
         label: t.label,
+        linkedAccountId: t.linkedAccountId,
+        linkedAccountName: t.linkedAccount?.name ?? null,
         day: t.day,
         note: t.note,
       })),

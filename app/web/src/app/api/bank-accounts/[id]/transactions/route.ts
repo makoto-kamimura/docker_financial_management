@@ -26,7 +26,12 @@ export const GET = withApi({
       where: { accountId: id },
       orderBy: { date: "desc" },
       take: 200,
-      include: { categoryAccount: { select: { id: true, code: true, name: true } } },
+      include: {
+        categoryAccount: { select: { id: true, code: true, name: true } },
+        // チャージ（デビット・プリペイド・電子マネーへの資金移動）の明細はチャージ先を表示し、
+        // 科目紐付け・転記の対象外にする
+        chargeToAccount: { select: { id: true, name: true } },
+      },
     });
     return NextResponse.json({ data: txns.map(serializeBankTransaction) });
   },
@@ -82,9 +87,11 @@ export const POST = withApi({
     }
 
     const inserted = await upsertExternalTransactions(db, id, rows, "CSV");
+    // 同じ内容の明細は externalId の一意制約で自動的にスキップされる（重複取込の防止）
+    const skipped = rows.length - inserted;
     await audit("import_txn", `bank_account:${id}:${inserted}`);
     await invalidateCache(`assets:summary:${user.tenantId}:*`);
-    return NextResponse.json({ inserted, errors }, { status: errors.length ? 207 : 201 });
+    return NextResponse.json({ inserted, skipped, errors }, { status: errors.length ? 207 : 201 });
   },
 });
 
@@ -96,7 +103,30 @@ export const DELETE = withApi({
     const account = await db.bankAccount.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!account) throw notFound();
 
-    await db.bankTransaction.delete({ where: { id: query.txnId, accountId: id } });
+    // 口座間振替は 2 行で 1 件なので、片方を消したら対の行（相手口座側）も一緒に消す。
+    // 片側だけ残すと相手口座の残高がずれるため。
+    const target = await db.bankTransaction.findFirst({
+      where: { id: query.txnId, accountId: id },
+      select: { transferGroupId: true, chargeGroupId: true },
+    });
+    if (!target) throw notFound();
+
+    // チャージ先の明細と対にしていた場合、相手はチャージ先カードの明細で、この出金が消えても
+    // それ自体は実在する記録なので消さない。紐付けだけ外して科目紐付け・転記をできる状態に戻す。
+    if (target.chargeGroupId) {
+      await db.cardTransaction.updateMany({
+        where: { chargeGroupId: target.chargeGroupId, account: { tenantId: user.tenantId } },
+        data: { chargeGroupId: null },
+      });
+    }
+
+    if (target.transferGroupId) {
+      await db.bankTransaction.deleteMany({
+        where: { transferGroupId: target.transferGroupId, account: { tenantId: user.tenantId } },
+      });
+    } else {
+      await db.bankTransaction.delete({ where: { id: query.txnId, accountId: id } });
+    }
     await audit("delete_txn", `bank_account:${id}:${query.txnId}`);
     await invalidateCache(`assets:summary:${user.tenantId}:*`);
     return NextResponse.json({ ok: true });

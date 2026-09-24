@@ -10,6 +10,8 @@ const PROTECTED = [
   "/assets",
   "/entry",
   "/budget",
+  // 前方一致なので配下の /reports/ledger（総勘定元帳）も保護する。
+  // /reports 自体の画面はタスク 96 で削除済み（内容がダッシュボードと重複していたため）。
   "/reports",
   "/bank-transactions",
   "/bank-accounts",

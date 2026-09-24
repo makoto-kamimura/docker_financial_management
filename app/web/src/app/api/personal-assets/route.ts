@@ -5,7 +5,12 @@ import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import { badRequest } from "@/lib/api-error";
 import { zYearMonth } from "@/lib/zod-helpers";
 import { computeDebtSchedule } from "@/lib/debt-schedule";
-import { serializeAssetWithDebt, buildDebtLoanData } from "@/lib/personal-asset-debt";
+import {
+  serializeAssetWithDebt,
+  buildDebtLoanData,
+  ratePercentOf,
+  manualMonthlyPaymentOf,
+} from "@/lib/personal-asset-debt";
 import { invalidateCache } from "@/lib/redis";
 
 const CreateSchema = z
@@ -15,11 +20,17 @@ const CreateSchema = z
     acquiredOn: z.string().optional(),
     acquisitionCost: z.number().optional(),
     currentValue: z.number(),
+    // 純資産に評価額を計上するか。false = 負債のみ反映（ローンの諸費用等）
+    countAsAsset: z.boolean().default(true),
     note: z.string().optional(),
     linkedAccountId: z.number().int().optional(),
     debtStartOn: zYearMonth.optional(), // 支払い開始年月（"YYYY-MM"）
     debtPayoffDue: zYearMonth.optional(), // 負債解消予定年月（"YYYY-MM"）
     debtInitialAmount: z.number().min(0).optional(), // 当初負債額
+    // 年利（Loan.interestRate と同じ小数表記。0.0081 = 0.810%）
+    debtInterestRate: z.number().min(0).max(1).optional(),
+    // 残価設定ローンの据置額（最終回に一括支払い）。カーローン等
+    debtResidualValue: z.number().min(0).optional(),
   })
   .refine((d) => !(d.debtStartOn && d.debtPayoffDue && d.debtStartOn > d.debtPayoffDue), {
     message: "debtStartOn must be before or equal to debtPayoffDue",
@@ -37,7 +48,15 @@ export const GET = withApi({
     });
     const data = assets.map((a) => {
       const schedule = a.loan
-        ? computeDebtSchedule(Number(a.loan.amount), a.loan.borrowedOn, a.loan.repaymentDate)
+        ? computeDebtSchedule(
+            Number(a.loan.amount),
+            a.loan.borrowedOn,
+            a.loan.repaymentDate,
+            new Date(),
+            ratePercentOf(Number(a.loan.interestRate)),
+            manualMonthlyPaymentOf(a.loan),
+            Number(a.loan.residualValue ?? 0),
+          )
         : null;
       return serializeAssetWithDebt(a, schedule);
     });
@@ -63,6 +82,8 @@ export const POST = withApi({
       debtStartOn: body.debtStartOn ?? null,
       debtPayoffDue: body.debtPayoffDue ?? null,
       debtInitialAmount: body.debtInitialAmount ?? null,
+      debtInterestRate: body.debtInterestRate ?? 0,
+      debtResidualValue: body.debtResidualValue ?? 0,
     });
 
     const asset = await db.$transaction(async (tx) => {
@@ -75,6 +96,7 @@ export const POST = withApi({
           acquiredOn: body.acquiredOn ? new Date(body.acquiredOn) : null,
           acquisitionCost: body.acquisitionCost ?? null,
           currentValue: body.currentValue,
+          countAsAsset: body.countAsAsset,
           note: body.note ?? null,
           linkedAccountId: body.linkedAccountId ?? null,
           loanId: loan?.id ?? null,
@@ -88,6 +110,10 @@ export const POST = withApi({
           Number(asset.loan.amount),
           asset.loan.borrowedOn,
           asset.loan.repaymentDate,
+          new Date(),
+          ratePercentOf(Number(asset.loan.interestRate)),
+          manualMonthlyPaymentOf(asset.loan),
+          Number(asset.loan.residualValue ?? 0),
         )
       : null;
     return NextResponse.json({ data: serializeAssetWithDebt(asset, schedule) }, { status: 201 });

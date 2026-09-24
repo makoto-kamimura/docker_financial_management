@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
+import { recordBudgetHistory } from "@/lib/budget-history";
 import { badRequest } from "@/lib/api-error";
 import { resolvePeriod, findAccountByCode } from "@/lib/period";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
@@ -23,6 +24,8 @@ export const POST = withApi({
 
     const errors: string[] = [];
     let imported = 0;
+    // すでに同じ金額で登録済みの予算はスキップする（金額が違う場合は従来どおり更新）
+    let skipped = 0;
 
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
@@ -51,18 +54,38 @@ export const POST = withApi({
 
       const period = await resolvePeriod(db, tenantId, fiscalYear, month);
 
-      await db.budget.upsert({
+      const existing = await db.budget.findUnique({
+        where: {
+          tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
+        },
+        select: { amount: true },
+      });
+      if (existing && Number(existing.amount) === amount) {
+        skipped++;
+        continue;
+      }
+
+      const budget = await db.budget.upsert({
         where: {
           tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
         },
         update: { amount },
         create: { tenantId, accountId: account.id, periodId: period.id, amount },
       });
+      await recordBudgetHistory(db, {
+        tenantId,
+        budgetId: budget.id,
+        accountId: account.id,
+        periodId: period.id,
+        userId: user.id,
+        action: existing ? "update" : "create",
+        amount,
+      });
 
       imported++;
     }
 
     await audit("import", `budgets:csv:${imported}`);
-    return NextResponse.json({ imported, errors });
+    return NextResponse.json({ imported, skipped, errors });
   },
 });
