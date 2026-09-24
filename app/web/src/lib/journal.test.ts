@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  signedActualAmountFromSpend,
   signedFinancialRecordAmount,
   syncJournalToFinancialRecords,
   type JournalDetailForSync,
@@ -40,6 +41,38 @@ describe("signedFinancialRecordAmount (D-5b 符号規約)", () => {
       10,
     );
     expect(signedFinancialRecordAmount({ category: "OTHER", side: "credit", amount: 10 })).toBe(10);
+  });
+});
+
+describe("signedActualAmountFromSpend（明細を直接転記するときの符号）", () => {
+  // 銀行明細は出金が負なので -amount を渡す
+  const fromBankTxn = (category: "REVENUE" | "EXPENSE" | "COGS", txnAmount: number) =>
+    signedActualAmountFromSpend(category, -txnAmount);
+  // カード明細は利用が正なのでそのまま渡す
+  const fromCardTxn = (category: "REVENUE" | "EXPENSE" | "COGS", txnAmount: number) =>
+    signedActualAmountFromSpend(category, txnAmount);
+
+  it("銀行: 入金 × 収入科目はプラス、出金 × 収入科目はマイナス（返金）", () => {
+    expect(fromBankTxn("REVENUE", 120000)).toBe(120000);
+    // 受け取った仕送りを返金した出金。同じ月の入金と相殺されて 0 になる
+    expect(fromBankTxn("REVENUE", -120000)).toBe(-120000);
+    expect(fromBankTxn("REVENUE", 120000) + fromBankTxn("REVENUE", -120000)).toBe(0);
+  });
+
+  it("銀行: 出金 × 費用科目はプラス、入金 × 費用科目はマイナス（返金）", () => {
+    expect(fromBankTxn("EXPENSE", -5000)).toBe(5000);
+    expect(fromBankTxn("EXPENSE", 5000)).toBe(-5000);
+    expect(fromBankTxn("COGS", -300)).toBe(300);
+  });
+
+  it("カード: 利用は費用としてプラス、返金はマイナス", () => {
+    expect(fromCardTxn("EXPENSE", 5000)).toBe(5000);
+    expect(fromCardTxn("EXPENSE", -5000)).toBe(-5000);
+  });
+
+  it("カード: 収入科目（キャッシュバック等）は利用側がマイナスになる", () => {
+    expect(fromCardTxn("REVENUE", -3000)).toBe(3000);
+    expect(fromCardTxn("REVENUE", 3000)).toBe(-3000);
   });
 });
 

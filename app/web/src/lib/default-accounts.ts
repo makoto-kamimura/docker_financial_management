@@ -16,7 +16,7 @@ import { ACCOUNT_DISPLAY_NAMES } from "../../prisma/account-display-names";
  * 自動でこの一覧を登録する。`prisma/seed-home-accounts.ts` もこのデータを使用する。
  */
 export const HOME_ACCOUNTS_SEED = [
-  // ── 収入（REVENUE）H-1001〜H-1016 ──────────────────────────────────────
+  // ── 収入（REVENUE）H-1001〜H-1019 ──────────────────────────────────────
   { code: "H-1001", name: "給与", category: "REVENUE" },
   { code: "H-1002", name: "賞与", category: "REVENUE" },
   { code: "H-1003", name: "株式配当", category: "REVENUE" },
@@ -33,6 +33,10 @@ export const HOME_ACCOUNTS_SEED = [
   { code: "H-1014", name: "仮想通貨売却益", category: "REVENUE" },
   { code: "H-1015", name: "ポイント・キャッシュバック", category: "REVENUE" },
   { code: "H-1016", name: "仕送り収入", category: "REVENUE" },
+  // 給与明細から取り込む収入項目（総支給の内訳。使わない場合は H-1001 給与へ合算してよい）
+  { code: "H-1017", name: "通勤手当", category: "REVENUE" },
+  { code: "H-1018", name: "残業手当", category: "REVENUE" },
+  { code: "H-1019", name: "住宅手当・家族手当", category: "REVENUE" },
 
   // ── 変動生活費（COGS）H-2001〜H-2017 ────────────────────────────────────
   { code: "H-2001", name: "食費", category: "COGS" },
@@ -53,7 +57,7 @@ export const HOME_ACCOUNTS_SEED = [
   { code: "H-2016", name: "冠婚葬祭費", category: "COGS" },
   { code: "H-2017", name: "趣味用品費", category: "COGS" },
 
-  // ── 固定費・経費（EXPENSE）H-3001〜H-3034 ────────────────────────────────
+  // ── 固定費・経費（EXPENSE）H-3001〜H-3038 ────────────────────────────────
   { code: "H-3001", name: "電気代", category: "EXPENSE" },
   { code: "H-3002", name: "ガス代", category: "EXPENSE" },
   { code: "H-3003", name: "水道代", category: "EXPENSE" },
@@ -88,6 +92,11 @@ export const HOME_ACCOUNTS_SEED = [
   { code: "H-3032", name: "サブスクリプション費", category: "EXPENSE" },
   { code: "H-3033", name: "寄付・募金", category: "EXPENSE" },
   { code: "H-3034", name: "仕送り支出", category: "EXPENSE" },
+  // 給与明細の控除項目。内訳を分けたい場合に使う（まとめる場合は H-3009 社会保険）
+  { code: "H-3035", name: "健康保険料", category: "EXPENSE" },
+  { code: "H-3036", name: "介護保険料", category: "EXPENSE" },
+  { code: "H-3037", name: "厚生年金保険料", category: "EXPENSE" },
+  { code: "H-3038", name: "雇用保険料", category: "EXPENSE" },
 
   // ── 負債・ローン（LIABILITY）H-4001〜H-4005 ──────────────────────────────
   { code: "H-4001", name: "住宅ローン", category: "LIABILITY" },

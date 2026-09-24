@@ -1,4 +1,5 @@
 import type { ViewMode } from "@/lib/display-name";
+import { MODE_LABELS, type ModeLabels } from "@/lib/mode-labels";
 
 // キャッシュフロー（資金フロー）図のデータ構造。Recharts Sankey に渡せる形にする。
 export type CashFlowNode = { name: string };
@@ -8,37 +9,7 @@ export type CashFlowGraph = { nodes: CashFlowNode[]; links: CashFlowLink[] };
 // lib/display-name.ts の ViewMode と同一。既存コードとの互換のためエイリアスとして残す。
 export type SysMode = ViewMode;
 
-export type CashFlowLabels = {
-  revenue: string;
-  cogs: string;
-  grossProfit: string;
-  expense: string;
-  operatingProfit: string;
-};
-
-export const MODE_LABELS: Record<SysMode, CashFlowLabels> = {
-  household: {
-    revenue: "収入",
-    cogs: "変動費",
-    grossProfit: "収支差額",
-    expense: "固定費",
-    operatingProfit: "手残り",
-  },
-  sole: {
-    revenue: "売上",
-    cogs: "仕入・変動費",
-    grossProfit: "粗利",
-    expense: "経費",
-    operatingProfit: "事業利益",
-  },
-  corporate: {
-    revenue: "売上高",
-    cogs: "売上原価",
-    grossProfit: "売上総利益",
-    expense: "販管費",
-    operatingProfit: "営業利益",
-  },
-};
+// モード別の用語（MODE_LABELS）は KPI カードと共用するため lib/mode-labels.ts に置いている
 
 export type CashFlowInput = {
   revenue: number;
@@ -50,7 +21,7 @@ export type CashFlowResult = {
   graph: CashFlowGraph;
   grossProfit: number;
   operatingProfit: number;
-  labels: CashFlowLabels;
+  labels: ModeLabels;
 };
 
 // ラベル付きエッジから、使用ノードのみを含む Sankey 用グラフを構築する。

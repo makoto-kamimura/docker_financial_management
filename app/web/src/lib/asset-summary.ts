@@ -1,4 +1,4 @@
-import { isCountedAsAsset, type PersonalAssetCategoryValue } from "@/lib/personal-asset";
+import { isCountedAsAsset } from "@/lib/personal-asset";
 
 // F-8: 総資産サマリの集計。二重計上の除外規則（仕様書 §6.4）はすべてここで完結させる。
 //
@@ -8,10 +8,11 @@ import { isCountedAsAsset, type PersonalAssetCategoryValue } from "@/lib/persona
 //   2. `personalAssets[].linkedAccountId` に紐付いた LIABILITY 科目残高は除外する
 //      （personalAssetDebts 側で同じ負債を月割り残高として計上しているため）
 //   3. 実物資産自体は `isCountedAsAsset()`（lib/personal-asset.ts）でフィルタ済みのものだけ計上する
+//      （countAsAsset = false はローンの諸費用等、負債だけ持ち資産価値のない項目）
 
 export type NetWorthPersonalAsset = {
-  category: PersonalAssetCategoryValue;
   currentValue: number;
+  countAsAsset: boolean;
   linkedAccountId: number | null;
 };
 export type NetWorthBankBalance = { accountId: number; balance: number };

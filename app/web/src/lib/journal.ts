@@ -47,6 +47,26 @@ export function signedFinancialRecordAmount(detail: {
   return detail.side === naturalSide ? detail.amount : -detail.amount;
 }
 
+/**
+ * 入出金明細（銀行・カード）を実績へ直接転記するときの符号付き金額。
+ *
+ * 仕訳を経由する場合は借方・貸方の入れ替えで符号が決まる（{@link signedFinancialRecordAmount}）が、
+ * 口座に勘定科目が紐付いていない場合は FinancialRecord を直接書くため、ここで同じ規約を再現する。
+ * 以前は Math.abs() で符号を捨てていたため、収入科目に紐付いた出金明細（受け取った仕送りの返金など）が
+ * プラスの収入として計上され、相殺されるどころか二重計上になっていた。
+ *
+ * @param spendAmount 明細の金額を「支出が正」に正規化した値
+ *   （銀行明細は出金が負なので `-amount`、カード明細は利用が正なのでそのまま `amount`）
+ */
+export function signedActualAmountFromSpend(
+  category: AccountCategoryValue,
+  spendAmount: number,
+): number {
+  // 支出が正 ＝ 科目を借方に立てる向き。借方が自然な増加側の科目はそのまま、
+  // 貸方が自然な増加側の科目（REVENUE など）は逆側なので符号を反転する。
+  return NATURAL_DEBIT_CATEGORIES.has(category) ? spendAmount : -spendAmount;
+}
+
 // 仕訳明細を月次実績（financial_records）へ連動記帳する。
 // 取引日から会計期間を解決し、P/L 科目（REVENUE/COGS/EXPENSE/PROFIT/OTHER）の明細を
 // 符号規約どおりの符号付き金額で実績行として追加する。B/S 科目（ASSET/LIABILITY）は

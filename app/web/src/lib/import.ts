@@ -19,7 +19,12 @@ const RowSchema = z.object({
     .refine((v) => Math.abs(v) < MAX_AMOUNT_ABS, { message: "amount out of range" }),
 });
 
-export type ImportResult = { inserted: number; errors: { row: number; message: string }[] };
+export type ImportResult = {
+  inserted: number;
+  /** すでに同じ内容（科目・年月・金額）が登録済みでスキップした行数 */
+  skipped: number;
+  errors: { row: number; message: string }[];
+};
 
 export function parseCsv(csv: string): Record<string, unknown>[] {
   return Papa.parse<Record<string, unknown>>(csv, { header: true, skipEmptyLines: true }).data;
@@ -61,8 +66,8 @@ export async function importRows(
     parsedRows.push({ row: i + 2, ...result.data });
   }
 
-  if (errors.length > 0) return { inserted: 0, errors };
-  if (parsedRows.length === 0) return { inserted: 0, errors: [] };
+  if (errors.length > 0) return { inserted: 0, skipped: 0, errors };
+  if (parsedRows.length === 0) return { inserted: 0, skipped: 0, errors: [] };
 
   const accountCodes = [...new Set(parsedRows.map((r) => r.accountCode))];
   const periodKeys = [...new Set(parsedRows.map((r) => periodKey(r.fiscalYear, r.month)))];
@@ -78,7 +83,7 @@ export async function importRows(
       errors.push({ row: r.row, message: `unknown account code: ${r.accountCode}` });
     }
   }
-  if (errors.length > 0) return { inserted: 0, errors };
+  if (errors.length > 0) return { inserted: 0, skipped: 0, errors };
 
   const existingPeriods = await prisma.period.findMany({
     where: { tenantId, OR: periodKeys.map((k) => parsePeriodKey(k)) },
@@ -88,6 +93,32 @@ export async function importRows(
     existingPeriods.map((p) => [periodKey(p.fiscalYear, p.month), p.id]),
   );
   const missingPeriodKeys = periodKeys.filter((k) => !periodIdByKey.has(k));
+
+  // すでに同じ内容（科目 × 年月 × 金額）が登録済みの行は重複としてスキップする。
+  // 同じ科目・月に複数の実績が並ぶこと自体は正当なので、金額まで一致した場合のみ除外する。
+  const existingRecords = await prisma.financialRecord.findMany({
+    where: {
+      tenantId,
+      accountId: { in: [...accountIdByCode.values()] },
+      period: { OR: periodKeys.map((k) => parsePeriodKey(k)) },
+    },
+    select: {
+      accountId: true,
+      amount: true,
+      period: { select: { fiscalYear: true, month: true } },
+    },
+  });
+  const existingKeys = new Set(
+    existingRecords.map(
+      (r) => `${r.accountId}:${periodKey(r.period.fiscalYear, r.period.month)}:${Number(r.amount)}`,
+    ),
+  );
+  const rowKey = (r: (typeof parsedRows)[number]) =>
+    `${accountIdByCode.get(r.accountCode)}:${periodKey(r.fiscalYear, r.month)}:${r.amount}`;
+
+  const newRows = parsedRows.filter((r) => !existingKeys.has(rowKey(r)));
+  const skipped = parsedRows.length - newRows.length;
+  if (newRows.length === 0) return { inserted: 0, skipped, errors: [] };
 
   const inserted = await prisma.$transaction(async (tx) => {
     if (missingPeriodKeys.length > 0) {
@@ -104,7 +135,7 @@ export async function importRows(
     }
 
     const createdRecords = await tx.financialRecord.createManyAndReturn({
-      data: parsedRows.map((r) => ({
+      data: newRows.map((r) => ({
         tenantId,
         accountId: accountIdByCode.get(r.accountCode)!,
         periodId: periodIdByKey.get(periodKey(r.fiscalYear, r.month))!,
@@ -124,5 +155,5 @@ export async function importRows(
     return createdRecords.length;
   });
 
-  return { inserted, errors: [] };
+  return { inserted, skipped, errors: [] };
 }

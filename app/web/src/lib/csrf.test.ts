@@ -71,4 +71,19 @@ describe("checkCsrf", () => {
     expect(checkCsrf(makeReq({ cookie: "fm_session=abc123" }))).toBe(false);
     expect(checkCsrf(makeReq({ cookie: "__Host-fm_session=abc123" }))).toBe(false);
   });
+
+  // モバイルアプリのログイン（Bearer 未取得）。React Native の Cookie ストアが
+  // 過去のセッション Cookie を自動送信しても 403 にしない。
+  it("X-Requested-With: fm-mobile は通過する（Cookie が自動付与されていても）", () => {
+    expect(checkCsrf(makeReq({ "x-requested-with": "fm-mobile" }))).toBe(true);
+    expect(
+      checkCsrf(makeReq({ "x-requested-with": "fm-mobile", cookie: "__Host-fm_session=abc123" })),
+    ).toBe(true);
+  });
+
+  it("X-Requested-With の値が異なる場合は免除しない（XMLHttpRequest 等）", () => {
+    expect(
+      checkCsrf(makeReq({ "x-requested-with": "XMLHttpRequest", cookie: "fm_session=abc123" })),
+    ).toBe(false);
+  });
 });

@@ -18,9 +18,45 @@ function categoryKey(categoryAccountId: number) {
   return { key: `cat:${categoryAccountId}` };
 }
 
+// 過去の実績から推測した「まだ実績入力が無い」フロー。描画側で色を変えるため estimated を立てる。
+export type EstimatedEdgeInput = MonthlyTxnEdgeInput;
+
+// 対象月に実績がない (口座 × 科目) の組について、過去数か月の平均から推測値を作る。
+// history は対象月より前の紐付け済み明細（月をまたいで渡す）。months は履歴の対象月数。
+export function estimateMissingEdges(
+  actual: MonthlyTxnEdgeInput[],
+  history: MonthlyTxnEdgeInput[],
+  months: number,
+): EstimatedEdgeInput[] {
+  if (months <= 0) return [];
+  const key = (e: MonthlyTxnEdgeInput) => `${e.accountId}:${e.categoryAccountId}`;
+  const actualKeys = new Set(actual.filter((e) => e.categoryAccountId !== null).map(key));
+
+  const sums = new Map<string, { edge: MonthlyTxnEdgeInput; total: number }>();
+  for (const e of history) {
+    if (e.categoryAccountId === null || e.amount === 0) continue;
+    const k = key(e);
+    if (actualKeys.has(k)) continue; // 実績があるものは推測しない
+    const cur = sums.get(k) ?? { edge: e, total: 0 };
+    cur.total += e.amount;
+    sums.set(k, cur);
+  }
+
+  const estimated: EstimatedEdgeInput[] = [];
+  for (const { edge, total } of sums.values()) {
+    const avg = total / months;
+    // 平均が 1 円未満（＝ほぼ相殺）になるものは線を出さない
+    if (Math.abs(avg) < 1) continue;
+    estimated.push({ ...edge, amount: Math.round(avg) });
+  }
+  return estimated;
+}
+
 export function buildMonthlyCashFlow(
   txns: MonthlyTxnEdgeInput[],
   transfers: TransferInput[],
+  /** 実績が無い分の推測フロー（破線で描画される） */
+  estimated: EstimatedEdgeInput[] = [],
 ): SankeyData {
   const keys: string[] = [];
   const nameByKey: Record<string, string> = {};
@@ -34,7 +70,7 @@ export function buildMonthlyCashFlow(
     return i;
   };
 
-  const links: { source: number; target: number; value: number }[] = [];
+  const links: { source: number; target: number; value: number; estimated?: boolean }[] = [];
 
   // 紐付け済み明細（未紐付け＝categoryAccountId が null の行は除外）
   for (const t of txns) {
@@ -75,6 +111,30 @@ export function buildMonthlyCashFlow(
       target: idx(dst.key, dst.name),
       value: Math.round(tr.amount),
     });
+  }
+
+  // 推測フロー（実績が未入力の口座 × 科目）。実績・資金移動の後に足して線を重複させない。
+  for (const e of estimated) {
+    if (e.categoryAccountId === null || e.amount === 0) continue;
+    const accKey = `acc:${e.accountId}`;
+    const catKey = categoryKey(e.categoryAccountId).key;
+    const catName = e.categoryName ?? `科目${e.categoryAccountId}`;
+    const value = Math.round(Math.abs(e.amount));
+    if (e.amount > 0) {
+      links.push({
+        source: idx(catKey, catName),
+        target: idx(accKey, e.accountName),
+        value,
+        estimated: true,
+      });
+    } else {
+      links.push({
+        source: idx(accKey, e.accountName),
+        target: idx(catKey, catName),
+        value,
+        estimated: true,
+      });
+    }
   }
 
   return { nodes: keys.map((k) => ({ name: nameByKey[k] })), links };

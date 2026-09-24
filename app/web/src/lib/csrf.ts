@@ -8,6 +8,13 @@ import { sessionCookieName } from "@/lib/session-constants";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+// モバイルアプリ（Expo / React Native）が全リクエストに付与する識別ヘッダ。
+// ブラウザはクロスサイトのリクエストにカスタムヘッダを付けられない（CORS プリフライトが
+// 必要で、本サーバは CORS を許可していないためプリフライトが通らない）。したがって
+// このヘッダが付いたリクエストはブラウザ発の CSRF ではあり得ず、Bearer と同様に免除できる。
+const CLIENT_HEADER = "x-requested-with";
+const CLIENT_HEADER_VALUE = "fm-mobile";
+
 export function isMutatingApiRequest(pathname: string, method: string): boolean {
   return pathname.startsWith("/api/") && MUTATING_METHODS.has(method);
 }
@@ -16,6 +23,10 @@ export function isMutatingApiRequest(pathname: string, method: string): boolean 
 export function checkCsrf(req: { headers: Headers; nextUrl: { origin: string } }): boolean {
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ")) return true; // モバイル: Cookie を使わないため対象外
+
+  // モバイルアプリ（ログイン時はまだ Bearer トークンが無い）。ネイティブの Cookie ストアが
+  // 過去のセッション Cookie を自動送信しても、下のフェイルクローズ判定で 403 にしない。
+  if (req.headers.get(CLIENT_HEADER) === CLIENT_HEADER_VALUE) return true;
 
   const secFetchSite = req.headers.get("sec-fetch-site");
   if (secFetchSite) {

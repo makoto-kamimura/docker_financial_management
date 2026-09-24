@@ -9,7 +9,7 @@ export type TransferChannel =
 
 export const CHANNEL_LABELS: Record<TransferChannel, string> = {
   BANK_TRANSFER: "口座間振込",
-  AUTO_DEBIT: "口座引き落とし",
+  AUTO_DEBIT: "銀行引き落とし",
   CARD_PAYMENT: "カード引き落とし",
   INCOME: "入金",
   EXPENSE: "支出",

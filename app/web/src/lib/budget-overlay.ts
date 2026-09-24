@@ -1,4 +1,5 @@
 import type { TenantDb } from "@/lib/tenant-db";
+import { ratePercentOf, manualMonthlyPaymentOf } from "@/lib/personal-asset-debt";
 import { annuityMonthlyPayment, computeDebtSchedule, ymIndex } from "@/lib/debt-schedule";
 
 // 予算への機械計上（オーバーレイ）の計算。Budget テーブルは書き換えず、
@@ -39,9 +40,15 @@ export async function computeLoanOverlay(
     if (totalMonths <= 0) continue;
 
     const manualAmount = loan.monthlyPayment !== null ? Number(loan.monthlyPayment) : null;
+    // loans.interestRate は小数（0.015 = 1.5%）で保持するため、%を取る計算側へは 100 倍して渡す
     const amount =
       manualAmount ??
-      annuityMonthlyPayment(Number(loan.amount), Number(loan.interestRate), totalMonths);
+      annuityMonthlyPayment(
+        Number(loan.amount),
+        Number(loan.interestRate) * 100,
+        totalMonths,
+        Number(loan.residualValue ?? 0),
+      );
     if (amount <= 0) continue;
     const source: LoanOverlayItem["source"] = manualAmount !== null ? "manual" : "annuity";
 
@@ -82,6 +89,10 @@ export async function computePersonalAssetDebtOverlay(
       Number(asset.loan.amount),
       asset.loan.borrowedOn,
       asset.loan.repaymentDate,
+      new Date(),
+      ratePercentOf(Number(asset.loan.interestRate)),
+      manualMonthlyPaymentOf(asset.loan),
+      Number(asset.loan.residualValue ?? 0),
     );
     if (!schedule) continue;
 

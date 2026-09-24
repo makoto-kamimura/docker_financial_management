@@ -29,7 +29,7 @@ describe("summarizeNetWorth", () => {
 
   it("excludes LIABILITY account balances linked to a personal asset (personal_assets.linkedAccountId)", () => {
     const result = summarizeNetWorth({
-      personalAssets: [{ category: "LAND", currentValue: 20_000_000, linkedAccountId: 30 }],
+      personalAssets: [{ currentValue: 20_000_000, countAsAsset: true, linkedAccountId: 30 }],
       bankBalances: [],
       accountBalances: [{ accountId: 30, category: "LIABILITY", balance: 15_000_000 }], // 同じ負債を科目残高としても持っている
       loans: [],
@@ -52,12 +52,12 @@ describe("summarizeNetWorth", () => {
     expect(result.totalLiabilities).toBe(200_000);
   });
 
-  it("uses isCountedAsAsset() to exclude non-LAND/BUILDING personal assets that are linked to a liability", () => {
+  it("uses isCountedAsAsset() to exclude personal assets flagged as countAsAsset=false", () => {
     const result = summarizeNetWorth({
       personalAssets: [
-        { category: "LAND", currentValue: 10_000_000, linkedAccountId: 1 }, // 計上される
-        { category: "VEHICLE", currentValue: 2_000_000, linkedAccountId: 2 }, // ローン諸費用扱いで除外される
-        { category: "GOLD", currentValue: 500_000, linkedAccountId: null }, // 紐付けなしはそのまま計上
+        { currentValue: 10_000_000, countAsAsset: true, linkedAccountId: 1 }, // 土地: 計上される
+        { currentValue: 2_446_985, countAsAsset: false, linkedAccountId: 1 }, // ローン諸費用: 除外
+        { currentValue: 500_000, countAsAsset: true, linkedAccountId: null }, // 紐付けなし: 計上
       ],
       bankBalances: [],
       accountBalances: [],
@@ -66,6 +66,20 @@ describe("summarizeNetWorth", () => {
       personalAssetDebts: [],
     });
     expect(result.totalAssets).toBe(10_500_000);
+  });
+
+  it("counts a loan-linked vehicle as an asset (旧カテゴリ判定では除外され純資産が過小になっていた)", () => {
+    const result = summarizeNetWorth({
+      personalAssets: [{ currentValue: 2_084_500, countAsAsset: true, linkedAccountId: 120 }],
+      bankBalances: [],
+      accountBalances: [{ accountId: 120, category: "LIABILITY", balance: 1_800_000 }],
+      loans: [],
+      linkedAccountMappings: [],
+      personalAssetDebts: [{ remaining: 1_800_000 }],
+    });
+    expect(result.totalAssets).toBe(2_084_500);
+    expect(result.totalLiabilities).toBe(1_800_000);
+    expect(result.netWorth).toBe(284_500);
   });
 
   it("sums loans.remainingAmount as a liability component independent of account balances", () => {
@@ -82,7 +96,7 @@ describe("summarizeNetWorth", () => {
 
   it("computes netWorth = totalAssets - totalLiabilities and returns a full breakdown", () => {
     const result = summarizeNetWorth({
-      personalAssets: [{ category: "LAND", currentValue: 20_000_000, linkedAccountId: 1 }],
+      personalAssets: [{ currentValue: 20_000_000, countAsAsset: true, linkedAccountId: 1 }],
       bankBalances: [{ accountId: 10, balance: 1_000_000 }],
       accountBalances: [
         { accountId: 10, category: "ASSET", balance: 1_000_000 }, // 銀行口座紐付けで除外
