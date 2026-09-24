@@ -8,7 +8,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "prettier": "^3.8.4",
     "typescript": "^5.7.0"
   }
 }

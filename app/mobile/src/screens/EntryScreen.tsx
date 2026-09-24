@@ -1,379 +1,463 @@
-import { useEffect, useRef, useState } from "react";
+// 実績管理（web 版 /entry と同じ「明細一覧 / カレンダー / 履歴」。CSV インポートは web 版のみ）。
+// 明細一覧は web 版の「科目 × 月」の表を 1 か月ずつ表示する。1 件だけのセルはその場で編集・削除でき、
+// 複数件のセルは内訳シートで 1 件ずつ確認する。仕訳と連動した実績は仕訳帳から直す。
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, Alert, Animated, KeyboardAvoidingView,
-  Modal, Platform, Pressable, RefreshControl,
-  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import {
-  fetchAccounts, fetchRecentHistory, postFinancialRecord,
-  type Account, type RecentHistory,
+  deleteFinancialRecord,
+  fetchAccounts,
+  fetchFinancialMatrix,
+  fetchRecordHistory,
+  patchFinancialRecord,
+  postFinancialRecord,
+  type Account,
+  type FinancialRecordRow,
+  type HistoryPage,
+  type HistoryQuery,
+  type RecordSource,
+  type ViewMode,
 } from "../api";
+import { ActualsCalendar } from "../components/ActualsCalendar";
+import { ChangeHistoryList, INITIAL_HISTORY_QUERY } from "../components/ChangeHistoryList";
+import { Button, EmptyText, Input, Notice, Pills, SheetModal, TabBar } from "../components/ui";
+import { displayName } from "../shared/display-name";
+import { buildFinancialMatrix, editableRecord, type MatrixCell } from "../shared/financial-matrix";
+import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
+import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
 
-// ── ユーティリティ ─────────────────────────────────────────────────────
-const DOW = ["日", "月", "火", "水", "木", "金", "土"];
-const ACTION_LABEL: Record<string, string> = { create: "登録", update: "更新", delete: "削除" };
-const ACTION_COLOR: Record<string, string> = { create: "#16a34a", update: "#d97706", delete: "#dc2626" };
-const ACTION_BG:    Record<string, string> = { create: "#f0fdf4", update: "#fffbeb", delete: "#fef2f2" };
+type Tab = "manual" | "calendar" | "history";
+const TABS = [
+  ["manual", "明細一覧"],
+  ["calendar", "カレンダー"],
+  ["history", "履歴"],
+] as const;
 
-function buildCalendar(year: number, month: number): (number | null)[] {
-  const firstDow = new Date(year, month - 1, 1).getDay();
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const cells: (number | null)[] = Array(firstDow).fill(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length % 7 !== 0) cells.push(null);
-  return cells;
-}
+// セル内訳に出す「どこから入った実績か」（web 版と同じ文言）
+const SOURCE_LABEL: Record<RecordSource["kind"], string> = {
+  bank: "銀行明細から転記",
+  card: "カード明細から転記",
+  journal: "仕訳と連動",
+  direct: "手入力・CSV 取込",
+};
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-}
+// 金額入力中のセル（id あり = 既存 1 件の編集 / なし = 新規登録）
+type CellEdit = { accountCode: string; id: number | null; amount: string };
 
-// ── コンポーネント ─────────────────────────────────────────────────────
-export function EntryScreen() {
-  const today = new Date();
-  const [tab, setTab] = useState<"calendar" | "history">("calendar");
+type Props = { viewMode: ViewMode };
 
-  // カレンダー状態
-  const [calYear,  setCalYear]  = useState(today.getFullYear());
-  const [calMonth, setCalMonth] = useState(today.getMonth() + 1);
+export function EntryScreen({ viewMode }: Props) {
+  const now = new Date();
+  const [tab, setTab] = useState<Tab>("manual");
+  const [accounts, setAccounts] = useState<Account[]>([]);
 
-  // データ
-  const [accounts,  setAccounts]  = useState<Account[]>([]);
-  const [history,   setHistory]   = useState<RecentHistory[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [refreshing,setRefreshing]= useState(false);
+  // ── 明細一覧 ────────────────────────────────────────────────
+  const [year, setYear] = useState<number | null>(null); // null はサーバー既定（当年）
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [matrix, setMatrix] = useState<{
+    year: number;
+    years: number[];
+    data: FinancialRecordRow[];
+  }>({
+    year: now.getFullYear(),
+    years: [],
+    data: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [edit, setEdit] = useState<CellEdit | null>(null);
+  const [detailCode, setDetailCode] = useState<string | null>(null);
+  const [detailEdit, setDetailEdit] = useState<{ id: number; amount: string } | null>(null);
 
-  // 登録済み (year,month) セット — カレンダードット用
-  const [recordedMonths, setRecordedMonths] = useState<Set<string>>(new Set());
+  // ── 履歴 ────────────────────────────────────────────────────
+  const [histQuery, setHistQuery] = useState<HistoryQuery>(INITIAL_HISTORY_QUERY);
+  const [history, setHistory] = useState<HistoryPage>({ data: [], total: 0 });
+  const [histLoading, setHistLoading] = useState(false);
 
-  // モーダル
-  const [modalDay,     setModalDay]     = useState<number | null>(null);
-  const [accountCode,  setAccountCode]  = useState("");
-  const [amount,       setAmount]       = useState("");
-  const [saving,       setSaving]       = useState(false);
-  const slideAnim = useRef(new Animated.Value(300)).current;
-
-  async function load() {
+  const loadMatrix = useCallback(async () => {
+    setError(null);
     try {
-      const [accs, hist] = await Promise.all([fetchAccounts(), fetchRecentHistory(60)]);
+      const [accs, m] = await Promise.all([
+        fetchAccounts(),
+        fetchFinancialMatrix(year ?? undefined),
+      ]);
       setAccounts(accs);
-      setHistory(hist);
-      const months = new Set(hist.map(h => `${h.period.fiscalYear}-${h.period.month}`));
-      setRecordedMonths(months);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
-  }
+      setMatrix(m);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "実績の取得に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  }, [year]);
 
-  useEffect(() => { load(); }, []);
+  const loadHistory = useCallback(async () => {
+    setHistLoading(true);
+    try {
+      setHistory(await fetchRecordHistory(histQuery));
+    } catch {
+      setHistory({ data: [], total: 0 });
+    } finally {
+      setHistLoading(false);
+    }
+  }, [histQuery]);
+
+  useEffect(() => {
+    loadMatrix();
+  }, [loadMatrix]);
+
+  useEffect(() => {
+    if (tab === "history") loadHistory();
+  }, [tab, loadHistory]);
 
   async function onRefresh() {
     setRefreshing(true);
-    await load();
+    await (tab === "history" ? loadHistory() : loadMatrix());
     setRefreshing(false);
   }
 
-  function openModal(day: number) {
-    setModalDay(day);
-    setAmount("");
-    setAccountCode("");
-    Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
-  }
+  // 科目 × 月へ組み替え、予算管理と同じカテゴリ順で並べる
+  const rows = useMemo(
+    () =>
+      buildFinancialMatrix(matrix.data).sort(
+        (a, b) =>
+          categoryRank(a.account.category) - categoryRank(b.account.category) ||
+          a.account.code.localeCompare(b.account.code),
+      ),
+    [matrix.data],
+  );
+  const accountOf = (code: string) => accounts.find((a) => a.code === code);
+  const nameOf = (acc: { code: string; name: string }) => {
+    const a = accountOf(acc.code);
+    return a ? displayName(a, viewMode) : acc.name;
+  };
 
-  function closeModal() {
-    Animated.timing(slideAnim, { toValue: 400, duration: 220, useNativeDriver: true }).start(() => {
-      setModalDay(null);
-    });
-  }
+  const detailRow = detailCode ? rows.find((r) => r.account.code === detailCode) : undefined;
+  const detailCell: MatrixCell<FinancialRecordRow> | undefined = detailRow?.byMonth.get(month);
 
-  async function handleSave() {
-    if (!accountCode) { Alert.alert("入力エラー", "勘定科目を選択してください。"); return; }
-    if (!amount || isNaN(Number(amount))) { Alert.alert("入力エラー", "有効な金額を入力してください。"); return; }
-    setSaving(true);
+  const yearOptions = [...new Set([...matrix.years, matrix.year])].sort((a, b) => a - b);
+
+  async function run(action: () => Promise<void>) {
     try {
-      await postFinancialRecord({
-        accountCode,
-        fiscalYear: calYear,
-        month: calMonth,
-        amount: parseFloat(amount),
-      });
-      closeModal();
-      await load();
-      Alert.alert("登録完了", `${calYear}年${calMonth}月の実績を登録しました。`);
-    } catch (e: unknown) {
-      Alert.alert("登録失敗", e instanceof Error ? e.message : "エラーが発生しました。");
-    } finally {
-      setSaving(false);
+      await action();
+      await loadMatrix();
+    } catch (e) {
+      Alert.alert("エラー", e instanceof Error ? e.message : "処理に失敗しました");
     }
   }
 
-  // 月ナビ
-  function prevMonth() {
-    if (calMonth === 1) { setCalYear(y => y - 1); setCalMonth(12); }
-    else setCalMonth(m => m - 1);
-  }
-  function nextMonth() {
-    if (calMonth === 12) { setCalYear(y => y + 1); setCalMonth(1); }
-    else setCalMonth(m => m + 1);
+  async function saveCell() {
+    if (!edit || edit.amount === "") return;
+    const amount = Number(edit.amount);
+    const target = edit;
+    setEdit(null);
+    await run(() =>
+      target.id !== null
+        ? patchFinancialRecord(target.id, { amount })
+        : postFinancialRecord({
+            accountCode: target.accountCode,
+            fiscalYear: matrix.year,
+            month,
+            amount,
+          }),
+    );
   }
 
-  const cells       = buildCalendar(calYear, calMonth);
-  const hasRecord   = recordedMonths.has(`${calYear}-${calMonth}`);
-  const todayKey    = `${today.getFullYear()}-${today.getMonth()+1}-${today.getDate()}`;
-  const selectedAcc = accounts.find(a => a.code === accountCode);
+  function confirmDelete(r: FinancialRecordRow) {
+    Alert.alert("実績を削除", `${yen(r.amount)} の実績を削除します。よろしいですか？`, [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "削除",
+        style: "destructive",
+        onPress: () => {
+          if (detailEdit?.id === r.id) setDetailEdit(null);
+          run(() => deleteFinancialRecord(r.id));
+        },
+      },
+    ]);
+  }
+
+  async function saveDetail() {
+    if (!detailEdit || detailEdit.amount === "") return;
+    const { id, amount } = detailEdit;
+    setDetailEdit(null);
+    await run(() => patchFinancialRecord(id, { amount: Number(amount) }));
+  }
 
   return (
     <View style={s.root}>
-      {/* タブ */}
-      <View style={s.tabRow}>
-        {(["calendar", "history"] as const).map(t => (
-          <TouchableOpacity key={t} style={[s.tabBtn, tab === t && s.tabActive]} onPress={() => setTab(t)}>
-            <Text style={[s.tabTxt, tab === t && s.tabActiveTxt]}>
-              {t === "calendar" ? "カレンダー" : "入力履歴"}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <TabBar tabs={TABS} value={tab} onChange={setTab} />
 
-      {loading ? (
-        <View style={s.center}><ActivityIndicator color="#4f46e5" size="large" /></View>
-      ) : tab === "calendar" ? (
-        /* ── カレンダー ── */
-        <ScrollView
-          style={s.scroll}
-          contentContainerStyle={s.scrollContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        >
-          {/* 月ナビ */}
-          <View style={s.monthNav}>
-            <TouchableOpacity style={s.navBtn} onPress={prevMonth}>
-              <Text style={s.navBtnTxt}>◀</Text>
-            </TouchableOpacity>
-            <View style={s.monthCenter}>
-              <Text style={s.monthLabel}>{calYear}年{calMonth}月</Text>
-              {hasRecord && <View style={s.recordDot} />}
-            </View>
-            <TouchableOpacity style={s.navBtn} onPress={nextMonth}>
-              <Text style={s.navBtnTxt}>▶</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 曜日ヘッダー */}
-          <View style={s.dowRow}>
-            {DOW.map((d, i) => (
-              <Text key={d} style={[s.dowCell, i === 0 && s.sun, i === 6 && s.sat]}>{d}</Text>
-            ))}
-          </View>
-
-          {/* 日付グリッド */}
-          <View style={s.grid}>
-            {cells.map((day, idx) => {
-              if (day === null) return <View key={`e-${idx}`} style={s.dayCell} />;
-              const dow   = idx % 7;
-              const isToday = `${calYear}-${calMonth}-${day}` === todayKey;
-              return (
-                <TouchableOpacity key={day} style={s.dayCell} onPress={() => openModal(day)}>
-                  <View style={[s.dayInner, isToday && s.todayInner]}>
-                    <Text style={[
-                      s.dayTxt,
-                      dow === 0 && s.sunTxt,
-                      dow === 6 && s.satTxt,
-                      isToday && s.todayTxt,
-                    ]}>
-                      {day}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <View style={s.hintBox}>
-            <Text style={s.hintTxt}>日付をタップして{calYear}年{calMonth}月の実績を登録できます</Text>
-          </View>
-        </ScrollView>
-      ) : (
-        /* ── 入力履歴 ── */
-        <ScrollView
-          style={s.scroll}
-          contentContainerStyle={s.scrollContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        >
-          {history.length === 0 ? (
-            <View style={s.empty}><Text style={s.emptyTxt}>まだ入力履歴はありません。</Text></View>
-          ) : history.map(h => (
-            <View key={h.historyId} style={s.histRow}>
-              <View style={[s.badge, { backgroundColor: ACTION_BG[h.action] ?? "#f1f5f9" }]}>
-                <Text style={[s.badgeTxt, { color: ACTION_COLOR[h.action] ?? "#374151" }]}>
-                  {ACTION_LABEL[h.action] ?? h.action}
-                </Text>
-              </View>
-              <View style={s.histInfo}>
-                <Text style={s.histAcc}>{h.account.code} {h.account.name}</Text>
-                <Text style={s.histPeriod}>{h.period.fiscalYear}年 {h.period.month}月</Text>
-                <Text style={s.histDate}>{fmtDate(h.changedAt)}</Text>
-              </View>
-              <Text style={s.histAmt}>{h.amount.toLocaleString("ja-JP")}円</Text>
-            </View>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* ── 入力モーダル ── */}
-      <Modal
-        visible={modalDay !== null}
-        transparent
-        animationType="none"
-        onRequestClose={closeModal}
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.content}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          tab === "calendar" ? undefined : (
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          )
+        }
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={s.kavRoot}
-        >
-          {/* 背景タップで閉じる */}
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeModal}>
-            <View style={s.overlayBg} />
-          </Pressable>
-
-          <Animated.View style={[s.sheet, { transform: [{ translateY: slideAnim }] }]}>
-              {/* ヘッダー */}
-              <View style={s.sheetHeader}>
-                <View>
-                  <Text style={s.sheetDate}>{calYear}年{calMonth}月{modalDay}日</Text>
-                  <Text style={s.sheetSub}>実績を登録</Text>
-                </View>
-                <TouchableOpacity style={s.closeBtn} onPress={closeModal}>
-                  <Text style={s.closeTxt}>✕</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* 勘定科目 */}
-              <Text style={s.fieldLabel}>勘定科目</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={s.chipScroll}
-                contentContainerStyle={s.chipRow}
-              >
-                {accounts.slice(0, 40).map(a => (
-                  <TouchableOpacity
-                    key={a.code}
-                    style={[s.chip, accountCode === a.code && s.chipActive]}
-                    onPress={() => setAccountCode(a.code)}
-                  >
-                    <Text style={[s.chipTxt, accountCode === a.code && s.chipActiveTxt]}>
-                      {a.code}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-              {selectedAcc && (
-                <Text style={s.accName}>{selectedAcc.name}</Text>
-              )}
-
-              {/* 金額 */}
-              <Text style={[s.fieldLabel, { marginTop: 14 }]}>金額（円）</Text>
-              <View style={s.amtRow}>
-                <Text style={s.amtYen}>¥</Text>
-                <TextInput
-                  style={s.amtInput}
-                  value={amount}
-                  onChangeText={t => setAmount(t.replace(/[^0-9.]/g, ""))}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor="#cbd5e1"
-                  selectTextOnFocus
+        {tab === "manual" &&
+          (loading ? (
+            <ActivityIndicator color="#4f46e5" style={{ marginTop: 40 }} />
+          ) : (
+            <>
+              <View style={s.yearRow}>
+                <Text style={s.yearCaption}>年度</Text>
+                <Pills
+                  options={yearOptions.map((y) => ({ value: y, label: `${y}年度` }))}
+                  value={matrix.year}
+                  onChange={(y) => {
+                    setEdit(null);
+                    setYear(y);
+                  }}
                 />
               </View>
+              <Pills
+                options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
+                value={month}
+                onChange={(m) => {
+                  setEdit(null);
+                  setMonth(m);
+                }}
+              />
+              {error && <Notice tone="error">{error}</Notice>}
 
-              {/* 登録ボタン */}
-              <TouchableOpacity
-                style={[s.saveBtn, saving && s.saveBtnOff]}
-                onPress={handleSave}
-                disabled={saving}
-              >
-                {saving
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={s.saveBtnTxt}>登録する</Text>
-                }
-              </TouchableOpacity>
-            </Animated.View>
-          </KeyboardAvoidingView>
-      </Modal>
+              {rows.length === 0 ? (
+                <EmptyText>
+                  {matrix.year}年度の実績がありません。カレンダーから登録してください（CSV
+                  インポートは Web 版で行えます）。
+                </EmptyText>
+              ) : (
+                rows.map((row, i) => {
+                  const cell = row.byMonth.get(month);
+                  const single = editableRecord(cell);
+                  const editing = edit?.accountCode === row.account.code ? edit : null;
+                  const showGroup =
+                    i === 0 || rows[i - 1].account.category !== row.account.category;
+                  return (
+                    <View key={row.account.code}>
+                      {showGroup && (
+                        <Text style={s.groupLabel}>
+                          {CATEGORY_LABEL[row.account.category] ?? row.account.category}
+                        </Text>
+                      )}
+                      <View style={s.row}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.code}>{row.account.code}</Text>
+                          <Text style={s.name} numberOfLines={1}>
+                            {nameOf(row.account)}
+                          </Text>
+                          <Text style={s.annual}>年間合計 {yen(row.annual)}</Text>
+                        </View>
+                        {editing ? (
+                          <View style={s.editRow}>
+                            <Input
+                              autoFocus
+                              keyboardType="number-pad"
+                              value={editing.amount}
+                              placeholder="金額"
+                              onChangeText={(t) => setEdit({ ...editing, amount: digitsOnly(t) })}
+                              style={s.amountInput}
+                            />
+                            <Button small label="保存" onPress={saveCell} />
+                            <TouchableOpacity onPress={() => setEdit(null)} hitSlop={8}>
+                              <Text style={s.cancel}>取消</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : cell ? (
+                          <View style={s.cellRight}>
+                            <Text style={s.amount}>{yen(cell.total)}</Text>
+                            {cell.records.length > 1 ? (
+                              <TouchableOpacity onPress={() => setDetailCode(row.account.code)}>
+                                <Text style={s.link}>{cell.records.length}件の内訳</Text>
+                              </TouchableOpacity>
+                            ) : single && single.journalEntryId !== null ? (
+                              <Text style={s.muted}>仕訳（仕訳帳から修正）</Text>
+                            ) : (
+                              single && (
+                                <View style={s.actions}>
+                                  <TouchableOpacity
+                                    onPress={() =>
+                                      setEdit({
+                                        accountCode: row.account.code,
+                                        id: single.id,
+                                        amount: String(single.amount),
+                                      })
+                                    }
+                                  >
+                                    <Text style={s.link}>編集</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity onPress={() => confirmDelete(single)}>
+                                    <Text style={s.danger}>削除</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              )
+                            )}
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            onPress={() =>
+                              setEdit({ accountCode: row.account.code, id: null, amount: "" })
+                            }
+                          >
+                            <Text style={s.add}>— 追加</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </>
+          ))}
+
+        {tab === "calendar" && <ActualsCalendar accounts={accounts} viewMode={viewMode} />}
+
+        {tab === "history" && (
+          <ChangeHistoryList
+            rows={history.data}
+            total={history.total}
+            query={histQuery}
+            onQueryChange={setHistQuery}
+            loading={histLoading}
+            viewMode={viewMode}
+            emptyText="まだ履歴はありません。"
+            accountEdit={{
+              accounts,
+              onChange: async (row, accountId) => {
+                await patchFinancialRecord(row.targetId as number, { accountId });
+                await loadHistory();
+              },
+            }}
+          />
+        )}
+      </ScrollView>
+
+      {/* ── セル内訳（同じ科目・月に複数の実績があるとき）── */}
+      <SheetModal
+        visible={detailCode !== null}
+        title={detailRow ? nameOf(detailRow.account) : "実績の内訳"}
+        subtitle={`${matrix.year}年${month}月 ・ 合計 ${yen(detailCell?.total ?? 0)}（${detailCell?.records.length ?? 0} 件）`}
+        onClose={() => {
+          setDetailCode(null);
+          setDetailEdit(null);
+        }}
+      >
+        {!detailCell || detailCell.records.length === 0 ? (
+          <EmptyText>このセルの実績はすべて削除されました。</EmptyText>
+        ) : (
+          detailCell.records.map((r) => {
+            const editing = detailEdit?.id === r.id ? detailEdit : null;
+            return (
+              <View key={r.id} style={s.detailRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.sourceBadge}>{SOURCE_LABEL[r.source.kind]}</Text>
+                  <Text style={s.detailText} numberOfLines={2}>
+                    {r.source.description
+                      ? `${r.source.date ? `${fmtDate(r.source.date)} · ` : ""}${r.source.description}` +
+                        (r.source.accountName ? `（${r.source.accountName}）` : "")
+                      : "—"}
+                  </Text>
+                  <Text style={s.muted}>登録 {fmtDateTime(r.createdAt)}</Text>
+                </View>
+                {editing ? (
+                  <View style={s.editRow}>
+                    <Input
+                      autoFocus
+                      keyboardType="number-pad"
+                      value={editing.amount}
+                      onChangeText={(t) => setDetailEdit({ ...editing, amount: digitsOnly(t) })}
+                      style={s.amountInput}
+                    />
+                    <Button small label="保存" onPress={saveDetail} />
+                  </View>
+                ) : (
+                  <View style={s.cellRight}>
+                    <Text style={s.amount}>{yen(r.amount)}</Text>
+                    {r.journalEntryId !== null ? (
+                      // 仕訳と連動した実績は仕訳側が正なのでここでは触らせない
+                      <Text style={s.muted}>仕訳から修正</Text>
+                    ) : (
+                      <View style={s.actions}>
+                        <TouchableOpacity
+                          onPress={() => setDetailEdit({ id: r.id, amount: String(r.amount) })}
+                        >
+                          <Text style={s.link}>編集</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => confirmDelete(r)}>
+                          <Text style={s.danger}>削除</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+            );
+          })
+        )}
+      </SheetModal>
     </View>
   );
 }
 
-const CELL_W = `${Math.floor(100 / 7)}%` as const;
-
 const s = StyleSheet.create({
-  root:          { flex: 1, backgroundColor: "#f8fafc" },
-  tabRow:        { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e2e8f0", backgroundColor: "#fff" },
-  tabBtn:        { flex: 1, paddingVertical: 11, alignItems: "center" },
-  tabActive:     { borderBottomWidth: 2, borderBottomColor: "#4f46e5" },
-  tabTxt:        { fontSize: 13, fontWeight: "500", color: "#64748b" },
-  tabActiveTxt:  { color: "#4f46e5", fontWeight: "700" },
-  center:        { flex: 1, alignItems: "center", justifyContent: "center" },
-  scroll:        { flex: 1 },
-  scrollContent: { padding: 14 },
-
-  // 月ナビ
-  monthNav:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  navBtn:      { padding: 10 },
-  navBtnTxt:   { fontSize: 18, color: "#4f46e5" },
-  monthCenter: { flexDirection: "row", alignItems: "center", gap: 6 },
-  monthLabel:  { fontSize: 18, fontWeight: "700", color: "#1e293b" },
-  recordDot:   { width: 7, height: 7, borderRadius: 4, backgroundColor: "#4f46e5" },
-
-  // カレンダー
-  dowRow:      { flexDirection: "row", marginBottom: 4 },
-  dowCell:     { width: CELL_W, textAlign: "center", fontSize: 11, fontWeight: "600", color: "#94a3b8", paddingVertical: 4 },
-  sun:         { color: "#ef4444" },
-  sat:         { color: "#3b82f6" },
-  grid:        { flexDirection: "row", flexWrap: "wrap" },
-  dayCell:     { width: CELL_W, aspectRatio: 1, alignItems: "center", justifyContent: "center", padding: 2 },
-  dayInner:    { width: "80%", aspectRatio: 1, alignItems: "center", justifyContent: "center", borderRadius: 100 },
-  todayInner:  { backgroundColor: "#4f46e5" },
-  dayTxt:      { fontSize: 14, color: "#374151", fontWeight: "500" },
-  sunTxt:      { color: "#ef4444" },
-  satTxt:      { color: "#3b82f6" },
-  todayTxt:    { color: "#fff", fontWeight: "700" },
-  hintBox:     { marginTop: 16, paddingVertical: 10, alignItems: "center" },
-  hintTxt:     { fontSize: 12, color: "#94a3b8" },
-
-  // 履歴
-  empty:       { alignItems: "center", paddingVertical: 40 },
-  emptyTxt:    { color: "#94a3b8", fontSize: 14 },
-  histRow:     { flexDirection: "row", backgroundColor: "#fff", borderRadius: 10, padding: 12, marginBottom: 8, alignItems: "flex-start", borderWidth: 1, borderColor: "#f1f5f9" },
-  badge:       { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginRight: 10, marginTop: 2 },
-  badgeTxt:    { fontSize: 11, fontWeight: "700" },
-  histInfo:    { flex: 1 },
-  histAcc:     { fontSize: 13, fontWeight: "600", color: "#1e293b" },
-  histPeriod:  { fontSize: 11, color: "#64748b", marginTop: 2 },
-  histDate:    { fontSize: 10, color: "#94a3b8", marginTop: 2 },
-  histAmt:     { fontSize: 14, fontWeight: "700", color: "#1e293b", alignSelf: "center" },
-
-  // モーダル
-  kavRoot:     { flex: 1, justifyContent: "flex-end" },
-  overlayBg:   { flex: 1, backgroundColor: "rgba(15,23,42,0.5)" },
-  sheet:       { backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 22, paddingBottom: 36 },
-  sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 },
-  sheetDate:   { fontSize: 18, fontWeight: "700", color: "#1e293b" },
-  sheetSub:    { fontSize: 12, color: "#64748b", marginTop: 2 },
-  closeBtn:    { padding: 6 },
-  closeTxt:    { fontSize: 18, color: "#94a3b8" },
-  fieldLabel:  { fontSize: 12, fontWeight: "600", color: "#374151", marginBottom: 8 },
-  chipScroll:  { flexGrow: 0 },
-  chipRow:     { flexDirection: "row", gap: 6, paddingBottom: 4 },
-  chip:        { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 20, backgroundColor: "#f1f5f9", borderWidth: 1, borderColor: "#e2e8f0" },
-  chipActive:  { backgroundColor: "#4f46e5", borderColor: "#4f46e5" },
-  chipTxt:     { fontSize: 12, color: "#374151" },
-  chipActiveTxt: { color: "#fff", fontWeight: "600" },
-  accName:     { fontSize: 13, color: "#4f46e5", fontWeight: "600", marginTop: 6 },
-  amtRow:      { flexDirection: "row", alignItems: "center", borderWidth: 1.5, borderColor: "#e2e8f0", borderRadius: 10, paddingHorizontal: 14, backgroundColor: "#f8fafc" },
-  amtYen:      { fontSize: 18, color: "#64748b", marginRight: 4 },
-  amtInput:    { flex: 1, fontSize: 24, fontWeight: "700", color: "#1e293b", paddingVertical: 12 },
-  saveBtn:     { backgroundColor: "#4f46e5", borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 20 },
-  saveBtnOff:  { opacity: 0.6 },
-  saveBtnTxt:  { fontSize: 16, fontWeight: "700", color: "#fff" },
+  root: { flex: 1, backgroundColor: "#f8fafc" },
+  scroll: { flex: 1 },
+  content: { padding: 14, paddingBottom: 32 },
+  yearRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  yearCaption: { fontSize: 11, color: "#64748b" },
+  groupLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#94a3b8",
+    letterSpacing: 0.6,
+    marginTop: 12,
+    marginBottom: 6,
+    paddingLeft: 2,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    gap: 8,
+  },
+  code: { fontSize: 10, color: "#94a3b8" },
+  name: { fontSize: 13, color: "#1e293b", fontWeight: "500", marginTop: 1 },
+  annual: { fontSize: 10, color: "#64748b", marginTop: 3 },
+  cellRight: { alignItems: "flex-end", gap: 3 },
+  amount: { fontSize: 14, fontWeight: "700", color: "#1e293b" },
+  actions: { flexDirection: "row", gap: 12 },
+  link: { fontSize: 12, color: "#4f46e5", fontWeight: "600" },
+  danger: { fontSize: 12, color: "#dc2626", fontWeight: "600" },
+  muted: { fontSize: 10, color: "#94a3b8" },
+  add: { fontSize: 12, color: "#94a3b8" },
+  cancel: { fontSize: 12, color: "#64748b" },
+  editRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  amountInput: { width: 100, textAlign: "right", paddingVertical: 6 },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  sourceBadge: { fontSize: 10, color: "#4338ca", fontWeight: "700" },
+  detailText: { fontSize: 12, color: "#475569", marginTop: 2 },
 });

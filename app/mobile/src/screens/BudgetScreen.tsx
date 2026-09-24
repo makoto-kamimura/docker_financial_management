@@ -1,99 +1,180 @@
-import { useEffect, useState } from "react";
+// 予算管理（web 版 /budget と同じ「明細一覧 / 予算配分 / 履歴」。CSV インポートは web 版のみ）。
+// 明細一覧は web 版の「科目 × 月」の表を 1 か月ずつ表示する。行に出す科目・自動反映・適正額・年間合計は
+// web 版と同じ規則で求める。
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, Alert, ScrollView, StyleSheet, Text,
-  TextInput, TouchableOpacity, View,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import {
-  fetchAccounts, fetchBudgets, loadAllocation, matchesViewMode, postBudget,
-  type Account, type BudgetRow, type HousingLoanOverlayRow,
-  type PersonalAssetDebtOverlayRow, type ViewMode,
+  deleteBudget,
+  fetchAccounts,
+  fetchAllocationGuide,
+  fetchBudgetHistory,
+  fetchBudgets,
+  postBudget,
+  type Account,
+  type AllocationGuideRow,
+  type BudgetResponse,
+  type HistoryPage,
+  type HistoryQuery,
+  type ViewMode,
 } from "../api";
-import { RevenueAllocationModal } from "../components/RevenueAllocationModal";
-import { displayName } from "../displayName";
+import { BudgetAllocationPanel } from "../components/BudgetAllocationPanel";
+import { AccountPickerModal } from "../components/CategoryPickerModal";
+import { ChangeHistoryList, INITIAL_HISTORY_QUERY } from "../components/ChangeHistoryList";
+import { Button, EmptyText, Input, Pills, TabBar } from "../components/ui";
+import { displayName } from "../shared/display-name";
+import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
+import { digitsOnly, MONTHS, yen } from "../format";
 
-const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const BUDGETABLE = ["REVENUE", "COGS", "EXPENSE"];
-const CAT_LABEL: Record<string, string> = {
-  REVENUE: "収入・売上",
-  COGS:    "売上原価",
-  EXPENSE: "費用・支出",
-  LIABILITY: "負債返済（自動計上）",
+type Tab = "manual" | "allocation" | "history";
+const TABS = [
+  ["manual", "明細一覧"],
+  ["allocation", "予算配分"],
+  ["history", "履歴"],
+] as const;
+
+// 「適正 ¥…」の説明（web 版の GUIDE_HELP と同じ）
+const GUIDE_HELP =
+  "緑の「適正 ¥…」は収入実績に、「予算配分」タブのルールの割合を掛けた推奨額です。予算そのものは変更しません。";
+
+const EMPTY_BUDGETS: BudgetResponse = {
+  budgets: [],
+  years: [],
+  loanOverlay: [],
+  personalAssetDebtOverlay: [],
 };
 
-const yen = (v: number) =>
-  v === 0 ? "¥0"
-  : Math.abs(v) >= 10_000
-    ? `¥${(v / 10_000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万`
-    : `¥${v.toLocaleString("ja-JP")}`;
+const key = (code: string, month: number) => `${code}:${month}`;
+
+// 科目・月ごとの合計（同じ科目・月に複数行があれば合算する）
+function sumBy<T extends { accountCode: string; month: number; amount: number }>(rows: T[]) {
+  const map = new Map<string, number>();
+  for (const r of rows)
+    map.set(key(r.accountCode, r.month), (map.get(key(r.accountCode, r.month)) ?? 0) + r.amount);
+  return map;
+}
 
 type Props = { viewMode: ViewMode };
 
 export function BudgetScreen({ viewMode }: Props) {
   const now = new Date();
-  const [year,  setYear]  = useState(now.getFullYear());
+  const thisYear = now.getFullYear();
+  const [tab, setTab] = useState<Tab>("manual");
+  // 年度の既定はサーバー（GET /budgets）と同じ当年
+  const [year, setYear] = useState(thisYear);
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [budgets,  setBudgets]  = useState<BudgetRow[]>([]);
-  const [overlay,  setOverlay]  = useState<HousingLoanOverlayRow[]>([]);
-  const [debtOverlay, setDebtOverlay] = useState<PersonalAssetDebtOverlayRow[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [edits,    setEdits]    = useState<Record<string, string>>({});
-  const [saving,   setSaving]   = useState(false);
-  const [showRevenueModal, setShowRevenueModal] = useState(false);
+  const [data, setData] = useState<BudgetResponse>(EMPTY_BUDGETS);
+  const [guide, setGuide] = useState<AllocationGuideRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // 入力中の金額（科目コード → 文字列）。保存で POST（同じ科目・月は上書き）する
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  // 予算がまだ無い科目を行として足す（web 版の「科目を追加」）
+  const [extraCodes, setExtraCodes] = useState<string[]>([]);
+  const [pickingAccount, setPickingAccount] = useState(false);
 
-  async function load(y: number) {
-    setLoading(true);
+  const [histQuery, setHistQuery] = useState<HistoryQuery>(INITIAL_HISTORY_QUERY);
+  const [history, setHistory] = useState<HistoryPage>({ data: [], total: 0 });
+  const [histLoading, setHistLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(null);
     setEdits({});
     try {
-      const [accs, { budgets: buds, housingLoanOverlay, personalAssetDebtOverlay }] =
-        await Promise.all([fetchAccounts(), fetchBudgets(y)]);
-      // 負債返済の自動計上がある負債科目も予算一覧に表示する
-      const debtCodes = new Set(personalAssetDebtOverlay.map(o => o.accountCode));
-      setAccounts(accs.filter(a =>
-        (BUDGETABLE.includes(a.category) ||
-          (a.category === "LIABILITY" && debtCodes.has(a.code))) &&
-        matchesViewMode(a.code, viewMode)));
-      setBudgets(buds);
-      setOverlay(housingLoanOverlay);
-      setDebtOverlay(personalAssetDebtOverlay);
-    } catch {
-      // silent — list stays empty
+      const [accs, budgets, g] = await Promise.all([
+        fetchAccounts(),
+        fetchBudgets(year),
+        fetchAllocationGuide(year).catch(() => []),
+      ]);
+      setAccounts(accs);
+      setData(budgets);
+      setGuide(g);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "予算データの取得に失敗しました");
     } finally {
       setLoading(false);
     }
+  }, [year]);
+
+  useEffect(() => {
+    setLoading(true);
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    if (tab !== "history") return;
+    setHistLoading(true);
+    fetchBudgetHistory(year, histQuery)
+      .then(setHistory)
+      .catch(() => setHistory({ data: [], total: 0 }))
+      .finally(() => setHistLoading(false));
+  }, [tab, year, histQuery]);
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
   }
 
-  useEffect(() => { load(year); }, [year, viewMode]);
-  // 収入配分モーダルで使う配分ルールをサーバーから取得（失敗時は既定値で表示）
-  useEffect(() => { loadAllocation(); }, []);
+  // ── 表の組み立て（web 版 /budget と同じ規則）──────────────────────────
+  const budgetMap = useMemo(() => {
+    const map = new Map<string, BudgetResponse["budgets"][number]>();
+    for (const b of data.budgets) map.set(key(b.account.code, b.period.month), b);
+    return map;
+  }, [data.budgets]);
+  const loanMap = useMemo(() => sumBy(data.loanOverlay), [data.loanOverlay]);
+  const debtMap = useMemo(
+    () => sumBy(data.personalAssetDebtOverlay),
+    [data.personalAssetDebtOverlay],
+  );
+  const guideMap = useMemo(() => sumBy(guide), [guide]);
 
-  function budgetOf(code: string): number {
-    const b = budgets.find(b => b.account?.code === code && b.period?.month === month);
-    return b?.amount ?? 0;
-  }
+  // 行に出す科目: 予算がある・ローン/負債の自動反映がある・「科目を追加」で足した科目
+  const rows = useMemo(() => {
+    const codes = new Set<string>([
+      ...data.budgets.map((b) => b.account.code),
+      ...data.loanOverlay.map((o) => o.accountCode),
+      ...data.personalAssetDebtOverlay.map((o) => o.accountCode),
+      ...extraCodes,
+    ]);
+    return accounts
+      .filter((a) => codes.has(a.code))
+      .sort(
+        (a, b) =>
+          categoryRank(a.category) - categoryRank(b.category) || a.code.localeCompare(b.code),
+      );
+  }, [accounts, data, extraCodes]);
 
-  function valFor(code: string): string {
-    if (code in edits) return edits[code];
-    const amt = budgetOf(code);
-    return amt === 0 ? "" : String(amt);
-  }
+  const debtAssetNames = (code: string) =>
+    [
+      ...new Set(
+        data.personalAssetDebtOverlay.filter((o) => o.accountCode === code).map((o) => o.assetName),
+      ),
+    ].join("・");
 
-  function autoOf(code: string): number {
-    return overlay.find(o => o.accountCode === code && o.month === month)?.amount ?? 0;
-  }
+  const annualOf = (code: string) =>
+    MONTHS.reduce(
+      (sum, m) =>
+        sum +
+        (budgetMap.get(key(code, m))?.amount ?? 0) +
+        (loanMap.get(key(code, m)) ?? 0) +
+        (debtMap.get(key(code, m)) ?? 0),
+      0,
+    );
 
-  // 実物資産の負債分割（解消予定月までの月割り）分。同一科目に複数資産があれば合算する。
-  function debtAutoOf(code: string): number {
-    return debtOverlay
-      .filter(o => o.accountCode === code && o.month === month)
-      .reduce((sum, o) => sum + o.amount, 0);
-  }
-
-  function debtAssetNamesOf(code: string): string {
-    return [...new Set(
-      debtOverlay.filter(o => o.accountCode === code && o.month === month).map(o => o.assetName),
-    )].join("・");
-  }
+  const yearOptions = [...new Set([...data.years, year])].sort((a, b) => a - b);
+  const yearIndex = yearOptions.indexOf(year);
 
   async function handleSave() {
     const entries = Object.entries(edits).filter(([, v]) => v.trim() !== "");
@@ -101,226 +182,280 @@ export function BudgetScreen({ viewMode }: Props) {
     setSaving(true);
     try {
       await Promise.all(
-        entries.map(([code, val]) =>
-          postBudget({ accountCode: code, fiscalYear: year, month, amount: Number(val) || 0 })
-        )
+        entries.map(([code, v]) =>
+          postBudget({ accountCode: code, fiscalYear: year, month, amount: Number(v) || 0 }),
+        ),
       );
-      await load(year);
-    } catch (e: unknown) {
+      await load();
+    } catch (e) {
       Alert.alert("保存エラー", e instanceof Error ? e.message : "保存に失敗しました");
+    } finally {
       setSaving(false);
     }
   }
 
-  const hasEdits = Object.keys(edits).length > 0;
+  function confirmDelete(id: number, label: string) {
+    Alert.alert("予算を削除", `${label} の ${month}月の予算を削除します。よろしいですか？`, [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "削除",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteBudget(id);
+            await load();
+          } catch (e) {
+            Alert.alert("削除エラー", e instanceof Error ? e.message : "削除に失敗しました");
+          }
+        },
+      },
+    ]);
+  }
 
-  const monthTotal = accounts.reduce((sum, a) => {
-    const v = valFor(a.code);
-    return sum + (v !== "" ? Number(v) : budgetOf(a.code)) + autoOf(a.code) + debtAutoOf(a.code);
-  }, 0);
-
-  const revenueTotal = accounts.reduce((sum, a) => {
-    if (a.category !== "REVENUE") return sum;
-    const v = valFor(a.code);
-    return sum + (v !== "" ? Number(v) : budgetOf(a.code));
-  }, 0);
-
-  const revenueLines = accounts
-    .filter(a => a.category === "REVENUE")
-    .map(a => {
-      const v = valFor(a.code);
-      return { code: a.code, name: displayName(a, viewMode), amount: v !== "" ? Number(v) : budgetOf(a.code) };
-    })
-    .filter(l => l.amount > 0);
-
-  const grouped = (["REVENUE", "COGS", "EXPENSE", "LIABILITY"] as const).flatMap(cat => {
-    const items = accounts.filter(a => a.category === cat);
-    return items.length > 0 ? [{ cat, items }] : [];
-  });
+  const hasEdits = Object.values(edits).some((v) => v.trim() !== "");
 
   return (
     <View style={s.root}>
-      {/* 年度切替 */}
+      {/* 年度（web 版と同じく期間のある年度＋当年から選ぶ） */}
       <View style={s.yearRow}>
-        <TouchableOpacity style={s.yearBtn} onPress={() => setYear(y => y - 1)}>
-          <Text style={s.yearBtnTxt}>◀</Text>
+        <TouchableOpacity
+          style={s.yearBtn}
+          disabled={yearIndex <= 0}
+          onPress={() => setYear(yearOptions[yearIndex - 1])}
+        >
+          <Text style={[s.yearBtnTxt, yearIndex <= 0 && s.disabled]}>◀</Text>
         </TouchableOpacity>
         <Text style={s.yearLabel}>{year}年度</Text>
-        <TouchableOpacity style={s.yearBtn} onPress={() => setYear(y => y + 1)}>
-          <Text style={s.yearBtnTxt}>▶</Text>
+        <TouchableOpacity
+          style={s.yearBtn}
+          disabled={yearIndex >= yearOptions.length - 1}
+          onPress={() => setYear(yearOptions[yearIndex + 1])}
+        >
+          <Text style={[s.yearBtnTxt, yearIndex >= yearOptions.length - 1 && s.disabled]}>▶</Text>
         </TouchableOpacity>
       </View>
 
-      {/* 月次タブ */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={s.monthScroll}
-        contentContainerStyle={s.monthRow}
-      >
-        {MONTHS.map(m => (
-          <TouchableOpacity
-            key={m}
-            style={[s.pill, month === m && s.pillActive]}
-            onPress={() => { setMonth(m); setEdits({}); }}
-          >
-            <Text style={[s.pillTxt, month === m && s.pillTxtActive]}>{m}月</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <TabBar tabs={TABS} value={tab} onChange={setTab} />
 
       {loading ? (
-        <View style={s.center}><ActivityIndicator color="#4f46e5" size="large" /></View>
+        <View style={s.center}>
+          <ActivityIndicator color="#4f46e5" size="large" />
+        </View>
       ) : (
         <ScrollView
           style={s.scroll}
           contentContainerStyle={s.scrollContent}
           keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
-          {/* 月次合計カード */}
-          <View style={s.totalCard}>
-            <View style={s.totalCol}>
-              <Text style={s.totalLabel}>{year}年{month}月 予算合計</Text>
-              <Text style={s.totalValue}>{yen(monthTotal)}</Text>
-            </View>
-            <View style={s.totalDivider} />
-            <TouchableOpacity style={s.totalCol} onPress={() => setShowRevenueModal(true)}>
-              <Text style={s.totalLabel}>収入・売上 ›</Text>
-              <Text style={s.totalValueSub}>{yen(revenueTotal)}</Text>
-            </TouchableOpacity>
-          </View>
+          {error && <Text style={s.error}>{error}</Text>}
 
-          {/* 勘定科目別入力 */}
-          {grouped.length === 0 ? (
-            <View style={s.empty}>
-              <Text style={s.emptyTxt}>このモードに対応する勘定科目がありません</Text>
-            </View>
-          ) : grouped.map(({ cat, items }) => (
-            <View key={cat} style={s.group}>
-              <Text style={s.groupLabel}>{CAT_LABEL[cat]}</Text>
-              {items.map(a => {
-                const val      = valFor(a.code);
-                const edited   = a.code in edits;
-                const auto     = autoOf(a.code);
-                const debtAuto = debtAutoOf(a.code);
-                return (
-                  <View key={a.code} style={[s.row, edited && s.rowEdited]}>
-                    <View style={s.rowInfo}>
-                      <Text style={s.rowCode}>{a.code}</Text>
-                      <Text style={s.rowName} numberOfLines={1}>{displayName(a, viewMode)}</Text>
-                      {auto > 0 && (
-                        <Text style={s.rowAutoNote} numberOfLines={1}>
-                          🏠 住宅ローン返済額 {yen(auto)} を自動加算中
-                        </Text>
+          {tab === "manual" && (
+            <>
+              <Pills
+                options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
+                value={month}
+                onChange={(m) => {
+                  setMonth(m);
+                  setEdits({});
+                }}
+              />
+              {guide.length > 0 && <Text style={s.guideNote}>{GUIDE_HELP}</Text>}
+
+              {rows.length === 0 ? (
+                <EmptyText>
+                  予算データがありません。「科目を追加」で科目を選ぶと、月ごとに予算を入力できます。
+                </EmptyText>
+              ) : (
+                rows.map((a, i) => {
+                  const k = key(a.code, month);
+                  const budget = budgetMap.get(k);
+                  const loan = loanMap.get(k) ?? 0;
+                  const debt = debtMap.get(k) ?? 0;
+                  const guideAmount = guideMap.get(k) ?? 0;
+                  const edited = a.code in edits;
+                  const val = edited ? edits[a.code] : budget ? String(budget.amount) : "";
+                  const base = val !== "" ? Number(val) : 0;
+                  const name = displayName(a, viewMode);
+                  const showGroup = i === 0 || rows[i - 1].category !== a.category;
+                  return (
+                    <View key={a.code}>
+                      {showGroup && (
+                        <Text style={s.groupLabel}>{CATEGORY_LABEL[a.category] ?? a.category}</Text>
                       )}
-                      {debtAuto > 0 && (
-                        <Text style={s.rowDebtNote} numberOfLines={1}>
-                          💳 負債返済分（{debtAssetNamesOf(a.code)}）{yen(debtAuto)} を自動加算中
-                        </Text>
-                      )}
-                    </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <View style={s.inputWrap}>
-                        <Text style={s.yen}>¥</Text>
-                        <TextInput
-                          style={s.input}
-                          keyboardType="number-pad"
-                          value={val}
-                          placeholder="0"
-                          placeholderTextColor="#cbd5e1"
-                          selectTextOnFocus
-                          onChangeText={t =>
-                            setEdits(prev => ({
-                              ...prev,
-                              [a.code]: t.replace(/[^0-9]/g, ""),
-                            }))
-                          }
-                        />
+                      <View style={[s.row, edited && s.rowEdited]}>
+                        <View style={s.rowInfo}>
+                          <Text style={s.rowCode}>{a.code}</Text>
+                          <Text style={s.rowName} numberOfLines={1}>
+                            {name}
+                          </Text>
+                          {loan > 0 && (
+                            <Text style={s.loanNote}>内 ローン返済 {yen(loan)}（自動反映）</Text>
+                          )}
+                          {debt > 0 && (
+                            <Text style={s.debtNote} numberOfLines={1}>
+                              内 負債返済分 {yen(debt)}（{debtAssetNames(a.code)}）
+                            </Text>
+                          )}
+                          {guideAmount > 0 && (
+                            <Text style={s.guideText}>適正 {yen(guideAmount)}</Text>
+                          )}
+                          <Text style={s.annual}>年間合計 {yen(annualOf(a.code))}</Text>
+                        </View>
+                        <View style={s.rowRight}>
+                          <View style={s.inputRow}>
+                            <Input
+                              style={s.amountInput}
+                              keyboardType="number-pad"
+                              value={val}
+                              placeholder="—"
+                              selectTextOnFocus
+                              onChangeText={(t) =>
+                                setEdits((prev) => ({ ...prev, [a.code]: digitsOnly(t) }))
+                              }
+                            />
+                            {budget && !edited && (
+                              <TouchableOpacity
+                                onPress={() => confirmDelete(budget.id, name)}
+                                hitSlop={8}
+                              >
+                                <Text style={s.delete}>削除</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                          {(loan > 0 || debt > 0) && (
+                            <Text style={s.combined}>合計 {yen(base + loan + debt)}</Text>
+                          )}
+                        </View>
                       </View>
-                      {(auto > 0 || debtAuto > 0) && (
-                        <Text style={s.rowCombinedNote}>
-                          合計 {yen((val !== "" ? Number(val) : budgetOf(a.code)) + auto + debtAuto)}
-                        </Text>
-                      )}
                     </View>
-                  </View>
-                );
-              })}
-            </View>
-          ))}
+                  );
+                })
+              )}
 
-          <View style={{ height: hasEdits ? 88 : 24 }} />
+              <Button
+                variant="secondary"
+                label="＋ 科目を追加"
+                onPress={() => setPickingAccount(true)}
+                style={{ marginTop: 8 }}
+              />
+              <View style={{ height: hasEdits ? 88 : 24 }} />
+            </>
+          )}
+
+          {tab === "allocation" && (
+            <BudgetAllocationPanel
+              fiscalYear={year}
+              accounts={accounts}
+              viewMode={viewMode}
+              onApplied={() => {
+                load();
+                setHistQuery((q) => ({ ...q }));
+              }}
+            />
+          )}
+
+          {tab === "history" && (
+            <ChangeHistoryList
+              rows={history.data}
+              total={history.total}
+              query={histQuery}
+              onQueryChange={setHistQuery}
+              loading={histLoading}
+              viewMode={viewMode}
+              emptyText={`まだ${year}年度の履歴はありません。`}
+            />
+          )}
         </ScrollView>
       )}
 
-      {/* 保存バー（編集時のみ表示） */}
-      {hasEdits && (
+      {tab === "manual" && hasEdits && (
         <View style={s.saveBar}>
-          <TouchableOpacity
-            style={[s.saveBtn, saving && s.saveBtnDisabled]}
-            onPress={handleSave}
-            disabled={saving}
-          >
-            {saving
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={s.saveBtnTxt}>保存する</Text>
-            }
-          </TouchableOpacity>
+          <Button label="保存する" onPress={handleSave} loading={saving} />
         </View>
       )}
 
-      <RevenueAllocationModal
-        visible={showRevenueModal}
-        onClose={() => setShowRevenueModal(false)}
-        year={year}
-        month={month}
-        items={revenueLines}
-        total={revenueTotal}
-        viewMode={viewMode}
-        onApplied={() => load(year)}
+      <AccountPickerModal
+        visible={pickingAccount}
+        accounts={accounts.filter((a) => !rows.some((r) => r.code === a.code))}
+        title="科目を追加"
+        currentId={null}
+        onSelect={(a) => {
+          if (a) setExtraCodes((codes) => (codes.includes(a.code) ? codes : [...codes, a.code]));
+          setPickingAccount(false);
+        }}
+        onClose={() => setPickingAccount(false)}
       />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root:          { flex: 1, backgroundColor: "#f8fafc" },
-  yearRow:       { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, gap: 20, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e2e8f0" },
-  yearBtn:       { paddingHorizontal: 12, paddingVertical: 6 },
-  yearBtnTxt:    { fontSize: 16, color: "#4f46e5" },
-  yearLabel:     { fontSize: 17, fontWeight: "700", color: "#1e293b", minWidth: 80, textAlign: "center" },
-  monthScroll:   { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e2e8f0", flexGrow: 0 },
-  monthRow:      { flexDirection: "row", paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
-  pill:          { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: "#f1f5f9" },
-  pillActive:    { backgroundColor: "#4f46e5" },
-  pillTxt:       { fontSize: 12, fontWeight: "600", color: "#64748b" },
-  pillTxtActive: { color: "#fff" },
-  center:        { flex: 1, alignItems: "center", justifyContent: "center" },
-  scroll:        { flex: 1 },
+  root: { flex: 1, backgroundColor: "#f8fafc" },
+  yearRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    gap: 20,
+    backgroundColor: "#fff",
+  },
+  yearBtn: { paddingHorizontal: 12, paddingVertical: 6 },
+  yearBtnTxt: { fontSize: 16, color: "#4f46e5" },
+  disabled: { opacity: 0.3 },
+  yearLabel: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#1e293b",
+    minWidth: 80,
+    textAlign: "center",
+  },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  scroll: { flex: 1 },
   scrollContent: { padding: 14 },
-  totalCard:     { flexDirection: "row", alignItems: "center", backgroundColor: "#4f46e5", borderRadius: 12, padding: 16, marginBottom: 14 },
-  totalCol:      { flex: 1 },
-  totalDivider:  { width: 1, alignSelf: "stretch", backgroundColor: "rgba(255,255,255,0.25)", marginHorizontal: 14 },
-  totalLabel:    { fontSize: 11, color: "#c7d2fe", marginBottom: 4 },
-  totalValue:    { fontSize: 24, fontWeight: "700", color: "#fff" },
-  totalValueSub: { fontSize: 18, fontWeight: "700", color: "#fff" },
-  group:         { marginBottom: 12 },
-  groupLabel:    { fontSize: 11, fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6, paddingLeft: 2 },
-  row:           { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 6, borderWidth: 1, borderColor: "#e2e8f0" },
-  rowEdited:     { borderColor: "#818cf8", backgroundColor: "#eef2ff" },
-  rowInfo:       { flex: 1, marginRight: 8 },
-  rowCode:       { fontSize: 10, color: "#94a3b8" },
-  rowName:       { fontSize: 13, color: "#1e293b", fontWeight: "500", marginTop: 1 },
-  rowAutoNote:   { fontSize: 10, color: "#4f46e5", marginTop: 2 },
-  rowDebtNote:   { fontSize: 10, color: "#d97706", marginTop: 2 },
-  rowCombinedNote: { fontSize: 10, color: "#4f46e5", marginTop: 3, fontWeight: "600" },
-  inputWrap:     { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, paddingHorizontal: 8, backgroundColor: "#fff", minWidth: 110 },
-  yen:           { fontSize: 13, color: "#64748b", marginRight: 2 },
-  input:         { fontSize: 14, fontWeight: "600", color: "#1e293b", paddingVertical: 6, minWidth: 80, textAlign: "right" },
-  empty:         { alignItems: "center", paddingVertical: 32 },
-  emptyTxt:      { fontSize: 13, color: "#94a3b8" },
-  saveBar:       { position: "absolute", bottom: 0, left: 0, right: 0, padding: 12, backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#e2e8f0" },
-  saveBtn:       { backgroundColor: "#4f46e5", borderRadius: 10, paddingVertical: 14, alignItems: "center" },
-  saveBtnDisabled: { opacity: 0.6 },
-  saveBtnTxt:    { fontSize: 15, fontWeight: "700", color: "#fff" },
+  error: { color: "#dc2626", fontSize: 13, marginBottom: 10 },
+  guideNote: { fontSize: 11, color: "#047857", marginVertical: 8, lineHeight: 16 },
+  groupLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#94a3b8",
+    letterSpacing: 0.6,
+    marginTop: 10,
+    marginBottom: 6,
+    paddingLeft: 2,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  rowEdited: { borderColor: "#818cf8", backgroundColor: "#eef2ff" },
+  rowInfo: { flex: 1, marginRight: 8 },
+  rowCode: { fontSize: 10, color: "#94a3b8" },
+  rowName: { fontSize: 13, color: "#1e293b", fontWeight: "500", marginTop: 1 },
+  loanNote: { fontSize: 10, color: "#4f46e5", marginTop: 2 },
+  debtNote: { fontSize: 10, color: "#d97706", marginTop: 2 },
+  guideText: { fontSize: 10, color: "#059669", marginTop: 2 },
+  annual: { fontSize: 10, color: "#64748b", marginTop: 3 },
+  rowRight: { alignItems: "flex-end" },
+  inputRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  amountInput: { width: 110, textAlign: "right", paddingVertical: 6, fontWeight: "600" },
+  delete: { fontSize: 11, color: "#dc2626", fontWeight: "600" },
+  combined: { fontSize: 10, color: "#4f46e5", marginTop: 3, fontWeight: "600" },
+  saveBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 12,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
 });

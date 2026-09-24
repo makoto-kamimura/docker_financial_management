@@ -1,18 +1,30 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  getViewMode, logout, restoreSession, setViewMode as apiSetViewMode,
-  type UserInfo, type ViewMode, VIEW_MODES,
+  getViewMode,
+  logout,
+  restoreSession,
+  setViewMode as apiSetViewMode,
+  type UserInfo,
+  type ViewMode,
+  VIEW_MODES,
 } from "./api";
 import { LoginScreen } from "./screens/LoginScreen";
 import { DashboardScreen } from "./screens/DashboardScreen";
 import { EntryScreen } from "./screens/EntryScreen";
-import { BankTransactionsScreen } from "./screens/BankTransactionsScreen";
+import { BankAccountsScreen } from "./screens/BankAccountsScreen";
 import { MoreScreen, type MoreRoute } from "./screens/MoreScreen";
 import { AssetsScreen } from "./screens/AssetsScreen";
-import { BankAccountsScreen } from "./screens/BankAccountsScreen";
+import { CardTransactionsScreen } from "./screens/CardTransactionsScreen";
 import { BudgetScreen } from "./screens/BudgetScreen";
 import { LoansScreen } from "./screens/LoansScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
@@ -31,35 +43,35 @@ type TabDef = {
 };
 
 const BOTTOM_TABS: TabDef[] = [
-  { id: "home",   label: "ホーム", icon: "home-outline",    iconActive: "home" },
-  { id: "budget", label: "予算",   icon: "wallet-outline",  iconActive: "wallet" },
-  { id: "entry",  label: "実績",   icon: "create-outline",  iconActive: "create" },
-  { id: "more",   label: "その他", icon: "grid-outline",    iconActive: "grid" },
+  { id: "home", label: "ホーム", icon: "home-outline", iconActive: "home" },
+  { id: "budget", label: "予算", icon: "wallet-outline", iconActive: "wallet" },
+  { id: "entry", label: "実績", icon: "create-outline", iconActive: "create" },
+  { id: "more", label: "その他", icon: "grid-outline", iconActive: "grid" },
 ];
 
 const MORE_TITLES: Record<MoreRoute, string> = {
-  "assets":            "資産管理",
-  "bank-accounts":     "銀行口座管理",
-  "bank-transactions": "入出金管理",
-  "loans":             "借入金管理",
-  "settings":          "設定",
-  "journals":          "仕訳帳",
-  "invoices":          "インボイス",
-  "closing":           "決算処理",
-  "governance":        "ガバナンス管理",
+  assets: "資産管理",
+  "bank-accounts": "銀行管理",
+  "card-transactions": "カード・電子マネー管理",
+  loans: "借入金管理",
+  settings: "設定",
+  journals: "仕訳帳",
+  invoices: "インボイス発行",
+  closing: "決算処理",
+  governance: "ガバナンス管理",
 };
 
 const SYSTEM_NAME: Record<ViewMode, string> = {
   household: "家計管理システム",
-  sole:      "個人会計システム",
+  sole: "個人会計システム",
   corporate: "法人会計システム",
 };
 
 export default function App() {
-  const [user, setUser]           = useState<UserInfo | null>(null);
+  const [user, setUser] = useState<UserInfo | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [activeTab, setActiveTab] = useState<BottomTab>("home");
-  const [viewMode, setVm]         = useState<ViewMode>(getViewMode());
+  const [viewMode, setVm] = useState<ViewMode>(getViewMode());
   const [moreRoute, setMoreRoute] = useState<MoreRoute | null>(null);
 
   // S-14: 起動時に SecureStore の保存済みセッションを復元し、GET /api/auth/me で有効性を確認する
@@ -80,8 +92,12 @@ export default function App() {
     setUser(null);
   }
 
-  function navigateMore(route: MoreRoute) { setMoreRoute(route); }
-  function backToMore() { setMoreRoute(null); }
+  function navigateMore(route: MoreRoute) {
+    setMoreRoute(route);
+  }
+  function backToMore() {
+    setMoreRoute(null);
+  }
 
   if (restoring) {
     return (
@@ -101,12 +117,16 @@ export default function App() {
     );
   }
 
-  const screenTitle = activeTab === "more" && moreRoute
-    ? MORE_TITLES[moreRoute]
-    : activeTab === "more" ? "その他"
-    : activeTab === "home"   ? "ホーム"
-    : activeTab === "budget" ? "予算管理"
-    : "実績管理";
+  const screenTitle =
+    activeTab === "more" && moreRoute
+      ? MORE_TITLES[moreRoute]
+      : activeTab === "more"
+        ? "その他"
+        : activeTab === "home"
+          ? "ホーム"
+          : activeTab === "budget"
+            ? "予算管理"
+            : "実績管理";
 
   return (
     <SafeAreaView style={s.root}>
@@ -126,7 +146,7 @@ export default function App() {
 
         {/* モード切替ピル */}
         <View style={s.modePill}>
-          {VIEW_MODES.map(m => (
+          {VIEW_MODES.map((m) => (
             <TouchableOpacity
               key={m.value}
               style={[s.modeBtn, viewMode === m.value && s.modeBtnActive]}
@@ -152,32 +172,39 @@ export default function App() {
 
       {/* コンテンツ */}
       <View style={s.body}>
-        {activeTab === "home"   && <DashboardScreen viewMode={viewMode} />}
+        {activeTab === "home" && <DashboardScreen viewMode={viewMode} />}
         {activeTab === "budget" && <BudgetScreen viewMode={viewMode} />}
-        {activeTab === "entry"  && <EntryScreen />}
-        {activeTab === "more"   && !moreRoute && (
+        {activeTab === "entry" && <EntryScreen viewMode={viewMode} />}
+        {activeTab === "more" && !moreRoute && (
           <MoreScreen viewMode={viewMode} onNavigate={navigateMore} />
         )}
-        {activeTab === "more" && moreRoute === "assets"            && <AssetsScreen />}
-        {activeTab === "more" && moreRoute === "bank-accounts"     && <BankAccountsScreen />}
-        {activeTab === "more" && moreRoute === "bank-transactions" && <BankTransactionsScreen />}
-        {activeTab === "more" && moreRoute === "loans"             && <LoansScreen />}
-        {activeTab === "more" && moreRoute === "settings"          && <SettingsScreen />}
-        {activeTab === "more" && moreRoute === "journals"          && <JournalsScreen />}
-        {activeTab === "more" && moreRoute === "invoices"          && <InvoicesScreen />}
-        {activeTab === "more" && moreRoute === "closing"           && <ClosingScreen />}
-        {activeTab === "more" && moreRoute === "governance"        && <GovernanceScreen />}
+        {activeTab === "more" && moreRoute === "assets" && <AssetsScreen viewMode={viewMode} />}
+        {activeTab === "more" && moreRoute === "bank-accounts" && (
+          <BankAccountsScreen viewMode={viewMode} />
+        )}
+        {activeTab === "more" && moreRoute === "card-transactions" && (
+          <CardTransactionsScreen viewMode={viewMode} />
+        )}
+        {activeTab === "more" && moreRoute === "loans" && <LoansScreen viewMode={viewMode} />}
+        {activeTab === "more" && moreRoute === "settings" && <SettingsScreen />}
+        {activeTab === "more" && moreRoute === "journals" && <JournalsScreen viewMode={viewMode} />}
+        {activeTab === "more" && moreRoute === "invoices" && <InvoicesScreen />}
+        {activeTab === "more" && moreRoute === "closing" && <ClosingScreen viewMode={viewMode} />}
+        {activeTab === "more" && moreRoute === "governance" && <GovernanceScreen />}
       </View>
 
       {/* タブバー */}
       <View style={s.tabBar}>
-        {BOTTOM_TABS.map(t => {
+        {BOTTOM_TABS.map((t) => {
           const active = activeTab === t.id;
           return (
             <TouchableOpacity
               key={t.id}
               style={s.tabItem}
-              onPress={() => { setActiveTab(t.id); setMoreRoute(null); }}
+              onPress={() => {
+                setActiveTab(t.id);
+                setMoreRoute(null);
+              }}
             >
               <Ionicons
                 name={active ? t.iconActive : t.icon}

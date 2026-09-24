@@ -1,181 +1,212 @@
-import { useEffect, useState } from "react";
+// 設定（web 版 /settings と同じ 5 区分を閲覧のみで表示する。変更は web 版で行う）。
+// 予算配分ルールの編集は web 版と同じく予算画面の「予算配分」タブへ移した。
+import { useCallback, useEffect, useState } from "react";
 import {
-  Alert, RefreshControl, ScrollView, StyleSheet, Text,
-  TextInput, TouchableOpacity, View,
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
-import {
-  fetchBankAccounts, getAllocation, loadAllocation, resetAllocation, saveAllocation,
-  type AllocationGroup, type AllocationItem, type BankAccount,
-} from "../api";
-import { LoadingView } from "../components/LoadingView";
+import { fetchAccounts, fetchSettingsSnapshot, type Account, type SettingsSnapshot } from "../api";
+import { Card, EmptyText, Notice, SectionTitle, TabBar } from "../components/ui";
+import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 
-const GROUP_ORDER: AllocationGroup[] = ["固定費", "生活費", "その他"];
+type Tab = "profile" | "tax" | "security" | "accountNames" | "departments";
+const TABS = [
+  ["profile", "事業者情報"],
+  ["tax", "消費税設定"],
+  ["security", "セキュリティ"],
+  ["accountNames", "科目名設定"],
+  ["departments", "部門・担当"],
+] as const;
 
-const yen = (v: number) =>
-  v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
-
-const TYPE_LABEL: Record<string, string> = {
-  checking: "普通預金", savings: "定期預金", credit: "クレジット",
-  investment: "投資", cash: "現金", other: "その他",
+// 課税方式（web 版の TAX_TYPE_LABELS / PAYMENT_METHODS と同じ）
+const TAX_TYPE_LABELS: Record<string, string> = {
+  exempt: "免税事業者",
+  general: "課税事業者（原則課税）",
+  simplified: "課税事業者（簡易課税）",
+};
+const PAYMENT_METHODS: Record<string, string> = {
+  exempt: "免税",
+  general: "原則課税",
+  simplified: "簡易課税",
 };
 
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.row}>
+      <Text style={s.rowLabel}>{label}</Text>
+      <Text style={s.rowValue}>{value || "—"}</Text>
+    </View>
+  );
+}
+
 export function SettingsScreen() {
-  const [accounts, setAccounts] = useState<BankAccount[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("profile");
+  const [data, setData] = useState<SettingsSnapshot | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [allocation, setAllocationState] = useState<AllocationItem[]>(() => getAllocation().map(i => ({ ...i })));
-  const [allocDirty, setAllocDirty] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setError(null);
     try {
-      setAccounts(await fetchBankAccounts());
-      // サーバー側マスタの配分ルールを反映（未接続時は既定値のまま）
-      setAllocationState((await loadAllocation()).map(i => ({ ...i })));
+      const [snap, accs] = await Promise.all([fetchSettingsSnapshot(), fetchAccounts()]);
+      setData(snap);
+      setAccounts(accs);
     } catch (e) {
       setError(e instanceof Error ? e.message : "取得に失敗しました");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  function updateAllocPercent(key: string, field: "minPercent" | "maxPercent", text: string) {
-    const digits = text.replace(/[^0-9]/g, "");
-    setAllocDirty(true);
-    setAllocationState(prev => prev.map(item => {
-      if (item.key !== key) return item;
-      if (field === "maxPercent") {
-        return { ...item, maxPercent: digits === "" ? null : Number(digits) };
-      }
-      return { ...item, minPercent: digits === "" ? 0 : Number(digits) };
-    }));
-  }
-
-  async function handleSaveAllocation() {
-    try {
-      await saveAllocation(allocation);
-      setAllocDirty(false);
-      Alert.alert("保存しました", "予算配分ルールを更新しました。");
-    } catch (e) {
-      Alert.alert("保存に失敗しました", e instanceof Error ? e.message : "通信エラーが発生しました。");
-    }
-  }
-
-  function handleResetAllocation() {
-    setAllocationState(resetAllocation().map(i => ({ ...i })));
-    setAllocDirty(false);
-  }
-
-  if (loading) return <LoadingView />;
+  const profile = data?.profile;
+  const sortedAccounts = [...accounts].sort(
+    (a, b) => categoryRank(a.category) - categoryRank(b.category) || a.code.localeCompare(b.code),
+  );
 
   return (
-    <ScrollView
-      style={s.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
-    >
-      {error && <Text style={s.error}>{error}</Text>}
+    <View style={s.root}>
+      <TabBar tabs={TABS} value={tab} onChange={setTab} />
+      <ScrollView
+        contentContainerStyle={s.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              await load();
+              setRefreshing(false);
+            }}
+          />
+        }
+      >
+        <Notice>設定の変更は Web 版から行ってください（モバイルでは閲覧のみ）。</Notice>
+        {error && <Notice tone="error">{error}</Notice>}
+        {!data ? (
+          <ActivityIndicator color="#4f46e5" style={{ marginTop: 32 }} />
+        ) : (
+          <>
+            {tab === "profile" && (
+              <Card>
+                <SectionTitle>事業者情報（F001）</SectionTitle>
+                <Row label="屋号" value={profile?.tradeName ?? ""} />
+                <Row label="氏名" value={profile?.ownerName ?? ""} />
+                <Row label="開業日" value={profile?.openedOn?.slice(0, 10) ?? ""} />
+                <Row
+                  label="既定の課税方式"
+                  value={
+                    TAX_TYPE_LABELS[profile?.taxationType ?? "exempt"] ??
+                    profile?.taxationType ??
+                    ""
+                  }
+                />
+                <Row label="インボイス登録番号" value={profile?.invoiceNumber ?? ""} />
+                <Row
+                  label="青色申告（65万円控除）"
+                  value={profile?.blueReturn ? "する" : "しない"}
+                />
+              </Card>
+            )}
 
-      <Text style={s.sectionTitle}>登録済み銀行口座</Text>
-      <Text style={s.hint}>口座の追加・編集は Web 版から行ってください。</Text>
+            {tab === "tax" && (
+              <Card>
+                <SectionTitle>消費税設定（F012）</SectionTitle>
+                {data.taxSettings.length === 0 ? (
+                  <EmptyText>
+                    年度別の設定はありません（事業者情報の既定の課税方式を使います）。
+                  </EmptyText>
+                ) : (
+                  data.taxSettings.map((t) => (
+                    <Row
+                      key={t.taxYear}
+                      label={`${t.taxYear}年`}
+                      value={`${PAYMENT_METHODS[t.taxationType] ?? t.taxationType}${t.simplifiedRate ? ` ・ みなし仕入率 ${t.simplifiedRate}%` : ""}`}
+                    />
+                  ))
+                )}
+              </Card>
+            )}
 
-      {accounts.length === 0 ? (
-        <Text style={s.empty}>登録済み口座がありません</Text>
-      ) : (
-        accounts.map(a => (
-          <View key={a.id} style={s.card}>
-            <View style={s.row}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.accountName}>{a.name}</Text>
-                <Text style={s.bankName}>{a.bankName}  {TYPE_LABEL[a.accountType] ?? a.accountType}</Text>
-              </View>
-              <Text style={s.balance}>{yen(a.balance ?? 0)}</Text>
-            </View>
-          </View>
-        ))
-      )}
+            {tab === "security" && (
+              <Card>
+                <SectionTitle>多要素認証（MFA / TOTP）</SectionTitle>
+                <Row label="状態" value={data.mfaEnabled ? "有効" : "無効"} />
+                <Text style={s.muted}>
+                  MFA の有効化・無効化とリカバリーコードの再発行は Web 版の「設定 ›
+                  セキュリティ」で行います。
+                  有効にするとモバイルのログインでも認証コードの入力が必要になります。
+                </Text>
+              </Card>
+            )}
 
-      <Text style={[s.sectionTitle, { marginTop: 24 }]}>予算配分ルール（FP推奨・手取り収入ベース）</Text>
-      <Text style={s.hint}>予算画面の「収入・売上」タップ時に表示するおすすめ配分の割合（％）です。必要に応じて変更できます。</Text>
+            {tab === "accountNames" && (
+              <Card>
+                <SectionTitle note="家庭科目名と、個人・法人モードで表示する科目名です。">
+                  科目名設定
+                </SectionTitle>
+                {sortedAccounts.map((a) => (
+                  <View key={a.id} style={s.account}>
+                    <Text style={s.accountHead}>
+                      <Text style={s.code}>{a.code} </Text>
+                      {a.name}
+                      <Text style={s.category}>　{CATEGORY_LABEL[a.category] ?? a.category}</Text>
+                    </Text>
+                    <Text style={s.muted}>
+                      個人: {a.soleName || "（家庭科目名と同じ）"} ・ 法人:{" "}
+                      {a.corporateName || "（家庭科目名と同じ）"}
+                    </Text>
+                  </View>
+                ))}
+              </Card>
+            )}
 
-      {GROUP_ORDER.map(group => {
-        const items = allocation.filter(i => i.group === group);
-        if (items.length === 0) return null;
-        return (
-          <View key={group} style={s.allocGroup}>
-            <Text style={s.allocGroupTitle}>{group}</Text>
-            {items.map(item => (
-              <View key={item.key} style={s.allocRow}>
-                <Text style={s.allocLabel} numberOfLines={1}>{item.label}</Text>
-                <View style={s.allocInputs}>
-                  <TextInput
-                    style={s.allocInput}
-                    keyboardType="number-pad"
-                    value={String(item.minPercent)}
-                    onChangeText={t => updateAllocPercent(item.key, "minPercent", t)}
-                  />
-                  <Text style={s.allocSep}>〜</Text>
-                  <TextInput
-                    style={s.allocInput}
-                    keyboardType="number-pad"
-                    placeholder="上限なし"
-                    placeholderTextColor="#cbd5e1"
-                    value={item.maxPercent === null ? "" : String(item.maxPercent)}
-                    onChangeText={t => updateAllocPercent(item.key, "maxPercent", t)}
-                  />
-                  <Text style={s.allocPct}>%</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        );
-      })}
-
-      <View style={s.allocBtnRow}>
-        <TouchableOpacity style={s.resetBtn} onPress={handleResetAllocation}>
-          <Text style={s.resetBtnTxt}>デフォルトに戻す</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.saveBtn, !allocDirty && s.saveBtnDisabled]}
-          onPress={handleSaveAllocation}
-          disabled={!allocDirty}
-        >
-          <Text style={s.saveBtnTxt}>保存する</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+            {tab === "departments" && (
+              <Card>
+                <SectionTitle>部門・担当</SectionTitle>
+                {data.departments.length === 0 ? (
+                  <EmptyText>部門は登録されていません。</EmptyText>
+                ) : (
+                  data.departments.map((d) => (
+                    <Row key={d.id} label={d.name} value={d.manager ?? ""} />
+                  ))
+                )}
+              </Card>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f8fafc", padding: 16 },
-  error: { color: "#dc2626", fontSize: 13, textAlign: "center", marginBottom: 12 },
-  sectionTitle: { fontSize: 14, fontWeight: "700", color: "#1e293b", marginBottom: 4 },
-  hint: { fontSize: 12, color: "#94a3b8", marginBottom: 16 },
-  empty: { textAlign: "center", color: "#94a3b8", fontSize: 14, marginTop: 32 },
-  card: {
-    backgroundColor: "#fff", borderRadius: 12, padding: 14, marginBottom: 8,
-    borderWidth: 1, borderColor: "#e2e8f0",
+  root: { flex: 1, backgroundColor: "#f8fafc" },
+  content: { padding: 14, paddingBottom: 32 },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
   },
-  row: { flexDirection: "row", alignItems: "center" },
-  accountName: { fontSize: 14, fontWeight: "600", color: "#1e293b", marginBottom: 2 },
-  bankName: { fontSize: 12, color: "#64748b" },
-  balance: { fontSize: 14, fontWeight: "700", color: "#1e293b" },
-  allocGroup:      { marginBottom: 14 },
-  allocGroupTitle: { fontSize: 12, fontWeight: "700", color: "#4f46e5", marginBottom: 6 },
-  allocRow:        { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 6, borderWidth: 1, borderColor: "#e2e8f0" },
-  allocLabel:      { flex: 1, fontSize: 12, color: "#1e293b", marginRight: 8 },
-  allocInputs:     { flexDirection: "row", alignItems: "center" },
-  allocInput:      { width: 44, fontSize: 13, fontWeight: "600", color: "#1e293b", textAlign: "center", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 6, paddingVertical: 4 },
-  allocSep:        { fontSize: 12, color: "#94a3b8", marginHorizontal: 4 },
-  allocPct:        { fontSize: 12, color: "#64748b", marginLeft: 4 },
-  allocBtnRow:     { flexDirection: "row", gap: 10, marginTop: 8, marginBottom: 24 },
-  resetBtn:        { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: "#e2e8f0", backgroundColor: "#fff" },
-  resetBtnTxt:     { fontSize: 13, fontWeight: "600", color: "#64748b" },
-  saveBtn:         { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", backgroundColor: "#4f46e5" },
-  saveBtnDisabled: { opacity: 0.4 },
-  saveBtnTxt:      { fontSize: 13, fontWeight: "700", color: "#fff" },
+  rowLabel: { fontSize: 13, color: "#64748b" },
+  rowValue: {
+    fontSize: 13,
+    color: "#1e293b",
+    fontWeight: "600",
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  muted: { fontSize: 11, color: "#94a3b8", lineHeight: 16, marginTop: 6 },
+  account: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
+  accountHead: { fontSize: 13, color: "#1e293b" },
+  code: { fontSize: 11, color: "#94a3b8" },
+  category: { fontSize: 10, color: "#64748b" },
 });

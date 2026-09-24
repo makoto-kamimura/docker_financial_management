@@ -1,100 +1,174 @@
-import { useEffect, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+// インボイス（web 版 /invoices の一覧・詳細を閲覧のみで出す。作成・発行・入金・削除は web 版）。
+import { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { fetchInvoices, type Invoice } from "../api";
-import { LoadingView } from "../components/LoadingView";
-
-const yen = (v: number | string) =>
-  Number(v).toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
+import { Card, EmptyText, Notice, SheetModal } from "../components/ui";
+import { yen } from "../format";
 
 const STATUS: Record<string, { label: string; bg: string; color: string }> = {
-  draft:  { label: "下書き",   bg: "#f1f5f9", color: "#64748b" },
+  draft: { label: "下書き", bg: "#f1f5f9", color: "#475569" },
   issued: { label: "発行済み", bg: "#dbeafe", color: "#1d4ed8" },
-  paid:   { label: "入金済み", bg: "#d1fae5", color: "#065f46" },
+  paid: { label: "入金済み", bg: "#dcfce7", color: "#15803d" },
 };
 
 export function InvoicesScreen() {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [preview, setPreview] = useState<Invoice | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setError(null);
     try {
       setInvoices(await fetchInvoices());
     } catch (e) {
       setError(e instanceof Error ? e.message : "取得に失敗しました");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setInvoices([]);
     }
-  }
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const totalIssued = invoices
-    .filter(i => i.status === "issued")
-    .reduce((s, i) => s + Number(i.total), 0);
-
-  if (loading) return <LoadingView />;
+  const totalOf = (status: string) =>
+    (invoices ?? [])
+      .filter((i) => i.status === status)
+      .reduce((sum, i) => sum + Number(i.total), 0);
 
   return (
-    <ScrollView
-      style={s.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
-    >
-      {error && <Text style={s.error}>{error}</Text>}
+    <View style={s.root}>
+      <ScrollView
+        contentContainerStyle={s.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              await load();
+              setRefreshing(false);
+            }}
+          />
+        }
+      >
+        <Notice>
+          インボイスの作成・発行・入金の記録は Web 版から行ってください（モバイルでは閲覧のみ）。
+        </Notice>
+        {error && <Notice tone="error">{error}</Notice>}
 
-      <View style={s.summaryCard}>
-        <Text style={s.summaryLabel}>未入金合計</Text>
-        <Text style={s.summaryValue}>{yen(totalIssued)}</Text>
-      </View>
+        {/* 状態ごとの合計（web 版と同じ 3 区分） */}
+        <View style={s.totals}>
+          {(["draft", "issued", "paid"] as const).map((st) => (
+            <Card key={st} style={s.totalCard}>
+              <Text style={s.totalLabel}>{STATUS[st].label}</Text>
+              <Text style={[s.totalValue, { color: STATUS[st].color }]}>{yen(totalOf(st))}</Text>
+            </Card>
+          ))}
+        </View>
 
-      {invoices.length === 0 ? (
-        <Text style={s.empty}>インボイスがありません</Text>
-      ) : (
-        invoices.map(inv => {
-          const st = STATUS[inv.status] ?? STATUS.draft;
-          return (
-            <View key={inv.id} style={s.card}>
-              <View style={s.header}>
-                <Text style={s.invNo}>{inv.invoiceNumber}</Text>
-                <View style={[s.badge, { backgroundColor: st.bg }]}>
-                  <Text style={[s.badgeText, { color: st.color }]}>{st.label}</Text>
+        {invoices === null ? (
+          <ActivityIndicator color="#4f46e5" style={{ marginTop: 32 }} />
+        ) : invoices.length === 0 ? (
+          <EmptyText>📄 インボイスがありません。</EmptyText>
+        ) : (
+          invoices.map((inv) => {
+            const st = STATUS[inv.status] ?? STATUS.draft;
+            return (
+              <TouchableOpacity key={inv.id} onPress={() => setPreview(inv)}>
+                <Card>
+                  <View style={s.head}>
+                    <Text style={s.number}>{inv.invoiceNumber}</Text>
+                    <Text style={[s.badge, { backgroundColor: st.bg, color: st.color }]}>
+                      {st.label}
+                    </Text>
+                  </View>
+                  <Text style={s.customer}>{inv.customerName}</Text>
+                  <View style={s.foot}>
+                    <Text style={s.muted}>
+                      発行日 {inv.issueDate.slice(0, 10)} ・ 支払期限 {inv.dueDate.slice(0, 10)}
+                    </Text>
+                    <Text style={s.amount}>{yen(Number(inv.total))}</Text>
+                  </View>
+                </Card>
+              </TouchableOpacity>
+            );
+          })
+        )}
+      </ScrollView>
+
+      {/* 請求書詳細（web 版の「詳細」と同じ内容） */}
+      <SheetModal visible={preview !== null} title="請求書詳細" onClose={() => setPreview(null)}>
+        {preview && (
+          <>
+            <Text style={s.detail}>番号: {preview.invoiceNumber}</Text>
+            <Text style={s.detail}>取引先: {preview.customerName}</Text>
+            {preview.customerAddress && (
+              <Text style={s.detail}>住所: {preview.customerAddress}</Text>
+            )}
+            <Text style={s.detail}>
+              発行日: {preview.issueDate.slice(0, 10)} / 支払期限: {preview.dueDate.slice(0, 10)}
+            </Text>
+            <View style={s.lines}>
+              {preview.lines.map((l, i) => (
+                <View key={i} style={s.line}>
+                  <Text style={s.lineDesc}>{l.description}</Text>
+                  <Text style={s.muted}>
+                    {Number(l.quantity)} × {yen(Number(l.unitPrice))} ・ 税率{" "}
+                    {(Number(l.taxRate) * 100).toFixed(0)}%
+                  </Text>
+                  <Text style={s.lineAmount}>{yen(Number(l.amount))}</Text>
                 </View>
-              </View>
-              <Text style={s.customer}>{inv.customerName}</Text>
-              <View style={s.footer}>
-                <Text style={s.date}>発行: {inv.issueDate.slice(0, 10)}  期限: {inv.dueDate.slice(0, 10)}</Text>
-                <Text style={s.total}>{yen(inv.total)}</Text>
-              </View>
+              ))}
             </View>
-          );
-        })
-      )}
-    </ScrollView>
+            <Text style={s.sum}>小計: {yen(Number(preview.subtotal))}</Text>
+            <Text style={s.sum}>消費税: {yen(Number(preview.taxAmount))}</Text>
+            <Text style={[s.sum, s.grand]}>合計: {yen(Number(preview.total))}</Text>
+            {preview.note && <Text style={s.muted}>備考: {preview.note}</Text>}
+          </>
+        )}
+      </SheetModal>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f8fafc", padding: 16 },
-  error: { color: "#dc2626", fontSize: 13, textAlign: "center", marginBottom: 12 },
-  summaryCard: {
-    backgroundColor: "#1d4ed8", borderRadius: 14, padding: 18, marginBottom: 16, alignItems: "center",
+  root: { flex: 1, backgroundColor: "#f8fafc" },
+  content: { padding: 14, paddingBottom: 32 },
+  totals: { flexDirection: "row", gap: 8 },
+  totalCard: { flex: 1, padding: 10 },
+  totalLabel: { fontSize: 11, color: "#64748b" },
+  totalValue: { fontSize: 15, fontWeight: "700", marginTop: 2 },
+  head: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  number: { fontSize: 11, color: "#64748b" },
+  badge: {
+    fontSize: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    overflow: "hidden",
   },
-  summaryLabel: { color: "rgba(255,255,255,0.8)", fontSize: 12, marginBottom: 4 },
-  summaryValue: { color: "#fff", fontSize: 22, fontWeight: "700" },
-  empty: { textAlign: "center", color: "#94a3b8", fontSize: 14, marginTop: 40 },
-  card: {
-    backgroundColor: "#fff", borderRadius: 12, padding: 14, marginBottom: 10,
-    borderWidth: 1, borderColor: "#e2e8f0",
+  customer: { fontSize: 14, fontWeight: "600", color: "#1e293b", marginTop: 4 },
+  foot: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 6,
   },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  invNo: { fontSize: 12, color: "#64748b", fontFamily: "monospace" },
-  badge: { borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeText: { fontSize: 11, fontWeight: "600" },
-  customer: { fontSize: 15, fontWeight: "600", color: "#1e293b", marginBottom: 8 },
-  footer: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  date: { fontSize: 11, color: "#94a3b8" },
-  total: { fontSize: 15, fontWeight: "700", color: "#1e293b" },
+  muted: { fontSize: 11, color: "#94a3b8" },
+  amount: { fontSize: 15, fontWeight: "700", color: "#1e293b" },
+  detail: { fontSize: 13, color: "#334155", marginBottom: 3 },
+  lines: { borderTopWidth: 1, borderTopColor: "#e2e8f0", marginVertical: 10 },
+  line: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
+  lineDesc: { fontSize: 13, color: "#1e293b" },
+  lineAmount: { fontSize: 13, fontWeight: "600", color: "#334155", textAlign: "right" },
+  sum: { fontSize: 13, color: "#334155", textAlign: "right", marginTop: 2 },
+  grand: { fontSize: 15, fontWeight: "700" },
 });

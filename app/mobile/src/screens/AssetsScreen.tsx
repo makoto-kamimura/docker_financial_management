@@ -1,270 +1,172 @@
-import { useEffect, useState } from "react";
+// 資産管理（web 版 /assets と同じ「総資産サマリ」＋「実物資産」）。
+// ASSET / LIABILITY 科目の残高から作っていた KPI・純資産推移は、家計モードでは科目側に残高を積まないため
+// 常に 0 円になる。web 版と同じく撤去し、総資産サマリ（銀行口座・実物資産・ローンの実データ）に一本化した。
+import { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import Svg, { Line, Polyline, Circle, Text as SvgText } from "react-native-svg";
 import {
   deletePersonalAsset,
-  fetchAssets,
+  fetchAccounts,
+  fetchNetWorthSummary,
   fetchPersonalAssets,
   patchPersonalAsset,
   postPersonalAsset,
-  type AssetAccount,
+  type Account,
+  type NetWorthSummary,
   type PersonalAsset,
-  type PersonalAssetCategory,
+  type PersonalAssetInput,
+  type ViewMode,
 } from "../api";
-import { LoadingView } from "../components/LoadingView";
-import { YearMonthPicker } from "../components/YearMonthPicker";
+import { AccountPickerModal } from "../components/CategoryPickerModal";
+import {
+  Button,
+  Card,
+  EmptyText,
+  Field,
+  Input,
+  Notice,
+  Pills,
+  SectionTitle,
+  SheetModal,
+} from "../components/ui";
+import { displayName } from "../shared/display-name";
+import { digitsOnly, yenShort } from "../format";
+import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "../shared/labels";
 
-const PA_CATEGORY_LABEL: Record<PersonalAssetCategory, string> = {
-  LAND: "土地",
-  BUILDING: "建物",
-  VEHICLE: "車",
-  GOLD: "金",
-  OTHER: "その他",
+const CATEGORY_OPTIONS = (
+  Object.keys(PERSONAL_ASSET_CATEGORY_LABEL) as PersonalAssetCategory[]
+).map((value) => ({
+  value,
+  label: PERSONAL_ASSET_CATEGORY_LABEL[value],
+}));
+
+// 登録・編集フォーム（数値は文字列で持ち、年利は画面では「％」で入力して API へは小数で送る）
+type AssetForm = {
+  id: number | null; // null = 新規
+  name: string;
+  category: PersonalAssetCategory;
+  acquiredOn: string;
+  acquisitionCost: string;
+  currentValue: string;
+  countAsAsset: boolean;
+  note: string;
+  linkedAccountId: number | null;
+  debtStartOn: string;
+  debtPayoffDue: string;
+  debtInitialAmount: string;
+  debtInterestPercent: string;
+  debtResidualValue: string;
 };
-const PA_CATEGORIES: PersonalAssetCategory[] = ["LAND", "BUILDING", "VEHICLE", "GOLD", "OTHER"];
 
-// 負債科目（住宅ローン等）に紐付く項目は土地・建物のみを資産評価額に計上する（Web の isCountedAsAsset と同じロジック）
-const isCountedAsAsset = (a: PersonalAsset) =>
-  a.linkedAccountId === null || a.category === "LAND" || a.category === "BUILDING";
+const BLANK_FORM: AssetForm = {
+  id: null,
+  name: "",
+  category: "LAND",
+  acquiredOn: "",
+  acquisitionCost: "",
+  currentValue: "",
+  countAsAsset: true,
+  note: "",
+  linkedAccountId: null,
+  debtStartOn: "",
+  debtPayoffDue: "",
+  debtInitialAmount: "",
+  debtInterestPercent: "",
+  debtResidualValue: "",
+};
 
-const yen = (v: number) =>
-  v >= 10_000
-    ? `${(v / 10_000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : v.toLocaleString("ja-JP") + "円";
+const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
+const str = (v: number | string | null) => (v === null || v === undefined ? "" : String(v));
 
-/** そのyearで最後のmonthの残高（Web の latestBalance と同じロジック） */
-function latestBalance(balances: AssetAccount["balances"], year: number): number {
-  const ys = balances.filter((b) => b.fiscalYear === year);
-  if (!ys.length) return 0;
-  return ys.reduce((best, b) => (b.month > best.month ? b : best)).amount;
+function toForm(a: PersonalAsset): AssetForm {
+  return {
+    id: a.id,
+    name: a.name,
+    category: a.category,
+    acquiredOn: a.acquiredOn?.slice(0, 10) ?? "",
+    acquisitionCost: str(a.acquisitionCost),
+    currentValue: str(a.currentValue),
+    countAsAsset: a.countAsAsset,
+    note: a.note ?? "",
+    linkedAccountId: a.linkedAccountId,
+    debtStartOn: a.debtStartOn?.slice(0, 7) ?? "",
+    debtPayoffDue: a.debtPayoffDue?.slice(0, 7) ?? "",
+    debtInitialAmount: str(a.debtInitialAmount),
+    // 小数（0.0081）→ ％表示（0.81）。浮動小数の端数が出ないよう有効桁で丸める
+    debtInterestPercent:
+      a.debtInterestRate === null
+        ? ""
+        : String(Number((Number(a.debtInterestRate) * 100).toPrecision(6))),
+    debtResidualValue: str(a.debtResidualValue),
+  };
 }
 
-type TrendPoint = { year: number; asset: number; liab: number; net: number };
-
-function leafOf(accounts: AssetAccount[], cat: "ASSET" | "LIABILITY"): AssetAccount[] {
-  return accounts.filter((a) => a.category === cat && !accounts.some((c) => c.parentId === a.id));
+function toInput(f: AssetForm): PersonalAssetInput {
+  const linked = f.linkedAccountId !== null;
+  return {
+    name: f.name.trim(),
+    category: f.category,
+    acquiredOn: f.acquiredOn || null,
+    acquisitionCost: numOrNull(f.acquisitionCost),
+    currentValue: Number(f.currentValue),
+    countAsAsset: f.countAsAsset,
+    note: f.note || null,
+    linkedAccountId: f.linkedAccountId,
+    // 負債の項目は紐付け負債科目があるときだけ意味を持つ
+    debtStartOn: linked ? f.debtStartOn || null : null,
+    debtPayoffDue: linked ? f.debtPayoffDue || null : null,
+    debtInitialAmount: linked ? numOrNull(f.debtInitialAmount) : null,
+    debtInterestRate:
+      linked && f.debtInterestPercent !== "" ? Number(f.debtInterestPercent) / 100 : null,
+    debtResidualValue: linked ? numOrNull(f.debtResidualValue) : null,
+  };
 }
 
-function buildTrend(accounts: AssetAccount[], years: number[]): TrendPoint[] {
-  const assetLeaves = leafOf(accounts, "ASSET");
-  const liabLeaves = leafOf(accounts, "LIABILITY");
-  return years.map((year) => {
-    const asset = assetLeaves.reduce((s, a) => s + latestBalance(a.balances, year), 0);
-    const liab = liabLeaves.reduce((s, a) => s + latestBalance(a.balances, year), 0);
-    return { year, asset, liab, net: asset - liab };
-  });
-}
+type Props = { viewMode: ViewMode };
 
-// ── SVG折れ線グラフ ────────────────────────────────────────────────────
-const CHART_W = 320;
-const CHART_H = 140;
-const PAD = { top: 10, right: 10, bottom: 28, left: 50 };
-
-function scalePoints(values: number[], min: number, max: number, count: number): string {
-  const range = max - min || 1;
-  return values
-    .map((v, i) => {
-      const x = PAD.left + (i / Math.max(count - 1, 1)) * (CHART_W - PAD.left - PAD.right);
-      const y = PAD.top + (1 - (v - min) / range) * (CHART_H - PAD.top - PAD.bottom);
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
-
-function AssetTrendChart({ trend }: { trend: TrendPoint[] }) {
-  if (trend.length < 2) return null;
-  const allVals = trend.flatMap((t) => [t.asset, t.liab, t.net]);
-  const minVal = Math.min(...allVals);
-  const maxVal = Math.max(...allVals);
-  const count = trend.length;
-
-  const assets = trend.map((t) => t.asset);
-  const liabs = trend.map((t) => t.liab);
-  const nets = trend.map((t) => t.net);
-
-  const axisY = PAD.top + (CHART_H - PAD.top - PAD.bottom);
-  const axisX = PAD.left;
-
-  return (
-    <Svg width={CHART_W} height={CHART_H}>
-      {/* 軸 */}
-      <Line x1={axisX} y1={PAD.top} x2={axisX} y2={axisY} stroke="#e2e8f0" strokeWidth={1} />
-      <Line
-        x1={axisX}
-        y1={axisY}
-        x2={CHART_W - PAD.right}
-        y2={axisY}
-        stroke="#e2e8f0"
-        strokeWidth={1}
-      />
-
-      {/* 折れ線 */}
-      <Polyline
-        points={scalePoints(assets, minVal, maxVal, count)}
-        fill="none"
-        stroke="#10b981"
-        strokeWidth={2}
-      />
-      <Polyline
-        points={scalePoints(liabs, minVal, maxVal, count)}
-        fill="none"
-        stroke="#f43f5e"
-        strokeWidth={2}
-      />
-      <Polyline
-        points={scalePoints(nets, minVal, maxVal, count)}
-        fill="none"
-        stroke="#6366f1"
-        strokeWidth={2.5}
-      />
-
-      {/* X軸ラベル（年） */}
-      {trend.map((t, i) => {
-        const x = PAD.left + (i / Math.max(count - 1, 1)) * (CHART_W - PAD.left - PAD.right);
-        return (
-          <SvgText
-            key={t.year}
-            x={x}
-            y={CHART_H - 4}
-            fontSize={9}
-            textAnchor="middle"
-            fill="#94a3b8"
-          >
-            {t.year}
-          </SvgText>
-        );
-      })}
-
-      {/* 純資産の最終値ドット */}
-      {(() => {
-        const last = trend[trend.length - 1];
-        const x = CHART_W - PAD.right;
-        const range = maxVal - minVal || 1;
-        const y = PAD.top + (1 - (last.net - minVal) / range) * (CHART_H - PAD.top - PAD.bottom);
-        return <Circle cx={x} cy={y} r={3} fill="#6366f1" />;
-      })()}
-    </Svg>
-  );
-}
-
-// ── メイン画面 ─────────────────────────────────────────────────────────
-export function AssetsScreen() {
-  const [accounts, setAccounts] = useState<AssetAccount[]>([]);
-  const [years, setYears] = useState<number[]>([]);
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+export function AssetsScreen({ viewMode }: Props) {
+  const [summary, setSummary] = useState<NetWorthSummary | null>(null);
+  const [assets, setAssets] = useState<PersonalAsset[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-
-  const [personalAssets, setPersonalAssets] = useState<PersonalAsset[]>([]);
-  const [assetModalAccount, setAssetModalAccount] = useState<AssetAccount | null>(null);
-  const [modalStep, setModalStep] = useState<"list" | "form">("form");
-  const [editingAssetId, setEditingAssetId] = useState<number | null>(null);
-  const [form, setForm] = useState({
-    name: "",
-    category: "LAND" as PersonalAssetCategory,
-    acquisitionCost: "",
-    currentValue: "",
-    note: "",
-    debtStartOn: "",
-    debtPayoffDue: "",
-    debtInitialAmount: "",
-  });
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState<AssetForm | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
-  const [editValue, setEditValue] = useState("");
+  const [pickingDebt, setPickingDebt] = useState(false);
+  const [editValue, setEditValue] = useState<{ id: number; value: string } | null>(null);
 
-  function linkedAssetsOf(accountId: number): PersonalAsset[] {
-    return personalAssets.filter((pa) => pa.linkedAccountId === accountId);
-  }
-
-  function resetForm() {
-    setForm({
-      name: "",
-      category: "LAND",
-      acquisitionCost: "",
-      currentValue: "",
-      note: "",
-      debtStartOn: "",
-      debtPayoffDue: "",
-      debtInitialAmount: "",
-    });
-  }
-
-  function startNewAsset() {
-    setEditingAssetId(null);
-    resetForm();
-    setModalStep("form");
-  }
-
-  function startEditAsset(asset: PersonalAsset) {
-    setEditingAssetId(asset.id);
-    setForm({
-      name: asset.name,
-      category: asset.category,
-      acquisitionCost: asset.acquisitionCost ?? "",
-      currentValue: asset.currentValue,
-      note: asset.note ?? "",
-      debtStartOn: asset.debtStartOn ? asset.debtStartOn.slice(0, 7) : "",
-      debtPayoffDue: asset.debtPayoffDue ? asset.debtPayoffDue.slice(0, 7) : "",
-      debtInitialAmount: asset.debtInitialAmount ?? "",
-    });
-    setModalStep("form");
-  }
-
-  function openAssetModalForAccount(account: AssetAccount) {
-    const existing = linkedAssetsOf(account.id);
-    if (existing.length > 0) {
-      // 既存の紐付き項目一覧を表示し、そこから編集または項目追加できるようにする
-      setEditingAssetId(null);
-      setModalStep("list");
-    } else {
-      setEditingAssetId(null);
-      resetForm();
-      setModalStep("form");
-    }
-    setAssetModalAccount(account);
-  }
-
-  function closeAssetModal() {
-    setAssetModalAccount(null);
-    setEditingAssetId(null);
-  }
-
-  async function load() {
+  const load = useCallback(async () => {
     setError(null);
     try {
-      // year パラメータなし → 全年分一括取得（Web と同じ）
-      const [data, pa] = await Promise.all([fetchAssets(), fetchPersonalAssets()]);
-      setAccounts(data.accounts);
-      setYears(data.years);
-      if (data.years.length > 0) {
-        setSelectedYear((prev) => prev ?? data.years[data.years.length - 1]);
-      }
-      setPersonalAssets(pa);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "データの取得に失敗しました");
+      const [sum, pa, accs] = await Promise.all([
+        fetchNetWorthSummary(),
+        fetchPersonalAssets(),
+        fetchAccounts(),
+      ]);
+      setSummary(sum);
+      setAssets(pa);
+      setAccounts(accs);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "資産データの取得に失敗しました");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -272,781 +174,429 @@ export function AssetsScreen() {
     setRefreshing(false);
   }
 
-  async function handleSaveAsset() {
-    if (!assetModalAccount) return;
-    if (!form.name.trim() || !form.currentValue.trim()) {
-      Alert.alert("入力エラー", "資産名と現在評価額を入力してください。");
-      return;
-    }
-    const start = form.debtStartOn;
-    const payoff = form.debtPayoffDue;
-    if (start && payoff && start > payoff) {
-      Alert.alert("入力エラー", "支払い開始年月は解消予定年月以前にしてください。");
-      return;
-    }
-    setSaving(true);
+  async function run(action: () => Promise<void>) {
     try {
-      if (editingAssetId) {
-        await patchPersonalAsset(editingAssetId, {
-          name: form.name.trim(),
-          category: form.category,
-          acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : null,
-          currentValue: Number(form.currentValue),
-          note: form.note.trim() || null,
-          debtStartOn: start || null,
-          debtPayoffDue: payoff || null,
-          debtInitialAmount: form.debtInitialAmount ? Number(form.debtInitialAmount) : null,
-        });
-      } else {
-        await postPersonalAsset({
-          name: form.name.trim(),
-          category: form.category,
-          acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : undefined,
-          currentValue: Number(form.currentValue),
-          note: form.note.trim() || undefined,
-          linkedAccountId: assetModalAccount.id,
-          debtStartOn: start || undefined,
-          debtPayoffDue: payoff || undefined,
-          debtInitialAmount: form.debtInitialAmount ? Number(form.debtInitialAmount) : undefined,
-        });
-      }
-      // 土地→建物→その他と連続で登録できるよう、保存後は一覧ステップに戻す
-      setEditingAssetId(null);
-      resetForm();
-      setModalStep("list");
+      await action();
       await load();
-    } catch (e: unknown) {
-      Alert.alert("登録エラー", e instanceof Error ? e.message : "登録に失敗しました");
+    } catch (e) {
+      Alert.alert("エラー", e instanceof Error ? e.message : "処理に失敗しました");
+    }
+  }
+
+  async function save() {
+    if (!form) return;
+    if (!form.name.trim() || form.currentValue === "")
+      return setFormError("資産名と現在評価額は必須です。");
+    if (form.debtStartOn && form.debtPayoffDue && form.debtStartOn > form.debtPayoffDue)
+      return setFormError("支払い開始年月は解消予定年月以前にしてください。");
+    setSaving(true);
+    setFormError(null);
+    try {
+      const input = toInput(form);
+      if (form.id === null) await postPersonalAsset(input);
+      else await patchPersonalAsset(form.id, input);
+      setForm(null);
+      await load();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
       setSaving(false);
     }
   }
 
-  function handleUnlinkAsset() {
-    if (!editingAssetId) return;
-    const id = editingAssetId;
-    Alert.alert("登録解除確認", "この実物資産の登録を解除しますか？", [
+  function confirmDelete(a: PersonalAsset) {
+    Alert.alert("削除", `「${a.name}」を削除しますか？`, [
       { text: "キャンセル", style: "cancel" },
-      {
-        text: "解除",
-        style: "destructive",
-        onPress: async () => {
-          await deletePersonalAsset(id);
-          setEditingAssetId(null);
-          resetForm();
-          setModalStep("list");
-          await load();
-        },
-      },
+      { text: "削除", style: "destructive", onPress: () => run(() => deletePersonalAsset(a.id)) },
     ]);
   }
 
-  async function handleUpdateValue(id: number) {
-    try {
-      await patchPersonalAsset(id, { currentValue: Number(editValue) || 0 });
-      setEditId(null);
-      await load();
-    } catch (e: unknown) {
-      Alert.alert("更新エラー", e instanceof Error ? e.message : "更新に失敗しました");
-    }
+  const liabilityAccounts = accounts.filter((a) => a.category === "LIABILITY");
+  const debtLabel = (id: number | null) => {
+    const a = accounts.find((x) => x.id === id);
+    return a ? `${a.code} ${displayName(a, viewMode)}` : "なし";
+  };
+  const total = assets
+    .filter((a) => a.countAsAsset)
+    .reduce((sum, a) => sum + Number(a.currentValue), 0);
+  const totalDebt = assets.reduce((sum, a) => sum + (a.debtRemaining ?? 0), 0);
+  const hasExcluded = assets.some((a) => !a.countAsAsset);
+
+  if (loading) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color="#4f46e5" size="large" />
+      </View>
+    );
   }
-
-  function handleDeleteAsset(id: number) {
-    Alert.alert("削除確認", "この資産を削除しますか？", [
-      { text: "キャンセル", style: "cancel" },
-      {
-        text: "削除",
-        style: "destructive",
-        onPress: async () => {
-          await deletePersonalAsset(id);
-          await load();
-        },
-      },
-    ]);
-  }
-
-  const year = selectedYear ?? years.at(-1) ?? new Date().getFullYear();
-  const topAssets = accounts.filter((a) => a.category === "ASSET" && a.parentId === null);
-  const topLiabs = accounts.filter((a) => a.category === "LIABILITY" && a.parentId === null);
-  const totalAsset = leafOf(accounts, "ASSET").reduce(
-    (s, a) => s + latestBalance(a.balances, year),
-    0,
-  );
-  const totalLiab = leafOf(accounts, "LIABILITY").reduce(
-    (s, a) => s + latestBalance(a.balances, year),
-    0,
-  );
-  const netWorth = totalAsset - totalLiab;
-  const trend = buildTrend(accounts, years);
-
-  const childrenOf = (parentId: number) => accounts.filter((a) => a.parentId === parentId);
-
-  const modalLinkedAssets = assetModalAccount ? linkedAssetsOf(assetModalAccount.id) : [];
 
   return (
-    <>
+    <View style={s.root}>
       <ScrollView
-        style={s.container}
         contentContainerStyle={s.content}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <Text style={s.title}>資産管理</Text>
+        {error && <Notice tone="error">{error}</Notice>}
 
-        {loading ? (
-          <LoadingView />
-        ) : error ? (
-          <View style={s.errorBox}>
-            <Text style={s.errorText}>{error}</Text>
-          </View>
-        ) : (
-          <>
-            {/* 実物資産（土地・建物・車・金など） */}
-            <View style={s.section}>
-              <Text style={s.sectionTitle}>実物資産（土地・建物・車・金など）</Text>
-              {personalAssets.length === 0 ? (
-                <Text style={s.emptyText}>
-                  登録済みの実物資産がありません。下の「負債の部」の項目をタップして登録できます。
+        {/* ── 総資産サマリ（F-8）── */}
+        {summary && (
+          <Card>
+            <SectionTitle note="実物資産・銀行口座残高・ローンを含む純資産">
+              総資産サマリ（{summary.year}年{summary.month}月時点）
+            </SectionTitle>
+            <View style={s.stats}>
+              <View style={s.stat}>
+                <Text style={s.statLabel}>総資産</Text>
+                <Text style={[s.statValue, { color: "#059669" }]}>
+                  {yenShort(summary.totalAssets)}
                 </Text>
-              ) : (
-                <>
-                  {personalAssets.map((a) => (
-                    <View key={a.id} style={s.row}>
-                      <View style={s.rowLeft}>
-                        <Text style={s.rowCode}>{PA_CATEGORY_LABEL[a.category]}</Text>
-                        <Text style={s.rowName}>{a.name}</Text>
-                        <Text style={s.rowMeta}>登録日 {a.createdAt?.slice(0, 10) ?? "—"}</Text>
-                        {a.debtRemaining !== null && (
-                          <Text style={s.rowDebt}>
-                            負債残高 {yen(a.debtRemaining)}（残り
-                            {a.debtRemainingMonths}回・月
-                            {yen(a.debtMonthly ?? 0)}・{a.debtPayoffDue?.slice(0, 7)}解消予定）
-                          </Text>
-                        )}
-                        {!isCountedAsAsset(a) && (
-                          <Text style={s.rowDebt}>資産計上外（負債のみに反映）</Text>
-                        )}
-                      </View>
-                      {editId === a.id ? (
-                        <View style={s.paEditRow}>
-                          <TextInput
-                            autoFocus
-                            keyboardType="number-pad"
-                            value={editValue}
-                            onChangeText={setEditValue}
-                            style={s.paEditInput}
-                          />
-                          <TouchableOpacity onPress={() => handleUpdateValue(a.id)}>
-                            <Text style={s.paCheck}>✓</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <View style={s.paEditRow}>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setEditId(a.id);
-                              setEditValue(String(a.currentValue));
-                            }}
-                          >
-                            <Text style={s.balance}>{yen(Number(a.currentValue))}</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => handleDeleteAsset(a.id)}>
-                            <Text style={s.paDelete}>削除</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    </View>
-                  ))}
-                  <View style={s.totalRow}>
-                    <Text style={s.totalLabel}>実物資産合計</Text>
-                    <Text style={s.totalValue}>
-                      {yen(
-                        personalAssets
-                          .filter(isCountedAsAsset)
-                          .reduce((sum, a) => sum + Number(a.currentValue), 0),
-                      )}
-                    </Text>
-                  </View>
-                  {personalAssets.some((a) => a.debtRemaining !== null) && (
-                    <View style={s.totalRow}>
-                      <Text style={s.totalLabel}>負債残高合計</Text>
-                      <Text style={[s.totalValue, { color: "#d97706" }]}>
-                        {yen(personalAssets.reduce((sum, a) => sum + (a.debtRemaining ?? 0), 0))}
-                      </Text>
-                    </View>
-                  )}
-                </>
-              )}
-            </View>
-
-            {accounts.length === 0 ? (
-              <View style={s.emptyBox}>
-                <Text style={s.emptyText}>資産データがありません。</Text>
               </View>
-            ) : (
-              <>
-                {/* 年選択 */}
-                {years.length > 0 && (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.yearRow}>
-                    {years.slice(-10).map((y) => (
-                      <TouchableOpacity
-                        key={y}
-                        style={[s.yearChip, selectedYear === y && s.yearChipActive]}
-                        onPress={() => setSelectedYear(y)}
-                      >
-                        <Text style={[s.yearChipText, selectedYear === y && s.yearChipTextActive]}>
-                          {y}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                )}
-
-                {/* KPI カード */}
-                <View style={s.kpiRow}>
-                  <View style={s.kpiCard}>
-                    <Text style={s.kpiLabel}>資産合計</Text>
-                    <Text style={[s.kpiValue, { color: "#10b981" }]}>{yen(totalAsset)}</Text>
-                  </View>
-                  <View style={s.kpiCard}>
-                    <Text style={s.kpiLabel}>負債合計</Text>
-                    <Text style={[s.kpiValue, { color: "#f43f5e" }]}>{yen(totalLiab)}</Text>
-                  </View>
-                  <View style={s.kpiCard}>
-                    <Text style={s.kpiLabel}>純資産</Text>
-                    <Text style={[s.kpiValue, { color: netWorth >= 0 ? "#6366f1" : "#dc2626" }]}>
-                      {yen(netWorth)}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* 純資産推移グラフ */}
-                {trend.length >= 2 && (
-                  <View style={s.card}>
-                    <Text style={s.cardTitle}>純資産推移（万円）</Text>
-                    <AssetTrendChart trend={trend} />
-                    <View style={s.legend}>
-                      <View style={s.legendItem}>
-                        <View style={[s.legendDot, { backgroundColor: "#10b981" }]} />
-                        <Text style={s.legendText}>資産合計</Text>
-                      </View>
-                      <View style={s.legendItem}>
-                        <View style={[s.legendDot, { backgroundColor: "#f43f5e" }]} />
-                        <Text style={s.legendText}>負債合計</Text>
-                      </View>
-                      <View style={s.legendItem}>
-                        <View style={[s.legendDot, { backgroundColor: "#6366f1" }]} />
-                        <Text style={s.legendText}>純資産</Text>
-                      </View>
-                    </View>
-                  </View>
-                )}
-
-                {/* 資産の部 */}
-                {topAssets.length > 0 && (
-                  <View style={s.section}>
-                    <Text style={s.sectionTitle}>資産の部</Text>
-                    {topAssets.map((a) => (
-                      <View key={a.id}>
-                        <View style={[s.row, s.rowParent]}>
-                          <View style={s.rowLeft}>
-                            <Text style={s.rowCode}>{a.code}</Text>
-                            <Text style={s.rowName}>{a.name}</Text>
-                          </View>
-                          <Text style={[s.balance, { color: "#059669" }]}>
-                            {yen(latestBalance(a.balances, year))}
-                          </Text>
-                        </View>
-                        {childrenOf(a.id).map((c) => (
-                          <View key={c.id} style={[s.row, s.rowChild]}>
-                            <View style={s.rowLeft}>
-                              <Text style={s.rowCode}>{c.code}</Text>
-                              <Text style={[s.rowName, { color: "#64748b", fontSize: 13 }]}>
-                                {c.name}
-                              </Text>
-                            </View>
-                            <Text style={[s.balance, { fontSize: 13, color: "#374151" }]}>
-                              {yen(latestBalance(c.balances, year))}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    ))}
-                    <View style={s.totalRow}>
-                      <Text style={s.totalLabel}>資産合計</Text>
-                      <Text style={[s.totalValue, { color: "#059669" }]}>{yen(totalAsset)}</Text>
-                    </View>
-                  </View>
-                )}
-
-                {/* 負債の部（項目をタップすると実物資産を登録・編集できます） */}
-                {topLiabs.length > 0 && (
-                  <View style={s.section}>
-                    <Text style={s.sectionTitle}>負債の部</Text>
-                    {topLiabs.map((a) => {
-                      const isLeaf = !accounts.some((c) => c.parentId === a.id);
-                      const linked = linkedAssetsOf(a.id);
-                      return (
-                        <View key={a.id}>
-                          <TouchableOpacity
-                            disabled={!isLeaf}
-                            onPress={() => openAssetModalForAccount(a)}
-                            style={[s.row, s.rowParent]}
-                          >
-                            <View style={s.rowLeft}>
-                              <Text style={s.rowCode}>{a.code}</Text>
-                              <Text style={s.rowName}>{a.name}</Text>
-                              {isLeaf && (
-                                <Text style={s.liabAssetHint}>
-                                  {linked.length > 0
-                                    ? `🏠 ${linked.map((pa) => pa.name).join("・")}（タップして追加・編集）`
-                                    : "タップして実物資産を登録"}
-                                </Text>
-                              )}
-                            </View>
-                            <Text style={[s.balance, { color: "#e11d48" }]}>
-                              {yen(latestBalance(a.balances, year))}
-                            </Text>
-                          </TouchableOpacity>
-                          {childrenOf(a.id).map((c) => {
-                            const cLinked = linkedAssetsOf(c.id);
-                            return (
-                              <TouchableOpacity
-                                key={c.id}
-                                onPress={() => openAssetModalForAccount(c)}
-                                style={[s.row, s.rowChild]}
-                              >
-                                <View style={s.rowLeft}>
-                                  <Text style={s.rowCode}>{c.code}</Text>
-                                  <Text style={[s.rowName, { color: "#64748b", fontSize: 13 }]}>
-                                    {c.name}
-                                  </Text>
-                                  <Text style={s.liabAssetHint}>
-                                    {cLinked.length > 0
-                                      ? `🏠 ${cLinked.map((pa) => pa.name).join("・")}（タップして追加・編集）`
-                                      : "タップして実物資産を登録"}
-                                  </Text>
-                                </View>
-                                <Text style={[s.balance, { fontSize: 13, color: "#374151" }]}>
-                                  {yen(latestBalance(c.balances, year))}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                      );
-                    })}
-                    <View style={s.totalRow}>
-                      <Text style={s.totalLabel}>負債合計</Text>
-                      <Text style={[s.totalValue, { color: "#e11d48" }]}>{yen(totalLiab)}</Text>
-                    </View>
-                  </View>
-                )}
-
-                {/* 純資産 */}
-                <View style={[s.section, { marginBottom: 24 }]}>
-                  <View style={s.totalRow}>
-                    <Text style={s.totalLabel}>純資産</Text>
-                    <Text style={[s.totalValue, { color: netWorth >= 0 ? "#6366f1" : "#dc2626" }]}>
-                      {yen(netWorth)}
-                    </Text>
-                  </View>
-                </View>
-              </>
-            )}
-          </>
+              <View style={s.stat}>
+                <Text style={s.statLabel}>総負債</Text>
+                <Text style={[s.statValue, { color: "#e11d48" }]}>
+                  {yenShort(summary.totalLiabilities)}
+                </Text>
+              </View>
+              <View style={s.stat}>
+                <Text style={s.statLabel}>純資産</Text>
+                <Text
+                  style={[s.statValue, { color: summary.netWorth >= 0 ? "#4f46e5" : "#dc2626" }]}
+                >
+                  {yenShort(summary.netWorth)}
+                </Text>
+              </View>
+            </View>
+            <View style={s.breakdown}>
+              {summary.breakdown
+                .filter((b) => b.amount !== 0)
+                .map((b) => (
+                  <Text key={b.key} style={s.breakdownItem}>
+                    {b.label}: <Text style={s.breakdownValue}>{yenShort(b.amount)}</Text>
+                  </Text>
+                ))}
+            </View>
+          </Card>
         )}
+
+        {/* ── 実物資産 ── */}
+        <Card>
+          <SectionTitle
+            note={
+              `合計評価額: ${yenShort(total)}` +
+              (totalDebt > 0 ? ` ・ 負債残高合計: ${yenShort(totalDebt)}` : "") +
+              (hasExcluded ? " ・ 「資産計上外」の項目は負債のみ反映" : "")
+            }
+          >
+            実物資産（土地・建物・車・金など）
+          </SectionTitle>
+          <Button
+            small
+            label="+ 資産を登録"
+            onPress={() => {
+              setFormError(null);
+              setForm(BLANK_FORM);
+            }}
+            style={{ alignSelf: "flex-start", marginBottom: 8 }}
+          />
+          {assets.length === 0 ? (
+            <EmptyText>登録済みの実物資産がありません。</EmptyText>
+          ) : (
+            assets.map((a) => (
+              <View key={a.id} style={s.asset}>
+                <View style={s.assetHead}>
+                  <Text style={s.categoryBadge}>
+                    {PERSONAL_ASSET_CATEGORY_LABEL[a.category] ?? a.category}
+                  </Text>
+                  <Text style={s.assetName} numberOfLines={1}>
+                    {a.name}
+                  </Text>
+                  {/* 純資産に計上するかの切り替え（ローンの諸費用などを資産計上外にする） */}
+                  <TouchableOpacity
+                    style={[s.countBadge, !a.countAsAsset && s.countBadgeOff]}
+                    onPress={() =>
+                      run(() => patchPersonalAsset(a.id, { countAsAsset: !a.countAsAsset }))
+                    }
+                  >
+                    <Text style={[s.countText, !a.countAsAsset && s.countTextOff]}>
+                      {a.countAsAsset ? "資産計上" : "資産計上外"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={s.muted}>
+                  {a.acquiredOn ? `取得日: ${a.acquiredOn.slice(0, 10)} ・ ` : ""}
+                  {a.acquisitionCost !== null
+                    ? `取得価格: ${yenShort(Number(a.acquisitionCost))} ・ `
+                    : ""}
+                  登録日: {a.createdAt.slice(0, 10)}
+                </Text>
+                {a.debtRemaining !== null && (
+                  <Text style={s.debt}>
+                    負債残高: {yenShort(a.debtRemaining)}（残り{a.debtRemainingMonths}回・月
+                    {yenShort(a.debtMonthly ?? 0)}・年利
+                    {(Number(a.debtInterestRate ?? 0) * 100).toFixed(3)}%・
+                    {a.debtPayoffDue?.slice(0, 7)}解消予定）
+                    {Number(a.debtResidualValue ?? 0) > 0 &&
+                      `\n残価設定ローン: 最終回に ${yenShort(Number(a.debtResidualValue))} を一括支払い`}
+                  </Text>
+                )}
+                <View style={s.assetFoot}>
+                  {editValue?.id === a.id ? (
+                    <View style={s.valueEdit}>
+                      <Input
+                        autoFocus
+                        keyboardType="number-pad"
+                        value={editValue.value}
+                        onChangeText={(t) => setEditValue({ id: a.id, value: digitsOnly(t) })}
+                        style={s.valueInput}
+                      />
+                      <Button
+                        small
+                        label="✓"
+                        onPress={() => {
+                          const value = Number(editValue.value);
+                          setEditValue(null);
+                          run(() => patchPersonalAsset(a.id, { currentValue: value }));
+                        }}
+                      />
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => setEditValue({ id: a.id, value: str(a.currentValue) })}
+                    >
+                      <Text style={s.value}>{yenShort(Number(a.currentValue))}</Text>
+                      <Text style={s.muted}>タップして評価額を更新</Text>
+                    </TouchableOpacity>
+                  )}
+                  <View style={s.actions}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setFormError(null);
+                        setForm(toForm(a));
+                      }}
+                    >
+                      <Text style={s.link}>編集</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => confirmDelete(a)}>
+                      <Text style={s.danger}>削除</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
+        </Card>
       </ScrollView>
 
-      <Modal
-        visible={!!assetModalAccount}
-        transparent
-        animationType="slide"
-        onRequestClose={closeAssetModal}
+      {/* ── 実物資産の登録・編集 ── */}
+      <SheetModal
+        visible={form !== null}
+        title={form?.id === null ? "実物資産 登録" : "実物資産 編集"}
+        onClose={() => setForm(null)}
+        footer={
+          <Button label={form?.id === null ? "登録" : "保存"} onPress={save} loading={saving} />
+        }
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={s.modalKavRoot}
-        >
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeAssetModal}>
-            <View style={s.modalOverlayBg} />
-          </Pressable>
-          <View style={s.modalSheet}>
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              {modalStep === "list" ? (
-                <>
-                  <Text style={s.modalTitle}>
-                    実物資産{assetModalAccount ? `（${assetModalAccount.name}）` : ""}
-                  </Text>
-                  {modalLinkedAssets.map((pa) => (
-                    <TouchableOpacity
-                      key={pa.id}
-                      style={s.modalListRow}
-                      onPress={() => startEditAsset(pa)}
-                    >
-                      <View style={s.rowLeft}>
-                        <Text style={s.rowCode}>
-                          {PA_CATEGORY_LABEL[pa.category]}
-                          {!isCountedAsAsset(pa) && "・資産計上外"}
-                        </Text>
-                        <Text style={s.rowName}>{pa.name}</Text>
-                      </View>
-                      <Text style={s.balance}>{yen(Number(pa.currentValue))}</Text>
-                    </TouchableOpacity>
-                  ))}
-                  <TouchableOpacity style={s.modalAddBtn} onPress={startNewAsset}>
-                    <Text style={s.modalAddTxt}>＋ 項目を追加（土地・建物・その他など）</Text>
-                  </TouchableOpacity>
-                  <View style={s.modalBtnRow}>
-                    <TouchableOpacity style={s.modalCancelBtn} onPress={closeAssetModal}>
-                      <Text style={s.modalCancelTxt}>閉じる</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Text style={s.modalTitle}>
-                    {editingAssetId ? "実物資産 編集" : "実物資産 登録"}
-                    {assetModalAccount ? `（${assetModalAccount.name}）` : ""}
-                  </Text>
-
-                  <Text style={s.modalLabel}>資産名 *</Text>
-                  <TextInput
-                    style={s.modalInput}
-                    value={form.name}
-                    onChangeText={(t) => setForm((f) => ({ ...f, name: t }))}
-                    placeholder="自宅土地"
-                    placeholderTextColor="#cbd5e1"
-                  />
-
-                  <Text style={s.modalLabel}>種別</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={{ flexGrow: 0, marginBottom: 10 }}
-                  >
-                    {PA_CATEGORIES.map((c) => (
-                      <TouchableOpacity
-                        key={c}
-                        style={[s.paChip, form.category === c && s.paChipActive]}
-                        onPress={() => setForm((f) => ({ ...f, category: c }))}
-                      >
-                        <Text style={[s.paChipTxt, form.category === c && s.paChipTxtActive]}>
-                          {PA_CATEGORY_LABEL[c]}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-
-                  <Text style={s.modalLabel}>取得価格（円）</Text>
-                  <TextInput
-                    style={s.modalInput}
-                    value={form.acquisitionCost}
-                    onChangeText={(t) =>
-                      setForm((f) => ({
-                        ...f,
-                        acquisitionCost: t.replace(/[^0-9]/g, ""),
-                      }))
-                    }
+        {form && (
+          <>
+            <Field label="資産名 *">
+              <Input
+                value={form.name}
+                placeholder="自宅土地"
+                onChangeText={(name) => setForm({ ...form, name })}
+              />
+            </Field>
+            <Field label="種別">
+              <Pills
+                scroll={false}
+                options={CATEGORY_OPTIONS}
+                value={form.category}
+                onChange={(category) => setForm({ ...form, category })}
+              />
+            </Field>
+            <Field label="取得日（YYYY-MM-DD）">
+              <Input
+                value={form.acquiredOn}
+                placeholder="2020-04-01"
+                onChangeText={(acquiredOn) => setForm({ ...form, acquiredOn })}
+              />
+            </Field>
+            <Field label="取得価格（円）">
+              <Input
+                keyboardType="number-pad"
+                value={form.acquisitionCost}
+                onChangeText={(t) => setForm({ ...form, acquisitionCost: digitsOnly(t) })}
+              />
+            </Field>
+            <Field label="現在評価額（円） *">
+              <Input
+                keyboardType="number-pad"
+                value={form.currentValue}
+                onChangeText={(t) => setForm({ ...form, currentValue: digitsOnly(t) })}
+              />
+            </Field>
+            <Field label="紐付け負債科目（ローン等）">
+              <TouchableOpacity style={s.picker} onPress={() => setPickingDebt(true)}>
+                <Text style={s.pickerText}>{debtLabel(form.linkedAccountId)}</Text>
+              </TouchableOpacity>
+            </Field>
+            {form.linkedAccountId !== null && (
+              <>
+                <Field label="当初負債額（円）">
+                  <Input
                     keyboardType="number-pad"
-                    placeholder="0"
-                    placeholderTextColor="#cbd5e1"
-                  />
-
-                  <Text style={s.modalLabel}>現在評価額（円） *</Text>
-                  <TextInput
-                    style={s.modalInput}
-                    value={form.currentValue}
-                    onChangeText={(t) =>
-                      setForm((f) => ({
-                        ...f,
-                        currentValue: t.replace(/[^0-9]/g, ""),
-                      }))
-                    }
-                    keyboardType="number-pad"
-                    placeholder="0"
-                    placeholderTextColor="#cbd5e1"
-                  />
-
-                  <Text style={s.modalLabel}>当初負債額（円）</Text>
-                  <TextInput
-                    style={s.modalInput}
                     value={form.debtInitialAmount}
-                    onChangeText={(t) =>
-                      setForm((f) => ({
-                        ...f,
-                        debtInitialAmount: t.replace(/[^0-9]/g, ""),
-                      }))
+                    onChangeText={(t) => setForm({ ...form, debtInitialAmount: digitsOnly(t) })}
+                  />
+                </Field>
+                <Field label="年利（％）">
+                  <Input
+                    keyboardType="decimal-pad"
+                    value={form.debtInterestPercent}
+                    placeholder="例: 0.810"
+                    onChangeText={(debtInterestPercent) =>
+                      setForm({ ...form, debtInterestPercent })
                     }
+                  />
+                </Field>
+                <Field label="支払い開始年月（YYYY-MM）">
+                  <Input
+                    value={form.debtStartOn}
+                    placeholder="2024-04"
+                    onChangeText={(debtStartOn) => setForm({ ...form, debtStartOn })}
+                  />
+                </Field>
+                <Field label="負債解消（完済）予定年月（YYYY-MM）">
+                  <Input
+                    value={form.debtPayoffDue}
+                    placeholder="2059-03"
+                    onChangeText={(debtPayoffDue) => setForm({ ...form, debtPayoffDue })}
+                  />
+                </Field>
+                <Field label="残価（円）">
+                  <Input
                     keyboardType="number-pad"
-                    placeholder="0"
-                    placeholderTextColor="#cbd5e1"
+                    value={form.debtResidualValue}
+                    placeholder="残価設定ローンのみ"
+                    onChangeText={(t) => setForm({ ...form, debtResidualValue: digitsOnly(t) })}
                   />
+                </Field>
+              </>
+            )}
+            <Text style={s.muted}>
+              当初負債額・開始年月・解消予定年月を設定すると、開始月〜解消予定月の毎月の返済額を予算に自動計上し、
+              負債残高を算出して表示します。年利を入力すると元利均等返済で計算します（未入力は無利子＝元本の月割り）。
+              残価設定ローン（カーローン等）は残価を入力すると、最終回に残価を一括で支払う前提で月額と残高を計算します。
+            </Text>
+            <View style={s.switchRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.switchLabel}>純資産に評価額を計上する</Text>
+                <Text style={s.muted}>
+                  ローンに含まれる登記費用・手数料など、借入はあるが資産価値を持たない項目はオフにしてください。
+                  オフにすると負債だけが純資産に反映されます。
+                </Text>
+              </View>
+              <Switch
+                value={form.countAsAsset}
+                onValueChange={(countAsAsset) => setForm({ ...form, countAsAsset })}
+              />
+            </View>
+            <Field label="備考">
+              <Input value={form.note} onChangeText={(note) => setForm({ ...form, note })} />
+            </Field>
+            {formError && <Notice tone="error">{formError}</Notice>}
+          </>
+        )}
+      </SheetModal>
 
-                  <View style={s.modalYmRow}>
-                    <YearMonthPicker
-                      label="支払い開始年月"
-                      value={form.debtStartOn}
-                      onChange={(v) => setForm((f) => ({ ...f, debtStartOn: v }))}
-                    />
-                    <YearMonthPicker
-                      label="負債解消予定年月"
-                      value={form.debtPayoffDue}
-                      onChange={(v) => setForm((f) => ({ ...f, debtPayoffDue: v }))}
-                    />
-                  </View>
-                  <Text style={s.modalHint}>
-                    当初負債額と開始〜解消予定年月を設定すると、月割り額を予算に自動計上し、経過月数から負債残高を表示します。負債科目に紐付けた項目のうち資産として計上されるのは土地・建物のみで、その他の項目は負債のみに反映されます
-                  </Text>
-
-                  <Text style={s.modalLabel}>備考</Text>
-                  <TextInput
-                    style={s.modalInput}
-                    value={form.note}
-                    onChangeText={(t) => setForm((f) => ({ ...f, note: t }))}
-                    placeholderTextColor="#cbd5e1"
-                  />
-
-                  <View style={s.modalBtnRow}>
-                    <TouchableOpacity
-                      style={s.modalCancelBtn}
-                      onPress={() =>
-                        modalLinkedAssets.length > 0 ? setModalStep("list") : closeAssetModal()
-                      }
-                    >
-                      <Text style={s.modalCancelTxt}>
-                        {modalLinkedAssets.length > 0 ? "戻る" : "キャンセル"}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={s.modalSaveBtn}
-                      onPress={handleSaveAsset}
-                      disabled={saving}
-                    >
-                      <Text style={s.modalSaveTxt}>
-                        {saving ? "保存中…" : editingAssetId ? "更新" : "登録"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                  {editingAssetId && (
-                    <TouchableOpacity style={s.modalUnlinkBtn} onPress={handleUnlinkAsset}>
-                      <Text style={s.modalUnlinkTxt}>この資産の登録を解除する</Text>
-                    </TouchableOpacity>
-                  )}
-                </>
-              )}
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-    </>
+      <AccountPickerModal
+        visible={pickingDebt}
+        accounts={liabilityAccounts}
+        title="紐付け負債科目"
+        clearLabel="なし"
+        currentId={form?.linkedAccountId ?? null}
+        onSelect={(a) => {
+          if (form) setForm({ ...form, linkedAccountId: a?.id ?? null });
+          setPickingDebt(false);
+        }}
+        onClose={() => setPickingDebt(false)}
+      />
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f8fafc" },
-  content: { padding: 16 },
-  title: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 12,
-    color: "#0f172a",
-  },
-  errorBox: {
-    backgroundColor: "#fef2f2",
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-  },
-  errorText: { color: "#dc2626", fontSize: 13 },
-  emptyBox: { padding: 32, alignItems: "center" },
-  emptyText: { color: "#94a3b8", fontSize: 14 },
-  yearRow: { flexDirection: "row", marginBottom: 14 },
-  yearChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: "#f1f5f9",
-    marginRight: 8,
-  },
-  yearChipActive: { backgroundColor: "#4f46e5" },
-  yearChipText: { fontSize: 13, color: "#64748b" },
-  yearChipTextActive: { color: "#fff", fontWeight: "600" },
-  kpiRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
-  kpiCard: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
-    alignItems: "center",
-  },
-  kpiLabel: { fontSize: 10, color: "#64748b", marginBottom: 4 },
-  kpiValue: { fontSize: 14, fontWeight: "700" },
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  cardTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#374151",
-    marginBottom: 10,
-  },
-  legend: { flexDirection: "row", gap: 14, marginTop: 8 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { fontSize: 10, color: "#6b7280" },
-  section: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#94a3b8",
-    marginBottom: 10,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  row: {
+  root: { flex: 1, backgroundColor: "#f8fafc" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  content: { padding: 14, paddingBottom: 32 },
+  stats: { flexDirection: "row", marginBottom: 10 },
+  stat: { flex: 1 },
+  statLabel: { fontSize: 11, color: "#64748b", marginBottom: 2 },
+  statValue: { fontSize: 17, fontWeight: "700" },
+  breakdown: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 7,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-  },
-  rowParent: { backgroundColor: "#f8fafc" },
-  rowChild: { paddingLeft: 16 },
-  rowLeft: {},
-  rowCode: { fontSize: 9, color: "#94a3b8", fontFamily: "monospace" },
-  rowName: { fontSize: 14, color: "#1e293b", fontWeight: "500", marginTop: 1 },
-  balance: { fontSize: 14, fontWeight: "600" },
-  totalRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingTop: 10,
-    marginTop: 4,
+    flexWrap: "wrap",
+    gap: 10,
     borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
+    borderTopColor: "#f1f5f9",
+    paddingTop: 8,
   },
-  totalLabel: { fontSize: 14, fontWeight: "700", color: "#0f172a" },
-  totalValue: { fontSize: 15, fontWeight: "700" },
-  liabAssetHint: { fontSize: 10, color: "#4f46e5", marginTop: 2 },
-  paEditRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  paEditInput: {
-    width: 90,
-    textAlign: "right",
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#1e293b",
+  breakdownItem: { fontSize: 11, color: "#64748b" },
+  breakdownValue: { color: "#334155", fontWeight: "600" },
+  asset: { borderWidth: 1, borderColor: "#f1f5f9", borderRadius: 10, padding: 10, marginBottom: 8 },
+  assetHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  categoryBadge: {
+    fontSize: 10,
+    color: "#475569",
+    backgroundColor: "#f1f5f9",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  assetName: { flex: 1, fontSize: 14, fontWeight: "600", color: "#1e293b" },
+  countBadge: {
     borderWidth: 1,
-    borderColor: "#4f46e5",
-    borderRadius: 6,
+    borderColor: "#a7f3d0",
+    backgroundColor: "#ecfdf5",
+    borderRadius: 10,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  paCheck: { fontSize: 15, color: "#4f46e5", fontWeight: "700" },
-  paDelete: { fontSize: 11, color: "#f43f5e" },
-  paChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: "#f1f5f9",
-    marginRight: 6,
-  },
-  paChipActive: { backgroundColor: "#4f46e5" },
-  paChipTxt: { fontSize: 12, color: "#64748b", fontWeight: "600" },
-  paChipTxtActive: { color: "#fff" },
-  modalKavRoot: { flex: 1, justifyContent: "flex-end" },
-  modalOverlayBg: { flex: 1, backgroundColor: "rgba(15,23,42,0.5)" },
-  modalSheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    padding: 22,
-    paddingBottom: 36,
-    maxHeight: "85%",
-  },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#1e293b",
-    marginBottom: 14,
-  },
-  modalLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#374151",
-    marginBottom: 6,
+  countBadgeOff: { borderColor: "#fde68a", backgroundColor: "#fffbeb" },
+  countText: { fontSize: 10, color: "#059669" },
+  countTextOff: { color: "#d97706" },
+  muted: { fontSize: 11, color: "#94a3b8", lineHeight: 16, marginTop: 3 },
+  debt: { fontSize: 11, color: "#d97706", lineHeight: 16, marginTop: 3 },
+  assetFoot: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 8,
   },
-  modalInput: {
+  value: { fontSize: 16, fontWeight: "700", color: "#1e293b" },
+  valueEdit: { flexDirection: "row", alignItems: "center", gap: 6 },
+  valueInput: { width: 130, textAlign: "right", paddingVertical: 6 },
+  actions: { flexDirection: "row", gap: 16 },
+  link: { fontSize: 12, color: "#4f46e5", fontWeight: "600" },
+  danger: { fontSize: 12, color: "#dc2626", fontWeight: "600" },
+  picker: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
     borderRadius: 8,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: "#1e293b",
-  },
-  modalHint: { fontSize: 10, color: "#94a3b8", marginTop: 4 },
-  modalYmRow: { flexDirection: "row", gap: 10 },
-  rowMeta: { fontSize: 10, color: "#94a3b8", marginTop: 2 },
-  rowDebt: { fontSize: 10, color: "#d97706", marginTop: 2 },
-  modalBtnRow: { flexDirection: "row", gap: 10, marginTop: 20 },
-  modalCancelBtn: {
-    flex: 1,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  modalCancelTxt: { fontSize: 13, fontWeight: "600", color: "#64748b" },
-  modalSaveBtn: {
-    flex: 1,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-    backgroundColor: "#4f46e5",
-  },
-  modalSaveTxt: { fontSize: 13, fontWeight: "700", color: "#fff" },
-  modalUnlinkBtn: { alignItems: "center", paddingVertical: 12, marginTop: 4 },
-  modalUnlinkTxt: { fontSize: 12, fontWeight: "600", color: "#f43f5e" },
-  modalListRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
+    backgroundColor: "#fff",
   },
-  modalAddBtn: {
+  pickerText: { fontSize: 14, color: "#1e293b" },
+  switchRow: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
-    marginTop: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#c7d2fe",
-    backgroundColor: "#eef2ff",
+    gap: 10,
+    backgroundColor: "#f8fafc",
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 10,
   },
-  modalAddTxt: { fontSize: 13, fontWeight: "600", color: "#4f46e5" },
+  switchLabel: { fontSize: 13, color: "#334155", fontWeight: "600" },
 });
