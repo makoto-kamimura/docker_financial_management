@@ -1,6 +1,6 @@
 # app/web
 
-決算管理システムの **Web アプリケーション**。Next.js (App Router) で
+カケイカイケイ（決算管理システム）の **Web アプリケーション**。Next.js (App Router) で
 フロントエンド（ダッシュボード・グラフ）と **バックエンド API**（Route Handlers）を提供する。
 
 ## 構成
