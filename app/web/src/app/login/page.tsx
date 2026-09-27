@@ -6,7 +6,7 @@ type Step = "credentials" | "mfa";
 
 export default function LoginPage() {
   const [step, setStep] = useState<Step>("credentials");
-  const [email, setEmail] = useState("admin@example.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [code, setCode] = useState("");

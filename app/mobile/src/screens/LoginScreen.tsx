@@ -147,27 +147,6 @@ export function LoginScreen({ onLogin }: Props) {
         >
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>ログイン</Text>}
         </TouchableOpacity>
-
-        <View style={s.demoBox}>
-          <Text style={s.demoTitle}>テストアカウント（共通パスワード: password）</Text>
-          {[
-            { label: "管理者", email: "admin@example.com" },
-            { label: "編集者", email: "editor@example.com" },
-            { label: "閲覧者", email: "viewer@example.com" },
-          ].map(({ label, email }) => (
-            <TouchableOpacity
-              key={email}
-              style={s.demoRow}
-              onPress={() => {
-                setEmail(email);
-                setPassword("password");
-              }}
-            >
-              <Text style={s.demoLabel}>{label}</Text>
-              <Text style={s.demoEmail}>{email}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -204,20 +183,6 @@ const s = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.6 },
   btnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
-  demoBox: { marginTop: 20, borderTopWidth: 1, borderTopColor: "#f1f5f9", paddingTop: 16 },
-  demoTitle: { fontSize: 11, color: "#94a3b8", marginBottom: 10, textAlign: "center" },
-  demoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "#f8fafc",
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  demoLabel: { fontSize: 12, fontWeight: "600", color: "#475569", width: 52 },
-  demoEmail: { fontSize: 12, color: "#6366f1" },
   mfaLinkRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 16 },
   mfaLinkText: { fontSize: 13, color: "#64748b" },
   mfaLinkTextPrimary: { fontSize: 13, color: "#4f46e5", fontWeight: "600" },
