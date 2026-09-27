@@ -1,5 +1,5 @@
 // 決算管理システム データモデル
-// 参照: docs/design.md「6. データモデル」
+// 参照: readme.md「21. データモデル」
 
 generator client {
   provider = "prisma-client-js"

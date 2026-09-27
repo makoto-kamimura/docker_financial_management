@@ -1,6 +1,6 @@
 /**
  * 勘定科目変換マスタ seed（AccountMappingRule）
- * 参照: docs/account-master-mapping.md / docs/home-to-corporate-account-mapping.md
+ * 参照: docs/design/account-master-mapping.md / docs/design/home-to-corporate-account-mapping.md
  *
  * matchType: TABLE（信頼度1.0 = 確定変換）
  * isConvertible: false → ❌ 変換不可科目

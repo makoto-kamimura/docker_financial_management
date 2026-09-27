@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 // E2E テスト設定。
 // webServer で本番ビルド済みのアプリを起動し、ブラウザから操作する。
-// DB 依存テストは事前に migrate + seed しておくこと（CI / operation.md 参照）。
+// DB 依存テストは事前に migrate + seed しておくこと（CI / readme.md「18.7 クイックスタート」参照）。
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,

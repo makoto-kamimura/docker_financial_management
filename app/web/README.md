@@ -1,41 +1,27 @@
 # app/web
 
-カケイカイケイ（決算管理システム）の **Web アプリケーション**。Next.js (App Router) で
-フロントエンド（ダッシュボード・グラフ）と **バックエンド API**（Route Handlers）を提供する。
+カケイカイケイの **Web アプリケーション**。Next.js（App Router）で、画面とバックエンドの API（Route Handlers、`/api/*`）を提供する。
 
-## 構成
+仕様・構成・起動の手順はリポジトリ直下の [readme.md](../../readme.md) にまとめている。
 
-- `src/app/` … 画面
-  - `/` トップ、`/login` ログイン、`/dashboard` 推移グラフ、`/entry` 実績入力
-- `src/app/api/` … バックエンド API（Route Handlers）
-  - `GET /api/health` … ヘルスチェック
-  - `GET/POST /api/accounts` `/api/departments` `/api/periods` … マスタ管理
-  - `GET /api/financials?granularity=month|quarter|year` … 実績の集計
-  - `POST /api/financials` … 実績の手入力登録
-  - `POST /api/financials/import` … CSV 一括取り込み（本文に CSV）
-  - `GET /api/forecasts?accountCode=4000&months=6` … 将来推移の予測
-  - `POST /api/auth/login` `/api/auth/logout`, `GET /api/auth/me` … 認証
-- `src/lib/` … 集計（`aggregate.ts`）・予測（`forecast.ts`）・認証（`auth.ts`）・Prisma クライアント
-- `prisma/` … スキーマ（`schema.prisma`）とシード（`seed.ts`）
-- `sample-data/financials.csv` … インポート用サンプル
+| 知りたいこと                       | readme の節                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
+| 画面の一覧                         | [5.1 Web](../../readme.md#51-web)                                                    |
+| ディレクトリ構成                   | [18.4 リポジトリ構成](../../readme.md#184-リポジトリ構成)                            |
+| 起動・テスト・よく使うコマンド     | [18.7 クイックスタート](../../readme.md#187-クイックスタート)                        |
+| 認証・テナント分離・API の共通処理 | [19章](../../readme.md#19-認証の実装)・[20章](../../readme.md#20-機能ごとの実装方針) |
+| データモデル・API                  | [21章](../../readme.md#21-データモデル)・[22章](../../readme.md#22-api)              |
 
 ## 開発
 
 ```bash
 npm install
-npm run db:generate          # Prisma Client 生成
-npm run db:migrate           # マイグレーション（PostgreSQL 必要）
-npm run db:seed              # 初期データ投入（admin@example.com / password）
-npm run dev                  # http://localhost:3000
-npm run typecheck
+npm run db:generate   # Prisma Client を生成する
+npm run db:migrate    # マイグレーションを適用する（PostgreSQL が要る）
+npm run db:seed       # 初期データを入れる
+npm run dev           # http://localhost:3000
 ```
 
-DB は `platform/docker-compose.yml` で起動できる（PostgreSQL）。
-接続情報は環境変数 `DATABASE_URL` で設定する。
+DB と Redis は `docker compose -f ../../platform/docker-compose.yml up -d db redis` で起動できる。接続先は `.env` の `DATABASE_URL`・`REDIS_URL` で設定する。
 
-### CSV インポート例
-
-```bash
-curl -X POST http://localhost:3000/api/financials/import \
-  -H "Content-Type: text/csv" --data-binary @sample-data/financials.csv
-```
+`src/lib/` のうち `shared-with-mobile.ts` に載っているファイルはモバイルと共有している。直したら `npm run sync:mobile` を実行する（[readme 18.5節](../../readme.md#185-web-とモバイルのロジック共有)）。
