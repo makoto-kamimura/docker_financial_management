@@ -19,8 +19,9 @@ platform/.env
 # private / work data
 docs/private/
 docs/work/
-docs/
-Docs/
+docs/*.csv
+docs/seq_report.md
+docs/jgw/
 *.work*
 
 
