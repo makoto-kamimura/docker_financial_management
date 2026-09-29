@@ -2,7 +2,7 @@ import path from "node:path";
 import { chromium } from "@playwright/test";
 
 // 1920×1080 でダッシュボードの実機スクリーンショットを撮影し docs/images/dashboard.png へ保存する。
-// 事前にアプリ起動 + DB(migrate/seed) が必要（docs/operation.md 参照）。
+// 事前にアプリ起動 + DB(migrate/seed) が必要（readme.md「18.7 クイックスタート」参照）。
 // 既存サーバーを使う場合は E2E_BASE_URL を指定する。
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 // npm script は app/web で実行される想定 → リポジトリルートの docs/images へ

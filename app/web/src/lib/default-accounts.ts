@@ -3,7 +3,7 @@ import { ACCOUNT_DISPLAY_NAMES } from "../../prisma/account-display-names";
 
 /**
  * 家庭モード 勘定科目マスタ（既定の勘定科目一覧）
- * 参照: docs/home-mode-accounts.md
+ * 参照: docs/design/home-mode-accounts.md
  *
  * コード体系: H-XXXX（H-prefix + 4桁）
  * - H-1xxx: 収入（REVENUE）

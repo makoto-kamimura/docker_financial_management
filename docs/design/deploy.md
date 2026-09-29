@@ -1,7 +1,7 @@
-# 自動デプロイ 設計・運用資料（deploy.md）
+# 自動デプロイの設計（deploy.md）
 
-決算管理システムの **自動デプロイ（CD）** の動作概要と設計をまとめる。
-CI 全体の構成は [`cicd.md`](cicd.md)、起動・サーバー手順は [`operation.md`](operation.md) を参照。
+カケイカイケイの **自動デプロイ（CD）** の動作概要と設計をまとめる。
+CI 全体の構成は [`cicd.md`](cicd.md)、手順は [runbooks/deploy-and-rollback.md](../runbooks/deploy-and-rollback.md)・[runbooks/production-server-setup.md](../runbooks/production-server-setup.md) を参照。
 
 ---
 
@@ -127,45 +127,20 @@ push(main) / tag(v*)
 ## 8. 本番サーバーの前提
 
 - Docker / Docker Compose v2 インストール済み。
-- `DEPLOY_PATH` に **`.env`**（compose が自動読込）:
-  ```env
-  WEB_IMAGE=ghcr.io/<owner>/-financial-management/web:main
-  DATABASE_URL=postgresql://<user>:<pass>@db:5432/financial
-  POSTGRES_USER=<user>
-  POSTGRES_PASSWORD=<pass>
-  POSTGRES_DB=financial
-  ```
-- 初回は DB を起動し初期データを投入（`operation.md` 参照）。
+- `DEPLOY_PATH` に `.env`（`WEB_IMAGE`・`DATABASE_URL`・`POSTGRES_*`）を置く。内容と準備の手順は [runbooks/production-server-setup.md](../runbooks/production-server-setup.md)。
+- 初期データの投入は要らない。web の entrypoint が起動時に `prisma migrate deploy` を実行し、ユーザーが1人もいなければ `db:seed` を実行する。
+  - そのため、deploy ジョブの `compose run --rm web npx prisma migrate deploy` と合わせて、マイグレーションは2回実行される（2回目は適用済みで何もしない）。
+- 本番の compose（`docker-compose.prod.yml`）は `web` と `db` だけを起動する。開発環境にある `redis`・`session-cleanup`・証憑のボリューム（`uploads_data`）はない（[readme 25章](../../readme.md#25-未決事項)）。
 
 ---
 
-## 9. リリース手順
+## 9. リリースと手動オペレーション
 
-1. 機能ブランチ → PR（CI 実行）→ レビュー。
-2. `main` にマージ → CD が起動し本番へ自動デプロイ。
-3. デプロイ後ヘルスチェック・通知で結果を確認。
-4. バージョン付与する場合は `git tag vX.Y.Z && git push --tags`（`:X.Y.Z` イメージで配信）。
+リリースの手順・自動ロールバックが起きたときの対応・手動のロールバックは [runbooks/deploy-and-rollback.md](../runbooks/deploy-and-rollback.md) にまとめた。
 
 ---
 
-## 10. 手動オペレーション
-
-```bash
-# サーバー上で特定バージョンへ手動ロールバック
-cd "$DEPLOY_PATH"
-WEB_IMAGE=ghcr.io/<owner>/-financial-management/web:1.2.2 \
-  docker compose -f platform/docker-compose.prod.yml up -d web
-
-# 稼働中イメージの確認
-docker compose -f platform/docker-compose.prod.yml images web
-
-# 手動ヘルスチェック
-curl -fsS http://localhost:3000/api/health
-```
-
----
-
-## 11. 今後の拡張余地（task.md 参照）
+## 10. 今後の拡張余地（[tasks/task.md](../tasks/task.md) 参照）
 
 - Blue/Green・カナリアデプロイ、ゼロダウンタイム切替（ロードバランサ前段）。
 - マイグレーションの後方互換運用ガイドライン整備、失敗時の DB スナップショット復元手順。

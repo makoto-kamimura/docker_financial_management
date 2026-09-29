@@ -19,13 +19,13 @@ export type ConversionSuggestion = {
   notes: string | null;
 };
 
-// 家庭モード科目コードの命名規則（H-prefix）。詳細は docs/home-mode-accounts.md 参照。
+// 家庭モード科目コードの命名規則（H-prefix）。詳細は docs/design/home-mode-accounts.md 参照。
 export function isHomeAccountCode(code: string): boolean {
   return /^H-/.test(code);
 }
 
 // キーワード → 法人科目コード（信頼度 0.9 の高信頼キーワードルール）
-// 参照: docs/account-conversion-system.md 「2. 自動変換の判定ロジック」
+// 参照: docs/design/account-conversion-system.md 「2. 自動変換の判定ロジック」
 const KEYWORD_RULES: { keyword: string; corporateCode: string }[] = [
   { keyword: "税", corporateCode: "8200" }, // 租税公課
   { keyword: "保険", corporateCode: "8100" }, // 損害保険料

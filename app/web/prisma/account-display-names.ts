@@ -1,7 +1,7 @@
 /**
  * 家庭モード科目コード → 個人事業主モード / 法人モードでの表示科目名
  *
- * 出典: docs/account-master-mapping.md（家庭科目名・個人事業主科目名・法人科目名）
+ * 出典: docs/design/account-master-mapping.md（家庭科目名・個人事業主科目名・法人科目名）
  * ここに定義した表示名は Account.soleName / Account.corporateName の既定値として seed される。
  * `※対応なし` や `❌ 経費不可` はマスタ上の注記をそのまま表示名として保持する。
  * 経過勘定（H-5001〜H-5004）はマッピング表に無いため家庭科目名と同一とする。
