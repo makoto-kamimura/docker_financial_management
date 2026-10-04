@@ -276,6 +276,7 @@ afterAll(async () => {
   await prisma.invoiceLine.deleteMany({ where: { invoice: { tenantId: { in: tids } } } });
   await prisma.invoice.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.receivable.deleteMany({ where: { tenantId: { in: tids } } });
+  await prisma.budgetHistory.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.budget.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.period.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.account.deleteMany({ where: { id: { in: [seed.accountAId, seed.accountBId] } } });
@@ -419,6 +420,9 @@ describe("[F-2/F-3] budgets/allocation-apply のテナント越境検証", () =>
   });
 
   afterAll(async () => {
+    await prisma.budgetHistory.deleteMany({
+      where: { tenantId: seed.tenantAId, period: { fiscalYear: APPLY_YEAR } },
+    });
     await prisma.budget.deleteMany({
       where: { tenantId: seed.tenantAId, period: { fiscalYear: APPLY_YEAR } },
     });

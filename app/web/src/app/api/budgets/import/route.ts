@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
 import { recordBudgetHistory } from "@/lib/budget-history";
+import { isBudgetPeriodConfirmed } from "@/lib/budget-lock";
 import { badRequest } from "@/lib/api-error";
 import { resolvePeriod, findAccountByCode } from "@/lib/period";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
@@ -53,6 +54,10 @@ export const POST = withApi({
       }
 
       const period = await resolvePeriod(db, tenantId, fiscalYear, month);
+      if (await isBudgetPeriodConfirmed(db, period.id)) {
+        errors.push(`行${i + 1}: ${fiscalYear}年${month}月の予算は確定済みのため取り込めません`);
+        continue;
+      }
 
       const existing = await db.budget.findUnique({
         where: {
