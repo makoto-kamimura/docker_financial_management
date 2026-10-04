@@ -21,6 +21,7 @@ import { displayName } from "../shared/display-name";
 import { digitsOnly, MONTHS, yen } from "../format";
 import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, EmptyText, Field, Input, Notice, Pills, SectionTitle } from "./ui";
+import { BUDGET_HELP } from "../shared/help-texts";
 
 type RuleEdit = {
   origKey: string | null; // null = 新規（保存前）
@@ -151,15 +152,7 @@ function AllocationRulesSection({
 
   return (
     <Card>
-      <SectionTitle
-        note={
-          "収入に対する各項目の割当割合（%）です。初期値はファイナンシャルプランナーが推奨する配分" +
-          "（50/30/20 ルールに沿った目安）です。対応科目を紐付けると、下の「配分提案」から推奨額を" +
-          "その科目の予算へ一括反映でき、明細一覧にも「適正 ¥…」として表示されます。"
-        }
-      >
-        予算配分ルール
-      </SectionTitle>
+      <SectionTitle note={BUDGET_HELP.allocationRules}>予算配分ルール</SectionTitle>
       <View style={s.actions}>
         <Button small label="変更を保存" onPress={save} loading={saving} />
         <Button
@@ -331,8 +324,7 @@ function AllocationSuggestSection({
     <Card>
       <SectionTitle
         note={
-          `収入額に上のルールの割合を掛けた推奨額です。${year}年度の予算へ一括反映できます。` +
-          "反映しなくても、明細一覧には「適正 ¥…」として表示されます。" +
+          BUDGET_HELP.allocationProposal +
           (basis === "manual"
             ? "手入力では、入力した金額だけを純粋に割合で振り分けます（予算・実績やローン返済などは考慮しません）。"
             : "実績・予算では、その月の収入からローン返済・実物資産の負債分を差し引いた「配分可能額」をもとに算出します。")

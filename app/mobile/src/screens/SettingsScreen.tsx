@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { fetchAccounts, fetchSettingsSnapshot, type Account, type SettingsSnapshot } from "../api";
 import { Card, EmptyText, Notice, SectionTitle, TabBar } from "../components/ui";
+import { SETTINGS_HELP } from "../shared/help-texts";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 
 type Tab = "profile" | "tax" | "security" | "accountNames" | "departments";
@@ -135,7 +136,7 @@ export function SettingsScreen() {
 
             {tab === "security" && (
               <Card>
-                <SectionTitle>多要素認証（MFA / TOTP）</SectionTitle>
+                <SectionTitle note={SETTINGS_HELP.mfa}>多要素認証（MFA / TOTP）</SectionTitle>
                 <Row label="状態" value={data.mfaEnabled ? "有効" : "無効"} />
                 <Text style={s.muted}>
                   MFA の有効化・無効化とリカバリーコードの再発行は Web 版の「設定 ›

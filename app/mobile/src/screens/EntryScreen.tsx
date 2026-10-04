@@ -28,8 +28,18 @@ import {
 } from "../api";
 import { ActualsCalendar } from "../components/ActualsCalendar";
 import { ChangeHistoryList, INITIAL_HISTORY_QUERY } from "../components/ChangeHistoryList";
-import { Button, EmptyText, Input, Notice, Pills, SheetModal, TabBar } from "../components/ui";
+import {
+  Button,
+  EmptyText,
+  Input,
+  Lead,
+  Notice,
+  Pills,
+  SheetModal,
+  TabBar,
+} from "../components/ui";
 import { displayName } from "../shared/display-name";
+import { ENTRY_HELP, textFor } from "../shared/help-texts";
 import { buildFinancialMatrix, editableRecord, type MatrixCell } from "../shared/financial-matrix";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
@@ -206,6 +216,10 @@ export function EntryScreen({ viewMode }: Props) {
           )
         }
       >
+        <Lead>{textFor(ENTRY_HELP.page, viewMode)}</Lead>
+        {tab === "calendar" && <Lead>{ENTRY_HELP.calendar}</Lead>}
+        {tab === "history" && <Lead>{ENTRY_HELP.history}</Lead>}
+
         {tab === "manual" &&
           (loading ? (
             <ActivityIndicator color="#4f46e5" style={{ marginTop: 40 }} />

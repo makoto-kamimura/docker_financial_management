@@ -35,6 +35,7 @@ import {
   EmptyText,
   Field,
   Input,
+  Lead,
   Notice,
   Pills,
   SelectField,
@@ -42,6 +43,7 @@ import {
   TabBar,
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
+import { CARD_HELP } from "../shared/help-texts";
 import { digitsOnly, isoDate, yen } from "../format";
 import {
   isChargeableType,
@@ -215,6 +217,7 @@ export function CardTransactionsScreen({ viewMode }: Props) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {error && <Notice tone="error">{error}</Notice>}
+        <Lead>{CARD_HELP.page}</Lead>
         <Button
           label="カード・電子マネー追加"
           onPress={() => {
@@ -277,6 +280,7 @@ export function CardTransactionsScreen({ viewMode }: Props) {
             onFlowChanged={() => load()}
           />
         )}
+        {tab === "calendar" && <Lead>{CARD_HELP.calendar}</Lead>}
         {tab === "calendar" && selected && (
           <CardCalendar
             key={`${selected.id}:${reloadKey}`}

@@ -29,8 +29,9 @@ import {
 import { BudgetAllocationPanel } from "../components/BudgetAllocationPanel";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
 import { ChangeHistoryList, INITIAL_HISTORY_QUERY } from "../components/ChangeHistoryList";
-import { Button, EmptyText, Input, Pills, TabBar } from "../components/ui";
+import { Button, EmptyText, Input, Lead, Notice, Pills, TabBar } from "../components/ui";
 import { displayName } from "../shared/display-name";
+import { BUDGET_HELP, textFor } from "../shared/help-texts";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { digitsOnly, MONTHS, yen } from "../format";
 
@@ -40,10 +41,6 @@ const TABS = [
   ["allocation", "予算配分"],
   ["history", "履歴"],
 ] as const;
-
-// 「適正 ¥…」の説明（web 版の GUIDE_HELP と同じ）
-const GUIDE_HELP =
-  "緑の「適正 ¥…」は収入実績に、「予算配分」タブのルールの割合を掛けた推奨額です。予算そのものは変更しません。";
 
 const EMPTY_BUDGETS: BudgetResponse = {
   budgets: [],
@@ -249,6 +246,7 @@ export function BudgetScreen({ viewMode }: Props) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
           {error && <Text style={s.error}>{error}</Text>}
+          <Lead>{textFor(BUDGET_HELP.page, viewMode)}</Lead>
 
           {tab === "manual" && (
             <>
@@ -260,7 +258,18 @@ export function BudgetScreen({ viewMode }: Props) {
                   setEdits({});
                 }}
               />
-              {guide.length > 0 && <Text style={s.guideNote}>{GUIDE_HELP}</Text>}
+              {/* 金額に付く印の意味。出ている印の分だけ説明する（web 版の「表の印の見かた」） */}
+              {(guide.length > 0 || loanMap.size > 0 || debtMap.size > 0) && (
+                <Notice>
+                  {[
+                    guide.length > 0 ? `適正 ¥…：${BUDGET_HELP.guide}` : null,
+                    loanMap.size > 0 ? `自動反映：${BUDGET_HELP.autoLoan}` : null,
+                    debtMap.size > 0 ? `負債返済分：${BUDGET_HELP.autoDebt}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
+                </Notice>
+              )}
 
               {rows.length === 0 ? (
                 <EmptyText>
@@ -355,6 +364,7 @@ export function BudgetScreen({ viewMode }: Props) {
             />
           )}
 
+          {tab === "history" && <Lead>{BUDGET_HELP.history}</Lead>}
           {tab === "history" && (
             <ChangeHistoryList
               rows={history.data}
@@ -414,7 +424,6 @@ const s = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { padding: 14 },
   error: { color: "#dc2626", fontSize: 13, marginBottom: 10 },
-  guideNote: { fontSize: 11, color: "#047857", marginVertical: 8, lineHeight: 16 },
   groupLabel: {
     fontSize: 11,
     fontWeight: "700",

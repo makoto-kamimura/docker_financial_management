@@ -33,12 +33,14 @@ import {
   EmptyText,
   Field,
   Input,
+  Lead,
   Notice,
   Pills,
   SectionTitle,
   SheetModal,
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
+import { ASSETS_HELP, textFor } from "../shared/help-texts";
 import { digitsOnly, yenShort } from "../format";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "../shared/labels";
 
@@ -238,11 +240,12 @@ export function AssetsScreen({ viewMode }: Props) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {error && <Notice tone="error">{error}</Notice>}
+        <Lead>{textFor(ASSETS_HELP.page, viewMode)}</Lead>
 
         {/* ── 総資産サマリ（F-8）── */}
         {summary && (
           <Card>
-            <SectionTitle note="実物資産・銀行口座残高・ローンを含む純資産">
+            <SectionTitle note={ASSETS_HELP.netWorth}>
               総資産サマリ（{summary.year}年{summary.month}月時点）
             </SectionTitle>
             <View style={s.stats}>
@@ -283,7 +286,7 @@ export function AssetsScreen({ viewMode }: Props) {
         <Card>
           <SectionTitle
             note={
-              `合計評価額: ${yenShort(total)}` +
+              `${ASSETS_HELP.personal}\n合計評価額: ${yenShort(total)}` +
               (totalDebt > 0 ? ` ・ 負債残高合計: ${yenShort(totalDebt)}` : "") +
               (hasExcluded ? " ・ 「資産計上外」の項目は負債のみ反映" : "")
             }
@@ -300,7 +303,7 @@ export function AssetsScreen({ viewMode }: Props) {
             style={{ alignSelf: "flex-start", marginBottom: 8 }}
           />
           {assets.length === 0 ? (
-            <EmptyText>登録済みの実物資産がありません。</EmptyText>
+            <EmptyText>{ASSETS_HELP.empty}</EmptyText>
           ) : (
             assets.map((a) => (
               <View key={a.id} style={s.asset}>

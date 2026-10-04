@@ -169,6 +169,46 @@ export function Notice({
   );
 }
 
+// ── 説明 ─────────────────────────────────────────────────────────────
+// 文言は shared/help-texts.ts（web 版と共通）を使う。
+
+/** 画面上部の説明（web 版の PageLead に相当） */
+export function Lead({ children, style }: { children?: ReactNode; style?: StyleProp<ViewStyle> }) {
+  if (!children) return null;
+  return (
+    <View style={[s.lead, style]}>
+      <Text style={s.leadText}>{children}</Text>
+    </View>
+  );
+}
+
+/** 列や印の説明。押すと開く（web 版の TermDetails に相当） */
+export function TermList({
+  terms,
+  label = "各列の説明",
+}: {
+  terms: { term: string; text: string }[];
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={s.terms}>
+      <TouchableOpacity onPress={() => setOpen((v) => !v)} hitSlop={6}>
+        <Text style={s.termsToggle}>{open ? `▲ ${label}を閉じる` : `？ ${label}`}</Text>
+      </TouchableOpacity>
+      {open && (
+        <View style={s.termsBody}>
+          {terms.map((t) => (
+            <Text key={t.term} style={s.termsText}>
+              <Text style={s.termsTerm}>{t.term}</Text>：{t.text}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export function EmptyText({ children }: { children: ReactNode }) {
   return <Text style={s.empty}>{children}</Text>;
 }
@@ -390,6 +430,22 @@ const s = StyleSheet.create({
   noticeText_success: { color: "#15803d" },
 
   empty: { textAlign: "center", color: COLORS.muted, fontSize: 13, paddingVertical: 24 },
+
+  lead: { marginBottom: 12 },
+  leadText: { fontSize: 12, color: COLORS.sub, lineHeight: 18 },
+  terms: { marginBottom: 10 },
+  termsToggle: { fontSize: 12, color: COLORS.primary, paddingVertical: 4 },
+  termsBody: {
+    marginTop: 4,
+    gap: 6,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 10,
+  },
+  termsText: { fontSize: 11, color: "#475569", lineHeight: 17 },
+  termsTerm: { fontWeight: "700", color: COLORS.text },
 
   select: {
     flexDirection: "row",

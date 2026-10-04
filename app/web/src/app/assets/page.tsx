@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { PageLead, SectionLead } from "@/components/Explain";
+import { ASSETS_HELP, textFor } from "@/lib/help-texts";
 import { isCountedAsAsset } from "@/lib/personal-asset";
 import { useViewMode } from "@/lib/use-view-mode";
 import { displayName } from "@/lib/display-name";
@@ -348,12 +350,10 @@ function NetWorthSummaryCard() {
 
   return (
     <div className="card mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="section-title">
-          総資産サマリ（{data.year}年{data.month}月時点）
-        </h2>
-        <p className="text-xs text-slate-400">実物資産・銀行口座残高・ローンを含む純資産</p>
-      </div>
+      <h2 className="section-title mb-1">
+        総資産サマリ（{data.year}年{data.month}月時点）
+      </h2>
+      <SectionLead className="mb-4">{ASSETS_HELP.netWorth}</SectionLead>
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div>
           <p className="text-xs text-slate-500 mb-1">総資産</p>
@@ -441,7 +441,8 @@ function PersonalAssetsSection() {
     <div className="card mb-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="section-title">実物資産（土地・建物・車・金など）</h2>
+          <h2 className="section-title mb-1">実物資産（土地・建物・車・金など）</h2>
+          <SectionLead className="mb-1">{ASSETS_HELP.personal}</SectionLead>
           <p className="text-xs text-slate-400 mt-0.5">
             合計評価額: {yen(total)}
             {totalDebt > 0 && (
@@ -462,7 +463,7 @@ function PersonalAssetsSection() {
       {isLoading ? (
         <p className="text-slate-400 text-sm">読み込み中…</p>
       ) : assets.length === 0 ? (
-        <p className="text-sm text-slate-400 py-6 text-center">登録済みの実物資産がありません。</p>
+        <p className="text-sm text-slate-400 py-6 text-center">{ASSETS_HELP.empty}</p>
       ) : (
         <div className="space-y-2">
           {assets.map((a) => (
@@ -593,11 +594,12 @@ const yen = (v: number) =>
 // 純資産）と純資産推移グラフは、家計モードでは科目側に残高を積まないため常に 0 円になり、
 // 同じ数字は総資産サマリが実データ（銀行口座・実物資産・ローン）から出しているため撤去した。
 export default function AssetsPage() {
+  const sysMode = useViewMode();
   return (
     <AppShell>
       <div className="mb-6">
         <h1 className="page-title">資産管理</h1>
-        <p className="text-sm text-slate-500 mt-0.5">バランスシート・実物資産</p>
+        <PageLead>{textFor(ASSETS_HELP.page, sysMode)}</PageLead>
       </div>
 
       <NetWorthSummaryCard />

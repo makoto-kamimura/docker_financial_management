@@ -32,6 +32,7 @@ import {
   EmptyText,
   Field,
   Input,
+  Lead,
   Notice,
   Pills,
   SectionTitle,
@@ -39,6 +40,7 @@ import {
 } from "../components/ui";
 import { yen } from "../format";
 import { displayName } from "../shared/display-name";
+import { LOANS_HELP } from "../shared/help-texts";
 import { LOAN_TYPE_LABEL, LOAN_TYPES } from "../shared/labels";
 import {
   buildRateComparison,
@@ -252,6 +254,7 @@ export function LoansScreen({ viewMode }: Props) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {error && <Notice tone="error">{error}</Notice>}
+        <Lead>{LOANS_HELP.page}</Lead>
 
         <View style={s.kpiRow}>
           <Card style={s.kpi}>
@@ -266,9 +269,7 @@ export function LoansScreen({ viewMode }: Props) {
 
         {scheduleData.length > 0 && (
           <Card>
-            <SectionTitle note="今日以降の残高は償還スケジュールからの予測です。">
-              返済スケジュール
-            </SectionTitle>
+            <SectionTitle note={LOANS_HELP.schedule}>返済スケジュール</SectionTitle>
             <View style={s.switchRow}>
               <Text style={s.switchLabel}>金利を重ねて表示</Text>
               <Switch value={showRates} onValueChange={setShowRates} />
@@ -305,9 +306,10 @@ export function LoansScreen({ viewMode }: Props) {
           }}
           style={{ marginBottom: 12 }}
         />
+        {loans.length > 0 && <Lead>{LOANS_HELP.list}</Lead>}
 
         {loans.length === 0 ? (
-          <EmptyText>🏦 借入金の記録がありません。</EmptyText>
+          <EmptyText>🏦 {LOANS_HELP.empty}</EmptyText>
         ) : (
           loans.map((l, i) => {
             const pending = pendingRateChange(l);

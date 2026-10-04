@@ -44,27 +44,9 @@ import {
   SectionTitle,
   SelectField,
   SheetModal,
+  TermList,
 } from "../ui";
-
-const POST_HELP_TEXT =
-  "「転記する」を押すと、同じ摘要で科目未設定の他の明細にも自動で科目が設定されます。" +
-  "また摘要のキーワードを学習し、次回以降のCSV取込・自動同期でも自動的に科目が分類されます" +
-  "（分類されるのは科目のみで、転記は明細ごとに別途手動で行う必要があります）。";
-const TRANSFER_HELP_TEXT =
-  "デビットカード・プリペイドカード・電子マネーへのチャージは支出ではなく資金の移動なので、" +
-  "収入・支出には計上しません（実際の支出はチャージ先の利用明細で計上します）。誤って指定した場合は「解除」で戻せます。";
-const CHARGED_IN_HELP_TEXT =
-  "他の口座・カードからのチャージとして紐付けられた入金明細です。チャージ元と対になっており、" +
-  "収入として計上すると同じ資金が二重に効くため、科目の紐付けと実績への転記はできません。" +
-  "「解除」を押すと紐付けが外れ、チャージ元は「履歴と未紐付け」に戻ります。";
-const RECURRING_HELP_TEXT =
-  "「登録する」を押すと、この明細を毎月このカードで固定決済される支払い（サブスク等）として登録します" +
-  "（毎月の日付・金額・摘要は明細の内容を引き継ぎます）。カード払いは利用時点で現金が動かず、" +
-  "実際の出金はカード全体の引き落とし 1 本にまとまるため、銀行の資金繰りには足し込みません。" +
-  "引き落とし自体の登録は銀行管理の「振替」で行います。";
-const POST_FILTER_HELP_TEXT =
-  "「実績未転記」は、これから実績へ転記する明細だけを絞り込みます。チャージはそれ自体が支出ではなく" +
-  "転記の対象外で、実際の支出はチャージ先の利用明細で計上するため、この絞り込みには含めません（「全件」では表示されます）。";
+import { CARD_HELP, CARD_TERMS } from "../../shared/help-texts";
 
 const PAGE_SIZE = 30;
 type PostFilter = "all" | "unposted" | "posted";
@@ -102,7 +84,6 @@ export function CardTransactionsList({
   const [filter, setFilter] = useState<PostFilter>("all");
   const [page, setPage] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
   const [manual, setManual] = useState({
     date: new Date().toISOString().slice(0, 10),
     description: "",
@@ -289,19 +270,12 @@ export function CardTransactionsList({
         </Card>
       )}
 
-      <TouchableOpacity onPress={() => setShowHelp((v) => !v)}>
-        <Text style={s.helpToggle}>
-          {showHelp ? "▲ 説明を閉じる" : "？ 絞り込み・転記・チャージ・固定決済について"}
-        </Text>
-      </TouchableOpacity>
-      {showHelp && (
-        <Card>
-          <Text style={s.help}>【実績未転記】{POST_FILTER_HELP_TEXT}</Text>
-          <Text style={s.help}>【実績】{POST_HELP_TEXT}</Text>
-          <Text style={s.help}>【チャージ】{TRANSFER_HELP_TEXT}</Text>
-          <Text style={s.help}>【固定決済】{RECURRING_HELP_TEXT}</Text>
-        </Card>
-      )}
+      {/* チャージを「実績未転記」から外している理由も、ここで示す（web 版と同じ） */}
+      <Notice>
+        {CARD_HELP.list}
+        {filter === "unposted" ? ` ${CARD_HELP.postFilter}` : ""}
+      </Notice>
+      <TermList terms={CARD_TERMS} label="科目・転記・チャージ・固定決済の説明" />
 
       <Pills
         scroll={false}
@@ -344,7 +318,7 @@ export function CardTransactionsList({
                   <Text style={s.badgeIn}>チャージ入金</Text>
                   <TouchableOpacity
                     onPress={() =>
-                      confirm("チャージ入金の紐付けを解除", CHARGED_IN_HELP_TEXT, () =>
+                      confirm("チャージ入金の紐付けを解除", CARD_HELP.chargeBadge, () =>
                         setCharge(t, null),
                       )
                     }
@@ -602,7 +576,6 @@ function CardTxnActionsSheet({
 }
 
 const s = StyleSheet.create({
-  helpToggle: { fontSize: 12, color: "#4f46e5", marginBottom: 8 },
   help: { fontSize: 11, color: "#475569", lineHeight: 17, marginBottom: 6 },
   count: { fontSize: 11, color: "#94a3b8", marginVertical: 6 },
   ruleRow: {

@@ -14,7 +14,9 @@ import {
 } from "../api";
 import { LoadingView } from "../components/LoadingView";
 import { MonthlyCategoryChart } from "../components/MonthlyCategoryChart";
+import { Lead, TermList } from "../components/ui";
 import { DEFAULT_FORECAST_METHOD, FORECAST_METHODS } from "../shared/forecast-methods";
+import { DASHBOARD_HELP, kpiTermHelp, textFor } from "../shared/help-texts";
 import { KPI_LABELS } from "../shared/mode-labels";
 import { computeStepChecklist } from "../shared/step-checklist";
 
@@ -96,7 +98,6 @@ export function DashboardScreen({ viewMode }: Props) {
   const [budget, setBudget] = useState<KpiBudget | null>(null);
   const [annual, setAnnual] = useState<AnnualOutlook | null>(null);
   const [method, setMethod] = useState(DEFAULT_FORECAST_METHOD);
-  const [showMethodHelp, setShowMethodHelp] = useState(false);
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string | null>(null); // null はサーバー既定に従う
   const [months, setMonths] = useState<TrendMonth[]>([]);
@@ -175,6 +176,8 @@ export function DashboardScreen({ viewMode }: Props) {
   const hasForecast = months.some((m) => m.isForecast);
 
   const klabels = KPI_LABELS[viewMode];
+  const termHelp = kpiTermHelp(viewMode);
+  const selectedMethod = FORECAST_METHODS.find((m) => m.value === method);
   const ytdProgress = annual ? `達成率 ${rate(annual.progressRate)}` : undefined;
   const stepItems = steps
     ? computeStepChecklist({ ...steps, hasSwitchedMode: hasSwitchedViewMode() })
@@ -200,12 +203,15 @@ export function DashboardScreen({ viewMode }: Props) {
         </View>
       ) : (
         <>
+          <Lead>{textFor(DASHBOARD_HELP.page, viewMode)}</Lead>
+
           {/* ステップ進捗（web 版ダッシュボードと同じ 6 ステップ。全達成後は非表示） */}
           {showSteps && (
             <View style={[s.card, s.cardGap]}>
               <Text style={s.cardTitle}>
                 ステップ進捗（{stepDone} / {stepItems.length}）
               </Text>
+              <Text style={s.cardNote}>{DASHBOARD_HELP.steps}</Text>
               {stepItems.map((i) => (
                 <View key={i.step} style={[s.stepRow, i.done ? s.stepDone : s.stepTodo]}>
                   <Text style={s.stepIcon}>{i.done ? "✅" : "⬜"}</Text>
@@ -243,6 +249,8 @@ export function DashboardScreen({ viewMode }: Props) {
                   <Text style={s.navBtnTxt}>›</Text>
                 </TouchableOpacity>
               </View>
+
+              <Lead>{textFor(DASHBOARD_HELP.kpi, viewMode)}</Lead>
 
               {viewMode === "household" && kpi.operatingProfit < 0 && (
                 <Text style={s.deficitText}>
@@ -333,6 +341,14 @@ export function DashboardScreen({ viewMode }: Props) {
                 <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} />
                 <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} />
               </View>
+              <TermList
+                label="当年累計・前月比・前年同月比の説明"
+                terms={[
+                  { term: "当年累計 (YTD)", text: termHelp.ytd },
+                  { term: "前月比 (MoM)", text: termHelp.mom },
+                  { term: "前年同月比 (YoY)", text: termHelp.yoy },
+                ]}
+              />
             </>
           )}
 
@@ -378,9 +394,6 @@ export function DashboardScreen({ viewMode }: Props) {
           {/* 予測手法（実績が未入力の月をどの計算方法で見積もるか。web 版と同じ 5 手法） */}
           <View style={s.methodHeader}>
             <Text style={s.selectorLabel}>予測手法</Text>
-            <TouchableOpacity onPress={() => setShowMethodHelp((v) => !v)} hitSlop={8}>
-              <Text style={s.helpIcon}>?</Text>
-            </TouchableOpacity>
           </View>
           <ScrollView
             horizontal
@@ -399,24 +412,24 @@ export function DashboardScreen({ viewMode }: Props) {
               </TouchableOpacity>
             ))}
           </ScrollView>
-          {showMethodHelp && (
-            <View style={s.helpBox}>
-              <Text style={s.helpText}>
-                実績が未入力の月を、どの計算方法で見積もるかを選びます。
-              </Text>
-              {FORECAST_METHODS.map((m) => (
-                <Text key={m.value} style={s.helpText}>
-                  <Text style={s.helpTextStrong}>{m.label}</Text>：{m.help}
-                </Text>
-              ))}
-            </View>
-          )}
+          {/* 選んでいる手法の説明を常に出す（web 版と同じ） */}
+          <Text style={s.methodHelp}>
+            {DASHBOARD_HELP.forecast}
+            {selectedMethod && (
+              <>
+                {" "}
+                <Text style={s.methodHelpStrong}>{selectedMethod.label}</Text>：
+                {selectedMethod.help}
+              </>
+            )}
+          </Text>
 
           {/* カテゴリ構成比 */}
           {totals.length > 0 && (
             <View style={[s.card, s.cardGap]}>
               <Text style={s.cardTitle}>カテゴリ構成比</Text>
               <Text style={s.cardNote}>
+                {textFor(DASHBOARD_HELP.composition, viewMode)}
                 {hasForecast
                   ? "実績が未入力の月は予測値を含めて集計しています。"
                   : "表示範囲の実績を集計しています。"}
@@ -448,6 +461,7 @@ export function DashboardScreen({ viewMode }: Props) {
             <View style={[s.card, s.cardGap]}>
               <Text style={s.cardTitle}>月別カテゴリ内訳（万円）</Text>
               <Text style={s.cardNote}>
+                {textFor(DASHBOARD_HELP.monthly, viewMode)}
                 薄い色の月は予測値です（実績が未入力の月を予測で補完しています）。
               </Text>
               <MonthlyCategoryChart
@@ -468,6 +482,7 @@ export function DashboardScreen({ viewMode }: Props) {
                 {range === "year" ? `${displayYear}年度` : `対象月±${TREND_BACK}か月`}）
               </Text>
               <Text style={s.cardNote}>
+                {textFor(DASHBOARD_HELP.summary, viewMode)}
                 支出が収入を上回った月は赤字表示です。「予測」は実績が未入力の月の推測値です。
               </Text>
               <View style={s.tableHead}>
@@ -593,7 +608,7 @@ const s = StyleSheet.create({
   },
   cardGap: { marginBottom: 12 },
   cardTitle: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6 },
-  cardNote: { fontSize: 10, color: "#94a3b8", marginBottom: 10 },
+  cardNote: { fontSize: 11, color: "#64748b", lineHeight: 16, marginBottom: 10 },
 
   stepRow: {
     flexDirection: "row",
@@ -611,17 +626,6 @@ const s = StyleSheet.create({
   stepLabelDone: { color: "#15803d" },
 
   methodHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
-  helpIcon: {
-    fontSize: 10,
-    color: "#64748b",
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    width: 16,
-    height: 16,
-    textAlign: "center",
-    lineHeight: 14,
-  },
   methodRow: { gap: 6, paddingBottom: 10 },
   methodPill: {
     paddingHorizontal: 10,
@@ -634,9 +638,8 @@ const s = StyleSheet.create({
   methodPillActive: { backgroundColor: "#4f46e5", borderColor: "#4f46e5" },
   methodPillText: { fontSize: 11, color: "#475569" },
   methodPillTextActive: { color: "#fff", fontWeight: "600" },
-  helpBox: { backgroundColor: "#1e293b", borderRadius: 8, padding: 10, marginBottom: 12, gap: 4 },
-  helpText: { fontSize: 10, color: "#fff", lineHeight: 15 },
-  helpTextStrong: { fontWeight: "700" },
+  methodHelp: { fontSize: 11, color: "#64748b", lineHeight: 16, marginBottom: 12 },
+  methodHelpStrong: { fontWeight: "700", color: "#475569" },
 
   compRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   compLabel: { fontSize: 11, color: "#475569", width: 62 },

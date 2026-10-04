@@ -7,6 +7,7 @@ export const SHARED_WITH_MOBILE = [
   "display-name.ts",
   "financial-matrix.ts",
   "forecast-methods.ts",
+  "help-texts.ts",
   "labels.ts",
   "linked-account-type.ts",
   "loan-schedule.ts",
