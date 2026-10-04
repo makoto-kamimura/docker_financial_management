@@ -2,10 +2,11 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Pencil, Trash2, Home, CreditCard, Check } from "lucide-react";
+import { Pencil, Trash2, Home, CreditCard, Check, Lock } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
+import { BudgetCyclePanel } from "@/components/BudgetCyclePanel";
 import { InfoNote, PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { BUDGET_HELP, textFor } from "@/lib/help-texts";
@@ -46,9 +47,11 @@ type BudgetResponse = {
   years: number[];
   loanOverlay?: LoanOverlayRow[];
   personalAssetDebtOverlay?: PersonalAssetDebtOverlayRow[];
+  /** 予算を確定済みの月（この月の予算は編集できない） */
+  confirmedMonths?: number[];
 };
 type ImportResult = { imported: number; skipped?: number; errors: string[] };
-type Tab = "manual" | "allocation" | "csv" | "history";
+type Tab = "manual" | "cycle" | "allocation" | "csv" | "history";
 
 // 収入実績から算出した「適正金額」（予算配分ルールの割合による推奨額）
 type AllocationGuideRow = { accountId: number; accountCode: string; month: number; amount: number };
@@ -230,9 +233,18 @@ export default function BudgetPage() {
         corporateName: null,
       }));
 
+  const confirmedMonths = new Set(data?.confirmedMonths ?? []);
+
+  // 書き込みの失敗（確定済みの月など）を知らせる。成功時は何もしない
+  async function alertIfFailed(res: Response) {
+    if (res.ok) return;
+    const err = await res.json().catch(() => ({}));
+    window.alert(typeof err.error === "string" ? err.error : "予算の保存に失敗しました");
+  }
+
   async function addBudgetCell() {
     if (!addCell || addCell.amount === "") return;
-    await fetch("/api/budgets", {
+    const res = await fetch("/api/budgets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -242,23 +254,25 @@ export default function BudgetPage() {
         amount: Number(addCell.amount),
       }),
     });
+    await alertIfFailed(res);
     setAddCell(null);
     qc.invalidateQueries({ queryKey: ["budgets"] });
   }
 
   async function saveCell() {
     if (!editCell) return;
-    await fetch(`/api/budgets/${editCell.id}`, {
+    const res = await fetch(`/api/budgets/${editCell.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ amount: Number(editCell.amount) }),
     });
+    await alertIfFailed(res);
     setEditCell(null);
     qc.invalidateQueries({ queryKey: ["budgets"] });
   }
 
   async function deleteBudget(id: number) {
-    await fetch(`/api/budgets/${id}`, { method: "DELETE" });
+    await alertIfFailed(await fetch(`/api/budgets/${id}`, { method: "DELETE" }));
     qc.invalidateQueries({ queryKey: ["budgets"] });
   }
 
@@ -372,6 +386,7 @@ export default function BudgetPage() {
         {(
           [
             ["manual", "明細一覧"],
+            ["cycle", "予実と確定"],
             ["allocation", "予算配分"],
             ["csv", "CSV インポート"],
             ["history", "履歴"],
@@ -506,6 +521,9 @@ H3000,${THIS_YEAR},1,115000`}</pre>
       {/* ── 予算配分タブ（旧「設定 › 予算配分ルール」から移設）────────────
           ルールの割合は明細一覧の「適正 ¥…」にも反映される。 */}
       {tab === "allocation" && <BudgetAllocationPanel fiscalYear={year} />}
+
+      {/* ── 予実と確定タブ（科目別の予実 → 翌月の予算案 → 確定）──────────── */}
+      {tab === "cycle" && <BudgetCyclePanel mode={sysMode} />}
 
       {/* ── 履歴タブ（実績管理の履歴と同じ見た目）──────────── */}
       {tab === "history" &&
@@ -689,7 +707,17 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                       data-month={m}
                       className="px-3 py-3 text-right text-xs font-semibold text-slate-600 whitespace-nowrap min-w-24"
                     >
-                      {m}月
+                      {confirmedMonths.has(m) ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-emerald-700"
+                          title={`${m}月の予算は確定済みです。${BUDGET_HELP.cycleLocked}`}
+                        >
+                          <Lock className="w-3 h-3" aria-hidden="true" />
+                          {m}月
+                        </span>
+                      ) : (
+                        `${m}月`
+                      )}
                     </th>
                   ))}
                   <th className="px-3 py-3 text-right text-xs font-semibold text-slate-600 min-w-28">
@@ -740,6 +768,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                         const debtAuto = debtOverlayMap.get(`${acct.code}:${m}`) ?? 0;
                         // 収入実績から算出した推奨額（予算配分ルール）。補助表示のみ。
                         const guideAmount = guideMap.get(`${acct.code}:${m}`) ?? 0;
+                        const locked = confirmedMonths.has(m);
                         const isEditing = editCell && cell && editCell.id === cell.id;
                         const isAdding =
                           addCell !== null &&
@@ -776,26 +805,30 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                               <div>
                                 <div className="flex items-center justify-end gap-1 group/cell">
                                   <span>{yen(Number(cell.amount) + auto + debtAuto)}</span>
-                                  <button
-                                    type="button"
-                                    aria-label="この予算を編集"
-                                    title="編集"
-                                    onClick={() =>
-                                      setEditCell({ id: cell.id, amount: String(cell.amount) })
-                                    }
-                                    className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover/cell:opacity-100"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    aria-label="この予算を削除"
-                                    title="削除"
-                                    onClick={() => deleteBudget(cell.id)}
-                                    className="text-slate-300 hover:text-red-500 opacity-0 group-hover/cell:opacity-100"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                  </button>
+                                  {!locked && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        aria-label="この予算を編集"
+                                        title="編集"
+                                        onClick={() =>
+                                          setEditCell({ id: cell.id, amount: String(cell.amount) })
+                                        }
+                                        className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover/cell:opacity-100"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        aria-label="この予算を削除"
+                                        title="削除"
+                                        onClick={() => deleteBudget(cell.id)}
+                                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover/cell:opacity-100"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                                 {auto > 0 && (
                                   <div className="text-[10px] text-indigo-500">
@@ -863,6 +896,10 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                                   <Check className="w-4 h-4" aria-hidden="true" />
                                 </button>
                               </div>
+                            ) : locked ? (
+                              <span className="text-slate-300" title="確定済みの月です">
+                                —
+                              </span>
                             ) : (
                               <button
                                 type="button"

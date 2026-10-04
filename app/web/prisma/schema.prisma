@@ -98,10 +98,11 @@ model Period {
   quarter    Int // 1-4
   month      Int // 1-12
 
-  records         FinancialRecord[]
-  forecasts       Forecast[]
-  budgets         Budget[]
-  budgetHistories BudgetHistory[]
+  records            FinancialRecord[]
+  forecasts          Forecast[]
+  budgets            Budget[]
+  budgetHistories    BudgetHistory[]
+  budgetConfirmation BudgetConfirmation?
 
   @@unique([tenantId, fiscalYear, month])
   @@index([tenantId])
@@ -146,6 +147,21 @@ model BudgetHistory {
   @@index([tenantId, changedAt])
   @@index([budgetId])
   @@map("budget_histories")
+}
+
+// 予算の確定（月単位）。行がある月の予算は確定済みで、予実対比の基準として固定する。
+// 確定中は予算の登録・変更・削除・CSV 取込・配分の反映を受け付けない（解除は admin のみ）。
+// 確定は予算の値を変えないため、解除すると行を消すだけで予算はそのまま残る。
+model BudgetConfirmation {
+  id            Int      @id @default(autoincrement())
+  tenantId      Int
+  period        Period   @relation(fields: [periodId], references: [id])
+  periodId      Int      @unique
+  confirmedById Int? // 確定したユーザー
+  confirmedAt   DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("budget_confirmations")
 }
 
 // 予算配分ルール（FP 推奨の収入比率マスタ。ステップ 2 の配分提案に使用）

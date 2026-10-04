@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api-handler";
 import { recordBudgetHistory } from "@/lib/budget-history";
 import { resolvePeriod, requireAccountByCode } from "@/lib/period";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
+import { assertBudgetPeriodEditable, confirmedBudgetMonths } from "@/lib/budget-lock";
 
 const BudgetSchema = z.object({
   accountCode: z.string().min(1),
@@ -38,6 +39,7 @@ export const GET = withApi({
 
     const loanOverlay = await computeLoanOverlay(db, tenantId, year);
     const personalAssetDebtOverlay = await computePersonalAssetDebtOverlay(db, tenantId, year);
+    const confirmed = await confirmedBudgetMonths(db, year);
 
     return NextResponse.json({
       data: budgets,
@@ -46,6 +48,8 @@ export const GET = withApi({
       // 旧クライアント互換のため 1 リリース併存（住宅ローンに限らず全ローンを含む点が変更点）
       housingLoanOverlay: loanOverlay,
       personalAssetDebtOverlay,
+      // 予算を確定済みの月（表の見出しに印を付け、編集を止める）
+      confirmedMonths: confirmed.map((c) => c.month),
     });
   },
 });
@@ -60,6 +64,7 @@ export const POST = withApi({
 
     const account = await requireAccountByCode(db, tenantId, accountCode);
     const period = await resolvePeriod(db, tenantId, fiscalYear, month);
+    await assertBudgetPeriodEditable(db, period.id);
 
     // 既存有無で履歴の action（create / update）を分ける
     const before = await db.budget.findUnique({

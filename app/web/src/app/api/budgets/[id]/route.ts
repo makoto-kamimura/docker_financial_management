@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
 import { recordBudgetHistory } from "@/lib/budget-history";
+import { assertBudgetPeriodEditable } from "@/lib/budget-lock";
 
 const UpdateSchema = z.object({ amount: z.number() });
 
@@ -13,6 +14,7 @@ export const PATCH = withApi({
   handler: async ({ user, db, id, body, audit }) => {
     const existing = await db.budget.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!existing) throw notFound();
+    await assertBudgetPeriodEditable(db, existing.periodId);
 
     const budget = await db.budget.update({ where: { id }, data: { amount: body.amount } });
     await recordBudgetHistory(db, {
@@ -35,6 +37,7 @@ export const DELETE = withApi({
   handler: async ({ user, db, id, audit }) => {
     const existing = await db.budget.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!existing) throw notFound();
+    await assertBudgetPeriodEditable(db, existing.periodId);
 
     // 履歴は削除後も残す（budgetId は SET NULL される）ため、先に 1 行積んでから消す
     await recordBudgetHistory(db, {

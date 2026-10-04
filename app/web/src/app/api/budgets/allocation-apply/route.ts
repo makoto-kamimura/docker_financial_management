@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { recordBudgetHistory } from "@/lib/budget-history";
+import { assertBudgetPeriodEditable } from "@/lib/budget-lock";
 import { notFound } from "@/lib/api-error";
 import { resolvePeriod } from "@/lib/period";
 import { zMoney } from "@/lib/schemas";
@@ -41,7 +42,9 @@ export const POST = withApi({
 
     const periods = new Map<number, { id: number }>();
     for (const month of new Set(items.map((i) => i.month))) {
-      periods.set(month, await resolvePeriod(db, tenantId, year, month));
+      const period = await resolvePeriod(db, tenantId, year, month);
+      await assertBudgetPeriodEditable(db, period.id, `${year}年${month}月`);
+      periods.set(month, period);
     }
 
     const before = await db.budget.findMany({

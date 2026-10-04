@@ -1,0 +1,128 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
+import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
+import {
+  BUDGET_CYCLE_CATEGORIES,
+  computeVariance,
+  nextYearMonth,
+  summarizeVariance,
+  type BudgetCycleCategory,
+} from "@/lib/budget-cycle";
+
+// GET /api/budgets/variance?year=&month= … 予実対比（科目別）と翌月の予算・確定状況（読み取り専用）
+//   当月の予算（自動反映を含む）と実績の差、翌月に登録済みの予算、両月の確定状況、
+//   余りの回し先の既定（予算配分ルール「貯蓄・投資」にひも付けた科目）を返す。
+//   翌月の予算案そのものは、差額の扱いを画面で選びながら lib/budget-cycle.ts で作る。
+export const GET = withApi({
+  role: "viewer",
+  querySchema: z.object({
+    year: z.coerce.number().int(),
+    month: z.coerce.number().int().min(1).max(12),
+  }),
+  handler: async ({ user, db, query }) => {
+    const { tenantId } = user;
+    const { year, month } = query;
+    const next = nextYearMonth(year, month);
+
+    const [period, nextPeriod] = await Promise.all([
+      db.period.findUnique({
+        where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
+        include: { budgetConfirmation: true },
+      }),
+      db.period.findUnique({
+        where: {
+          tenantId_fiscalYear_month: { tenantId, fiscalYear: next.year, month: next.month },
+        },
+        include: { budgetConfirmation: true },
+      }),
+    ]);
+
+    const categoryFilter = { category: { in: [...BUDGET_CYCLE_CATEGORIES] } };
+    const [accounts, budgets, nextBudgets, actuals, loanOverlay, debtOverlay, savingsRule] =
+      await Promise.all([
+        db.account.findMany({
+          where: { tenantId, ...categoryFilter },
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            category: true,
+            soleName: true,
+            corporateName: true,
+          },
+          orderBy: { code: "asc" },
+        }),
+        period
+          ? db.budget.findMany({
+              where: { tenantId, periodId: period.id },
+              select: { accountId: true, amount: true },
+            })
+          : [],
+        nextPeriod
+          ? db.budget.findMany({
+              where: { tenantId, periodId: nextPeriod.id },
+              select: { accountId: true, amount: true },
+            })
+          : [],
+        period
+          ? db.financialRecord.groupBy({
+              by: ["accountId"],
+              where: { tenantId, periodId: period.id },
+              _sum: { amount: true },
+            })
+          : [],
+        computeLoanOverlay(db, tenantId, year),
+        computePersonalAssetDebtOverlay(db, tenantId, year),
+        db.allocationRule.findUnique({
+          where: { tenantId_key: { tenantId, key: "savings" } },
+          select: { accountId: true },
+        }),
+      ]);
+
+    const budgetMap = new Map(budgets.map((b) => [b.accountId, Number(b.amount)]));
+    const nextBudgetMap = new Map(nextBudgets.map((b) => [b.accountId, Number(b.amount)]));
+    const actualMap = new Map(actuals.map((a) => [a.accountId, Number(a._sum.amount ?? 0)]));
+    const overlayMap = new Map<number, number>();
+    for (const o of [...loanOverlay, ...debtOverlay]) {
+      if (o.month !== month) continue;
+      overlayMap.set(o.accountId, (overlayMap.get(o.accountId) ?? 0) + o.amount);
+    }
+
+    const rows = accounts
+      .filter(
+        (a) =>
+          budgetMap.has(a.id) ||
+          nextBudgetMap.has(a.id) ||
+          overlayMap.has(a.id) ||
+          (actualMap.get(a.id) ?? 0) !== 0,
+      )
+      .map((a) => ({
+        ...computeVariance({
+          accountId: a.id,
+          accountCode: a.code,
+          name: a.name,
+          category: a.category as BudgetCycleCategory,
+          budget: budgetMap.get(a.id) ?? null,
+          overlay: overlayMap.get(a.id) ?? 0,
+          actual: actualMap.get(a.id) ?? 0,
+          nextBudget: nextBudgetMap.get(a.id) ?? null,
+        }),
+        soleName: a.soleName,
+        corporateName: a.corporateName,
+      }));
+
+    return NextResponse.json({
+      data: {
+        year,
+        month,
+        next,
+        confirmedAt: period?.budgetConfirmation?.confirmedAt ?? null,
+        nextConfirmedAt: nextPeriod?.budgetConfirmation?.confirmedAt ?? null,
+        transferTargetId: savingsRule?.accountId ?? null,
+        rows,
+        summary: summarizeVariance(rows),
+      },
+    });
+  },
+});
