@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { PageLead, SectionLead } from "@/components/Explain";
+import { SETTINGS_HELP } from "@/lib/help-texts";
 // 区分名は予算管理・実績管理と同じ（lib/labels.ts）
 import { CATEGORY_LABEL } from "@/lib/labels";
 
@@ -422,6 +424,7 @@ function SecuritySection() {
             {mfaEnabled ? "有効" : "無効"}
           </span>
         </div>
+        <SectionLead className="mt-2 mb-0">{SETTINGS_HELP.mfa}</SectionLead>
         <ol className="space-y-1 text-sm text-slate-600 mt-3 mb-4 list-decimal list-inside">
           <li>「シークレット発行」を押す</li>
           <li>表示されたシークレットを認証アプリに登録</li>
@@ -692,10 +695,7 @@ function AccountNamesSection() {
       <div className="flex items-start justify-between mb-2">
         <div>
           <h2 className="section-title">科目名設定</h2>
-          <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            家庭科目名と区分（収入・固定費など）、および個人事業主モード・法人モードでの表示名をここで変更できます。
-            モード別表示名を空欄にすると家庭科目名がそのまま使われます。既定値は勘定科目変換マスタ（account-master-mapping.md）に基づきます。
-          </p>
+          <SectionLead className="mt-1 mb-0">{SETTINGS_HELP.accountNames}</SectionLead>
         </div>
         <button
           onClick={save}
@@ -1034,6 +1034,7 @@ function SettingsContent() {
     <AppShell>
       <div className="mb-5">
         <h1 className="page-title">設定</h1>
+        <PageLead>{SETTINGS_HELP.page}</PageLead>
       </div>
 
       {/* タブ */}

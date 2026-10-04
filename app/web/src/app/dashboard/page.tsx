@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { HelpCircle } from "lucide-react";
 import {
   PieChart,
   Pie,
@@ -20,9 +19,11 @@ import { downloadSvgAsPng } from "@/lib/export-client";
 import { KpiCards } from "@/components/KpiCards";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode, hasSwitchedViewMode } from "@/lib/use-view-mode";
 import { computeStepChecklist } from "@/lib/step-checklist";
 import { DEFAULT_FORECAST_METHOD, FORECAST_METHODS } from "@/lib/forecast-methods";
+import { DASHBOARD_HELP, textFor } from "@/lib/help-texts";
 
 type TrendMonth = {
   key: string;
@@ -102,9 +103,10 @@ function StepChecklistCard() {
 
   return (
     <div className="card mb-6">
-      <h2 className="text-sm font-semibold text-slate-700 mb-3">
+      <h2 className="text-sm font-semibold text-slate-700 mb-1">
         ステップ進捗（{doneCount} / {items.length}）
       </h2>
+      <SectionLead>{DASHBOARD_HELP.steps}</SectionLead>
       <ol className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
         {items.map((i) => (
           <li
@@ -154,6 +156,7 @@ export default function DashboardPage() {
     placeholderData: (prev) => prev,
   });
 
+  const selectedMethod = FORECAST_METHODS.find((m) => m.value === method);
   const months = trend?.months ?? [];
   const hasForecast = months.some((m) => m.isForecast);
 
@@ -169,14 +172,13 @@ export default function DashboardPage() {
     <AppShell>
       <div className="mb-6">
         <h1 className="page-title">ダッシュボード</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          {sysMode === "household" ? "収支 KPI・構成比" : "財務 KPI・構成比"}
-        </p>
+        <PageLead>{textFor(DASHBOARD_HELP.page, sysMode)}</PageLead>
       </div>
 
       <StepChecklistCard />
 
       <div className="card mb-6">
+        <SectionLead>{textFor(DASHBOARD_HELP.kpi, sysMode)}</SectionLead>
         <KpiCards mode={sysMode} onPeriodChange={setKpiPeriod} />
       </div>
 
@@ -224,26 +226,6 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-1.5">
           <label className="text-xs font-medium text-slate-600 whitespace-nowrap">予測手法</label>
-          {/* 各手法の違いを説明する（ホバー / フォーカスで表示） */}
-          <span className="group relative inline-flex">
-            <button
-              type="button"
-              aria-label="予測手法の説明"
-              className="inline-flex text-slate-400 hover:text-slate-600 focus:text-slate-600 focus:outline-none"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-            </button>
-            <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-80 rounded-md bg-slate-800 px-3 py-2 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover:block group-focus-within:block">
-              実績が未入力の月を、どの計算方法で見積もるかを選びます。
-              <span className="mt-1.5 block space-y-1">
-                {FORECAST_METHODS.map((m) => (
-                  <span key={m.value} className="block">
-                    <span className="font-semibold">{m.label}</span>：{m.help}
-                  </span>
-                ))}
-              </span>
-            </span>
-          </span>
           <select
             value={method}
             onChange={(e) => setMethod(e.target.value)}
@@ -266,21 +248,32 @@ export default function DashboardPage() {
         </button>
       </div>
 
+      {/* 予測手法の説明は、選んでいる手法の分だけ常に出す（手法を変えると切り替わる） */}
+      <SectionLead className="-mt-4 mb-6">
+        {DASHBOARD_HELP.forecast}
+        {selectedMethod && (
+          <>
+            {" "}
+            <span className="font-semibold text-slate-600">{selectedMethod.label}</span>：
+            {selectedMethod.help}
+          </>
+        )}
+      </SectionLead>
+
       {isLoading && <LoadingSpinner />}
 
       {trend && (
         <div className="grid gap-6 lg:grid-cols-2 mb-6">
           <div className="card">
             <h2 className="section-title mb-1">カテゴリ構成比</h2>
-            <p className="text-xs text-slate-400 mb-3">
+            <SectionLead>
+              {textFor(DASHBOARD_HELP.composition, sysMode)}
               {hasForecast
                 ? "実績が未入力の月は予測値を含めて集計しています。"
                 : "表示範囲の実績を集計しています。"}
-            </p>
+            </SectionLead>
             {totals.length === 0 ? (
-              <p className="text-sm text-slate-400 py-8 text-center">
-                この期間に集計できるデータがありません。
-              </p>
+              <p className="text-sm text-slate-400 py-8 text-center">{DASHBOARD_HELP.empty}</p>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={280}>
@@ -322,9 +315,10 @@ export default function DashboardPage() {
 
           <div className="card">
             <h2 className="section-title mb-1">月別カテゴリ内訳（万円）</h2>
-            <p className="text-xs text-slate-400 mb-3">
+            <SectionLead>
+              {textFor(DASHBOARD_HELP.monthly, sysMode)}
               薄い色の月は予測値です（実績が未入力の月を予測で補完しています）。
-            </p>
+            </SectionLead>
             <div ref={chartRef}>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={months} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
@@ -365,9 +359,10 @@ export default function DashboardPage() {
             月次収支サマリー（
             {compRange === "year" ? `${yearForComp}年度` : `対象月±${TREND_BACK}か月`}）
           </h2>
-          <p className="text-xs text-slate-400 px-4 pb-2">
+          <SectionLead className="px-4 pb-2">
+            {textFor(DASHBOARD_HELP.summary, sysMode)}
             支出が収入を上回った月は赤背景で表示しています。実績が未入力の月は予測値（「予測」表示）です。
-          </p>
+          </SectionLead>
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">

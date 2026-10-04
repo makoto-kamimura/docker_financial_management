@@ -10,6 +10,8 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
+import { SectionLead } from "@/components/Explain";
+import { BUDGET_HELP } from "@/lib/help-texts";
 
 type AccountRef = { id: number; code: string; name: string; category: string };
 
@@ -170,12 +172,7 @@ function AllocationRulesSection() {
       <div className="flex items-start justify-between gap-3 mb-2">
         <div>
           <h2 className="section-title">予算配分ルール</h2>
-          <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            収入に対する各項目の割当割合（%）です。初期値はファイナンシャルプランナーが推奨する
-            配分（50/30/20 ルールに沿った目安）が入っています。対応科目を紐付けると、下の
-            「配分提案」から推奨額をその科目の予算へ一括反映でき、明細一覧の表にも 「適正
-            ¥…」として表示されます。
-          </p>
+          <SectionLead className="mt-1">{BUDGET_HELP.allocationRules}</SectionLead>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           <button
@@ -424,10 +421,8 @@ function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
   return (
     <div className="card mt-5">
       <h2 className="section-title mb-1">配分提案</h2>
-      <p className="text-xs text-slate-500 mb-4">
-        収入額に上のルールの割合を掛けた推奨額です。{year}
-        年度の予算へ一括反映できます。反映しなくても、明細一覧の表には「適正
-        ¥…」として表示されます。
+      <SectionLead className="mb-4">
+        {BUDGET_HELP.allocationProposal}
         {basis === "manual" ? (
           <>
             {" "}
@@ -441,7 +436,7 @@ function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
             「配分可能額」をもとに算出します。
           </>
         )}
-      </p>
+      </SectionLead>
 
       <div className="flex flex-wrap items-end gap-4 mb-4">
         <div className="flex flex-col gap-1 w-28">

@@ -35,6 +35,7 @@ import {
   Button,
   Card,
   EmptyText,
+  Lead,
   Field,
   Input,
   Notice,
@@ -44,6 +45,7 @@ import {
   TabBar,
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
+import { BANK_HELP } from "../shared/help-texts";
 import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
 import { BANK_ACCOUNT_TYPE_LABEL } from "../shared/labels";
 
@@ -53,12 +55,6 @@ const TABS = [
   ["list", "明細一覧"],
   ["flow", "振替"],
 ] as const;
-
-// 口座サマリの残高の説明（web 版の BALANCE_HELP_TEXT と同じ）
-const BALANCE_HELP_TEXT =
-  "残高は「取り込んだ明細の増減合計 + 差額」で表示しています。取得できる明細をすべて登録したのに実際の残高と" +
-  "差異がある場合は、取込開始前から口座にあった残高（期首残高）などが含まれていないためです。" +
-  "口座の「編集」から差額を入力してください。差額は総資産サマリ・資金繰り・残高推移グラフにも反映されます。";
 
 // 紐付き勘定科目に選べるのは資産・負債のみ（web 版と同じ）
 const LINKABLE = ["ASSET", "LIABILITY"] as const;
@@ -112,7 +108,6 @@ export function BankAccountsScreen({ viewMode }: Props) {
   } | null>(null);
   // 残高が変わったら資金繰り・残高推移を取り直すためのキー
   const [reloadKey, setReloadKey] = useState(0);
-  const [showHelp, setShowHelp] = useState(false);
   const [form, setForm] = useState<AccountForm | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pickingAccount, setPickingAccount] = useState(false);
@@ -276,15 +271,13 @@ export function BankAccountsScreen({ viewMode }: Props) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         {error && <Notice tone="error">{error}</Notice>}
+        <Lead>{BANK_HELP.page}</Lead>
 
         {tab === "summary" && (
           <>
             <Card>
               <View style={s.summaryHead}>
                 <Text style={s.title}>口座サマリ</Text>
-                <TouchableOpacity onPress={() => setShowHelp((v) => !v)} hitSlop={8}>
-                  <Text style={s.helpIcon}>?</Text>
-                </TouchableOpacity>
                 <Button
                   small
                   label="銀行追加"
@@ -295,7 +288,8 @@ export function BankAccountsScreen({ viewMode }: Props) {
                   style={{ marginLeft: "auto" }}
                 />
               </View>
-              {showHelp && <Text style={s.help}>{BALANCE_HELP_TEXT}</Text>}
+              {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
+              <Text style={s.help}>{BANK_HELP.balance}</Text>
               {accounts.length === 0 ? (
                 <Text style={s.muted}>
                   口座が登録されていません。「銀行追加」から追加してください。
@@ -370,13 +364,11 @@ export function BankAccountsScreen({ viewMode }: Props) {
               )}
             </Card>
 
-            <SectionTitle>表示対象</SectionTitle>
+            <SectionTitle note={BANK_HELP.target}>表示対象</SectionTitle>
             {periodPicker}
 
             <Card>
-              <SectionTitle
-                note={`${year}年${month}月の前後6か月。実線＝実績、破線＝資金移動の設定からの推測。${granularity === "day" ? "日次は各日の残高。" : ""}`}
-              >
+              <SectionTitle note={`${year}年${month}月の前後6か月。${BANK_HELP.trend}`}>
                 残高推移
               </SectionTitle>
               <Pills
@@ -404,7 +396,7 @@ export function BankAccountsScreen({ viewMode }: Props) {
               )}
             </Card>
 
-            <SectionTitle note="引き落としに間に合わせるための預け入れ期限と必要額を表示します。">
+            <SectionTitle note={BANK_HELP.funding}>
               資金繰り（{year}年{month}月から3か月）
             </SectionTitle>
             <FundingPlanView year={year} month={month} months={3} reloadKey={reloadKey} />
@@ -582,17 +574,6 @@ const s = StyleSheet.create({
   content: { padding: 14, paddingBottom: 32 },
   summaryHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
   title: { fontSize: 14, fontWeight: "700", color: "#1e293b" },
-  helpIcon: {
-    fontSize: 10,
-    color: "#64748b",
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    width: 16,
-    height: 16,
-    textAlign: "center",
-    lineHeight: 14,
-  },
   help: { fontSize: 11, color: "#475569", lineHeight: 17, marginBottom: 8 },
   muted: { fontSize: 11, color: "#94a3b8", lineHeight: 16 },
   warn: { fontSize: 11, color: "#d97706" },

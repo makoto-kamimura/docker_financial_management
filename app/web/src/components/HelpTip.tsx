@@ -8,10 +8,13 @@ export function HelpTip({
   title,
   children,
   className = "",
+  align = "left",
 }: {
   title: string;
   children: React.ReactNode;
   className?: string;
+  /** 吹き出しを「?」の左端から右へ出すか、右端から左へ出すか（画面の右寄りに置くときは right） */
+  align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
@@ -45,7 +48,9 @@ export function HelpTip({
         ?
       </button>
       {open && (
-        <span className="absolute left-0 top-6 z-50 block w-72 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-lg">
+        <span
+          className={`absolute ${align === "right" ? "right-0" : "left-0"} top-6 z-50 block w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 text-left font-normal normal-case tracking-normal shadow-lg`}
+        >
           <span className="mb-1 block text-xs font-bold text-slate-800">{title}</span>
           <span className="block space-y-1.5 text-[11px] leading-relaxed text-slate-600">
             {children}

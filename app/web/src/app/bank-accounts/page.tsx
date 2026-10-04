@@ -2,12 +2,14 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useState } from "react";
-import { HelpCircle, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { FundingPlanPanel } from "@/components/FundingPlanPanel";
+import { PageLead, SectionLead } from "@/components/Explain";
+import { BANK_HELP } from "@/lib/help-texts";
 import {
   BalanceTrendChart,
   type TrendAccount,
@@ -136,14 +138,6 @@ type EditAccountForm = {
   /** 表示用: 明細の増減合計 */
   transactionSum: number;
 };
-
-// 口座サマリの残高の説明（差額入力の案内）
-const BALANCE_HELP_TEXT =
-  "残高は「取り込んだ明細の増減合計 + 差額」で表示しています。" +
-  "取得できる明細をすべて登録したのに実際の残高と差異がある場合は、" +
-  "取込開始前から口座にあった残高（期首残高）などが含まれていないためです。" +
-  "口座カードの編集（鉛筆アイコン）から差額を入力してください。" +
-  "差額は総資産サマリ・資金繰り・残高推移グラフにも反映されます。";
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
@@ -304,6 +298,7 @@ function BankAccountsContent() {
     <AppShell>
       <div className="mb-4">
         <h1 className="page-title">銀行管理</h1>
+        <PageLead>{BANK_HELP.page}</PageLead>
       </div>
 
       {/* タブ（口座サマリと資金移動フロー図は「サマリ」タブにまとめた） */}
@@ -329,17 +324,6 @@ function BankAccountsContent() {
         <div className="card mb-6">
           <div className="flex flex-wrap items-center gap-3 mb-4">
             <h2 className="section-title">口座サマリ</h2>
-            {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
-            <span className="relative inline-flex items-center group">
-              <HelpCircle
-                className="w-4 h-4 text-slate-400 cursor-help"
-                aria-label="残高の計算方法について"
-              />
-              <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-80 rounded-md bg-slate-800 px-2.5 py-2 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover:block">
-                {BALANCE_HELP_TEXT}
-              </span>
-            </span>
-            <p className="text-xs text-slate-400">登録口座の残高合計</p>
             <button
               onClick={() => {
                 setAccountError(null);
@@ -350,6 +334,8 @@ function BankAccountsContent() {
               銀行追加
             </button>
           </div>
+          {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
+          <SectionLead className="-mt-2 mb-4">{BANK_HELP.balance}</SectionLead>
           {isLoading ? (
             <p className="text-slate-400 text-sm">読み込み中…</p>
           ) : accounts.length === 0 ? (
@@ -475,7 +461,10 @@ function BankAccountsContent() {
           年月は残高推移・資金繰り（サマリ）とフロー図（振替）の起点を兼ねるため両方で出す。 */}
       {(tab === "summary" || tab === "flow") && (
         <div className="flex flex-wrap items-center gap-3 mb-4">
-          <h2 className="section-title">{tab === "flow" ? "振替" : "表示対象"}</h2>
+          <h2 className="section-title mb-0">{tab === "flow" ? "振替" : "表示対象"}</h2>
+          <p className="text-xs text-slate-500">
+            {tab === "flow" ? BANK_HELP.transfer : BANK_HELP.target}
+          </p>
           {tab === "flow" && (
             <div className="flex rounded-lg overflow-hidden border border-slate-200 text-sm h-9 ml-auto">
               {(["config", "actual"] as const).map((s) => (
@@ -524,8 +513,7 @@ function BankAccountsContent() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">
             <h3 className="section-title">残高推移</h3>
             <p className="text-xs text-slate-400">
-              {flowYear}年{flowMonth}月の前後6か月。実線＝実績、破線＝資金移動の設定からの推測。
-              {trendGranularity === "day" && "日次は各日の残高。"}
+              {flowYear}年{flowMonth}月の前後6か月
             </p>
             {/* 月末残高だけでは月の途中の上下（給与の入金前後・引き落とし日）が潰れるため日次に切り替えられる */}
             <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5 ml-auto">
@@ -545,6 +533,7 @@ function BankAccountsContent() {
               ))}
             </div>
           </div>
+          <SectionLead>{BANK_HELP.trend}</SectionLead>
           {!trend ? (
             <div className="flex items-center justify-center h-48 text-sm text-slate-400">
               読み込み中…
@@ -573,9 +562,7 @@ function BankAccountsContent() {
             <h2 className="section-title">
               資金繰り（{flowYear}年{flowMonth}月から3か月）
             </h2>
-            <p className="text-xs text-slate-400">
-              引き落としに間に合わせるための預け入れ期限と必要額を表示します。
-            </p>
+            <p className="text-xs text-slate-500">{BANK_HELP.funding}</p>
           </div>
           <FundingPlanPanel year={flowYear} month={flowMonth} months={3} />
         </>
@@ -598,7 +585,8 @@ function BankAccountsContent() {
       {tab === "flow" &&
         (flowSource === "config" ? (
           <div className="card mb-6">
-            <h3 className="section-title mb-4">口座間 資金フロー図</h3>
+            <h3 className="section-title mb-1">口座間 資金フロー図</h3>
+            <SectionLead className="mb-4">{BANK_HELP.flow}</SectionLead>
             {!flow ? (
               <div className="flex items-center justify-center h-48 text-sm text-slate-400">
                 読み込み中…
@@ -613,14 +601,10 @@ function BankAccountsContent() {
           </div>
         ) : (
           <div className="card mb-6">
-            <h3 className="section-title mb-4">
+            <h3 className="section-title mb-1">
               {flowYear}年{flowMonth}月 実績フロー図
             </h3>
-            <p className="text-xs text-slate-400 mb-3">
-              科目に紐付け済み（「明細一覧」タブで紐付け）の入出金明細と資金移動ルールから生成しています。
-              対象月の実績がまだ無い項目は、直近 {monthlyFlow?.historyMonths ?? 3}{" "}
-              か月の平均から推測した金額を破線（アンバー）で表示します。
-            </p>
+            <SectionLead>{BANK_HELP.monthlyFlow}</SectionLead>
             {monthlyFlowLoading || !monthlyFlow ? (
               <div className="flex items-center justify-center h-48 text-sm text-slate-400">
                 読み込み中…
@@ -668,6 +652,7 @@ function BankAccountsContent() {
               振替を登録（銀行 → 銀行）
             </button>
           </div>
+          {scheduleMode === "list" && <SectionLead>{BANK_HELP.schedule}</SectionLead>}
 
           {/* 一覧はフロー図のベース切替（設定／実績）に関係なく、登録済みのルールをそのまま並べる */}
           {scheduleMode === "list" && flow && flow.transfers.length > 0 && (
@@ -725,14 +710,11 @@ function BankAccountsContent() {
           )}
 
           {scheduleMode === "calendar" && (
-            <p className="text-xs text-slate-400 mb-2">
-              毎月の引き落とし・入金の予定日を確認し、日付をクリックして追加・削除できます。
-              対象口座は「すべての銀行」で全口座を俯瞰できます。
-              {/* 実績（明細）と取り違えないよう、更新されるのは毎月のルールだけだと明示する */}
-              <br />
-              ここで追加・削除できるのは固定入出金（毎月の資金移動ルール）の情報のみで、
-              取り込み済みの明細や口座残高は変わりません。実際の入出金の記録は「明細一覧」タブで行います。
-            </p>
+            // 実績（明細）と取り違えないよう、更新されるのは毎月のルールだけだと明示する
+            <SectionLead>
+              {BANK_HELP.scheduleCalendar}
+              対象口座を「すべての銀行」にすると、全口座の予定をまとめて見られます。
+            </SectionLead>
           )}
 
           {/* カレンダー（スケジュールモードのみ）と、取込済み明細の振替紐付け。

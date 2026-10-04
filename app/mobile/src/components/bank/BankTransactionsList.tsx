@@ -44,28 +44,9 @@ import {
   SectionTitle,
   SelectField,
   SheetModal,
+  TermList,
 } from "../ui";
-
-// 列の説明（web 版と同じ文言）
-const POST_HELP_TEXT =
-  "「転記する」を押すと、同じ摘要で科目未設定の他の明細にも自動で科目が設定されます。" +
-  "また摘要のキーワードを学習し、次回以降のCSV取込・自動同期でも自動的に科目が分類されます" +
-  "（分類されるのは科目のみで、転記は明細ごとに別途手動で行う必要があります）。";
-const CATEGORY_HELP_TEXT =
-  "科目は「そのお金が最終的に何に使われたか」で登録します。" +
-  "カード・電子マネーへのチャージや引き落としなど、他の項目で既に計上している支払いには" +
-  "科目を紐付けないでください（二重計上になります）。";
-const CHARGE_HELP_TEXT =
-  "この出金がデビットカード・プリペイドカード・電子マネー（Suica・PayPay 等）へのチャージなら、" +
-  "チャージ先を選んで指定します。チャージは支出ではなく資金の移動なので、指定した明細は収入・支出に" +
-  "計上されなくなり、付いている科目は外れます（実際の支出はチャージ先の利用明細で計上します）。";
-const RECURRING_HELP_TEXT =
-  "種別を選んで「登録する」を押すと、この明細を毎月の支払い・入金項目として登録します" +
-  "（毎月の日付・金額・摘要は明細の内容を引き継ぎます）。登録した項目は振替タブの" +
-  "スケジュールと資金フローに反映されます。";
-const TRANSFER_HELP_TEXT =
-  "口座間の振替として登録された明細です。自己資金の移動なので収入・支出には計上せず、" +
-  "科目の紐付けと実績への転記はできません（残高にのみ反映されます）。削除すると相手口座の明細も一緒に削除されます。";
+import { BANK_HELP, BANK_TERMS } from "../../shared/help-texts";
 
 const PAGE_SIZE = 30;
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -98,7 +79,6 @@ export function BankTransactionsList({
   const [cards, setCards] = useState<LinkedAccount[]>([]);
   const [page, setPage] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
   const [manual, setManual] = useState({
     date: todayIso(),
     description: "",
@@ -348,19 +328,8 @@ export function BankTransactionsList({
         <Button label="登録する" onPress={submitManual} />
       </Card>
 
-      <TouchableOpacity onPress={() => setShowHelp((v) => !v)}>
-        <Text style={s.helpToggle}>
-          {showHelp ? "▲ 説明を閉じる" : "？ 科目・転記・チャージ・固定入出金について"}
-        </Text>
-      </TouchableOpacity>
-      {showHelp && (
-        <Card>
-          <Text style={s.help}>【科目】{CATEGORY_HELP_TEXT}</Text>
-          <Text style={s.help}>【実績】{POST_HELP_TEXT}</Text>
-          <Text style={s.help}>【チャージ先】{CHARGE_HELP_TEXT}</Text>
-          <Text style={s.help}>【固定入出金】{RECURRING_HELP_TEXT}</Text>
-        </Card>
-      )}
+      <Notice>{BANK_HELP.list}</Notice>
+      <TermList terms={BANK_TERMS} label="科目・転記・チャージ・固定入出金の説明" />
 
       {txns.length > 0 && (
         <Text style={s.count}>
@@ -535,7 +504,7 @@ function TxnActionsSheet({
       onClose={onClose}
     >
       <Text style={s.sheetSection}>チャージ先</Text>
-      {txn.transferGroupId && <Text style={s.help}>{TRANSFER_HELP_TEXT}</Text>}
+      {txn.transferGroupId && <Text style={s.help}>{BANK_HELP.transferBadge}</Text>}
       {txn.chargeToAccountId ? (
         <View style={s.sheetRow}>
           <Text style={s.sheetText}>
@@ -631,7 +600,6 @@ function TxnActionsSheet({
 }
 
 const s = StyleSheet.create({
-  helpToggle: { fontSize: 12, color: "#4f46e5", marginBottom: 8 },
   help: { fontSize: 11, color: "#475569", lineHeight: 17, marginBottom: 6 },
   count: { fontSize: 11, color: "#94a3b8", marginBottom: 6 },
   row: {

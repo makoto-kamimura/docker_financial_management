@@ -6,21 +6,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
-import { HelpCircle } from "lucide-react";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
+import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
+import { BANK_HELP, BANK_TERMS } from "@/lib/help-texts";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "@/lib/linked-account-type";
 import type { LinkedAccountType } from "@/lib/linked-account-type";
 import {
   TRANSFER_CHANNEL_LABELS as CHANNEL_LABELS,
   TXN_SOURCE_LABEL as SOURCE_LABELS,
 } from "@/lib/labels";
-
-// 「転記する」を押した瞬間に発火する自動反映の説明（一括適用・学習ルールの両方）
-const POST_HELP_TEXT =
-  "「転記する」を押すと、同じ摘要で科目未設定の他の明細にも自動で科目が設定されます。" +
-  "また摘要のキーワードを学習し、次回以降のCSV取込・自動同期でも自動的に科目が分類されます" +
-  "（分類されるのは科目のみで、転記は明細ごとに別途手動で行う必要があります）。";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
@@ -96,27 +91,6 @@ const PARTNER_ACCOUNT_CHANNELS = ["AUTO_DEBIT", "BANK_TRANSFER"];
 // 明細一覧のページング（実績管理の履歴と同じ 30 件単位）
 const TXN_PAGE_SIZE = 30;
 
-// 明細一覧の「科目」列の説明（二重計上を避けるための案内）
-export const CATEGORY_HELP_TEXT =
-  "科目は「そのお金が最終的に何に使われたか」で登録します。" +
-  "カード・電子マネーへのチャージや引き落としなど、他の項目で既に計上している支払いには" +
-  "科目を紐付けないでください（二重計上になります）。" +
-  "他項目で計上されていない最終経路での支払い金額と項目で登録をお願いします。";
-
-// 明細一覧の「チャージ先」列の説明
-const CHARGE_HELP_TEXT =
-  "この出金がデビットカード・プリペイドカード・電子マネー（Suica・PayPay 等）へのチャージなら、" +
-  "チャージ先を選んで「指定」を押します。チャージ先の履歴が表示されるので、対になる入金明細が" +
-  "あれば選んで紐付けます（チャージ先に入金の記録が無ければ「紐づけずに指定」で構いません）。" +
-  "チャージは支出ではなく資金の移動なので、指定した明細は収入・支出に計上されなくなり、" +
-  "付いている科目は外れます（実際の支出はチャージ先の利用明細で計上します）。口座残高には従来どおり反映されます。";
-
-// 明細一覧の「固定入出金」列の説明
-const RECURRING_HELP_TEXT =
-  "種別を選んで「登録する」を押すと、この明細を毎月の支払い・入金項目として登録します" +
-  "（毎月の日付・金額・摘要は明細の内容を引き継ぎます）。登録した項目は資金移動タブの" +
-  "カレンダーと資金フローに反映されます。";
-
 const BLANK_MANUAL = {
   date: now.toISOString().slice(0, 10),
   description: "",
@@ -131,25 +105,6 @@ const BLANK_BANK_TRANSFER = {
   amount: "",
   description: "",
 };
-
-// 明細一覧のヘッダに出す説明（ここに無い列はヘルプアイコンを出さない）
-const HEADER_HELP_TEXT: Record<string, string> = {
-  科目: CATEGORY_HELP_TEXT,
-  実績: POST_HELP_TEXT,
-  チャージ先: CHARGE_HELP_TEXT,
-  固定入出金: RECURRING_HELP_TEXT,
-};
-
-// 明細一覧の「振替」バッジの説明
-const TRANSFER_HELP_TEXT =
-  "口座間の振替として登録された明細です。自己資金の移動なので収入・支出には計上せず、" +
-  "科目の紐付けと実績への転記はできません（残高にのみ反映されます）。削除すると相手口座の明細も一緒に削除されます。";
-
-// 取込済み明細の振替紐付け（案 C）の説明
-const TRANSFER_MATCH_HELP_TEXT =
-  "両方の口座の CSV を取り込むと、1 回の資金移動が「出金側」と「入金側」の 2 明細に分かれて入ります。" +
-  "そのままどちらも科目に紐付けると支出と収入で二重に計上されるため、対になる明細どうしを振替として紐付けます。" +
-  "紐付けても明細は消えないので口座残高は変わりません。変わるのは収入・支出として集計されるかどうかだけです。";
 
 // 振替候補の日付のずれの選択肢（他行宛の振込は着金が翌営業日以降になることがある）
 const DAY_GAP_OPTIONS = [0, 1, 3, 7] as const;
@@ -945,6 +900,9 @@ export function BankTransactionsPanel({
             </p>
           )}
 
+          <InfoNote className="mb-2">{BANK_HELP.list}</InfoNote>
+          <TermDetails terms={BANK_TERMS} className="mb-3" />
+
           {/* 明細テーブル（列が多いので横スクロールさせる。固定幅にしないと右端の列が切れる） */}
           <div className="card overflow-hidden p-0">
             <div className="overflow-x-auto">
@@ -966,17 +924,7 @@ export function BankTransactionsPanel({
                         key={h}
                         className="px-4 py-3 text-left text-xs font-semibold text-slate-600"
                       >
-                        {HEADER_HELP_TEXT[h] ? (
-                          <span className="relative inline-flex items-center gap-1 group">
-                            {h}
-                            <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-                            <span className="pointer-events-none absolute right-0 top-full z-20 mt-1.5 hidden w-64 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover:block">
-                              {HEADER_HELP_TEXT[h]}
-                            </span>
-                          </span>
-                        ) : (
-                          h
-                        )}
+                        {h}
                       </th>
                     ))}
                   </tr>
@@ -999,13 +947,9 @@ export function BankTransactionsPanel({
                         <td className="px-4 py-2.5">
                           {/* 口座間振替は自己資金の移動なので科目に紐付けない（二重計上の防止） */}
                           {t.transferGroupId ? (
-                            <span className="relative inline-flex items-center gap-1 group/transfer">
+                            <span className="inline-flex items-center gap-1">
                               <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
                                 振替
-                              </span>
-                              <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-                              <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-64 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover/transfer:block">
-                                {TRANSFER_HELP_TEXT}
                               </span>
                               {/* 誤って紐付けた場合の戻し道。明細は残るので残高は変わらない */}
                               <button
@@ -1017,16 +961,15 @@ export function BankTransactionsPanel({
                             </span>
                           ) : t.chargeToAccountId ? (
                             // チャージも自己資金の移動。実際の支出はチャージ先の利用明細で計上する
-                            <span className="relative inline-flex items-center gap-1 group/charge">
+                            <span className="inline-flex items-center gap-1">
                               <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
                                 チャージ
                               </span>
-                              <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-                              <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-64 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover/charge:block">
-                                {t.chargeToAccount
-                                  ? `${t.chargeToAccount.name} へのチャージ。${CHARGE_HELP_TEXT}`
-                                  : CHARGE_HELP_TEXT}
-                              </span>
+                              {t.chargeToAccount && (
+                                <span className="text-xs text-slate-500 whitespace-nowrap">
+                                  → {t.chargeToAccount.name}
+                                </span>
+                              )}
                             </span>
                           ) : (
                             <select
@@ -1261,6 +1204,7 @@ export function BankTransactionsPanel({
       {/* ── CSV インポートタブ ───────────────────────────────── */}
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
+          <SectionLead className="-mb-3">{BANK_HELP.csv}</SectionLead>
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -1917,12 +1861,6 @@ export function BankTransactionsPanel({
             <div className="card mb-4">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">
                 <h3 className="text-xs font-semibold text-slate-600">取込済み明細の振替紐付け</h3>
-                <span className="relative inline-flex items-center group/match">
-                  <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-                  <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-80 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover/match:block">
-                    {TRANSFER_MATCH_HELP_TEXT}
-                  </span>
-                </span>
                 <div className="ml-auto flex items-center gap-2">
                   <label className="text-xs text-slate-500">日付のずれ</label>
                   <select
@@ -1938,6 +1876,7 @@ export function BankTransactionsPanel({
                   </select>
                 </div>
               </div>
+              <SectionLead>{BANK_HELP.transferMatch}</SectionLead>
 
               {candidates === undefined ? (
                 <p className="text-xs text-slate-400">候補を探しています…</p>

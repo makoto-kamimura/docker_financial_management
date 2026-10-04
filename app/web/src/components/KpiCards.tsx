@@ -2,9 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { HelpCircle } from "lucide-react";
+import { HelpTip } from "@/components/HelpTip";
 import type { ViewMode } from "@/lib/display-name";
 import { KPI_LABELS } from "@/lib/mode-labels";
+import { kpiTermHelp } from "@/lib/help-texts";
 
 type Kpi = {
   period: string;
@@ -44,24 +45,6 @@ const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%
 // 予算行の文言。予算が未登録の月は「予算 未設定」を出して欠落と 0 円を区別する。
 const budgetSub = (amount: number | undefined, rate: number | null, rateLabel: string) =>
   amount == null ? "予算 未設定" : `予算 ${yen(amount)}（${rateLabel} ${pct(rate)}）`;
-
-// YTD / MoM / YoY の意味説明（?アイコンのツールチップ）
-const helpText = (mode: ViewMode) => {
-  const income = KPI_LABELS[mode].revenue;
-  return {
-    ytd:
-      `当年累計（Year To Date）。同じ年の1月から対象月までの${income}を合計した金額です。` +
-      `対象月を切り替えると、その月までの累計に変わります。` +
-      `「年間見込み」は残りの月を過去の実績（直近3か月の移動平均）から予測して足した年間の想定額、` +
-      `「達成率」は想定額に対する現時点の累計の割合です。`,
-    mom:
-      `前月比（Month over Month）。対象月の${income}が前月から何%増減したかを示します。` +
-      `＋は増加、−は減少。前月のデータが無い月は「—」と表示されます。`,
-    yoy:
-      `前年同月比（Year over Year）。対象月の${income}を前年の同じ月と比べた増減率です。` +
-      `季節変動の影響を受けにくく、前月比より長期の傾向を掴めます。前年同月のデータが無い月は「—」です。`,
-  };
-};
 
 // "2026-07" → "2026年7月"
 const periodLabel = (key: string) => {
@@ -158,6 +141,7 @@ function KpiCard({
   sub,
   budget,
   help,
+  helpAlign,
   warn,
 }: {
   label: string;
@@ -165,8 +149,10 @@ function KpiCard({
   sub?: string;
   /** 対象月の予算（実績の下に並べて表示する） */
   budget?: string;
-  /** 指定するとラベル横に ? アイコンを出し、ホバー/フォーカスで説明を表示する */
+  /** 指定するとラベル横に ? を出し、押すと説明を表示する */
   help?: string;
+  /** 説明の吹き出しを左へ開く（グリッドの右寄りのカード用） */
+  helpAlign?: "left" | "right";
   /** true のとき赤色強調 + 警告アイコンを表示する（当月赤字警告） */
   warn?: boolean;
 }) {
@@ -184,18 +170,9 @@ function KpiCard({
         {warn && <span aria-hidden="true">⚠</span>}
         {label}
         {help && (
-          <span className="group relative inline-flex">
-            <button
-              type="button"
-              aria-label={`${label}の説明`}
-              className="inline-flex text-slate-400 hover:text-slate-600 focus:text-slate-600 focus:outline-none"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-            </button>
-            <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-64 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal normal-case leading-relaxed tracking-normal text-white shadow-lg group-hover:block group-focus-within:block">
-              {help}
-            </span>
-          </span>
+          <HelpTip title={label} align={helpAlign}>
+            {help}
+          </HelpTip>
         )}
       </span>
       <span
@@ -249,7 +226,7 @@ export function KpiCards({
 
   if (!kpi) return <p className="text-sm text-slate-400 py-4">KPI データがありません。</p>;
 
-  const help = helpText(mode);
+  const help = kpiTermHelp(mode);
   const labels = KPI_LABELS[mode];
   // 当年累計カードの補助表示（年間の着地見込みと現時点の達成率）
   const ytdSub = annual
@@ -310,9 +287,15 @@ export function KpiCards({
             sub={ytdSub}
             budget={ytdProgress}
             help={help.ytd}
+            helpAlign="right"
           />
           <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} help={help.mom} />
-          <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} help={help.yoy} />
+          <KpiCard
+            label="前年同月比 (YoY)"
+            value={pct(kpi.yoy)}
+            help={help.yoy}
+            helpAlign="right"
+          />
         </div>
       </div>
     );
@@ -345,9 +328,10 @@ export function KpiCards({
           sub={ytdSub}
           budget={ytdProgress}
           help={help.ytd}
+          helpAlign="right"
         />
         <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} help={help.mom} />
-        <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} help={help.yoy} />
+        <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} help={help.yoy} helpAlign="right" />
       </div>
     </div>
   );

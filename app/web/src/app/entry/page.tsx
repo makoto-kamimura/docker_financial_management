@@ -5,7 +5,9 @@ import { useRef, useState, useMemo } from "react";
 import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
+import { ENTRY_HELP, textFor } from "@/lib/help-texts";
 import { useMonthColumnScroll } from "@/hooks/useMonthColumnScroll";
 import { displayName } from "@/lib/display-name";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
@@ -523,7 +525,7 @@ export default function EntryPage() {
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="page-title">実績管理</h1>
-          <p className="text-sm text-slate-500 mt-0.5">月次の財務実績を登録します</p>
+          <PageLead>{textFor(ENTRY_HELP.page, sysMode)}</PageLead>
         </div>
         {/* 年度は予算管理と同じくページ上部に置く（科目×月テーブルの対象年度） */}
         {tab === "manual" && (
@@ -575,6 +577,18 @@ export default function EntryPage() {
 
       {/* 実績の新規登録は下の「科目×月テーブル」のセルから行う（旧「新規登録」フォームは廃止）。
           科目名の変更は「設定 › 科目名設定」に集約した。 */}
+
+      {/* 開いているタブで何ができるかの説明 */}
+      <SectionLead className="-mt-3 mb-4">
+        {
+          {
+            manual: ENTRY_HELP.table,
+            calendar: ENTRY_HELP.calendar,
+            csv: ENTRY_HELP.csv,
+            history: ENTRY_HELP.history,
+          }[tab]
+        }
+      </SectionLead>
 
       {/* ── カレンダータブ ────────────────────────────────────── */}
       {tab === "calendar" && (
@@ -1022,10 +1036,7 @@ HA101,${THIS_YEAR},12,500000`}</pre>
             <h3 className="text-xs font-semibold text-slate-700 mb-2">
               給与明細の内容を登録する場合の科目コード
             </h3>
-            <p className="text-xs text-slate-500 mb-2">
-              給与明細（マネーフォワード等）の各項目は、次の科目コードで上の CSV
-              から登録できます。内訳をまとめたい場合は「社会保険（H-3009）」に合算してください。
-            </p>
+            <p className="text-xs text-slate-500 mb-2">{ENTRY_HELP.payslip}</p>
             <table className="w-full text-xs">
               <tbody className="divide-y divide-slate-200">
                 {[

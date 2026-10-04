@@ -21,6 +21,7 @@ import {
   type TransferFlowResponse,
 } from "../../api";
 import { digitsOnly, fmtDate, yen } from "../../format";
+import { BANK_HELP } from "../../shared/help-texts";
 import { TRANSFER_CHANNEL_LABELS } from "../../shared/labels";
 import { AccountFlowDiagram } from "../AccountFlowDiagram";
 import {
@@ -40,11 +41,6 @@ const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 // 相手先の登録済み口座を紐付けられる種別。銀行振込は from / to の両方が埋まると毎月の銀行→銀行の振替になる
 const PARTNER_ACCOUNT_CHANNELS = ["AUTO_DEBIT", "BANK_TRANSFER"];
 const DAY_GAP_OPTIONS = [0, 1, 3, 7] as const;
-const TRANSFER_MATCH_HELP_TEXT =
-  "両方の口座の CSV を取り込むと、1 回の資金移動が「出金側」と「入金側」の 2 明細に分かれて入ります。" +
-  "そのままどちらも科目に紐付けると支出と収入で二重に計上されるため、対になる明細どうしを振替として紐付けます。" +
-  "紐付けても明細は消えないので口座残高は変わりません。変わるのは収入・支出として集計されるかどうかだけです。";
-
 export type ScheduleMode = "list" | "calendar";
 type Scope = number | "all";
 
@@ -123,6 +119,7 @@ export function TransferTab({
 
   return (
     <View>
+      <Text style={s.help}>{BANK_HELP.transfer}</Text>
       {msg && (
         <TouchableOpacity onPress={() => setMsg(null)}>
           <Notice>{msg}　✕</Notice>
@@ -141,7 +138,7 @@ export function TransferTab({
 
       {flowSource === "config" ? (
         <Card>
-          <SectionTitle>口座間 資金フロー図</SectionTitle>
+          <SectionTitle note={BANK_HELP.flow}>口座間 資金フロー図</SectionTitle>
           {!flow ? (
             <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
           ) : flow.cyclic ? (
@@ -156,12 +153,7 @@ export function TransferTab({
         </Card>
       ) : (
         <Card>
-          <SectionTitle
-            note={
-              "科目に紐付け済み（「明細一覧」タブで紐付け）の入出金明細と資金移動ルールから生成しています。" +
-              `対象月の実績がまだ無い項目は、直近 ${monthly?.historyMonths ?? 3} か月の平均から推測した金額を破線（アンバー）で表示します。`
-            }
-          >
+          <SectionTitle note={BANK_HELP.monthlyFlow}>
             {year}年{month}月 実績フロー図
           </SectionTitle>
           {!monthly ? (
@@ -177,7 +169,11 @@ export function TransferTab({
       )}
 
       {/* ── 資金移動スケジュール ── */}
-      <SectionTitle>資金移動スケジュール</SectionTitle>
+      <SectionTitle
+        note={scheduleMode === "list" ? BANK_HELP.schedule : BANK_HELP.scheduleCalendar}
+      >
+        資金移動スケジュール
+      </SectionTitle>
       <View style={s.scheduleHead}>
         <Pills
           scroll={false}
@@ -615,7 +611,6 @@ function TransferMatchPanel({
   const [dayGap, setDayGap] = useState(3);
   const [data, setData] = useState<{ data: TransferCandidate[]; total: number } | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
 
   const load = useCallback(() => {
     setData(null);
@@ -662,11 +657,8 @@ function TransferMatchPanel({
     <Card>
       <View style={s.matchHead}>
         <Text style={s.formTitle}>取込済み明細の振替紐付け</Text>
-        <TouchableOpacity onPress={() => setShowHelp((v) => !v)} hitSlop={8}>
-          <Text style={s.helpIcon}>?</Text>
-        </TouchableOpacity>
       </View>
-      {showHelp && <Text style={s.help}>{TRANSFER_MATCH_HELP_TEXT}</Text>}
+      <Text style={s.help}>{BANK_HELP.transferMatch}</Text>
       <Field label="日付のずれ">
         <Pills
           scroll={false}
@@ -831,17 +823,6 @@ function BankTransferSheet({
 const s = StyleSheet.create({
   muted: { fontSize: 11, color: "#94a3b8", marginBottom: 8, lineHeight: 16 },
   help: { fontSize: 11, color: "#475569", lineHeight: 17, marginBottom: 8 },
-  helpIcon: {
-    fontSize: 10,
-    color: "#64748b",
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    width: 16,
-    height: 16,
-    textAlign: "center",
-    lineHeight: 14,
-  },
   scheduleHead: { marginBottom: 8 },
   ruleRow: {
     flexDirection: "row",

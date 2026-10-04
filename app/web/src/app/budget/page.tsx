@@ -6,7 +6,9 @@ import { Pencil, Trash2, Home, CreditCard, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
+import { InfoNote, PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
+import { BUDGET_HELP, textFor } from "@/lib/help-texts";
 import { useMonthColumnScroll } from "@/hooks/useMonthColumnScroll";
 import { displayName } from "@/lib/display-name";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
@@ -89,8 +91,7 @@ const THIS_YEAR = now.getFullYear();
 const THIS_MONTH = now.getMonth() + 1;
 
 // 「適正 ¥…」の説明（セルの title と表の注記で共用）
-const GUIDE_HELP =
-  "その月の収入実績に、「予算配分」タブのルールの割合を掛けた推奨額です。予算そのものは変更しません。";
+const GUIDE_HELP = BUDGET_HELP.guide;
 
 function groupByAccount(
   rows: BudgetRow[],
@@ -330,9 +331,7 @@ export default function BudgetPage() {
       >
         行を追加
       </button>
-      <p className="text-[11px] text-slate-400 ml-auto">
-        セルの「—」をクリックすると、その科目・月の予算を登録できます。
-      </p>
+      <p className="text-[11px] text-slate-400 ml-auto">{BUDGET_HELP.table}</p>
     </div>
   );
 
@@ -342,7 +341,7 @@ export default function BudgetPage() {
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="page-title">予算管理</h1>
-          <p className="text-sm text-slate-500 mt-0.5">年度別・月次予算の登録・編集</p>
+          <PageLead>{textFor(BUDGET_HELP.page, sysMode)}</PageLead>
         </div>
         {(data?.years ?? []).length > 0 && (
           <div className="flex items-center gap-2">
@@ -398,6 +397,7 @@ export default function BudgetPage() {
       {/* ── CSV インポートタブ ──────────────────────────── */}
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6 mb-6">
+          <SectionLead className="-mb-3">{BUDGET_HELP.csv}</SectionLead>
           {/* ドロップゾーン */}
           <div
             onDragOver={(e) => {
@@ -512,9 +512,13 @@ H3000,${THIS_YEAR},1,115000`}</pre>
         (histLoading ? (
           <LoadingSpinner label="履歴を読み込み中…" />
         ) : histRows.length === 0 ? (
-          <p className="text-sm text-slate-400">まだ{year}年度の履歴はありません。</p>
+          <>
+            <SectionLead>{BUDGET_HELP.history}</SectionLead>
+            <p className="text-sm text-slate-400">まだ{year}年度の履歴はありません。</p>
+          </>
         ) : (
           <>
+            <SectionLead>{BUDGET_HELP.history}</SectionLead>
             <p className="text-xs text-slate-400 mb-2">
               全 {histTotal.toLocaleString()} 件中 {histOffset + 1}〜
               {Math.min(histOffset + HISTORY_PAGE_SIZE, histTotal)} 件を表示
@@ -630,29 +634,47 @@ H3000,${THIS_YEAR},1,115000`}</pre>
 
       {tab === "manual" && !isLoading && sortedAccounts.length === 0 && (
         <>
-          <EmptyState
-            title="予算データがありません"
-            description="「科目を追加」で科目を選ぶと、月ごとに予算を入力できます（CSV インポートでも登録できます）。"
-          />
+          <EmptyState title="予算データがありません" description={BUDGET_HELP.empty} />
           <div className="card mt-4">{addAccountRowBar}</div>
         </>
       )}
 
       {tab === "manual" && sortedAccounts.length > 0 && (
         <div className="card overflow-hidden p-0">
-          {(guide ?? []).length > 0 && (
-            <p className="px-4 pt-3 text-xs text-emerald-700">
-              緑の「適正 ¥…」は{GUIDE_HELP.replace("その月の", "")}
-              割合の変更は
-              <button
-                type="button"
-                onClick={() => setTab("allocation")}
-                className="underline underline-offset-2 mx-1 hover:text-emerald-800"
-              >
-                「予算配分」タブ
-              </button>
-              から行えます。
-            </p>
+          {/* 表の金額に付く印の意味。表に出ている印の分だけ説明する */}
+          {((guide ?? []).length > 0 ||
+            overlayAccountCodes.size > 0 ||
+            debtOverlayAccountCodes.size > 0) && (
+            <InfoNote title="表の印の見かた" className="mx-4 mt-3">
+              <ul className="space-y-0.5">
+                {(guide ?? []).length > 0 && (
+                  <li>
+                    <span className="font-medium text-emerald-700">適正 ¥…</span>：{GUIDE_HELP}
+                    割合は
+                    <button
+                      type="button"
+                      onClick={() => setTab("allocation")}
+                      className="underline underline-offset-2 mx-1 text-indigo-600 hover:text-indigo-800"
+                    >
+                      「予算配分」タブ
+                    </button>
+                    で変えられます。
+                  </li>
+                )}
+                {overlayAccountCodes.size > 0 && (
+                  <li>
+                    <span className="font-medium text-indigo-600">自動反映</span>：
+                    {BUDGET_HELP.autoLoan}
+                  </li>
+                )}
+                {debtOverlayAccountCodes.size > 0 && (
+                  <li>
+                    <span className="font-medium text-amber-600">返済分</span>：
+                    {BUDGET_HELP.autoDebt}
+                  </li>
+                )}
+              </ul>
+            </InfoNote>
           )}
           <div ref={monthScrollRef} className="overflow-x-auto">
             <table className="w-full text-sm">

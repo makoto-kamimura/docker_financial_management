@@ -2,11 +2,12 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, useMemo } from "react";
-import { HelpCircle, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
-import { CATEGORY_HELP_TEXT } from "@/components/BankTransactionsPanel";
+import { InfoNote, PageLead, SectionLead, TermDetails } from "@/components/Explain";
+import { CARD_HELP, CARD_TERMS, cardFlowHelp } from "@/lib/help-texts";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
 import {
@@ -16,12 +17,6 @@ import {
   type LinkedAccountType,
 } from "@/lib/linked-account-type";
 import { TXN_SOURCE_LABEL as SOURCE_LABELS } from "@/lib/labels";
-
-// 「転記する」を押した瞬間に発火する自動反映の説明（一括適用・学習ルールの両方）
-const POST_HELP_TEXT =
-  "「転記する」を押すと、同じ摘要で科目未設定の他の明細にも自動で科目が設定されます。" +
-  "また摘要のキーワードを学習し、次回以降のCSV取込・自動同期でも自動的に科目が分類されます" +
-  "（分類されるのは科目のみで、転記は明細ごとに別途手動で行う必要があります）。";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -120,39 +115,6 @@ type CardRecurring = {
   categoryAccountId: number | null;
 };
 
-// チャージ（デビット・プリペイド・電子マネーへの資金移動）の説明。銀行明細の「振替」に相当する
-const TRANSFER_HELP_TEXT =
-  "デビットカード・プリペイドカード・電子マネーへのチャージは支出ではなく資金の移動なので、" +
-  "収入・支出には計上しません（実際の支出はチャージ先の利用明細で計上します）。" +
-  "誤って指定した場合は「解除」で戻せます。";
-
-const CHARGE_HELP_TEXT =
-  "この明細がデビットカード・プリペイドカード・電子マネーへのチャージなら、チャージ先を選んで" +
-  "「指定」を押します。チャージ先の履歴が表示されるので、対になる入金明細があれば選んで紐付けます" +
-  "（チャージ先に入金の記録が無ければ「紐づけずに指定」で構いません）。" +
-  "指定した明細は収入・支出に計上されなくなり、付いている科目は外れます" +
-  "（実際の支出はチャージ先の利用明細で計上します）。";
-
-// チャージ先に入った入金明細（チャージ元と対にした側）のバッジの説明
-const CHARGED_IN_HELP_TEXT =
-  "他の口座・カードからのチャージとして紐付けられた入金明細です。チャージ元と対になっており、" +
-  "収入として計上すると同じ資金が二重に効くため、科目の紐付けと実績への転記はできません。" +
-  "「解除」を押すと紐付けが外れ、チャージ元は「履歴と未紐付け」に戻ります。";
-
-const RECURRING_HELP_TEXT =
-  "「登録する」を押すと、この明細を毎月このカードで固定決済される支払い（サブスク等）として登録します" +
-  "（毎月の日付・金額・摘要は明細の内容を引き継ぎます）。カード払いは利用時点で現金が動かず、" +
-  "実際の出金はカード全体の引き落とし 1 本にまとまるため、銀行の資金繰りには足し込みません。" +
-  "引き落とし自体の登録は銀行管理の「資金移動」で行います。";
-
-// 明細一覧のヘッダに出す説明（ここに無い列はヘルプアイコンを出さない）
-const HEADER_HELP_TEXT: Record<string, string> = {
-  科目: CATEGORY_HELP_TEXT,
-  実績: POST_HELP_TEXT,
-  チャージ先: CHARGE_HELP_TEXT,
-  固定決済: RECURRING_HELP_TEXT,
-};
-
 type Tab = "summary" | "list" | "calendar" | "csv";
 
 // サマリタブのフロー図（GET /api/linked-accounts/flow）。
@@ -224,13 +186,6 @@ const POST_FILTERS: [PostFilter, string][] = [
   ["unposted", "実績未転記"],
   ["posted", "実績転記済"],
 ];
-
-// 絞り込みの説明。チャージを未転記から外している理由を明示する
-const POST_FILTER_HELP_TEXT =
-  "「実績未転記」は、これから実績へ転記する明細だけを絞り込みます。" +
-  "チャージ（デビットカード・プリペイドカード・電子マネーへの資金移動）は" +
-  "それ自体が支出ではなく転記の対象外で、実際の支出はチャージ先の利用明細で計上するため、" +
-  "この絞り込みには含めません（「全件」では表示されます）。";
 
 // ── ページ ──────────────────────────────────────────────────────
 // bank-transactions/page.tsx（銀行）と同構造。銀行管理のサマリタブに倣い、既定表示の
@@ -804,8 +759,11 @@ export default function CardTransactionsPage() {
   return (
     <AppShell>
       {/* ヘッダ（台帳の登録は設定から移設し、借入金管理の「借入追加」と同じ要領でここに置く） */}
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="page-title">カード・電子マネー管理</h1>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="page-title">カード・電子マネー管理</h1>
+          <PageLead>{CARD_HELP.page}</PageLead>
+        </div>
         <button
           type="button"
           onClick={() => {
@@ -1112,14 +1070,7 @@ export default function CardTransactionsPage() {
         <>
           <div className="card mb-6">
             <h2 className="section-title mb-1">カード・電子マネー 資金フロー図</h2>
-            <p className="text-xs text-slate-400 mb-3">
-              銀行口座からの引き落とし（銀行管理の「振替」で登録）、銀行口座やカードから
-              デビット・プリペイド・電子マネーへのチャージ、カードでの固定決済を 1 枚にまとめて
-              表示します。同じ組み合わせが複数ある場合は金額を合算して 1 本の線で描きます。
-              チャージだけは明細の実績が元なので、直近 {cardFlow?.chargeMonths ?? 3} か月を
-              月あたりに均した額で描いています（銀行からのチャージは銀行管理の明細一覧、
-              カードからのチャージはこの画面の明細一覧の「チャージ先」列で指定したものが元です）。
-            </p>
+            <SectionLead>{cardFlowHelp(cardFlow?.chargeMonths ?? 3)}</SectionLead>
             {!cardFlow ? (
               <div className="flex items-center justify-center h-48 text-sm text-slate-400">
                 読み込み中…
@@ -1184,12 +1135,8 @@ export default function CardTransactionsPage() {
             </select>
           </div>
 
-          <p className="text-xs text-slate-400 mb-2">
-            毎月の引き落とし（銀行口座 →
-            カード）と固定決済（このカードで毎月支払う項目）の予定日です。
-            ここは表示のみで、引き落としの登録は銀行管理の「振替」タブ、固定決済の登録は「明細一覧」タブの
-            固定決済列から行います。
-          </p>
+          <SectionLead className="mb-2">{CARD_HELP.schedule}</SectionLead>
+          <InfoNote>{CARD_HELP.recurring}</InfoNote>
 
           {scheduleMode === "list" &&
             (filteredSchedule.length > 0 ? (
@@ -1409,21 +1356,13 @@ export default function CardTransactionsPage() {
               過去に保存したルールは以後の CSV 取込にも効き続けるため、確認と削除だけ残す。 */}
           {(transferRules ?? []).length > 0 && (
             <div className="card p-4 mb-4">
-              <div className="flex items-center gap-1.5 mb-1">
-                <h3 className="text-sm font-semibold text-slate-700">
-                  取込時に自動でチャージ扱いにするルール
-                </h3>
-                <span className="relative inline-flex items-center group/help">
-                  <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-                  <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-72 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover/help:block">
-                    {TRANSFER_HELP_TEXT}
-                  </span>
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-                摘要が一致する明細を CSV 取込時に自動でチャージ扱いにします。削除しても、指定済みの
-                明細はそのまま残ります。個別の指定は明細一覧の「チャージ先」列から行います。
-              </p>
+              <h3 className="text-sm font-semibold text-slate-700 mb-1">
+                取込時に自動でチャージ扱いにするルール
+              </h3>
+              <SectionLead>
+                {CARD_HELP.transferRules}
+                個別の指定は、明細一覧の「チャージ先」列から行います。
+              </SectionLead>
               <ul className="flex flex-wrap gap-2">
                 {(transferRules ?? []).map((r) => (
                   <li
@@ -1464,13 +1403,6 @@ export default function CardTransactionsPage() {
                 </button>
               ))}
             </div>
-            {/* チャージを「実績未転記」から外している理由を示す */}
-            <span className="relative inline-flex items-center group/filter">
-              <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-              <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-72 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover/filter:block">
-                {POST_FILTER_HELP_TEXT}
-              </span>
-            </span>
             <span className="text-xs text-slate-400">
               {filteredTxns.length} 件
               {filteredTxns.length > 0 && (
@@ -1482,6 +1414,13 @@ export default function CardTransactionsPage() {
               {postFilter === "unposted" && "・チャージを除く"}
             </span>
           </div>
+
+          {/* チャージを「実績未転記」から外している理由も、ここで示す */}
+          <InfoNote className="mb-2">
+            {CARD_HELP.list}
+            {postFilter === "unposted" && <> {CARD_HELP.postFilter}</>}
+          </InfoNote>
+          <TermDetails terms={CARD_TERMS} className="mb-3" />
 
           {/* 明細テーブル（列が多いので横スクロールさせる） */}
           <div className="card overflow-hidden p-0">
@@ -1504,17 +1443,7 @@ export default function CardTransactionsPage() {
                         key={h}
                         className="px-4 py-3 text-left text-xs font-semibold text-slate-600"
                       >
-                        {HEADER_HELP_TEXT[h] ? (
-                          <span className="relative inline-flex items-center gap-1 group">
-                            {h}
-                            <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-                            <span className="pointer-events-none absolute right-0 top-full z-20 mt-1.5 hidden w-64 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover:block">
-                              {HEADER_HELP_TEXT[h]}
-                            </span>
-                          </span>
-                        ) : (
-                          h
-                        )}
+                        {h}
                       </th>
                     ))}
                   </tr>
@@ -1537,26 +1466,21 @@ export default function CardTransactionsPage() {
                         <td className="px-4 py-2.5">
                           {/* チャージは資金の移動なので科目に紐付けない（二重計上の防止） */}
                           {t.transferToAccountId ? (
-                            <span className="relative inline-flex items-center gap-1 group/transfer">
+                            <span className="inline-flex items-center gap-1">
                               <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
                                 チャージ
                               </span>
-                              <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-                              <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-64 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover/transfer:block">
-                                {t.transferToAccount
-                                  ? `${t.transferToAccount.name} へのチャージ。${TRANSFER_HELP_TEXT}`
-                                  : TRANSFER_HELP_TEXT}
-                              </span>
+                              {t.transferToAccount && (
+                                <span className="text-xs text-slate-500 whitespace-nowrap">
+                                  → {t.transferToAccount.name}
+                                </span>
+                              )}
                             </span>
                           ) : t.chargeGroupId ? (
                             // チャージ元の明細と対にした入金側。こちらも収支には計上しない
-                            <span className="relative inline-flex items-center gap-1 group/charged">
+                            <span className="inline-flex items-center gap-1">
                               <span className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded whitespace-nowrap">
                                 チャージ入金
-                              </span>
-                              <HelpCircle className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-                              <span className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-64 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal leading-relaxed text-white shadow-lg group-hover/charged:block">
-                                {CHARGED_IN_HELP_TEXT}
                               </span>
                               <button
                                 onClick={() => setTxnTransfer(t.id, null)}
@@ -1763,6 +1687,7 @@ export default function CardTransactionsPage() {
       )}
 
       {/* ── カレンダータブ ────────────────────────────────────── */}
+      {tab === "calendar" && <SectionLead className="-mt-2 mb-4">{CARD_HELP.calendar}</SectionLead>}
       {tab === "calendar" && (
         <div className="flex gap-4 items-start">
           {/* カレンダー */}
@@ -1991,6 +1916,7 @@ export default function CardTransactionsPage() {
       {/* ── CSV インポートタブ ───────────────────────────────── */}
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
+          <SectionLead className="-mb-3">{CARD_HELP.csv}</SectionLead>
           <div
             onDragOver={(e) => {
               e.preventDefault();

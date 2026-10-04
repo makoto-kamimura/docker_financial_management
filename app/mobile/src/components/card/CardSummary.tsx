@@ -8,6 +8,7 @@ import { yen } from "../../format";
 import { LINKED_ACCOUNT_TYPE_LABELS } from "../../shared/linked-account-type";
 import { AccountFlowDiagram } from "../AccountFlowDiagram";
 import { Card, Notice, Pills, SectionTitle, SelectField } from "../ui";
+import { CARD_HELP, cardFlowHelp } from "../../shared/help-texts";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -100,14 +101,7 @@ export function CardSummary({
   return (
     <View>
       <Card>
-        <SectionTitle
-          note={
-            "銀行口座からの引き落とし（銀行管理の「振替」で登録）、銀行口座やカードからデビット・プリペイド・" +
-            "電子マネーへのチャージ、カードでの固定決済を 1 枚にまとめて表示します。同じ組み合わせが複数ある場合は" +
-            `金額を合算して 1 本の線で描きます。チャージだけは明細の実績が元なので、直近 ${flow?.chargeMonths ?? 3} か月を` +
-            "月あたりに均した額で描いています。"
-          }
-        >
+        <SectionTitle note={cardFlowHelp(flow?.chargeMonths ?? 3)}>
           カード・電子マネー 資金フロー図
         </SectionTitle>
         {!flow ? (
@@ -132,12 +126,7 @@ export function CardSummary({
         )}
       </Card>
 
-      <SectionTitle
-        note={
-          "毎月の引き落とし（銀行口座 → カード）と固定決済（このカードで毎月支払う項目）の予定日です。" +
-          "ここは表示のみで、引き落としの登録は銀行管理の「振替」タブ、固定決済の登録は「明細一覧」から行います。"
-        }
-      >
+      <SectionTitle note={`${CARD_HELP.schedule} ${CARD_HELP.recurring}`}>
         引き落とし・固定決済スケジュール
       </SectionTitle>
       <Pills

@@ -28,6 +28,8 @@ import {
   type Loan,
 } from "@/lib/loan-schedule";
 import { VariableRateHelp } from "@/components/HelpTip";
+import { PageLead, SectionLead } from "@/components/Explain";
+import { LOANS_HELP } from "@/lib/help-texts";
 
 type AccountRef = { id: number; code: string; name: string; category: string };
 
@@ -225,7 +227,10 @@ export default function LoansPage() {
 
   return (
     <AppShell>
-      <h1 className="page-title mb-6">借入金管理</h1>
+      <div className="mb-6">
+        <h1 className="page-title">借入金管理</h1>
+        <PageLead>{LOANS_HELP.page}</PageLead>
+      </div>
 
       {/* KPI カード */}
       <div className="grid grid-cols-2 gap-4 mb-6">
@@ -243,11 +248,8 @@ export default function LoansPage() {
       {!loading && scheduleData.length > 0 && (
         <div className="card mb-6">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <h2 className="section-title">返済スケジュール</h2>
+            <h2 className="section-title mb-0">返済スケジュール</h2>
             <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400">
-                今日以降の残高は償還スケジュールからの予測です
-              </span>
               {/* 金利は右軸に重ねる。ローンが多いと線が増えるため切り替えられるようにする */}
               <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
                 <input
@@ -260,6 +262,7 @@ export default function LoansPage() {
               </label>
             </div>
           </div>
+          <SectionLead>{LOANS_HELP.schedule}</SectionLead>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={scheduleData} margin={{ top: 8, right: 24, bottom: 8, left: 16 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -388,8 +391,16 @@ export default function LoansPage() {
       )}
 
       {/* 借入追加。返済スケジュールの下・ローン一覧の直前に置く */}
-      <div className="flex justify-end mb-3">
-        <button onClick={() => setShowForm(true)} className="btn-primary px-4 py-2 text-sm">
+      <div className="flex items-end justify-between gap-3 mb-3">
+        {loans.length > 0 ? (
+          <SectionLead className="mb-0">{LOANS_HELP.list}</SectionLead>
+        ) : (
+          <span />
+        )}
+        <button
+          onClick={() => setShowForm(true)}
+          className="btn-primary px-4 py-2 text-sm shrink-0"
+        >
           借入追加
         </button>
       </div>
@@ -400,7 +411,7 @@ export default function LoansPage() {
       ) : loans.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <p className="text-4xl mb-3">🏦</p>
-          <p>借入金の記録がありません。</p>
+          <p className="text-sm max-w-md mx-auto">{LOANS_HELP.empty}</p>
         </div>
       ) : (
         <div className="space-y-4">
