@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest } from "@/lib/api-error";
-import { JOURNAL_DETAILS_INCLUDE, syncJournalToFinancialRecords } from "@/lib/journal";
+import {
+  assertJournalSyncAllowed,
+  JOURNAL_DETAILS_INCLUDE,
+  syncJournalToFinancialRecords,
+} from "@/lib/journal";
 import { invalidateCache } from "@/lib/redis";
 import { resolveReceiptFileUrl } from "@/lib/upload";
 
@@ -96,6 +100,13 @@ export const POST = withApi({
     if (Math.abs(debitTotal - creditTotal) > 0.01) {
       throw badRequest(`借方合計(${debitTotal})と貸方合計(${creditTotal})が一致しません`);
     }
+
+    await assertJournalSyncAllowed(
+      db,
+      tenantId,
+      new Date(body.transactionDate),
+      body.details.map((d) => d.accountId),
+    );
 
     const entry = await db.journalEntry.create({
       data: {

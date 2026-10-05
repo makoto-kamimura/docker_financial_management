@@ -36,6 +36,92 @@ const PAYMENT_METHODS: Record<string, string> = {
 // ── タブ型 ──────────────────────────────────────────────────────
 type Tab = "profile" | "tax" | "security" | "accountNames" | "departments";
 
+// ── 決算月セクション ─────────────────────────────────────────────
+// ダッシュボードの累計と年間見込みを、この月で締める 1 年で集計する（tenants.closingMonth）。
+// 法人ページの決算月と同じ値で、どのモードからも変えられるようにここにも置く。
+function ClosingMonthSection() {
+  const qc = useQueryClient();
+  const [tenantId, setTenantId] = useState<number | null>(null);
+  const [closingMonth, setClosingMonth] = useState(12);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then(async ({ user }) => {
+        if (!user) return;
+        setTenantId(user.tenantId);
+        const res = await fetch(`/api/tenants/${user.tenantId}`);
+        const { data } = await res.json();
+        if (data?.closingMonth) setClosingMonth(data.closingMonth);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function save() {
+    if (tenantId === null) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/tenants/${tenantId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ closingMonth }),
+      });
+      if (res.ok) {
+        setMsg({ ok: true, text: "保存しました" });
+        qc.invalidateQueries({ queryKey: ["kpi"] });
+      } else if (res.status === 403) {
+        setMsg({ ok: false, text: "変更できるのは編集者以上のユーザーです" });
+      } else {
+        setMsg({ ok: false, text: "保存に失敗しました" });
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const startMonth = (closingMonth % 12) + 1;
+  return (
+    <div className="card max-w-xl mb-6">
+      <h2 className="section-title mb-1">決算月</h2>
+      <SectionLead>{SETTINGS_HELP.closingMonth}</SectionLead>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2">
+          <span className="text-xs font-medium text-slate-600">決算月</span>
+          <select
+            className="input-field w-28"
+            value={closingMonth}
+            onChange={(e) => setClosingMonth(Number(e.target.value))}
+            disabled={tenantId === null}
+          >
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <option key={m} value={m}>
+                {m}月
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="text-xs text-slate-500">
+          1年は {startMonth}月〜{closingMonth}月
+        </span>
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || tenantId === null}
+          className="btn-primary text-sm px-4 py-1.5"
+        >
+          {saving ? "保存中…" : "保存"}
+        </button>
+        {msg && (
+          <p className={`text-sm ${msg.ok ? "text-green-600" : "text-red-600"}`}>{msg.text}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── 事業者情報セクション ─────────────────────────────────────────
 function BusinessProfileSection() {
   const [form, setForm] = useState<BusinessProfile>({
@@ -1071,7 +1157,12 @@ function SettingsContent() {
         ))}
       </div>
 
-      {tab === "profile" && <BusinessProfileSection />}
+      {tab === "profile" && (
+        <>
+          <ClosingMonthSection />
+          <BusinessProfileSection />
+        </>
+      )}
       {tab === "tax" && <TaxSettingsSection />}
       {tab === "accountNames" && <AccountNamesSection />}
       {tab === "departments" && <DepartmentsSection />}

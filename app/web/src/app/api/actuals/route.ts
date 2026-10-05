@@ -4,6 +4,7 @@ import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
 import { findAccountByCode } from "@/lib/period";
 import {
+  assertJournalSyncAllowed,
   deleteFinancialRecordsForJournalEntry,
   JOURNAL_DETAILS_INCLUDE,
   syncJournalToFinancialRecords,
@@ -59,6 +60,8 @@ export const POST = withApi({
 
     const [debitId, creditId] =
       body.direction === "income" ? [counter.id, account.id] : [account.id, counter.id];
+
+    await assertJournalSyncAllowed(db, tenantId, new Date(body.date), [debitId, creditId]);
 
     const entry = await db.journalEntry.create({
       data: {

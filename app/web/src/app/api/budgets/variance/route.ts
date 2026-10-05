@@ -6,14 +6,15 @@ import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budge
 import {
   BUDGET_CYCLE_CATEGORIES,
   computeVariance,
-  nextYearMonth,
   summarizeVariance,
   type BudgetCycleCategory,
 } from "@/lib/budget-cycle";
+import { loadCycleStatus } from "@/lib/cycle-status";
 
 // GET /api/budgets/variance?year=&month= … 予実対比（科目別）と翌月の予算・確定状況（読み取り専用）
 //   当月の予算（自動反映を含む）と実績の差、翌月に登録済みの予算、両月の確定状況、
 //   余りの回し先の既定（予算配分ルール「貯蓄・投資」に入る科目のうちコードが一番小さいもの）を返す。
+//   確定状況（① 当月の予算・② 当月の実績・③ 翌月の予算と、前月の実績）は lib/cycle-status.ts で出す。
 //   翌月の予算案そのものは、差額の扱いを画面で選びながら lib/budget-cycle.ts で作る。
 export const GET = withApi({
   role: "viewer",
@@ -24,20 +25,7 @@ export const GET = withApi({
   handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const { year, month } = query;
-    const next = nextYearMonth(year, month);
-
-    const [period, nextPeriod] = await Promise.all([
-      db.period.findUnique({
-        where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
-        include: { budgetConfirmation: true },
-      }),
-      db.period.findUnique({
-        where: {
-          tenantId_fiscalYear_month: { tenantId, fiscalYear: next.year, month: next.month },
-        },
-        include: { budgetConfirmation: true },
-      }),
-    ]);
+    const { periodId, nextPeriodId, status } = await loadCycleStatus(db, tenantId, year, month);
 
     const categoryFilter = { category: { in: [...BUDGET_CYCLE_CATEGORIES] } };
     const [accounts, budgets, nextBudgets, actuals, loanOverlay, debtOverlay, savingsRule] =
@@ -54,22 +42,22 @@ export const GET = withApi({
           },
           orderBy: { code: "asc" },
         }),
-        period
+        periodId
           ? db.budget.findMany({
-              where: { tenantId, periodId: period.id },
+              where: { tenantId, periodId },
               select: { accountId: true, amount: true },
             })
           : [],
-        nextPeriod
+        nextPeriodId
           ? db.budget.findMany({
-              where: { tenantId, periodId: nextPeriod.id },
+              where: { tenantId, periodId: nextPeriodId },
               select: { accountId: true, amount: true },
             })
           : [],
-        period
+        periodId
           ? db.financialRecord.groupBy({
               by: ["accountId"],
-              where: { tenantId, periodId: period.id },
+              where: { tenantId, periodId },
               _sum: { amount: true },
             })
           : [],
@@ -123,11 +111,7 @@ export const GET = withApi({
 
     return NextResponse.json({
       data: {
-        year,
-        month,
-        next,
-        confirmedAt: period?.budgetConfirmation?.confirmedAt ?? null,
-        nextConfirmedAt: nextPeriod?.budgetConfirmation?.confirmedAt ?? null,
+        ...status,
         transferTargetId: savingsTargetId,
         rows,
         summary: summarizeVariance(rows),

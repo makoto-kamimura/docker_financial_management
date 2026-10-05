@@ -1,6 +1,7 @@
 import type { TenantDbClient } from "@/lib/tenant-db";
 import { ApiError } from "@/lib/api-error";
 import { resolvePeriodForDate } from "@/lib/period";
+import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 import { JOURNAL_DETAILS_INCLUDE, syncJournalToFinancialRecords } from "@/lib/journal";
 
 // 売掛金・買掛金の発生・消込に使う既定科目コード
@@ -36,6 +37,7 @@ export async function postIssueRecord(
   if (!account) return;
 
   const period = await resolvePeriodForDate(db, tenantId, issueDate);
+  await assertActualsPeriodsEditable(db, [period.id]);
   await db.financialRecord.create({
     data: { tenantId, accountId: account.id, periodId: period.id, amount },
   });

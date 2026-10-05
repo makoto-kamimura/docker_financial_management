@@ -200,3 +200,8 @@ export function planNextBudget(input: {
 export function nextYearMonth(year: number, month: number): { year: number; month: number } {
   return month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
 }
+
+/** 前月（1 月の前は前年 12 月） */
+export function prevYearMonth(year: number, month: number): { year: number; month: number } {
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}

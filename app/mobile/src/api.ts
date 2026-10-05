@@ -224,8 +224,7 @@ export type KpiData = {
   grossMargin: number;
   operatingProfit: number;
   operatingMargin: number;
-  mom: number | null;
-  yoy: number | null;
+  /** 期首（12 月決算なら 1 月）から対象月までの累計 */
   ytd: number;
 };
 
@@ -241,10 +240,19 @@ export type KpiBudget = {
   operatingProfitRate: number | null;
 };
 
-// 当年の着地見込み（残り月は移動平均で予測）と、その時点の達成率
+// 期（決算月で締める 1 年）の着地見込みと、その時点の達成率。
+// 未入力の月は入力済み月の平均で埋め、残りの月は移動平均で予測する（web の lib/kpi.ts）
 export type AnnualOutlook = {
-  year: number;
+  /** 決算月（1〜12） */
+  closingMonth: number;
+  /** 期首・期末の月キー（"YYYY-MM"） */
+  startKey: string;
+  endKey: string;
   ytd: number;
+  elapsedMonths: number;
+  enteredMonths: number;
+  missingMonths: number;
+  estimatedMissing: number;
   remainingMonths: number;
   forecastRemaining: number;
   projected: number;
@@ -257,6 +265,8 @@ export type KpiResponse = {
   /** 実績のある月（昇順）。対象月セレクタの候補に使う */
   periods: string[];
   annual: AnnualOutlook | null;
+  /** 利益（家計では貯蓄額）の年間見込み */
+  annualProfit: AnnualOutlook | null;
 };
 
 // period 省略時はサーバー既定（現在月以前で最も新しい実績月）
@@ -270,6 +280,7 @@ export async function fetchKpi(period?: string): Promise<KpiResponse> {
     budget: json.budget ?? null,
     periods: json.periods ?? [],
     annual: json.annual ?? null,
+    annualProfit: json.annualProfit ?? null,
   };
 }
 
@@ -517,18 +528,55 @@ export async function deleteBudget(id: number): Promise<void> {
   await request(`/budgets/${id}`, "予算の削除に失敗しました", { method: "DELETE" });
 }
 
-// ── 予実と確定（GET /budgets/variance・POST/DELETE /budgets/confirm）────────
+// ── 予算と実績の確定（GET /cycle-status・/budgets/variance、POST/DELETE /budgets/confirm・/actuals/confirm）──
+/** 実績の入力状況の判定に使うソース（銀行口座・カード・電子マネー）と明細の最終日 */
+export type ActualsSource = {
+  kind: "bank" | "card";
+  id: number;
+  name: string;
+  typeLabel: string;
+  /** YYYY-MM-DD。明細が無ければ null（判定に含めない） */
+  lastDate: string | null;
+};
+
 export type BudgetVarianceRow = VarianceRow & {
   soleName: string | null;
   corporateName: string | null;
 };
 
-export type BudgetVariance = {
+/** 月ごとの流れ（① 予算確定 → ② 実績確定 → ③ 翌月の予算確定）の状況（GET /cycle-status） */
+export type CycleStatus = {
   year: number;
   month: number;
   next: { year: number; month: number };
   confirmedAt: string | null;
   nextConfirmedAt: string | null;
+  /** 前月の予算が確定済みで実績が未確定（この月の予算はまだ確定できない） */
+  prevActualsPending: boolean;
+  /** この月の実績の入力状況と確定状況 */
+  actuals: {
+    confirmedAt: string | null;
+    /** 全ソースの明細が月末日までそろっているか */
+    entered: boolean;
+    coveredThrough: string | null;
+    monthEnd: string;
+    sources: ActualsSource[];
+    lagging: { kind: ActualsSource["kind"]; id: number }[];
+    /** この月の未転記の明細の件数（参考） */
+    unposted: number;
+  };
+};
+
+export async function fetchCycleStatus(year: number, month: number): Promise<CycleStatus> {
+  const json = await request<{ data: CycleStatus }>(
+    `/cycle-status?year=${year}&month=${month}`,
+    "確定状況の取得に失敗しました",
+  );
+  return json.data;
+}
+
+/** 予実対比（確定状況に、科目別の予実と合計を足したもの） */
+export type BudgetVariance = CycleStatus & {
   /** 余りの回し先の既定（予算配分の「貯蓄・投資」に入る科目） */
   transferTargetId: number | null;
   rows: BudgetVarianceRow[];
@@ -560,6 +608,22 @@ export async function confirmBudget(data: {
 // 確定の解除（管理者だけ）
 export async function unconfirmBudget(year: number, month: number): Promise<void> {
   const res = await apiFetch(`/budgets/confirm?year=${year}&month=${month}`, {
+    method: "DELETE",
+  });
+  if (res.ok) return;
+  if (res.status === 403) throw new Error("確定の解除は管理者だけができます。");
+  const json = await res.json().catch(() => null);
+  throw new Error(errorMessage(json, "解除に失敗しました"));
+}
+
+// 指定した月の実績を確定する（その月の予算が確定済みで、明細がそろっていること）
+export async function confirmActuals(year: number, month: number): Promise<void> {
+  await request("/actuals/confirm", "確定に失敗しました", jsonInit("POST", { year, month }));
+}
+
+// 実績の確定の解除（管理者だけ）
+export async function unconfirmActuals(year: number, month: number): Promise<void> {
+  const res = await apiFetch(`/actuals/confirm?year=${year}&month=${month}`, {
     method: "DELETE",
   });
   if (res.ok) return;

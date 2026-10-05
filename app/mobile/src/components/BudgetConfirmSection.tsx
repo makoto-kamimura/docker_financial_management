@@ -1,8 +1,9 @@
-// ダッシュボードの「予実と確定」（web 版 components/BudgetCyclePanel.tsx と同じ流れ）。
-//   1. 選んだ月の予算と実績を科目ごとに比べる（GET /budgets/variance）
-//   2. 差額の扱い（何もしない・期ズレ・回し先へ）を科目ごとに選び、翌月の予算案を作る
-//      （計算は shared/budget-cycle.ts。案の金額は手で直せる＝流用）
-//   3. 「確定」で翌月の予算を書き込み、翌月を確定済みにする（POST /budgets/confirm）
+// 予算の画面の「予算の確定」タブ（web 版 components/BudgetConfirmPanel.tsx と同じ流れ）。
+// 月ごとの流れ ① → ② → ③（順番は API が強制）のうち ①③ を受け持つ。
+//   ① その月の予算を確定する（初回は「そのまま確定」。以降は前月の ③ で確定済みになっている）
+//   ② 実績の確定は実績の画面の「実績の確定」タブ（ActualsConfirmSection.tsx）で行う
+//   ③ 予算と実績を科目ごとに比べ（GET /budgets/variance）、差額の扱いを選んで翌月の予算案を作り、
+//      「確定」で翌月の予算を確定する（POST /budgets/confirm。計算は shared/budget-cycle.ts）
 // 画面幅が狭いので、web 版の「予算と実績」と「予算案」の 2 つの表を科目ごとの 1 ブロックにまとめる。
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -26,8 +27,9 @@ import {
   type VarianceTreatment,
 } from "../shared/budget-cycle";
 import { displayName } from "../shared/display-name";
-import { BUDGET_HELP, DASHBOARD_HELP, textFor } from "../shared/help-texts";
+import { BUDGET_HELP, textFor } from "../shared/help-texts";
 import { AccountPickerModal } from "./CategoryPickerModal";
+import { CycleSteps, defaultCycleMonth } from "./CycleSteps";
 import { Button, COLORS, Input, Notice, Pills, TermList } from "./ui";
 import { YearMonthPicker } from "./YearMonthPicker";
 
@@ -42,23 +44,24 @@ const TREATMENTS: { value: VarianceTreatment; label: string }[] = [
 // 回し先の候補は費用の科目（家計の貯蓄・投資も費用として扱う）
 const TRANSFER_CATEGORIES = ["EXPENSE", "COGS"] as const;
 
-// 実績の月が締まるのは翌月なので、既定は前月を比べる（翌月＝今月の予算を確定する）
-function defaultTargetMonth(): string {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
 type Props = {
   viewMode: ViewMode;
-  /** 値が変わると読み直す（ダッシュボードの引っ張って更新） */
-  refreshKey: number;
+  /** 比べる月の初期値（YYYY-MM）。省略時は前月 */
+  initialMonth?: string;
+  /** 値が変わると読み直す（引っ張って更新） */
+  refreshKey?: number;
+  /** 実績の画面の「実績の確定」へ移る */
+  onOpenActuals?: (month: string) => void;
 };
 
-export function BudgetCycleSection({ viewMode, refreshKey }: Props) {
+export function BudgetConfirmSection({
+  viewMode,
+  initialMonth,
+  refreshKey = 0,
+  onOpenActuals,
+}: Props) {
   const household = viewMode === "household";
-  const [target, setTarget] = useState(defaultTargetMonth);
+  const [target, setTarget] = useState(() => initialMonth ?? defaultCycleMonth());
   const [year, month] = target.split("-").map(Number);
 
   const [data, setData] = useState<BudgetVariance | null>(null);
@@ -235,6 +238,15 @@ export function BudgetCycleSection({ viewMode, refreshKey }: Props) {
 
   const nextLabel = data ? `${data.next.year}年${data.next.month}月` : "翌月";
   const nextLocked = !!data?.nextConfirmedAt;
+  const actualsLocked = !!data?.actuals.confirmedAt;
+  // ③ 翌月の予算を確定できない理由（② が済んでいない）
+  const nextBlockedReason = !data
+    ? null
+    : !data.confirmedAt
+      ? `先に${month}月の予算（①）を確定し、実績の画面で実績（②）を確定してください。`
+      : !actualsLocked
+        ? `先に実績の画面の「実績の確定」で${month}月の実績（②）を確定してください。`
+        : null;
 
   // 翌月の予算案（金額の手直しつき）。予実の行の下と、行に無い科目のブロックで使う
   const renderPlan = (item: NextBudgetItem) => {
@@ -291,8 +303,8 @@ export function BudgetCycleSection({ viewMode, refreshKey }: Props) {
 
   return (
     <View style={s.card}>
-      <Text style={s.title}>予実と確定</Text>
-      <Text style={s.note}>{textFor(DASHBOARD_HELP.cycle, viewMode)}</Text>
+      <Text style={s.title}>予算の確定</Text>
+      <Text style={s.note}>{textFor(BUDGET_HELP.confirm, viewMode)}</Text>
 
       {/* 対象月と確定状況 */}
       <YearMonthPicker
@@ -303,27 +315,31 @@ export function BudgetCycleSection({ viewMode, refreshKey }: Props) {
         }}
       />
       {data && (
-        <View style={s.badges}>
-          <StatusBadge label={`${year}年${month}月の予算`} confirmedAt={data.confirmedAt} />
-          <StatusBadge label={`${nextLabel}の予算`} confirmedAt={data.nextConfirmedAt} />
-        </View>
+        <CycleSteps status={data} onPressActuals={onOpenActuals && (() => onOpenActuals(target))} />
       )}
       {data && !data.confirmedAt && data.rows.some((r) => r.budget !== null) && (
-        <Button
-          label={`${month}月の予算をそのまま確定`}
-          variant="secondary"
-          small
-          disabled={busy}
-          onPress={() => confirm(year, month, false)}
-          style={s.sideBtn}
-        />
+        <>
+          <Button
+            label={`${month}月の予算をそのまま確定`}
+            variant="secondary"
+            small
+            disabled={busy || data.prevActualsPending}
+            onPress={() => confirm(year, month, false)}
+            style={s.sideBtn}
+          />
+          {data.prevActualsPending && (
+            <Text style={s.blocked}>
+              前月の実績が確定していないため、まだ確定できません。実績の画面の「実績の確定」で前月の実績を確定してください。
+            </Text>
+          )}
+        </>
       )}
       {data?.confirmedAt && (
         <Button
-          label={`${month}月の確定を解除`}
+          label={`${month}月の予算の確定を解除`}
           variant="secondary"
           small
-          disabled={busy}
+          disabled={busy || actualsLocked}
           onPress={() => unconfirm(year, month)}
           style={s.sideBtn}
         />
@@ -389,7 +405,7 @@ export function BudgetCycleSection({ viewMode, refreshKey }: Props) {
             )}
           </View>
 
-          <TermList terms={DASHBOARD_HELP.cycleTreatments} label="差額の扱いの説明" />
+          <TermList terms={BUDGET_HELP.cycleTreatments} label="差額の扱いの説明" />
 
           {nextLocked ? (
             <Notice tone="info">
@@ -479,14 +495,25 @@ export function BudgetCycleSection({ viewMode, refreshKey }: Props) {
               <Button
                 label={`この予算で${nextLabel}を確定`}
                 loading={busy}
-                disabled={plan.length === 0}
+                disabled={plan.length === 0 || !!nextBlockedReason}
                 onPress={() => confirm(data.next.year, data.next.month, true)}
               />
             )}
+            {!nextLocked && nextBlockedReason && (
+              <Text style={s.blocked}>
+                {nextBlockedReason}
+                {onOpenActuals && (
+                  <Text style={s.link} onPress={() => onOpenActuals(target)}>
+                    {" "}
+                    実績の確定へ
+                  </Text>
+                )}
+              </Text>
+            )}
             <Text style={s.note}>
               確定した予算は、{nextLabel}の実績と比べる基準になります。{nextLabel}
-              が終わったら、上の「比べる月」で{nextLabel}
-              を選び、同じ手順で次の月の予算を確定します。
+              が終わって明細がそろったら、実績の画面で{nextLabel}の実績を確定（②）し、ここで
+              {nextLabel}を選んで同じ手順で進めます。
             </Text>
           </View>
         </>
@@ -502,16 +529,6 @@ export function BudgetCycleSection({ viewMode, refreshKey }: Props) {
         onSelect={(a) => changeTransferTarget(a?.id ?? null)}
         onClose={() => setPickerOpen(false)}
       />
-    </View>
-  );
-}
-
-function StatusBadge({ label, confirmedAt }: { label: string; confirmedAt: string | null }) {
-  return (
-    <View style={[s.badge, confirmedAt ? s.badgeDone : s.badgeOpen]}>
-      <Text style={[s.badgeText, confirmedAt ? s.badgeTextDone : s.badgeTextOpen]}>
-        {confirmedAt ? `🔒 ${label}：確定済み` : `${label}：未確定`}
-      </Text>
     </View>
   );
 }
@@ -571,14 +588,9 @@ const s = StyleSheet.create({
   empty: { fontSize: 12, color: COLORS.muted, marginVertical: 8 },
   spinner: { marginVertical: 16 },
 
-  badges: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
-  badge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeDone: { backgroundColor: "#ecfdf5" },
-  badgeOpen: { backgroundColor: "#f1f5f9" },
-  badgeText: { fontSize: 11 },
-  badgeTextDone: { color: "#047857" },
-  badgeTextOpen: { color: "#475569" },
   sideBtn: { alignSelf: "flex-start", marginBottom: 10 },
+  link: { color: COLORS.primary, textDecorationLine: "underline" },
+  blocked: { fontSize: 11, color: COLORS.warn, lineHeight: 16, marginBottom: 8 },
 
   tiles: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   tile: {

@@ -98,11 +98,12 @@ model Period {
   quarter    Int // 1-4
   month      Int // 1-12
 
-  records            FinancialRecord[]
-  forecasts          Forecast[]
-  budgets            Budget[]
-  budgetHistories    BudgetHistory[]
-  budgetConfirmation BudgetConfirmation?
+  records             FinancialRecord[]
+  forecasts           Forecast[]
+  budgets             Budget[]
+  budgetHistories     BudgetHistory[]
+  budgetConfirmation  BudgetConfirmation?
+  actualsConfirmation ActualsConfirmation?
 
   @@unique([tenantId, fiscalYear, month])
   @@index([tenantId])
@@ -162,6 +163,20 @@ model BudgetConfirmation {
 
   @@index([tenantId])
   @@map("budget_confirmations")
+}
+
+// 実績の確定（月単位）。行がある月の実績（financial_records）は確定済みで、書き換えを受け付けない。
+// 順番は「その月の予算確定 → その月の実績確定 → 翌月の予算確定」で、API 側で強制する。
+model ActualsConfirmation {
+  id            Int      @id @default(autoincrement())
+  tenantId      Int
+  period        Period   @relation(fields: [periodId], references: [id])
+  periodId      Int      @unique
+  confirmedById Int? // 確定したユーザー
+  confirmedAt   DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("actuals_confirmations")
 }
 
 // 予算配分ルール（FP 推奨の収入比率マスタ。ステップ 2 の配分提案に使用）

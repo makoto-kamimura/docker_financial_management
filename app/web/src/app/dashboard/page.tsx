@@ -16,7 +16,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { downloadSvgAsPng } from "@/lib/export-client";
-import { BudgetCyclePanel } from "@/components/BudgetCyclePanel";
+import { BudgetActualChart } from "@/components/BudgetActualChart";
+import { CycleStatusStrip } from "@/components/CycleStatusStrip";
 import { KpiCards } from "@/components/KpiCards";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
@@ -125,7 +126,8 @@ function StepChecklistCard() {
   );
 }
 
-// ダッシュボードは KPI・予実と確定（月次の締め）・構成比グラフを置く。
+// ダッシュボードは KPI・予算と実績の確定の状況・予算と実績のグラフ・構成比グラフを置く。
+// 確定の操作は予算管理（予算の確定）と実績管理（実績の確定）で行い、ここには状況とリンクだけ置く。
 export default function DashboardPage() {
   const [method, setMethod] = useState(DEFAULT_FORECAST_METHOD);
   const [compYear, setCompYear] = useState<number | null>(null);
@@ -183,13 +185,11 @@ export default function DashboardPage() {
         <KpiCards mode={sysMode} onPeriodChange={setKpiPeriod} />
       </div>
 
-      {/* ── 予実と確定（前月の予実を見て、今月の予算を確定する）──── */}
-      <section aria-labelledby="budget-cycle-title">
-        <h2 id="budget-cycle-title" className="section-title mb-3">
-          予実と確定
-        </h2>
-        <BudgetCyclePanel mode={sysMode} />
-      </section>
+      {/* ── 予算と実績の確定の状況（前月。操作は予算管理・実績管理で行う）──── */}
+      <CycleStatusStrip />
+
+      {/* ── 予算と実績（KPI の対象月の差をひと目で）──── */}
+      <BudgetActualChart mode={sysMode} period={kpiPeriod} />
 
       {/* ── 構成比グラフ ────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
