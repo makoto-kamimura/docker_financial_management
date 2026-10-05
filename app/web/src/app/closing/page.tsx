@@ -5,6 +5,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { useViewMode } from "@/lib/use-view-mode";
 import { displayName, type ViewMode } from "@/lib/display-name";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 // ── 型定義 ──────────────────────────────────────────────────────────────
 type AccountRow = {
@@ -510,8 +512,8 @@ function MonthlyTab({
 // ── メインページ ──────────────────────────────────────────────────────────
 export default function ClosingPage() {
   const sysMode = useViewMode();
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [tab, setTab] = useState<"pnl" | "bs" | "trial" | "monthly" | "ratios">("pnl");
   const [etaxOpen, setEtaxOpen] = useState(false);
   const etaxRef = useRef<HTMLDivElement>(null);
@@ -569,19 +571,7 @@ export default function ClosingPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            className="input-field w-28 py-1.5 text-sm"
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-          >
-            {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2, currentYear - 3].map(
-              (y) => (
-                <option key={y} value={y}>
-                  {y}年
-                </option>
-              ),
-            )}
-          </select>
+          <YearBadge />
           <button
             type="button"
             onClick={() => window.open(`/closing/print?year=${year}`, "_blank")}
@@ -641,7 +631,7 @@ export default function ClosingPage() {
                 finalizeMut.mutate({ fiscalYear: year, netIncome: data.pnl.netIncome });
               }}
               disabled={finalizeMut.isPending || isLoading}
-              className="btn-primary text-sm px-4 py-1.5"
+              className="btn-primary"
             >
               決算確定
             </button>

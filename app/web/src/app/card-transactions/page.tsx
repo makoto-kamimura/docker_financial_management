@@ -1,12 +1,12 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
-import { InfoNote, PageLead, SectionLead, TermDetails } from "@/components/Explain";
+import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
 import { CARD_HELP, CARD_TERMS, cardFlowHelp } from "@/lib/help-texts";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
@@ -17,6 +17,8 @@ import {
   type LinkedAccountType,
 } from "@/lib/linked-account-type";
 import { TXN_SOURCE_LABEL as SOURCE_LABELS } from "@/lib/labels";
+import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
+import { CsvDropzone, Notice, PageHeader, Pager, SegmentedControl, Tabs } from "@/components/ui";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -195,7 +197,6 @@ const POST_FILTERS: [PostFilter, string][] = [
 // この画面ではチャージ先の指定と、そのカードでの固定決済の登録だけを行う。
 export default function CardTransactionsPage() {
   const qc = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<Tab>("summary");
   const [accountId, setAccountId] = useState<number | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -205,7 +206,6 @@ export default function CardTransactionsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   // 取込先の取り違え防止。選択中のカードを確認してから取り込む（毎回表示する）
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [dragOver, setDragOver] = useState(false);
   const [postFilter, setPostFilter] = useState<PostFilter>("all");
   // 明細一覧のページ番号（0 始まり）
   const [txnPage, setTxnPage] = useState(0);
@@ -217,7 +217,10 @@ export default function CardTransactionsPage() {
   const [scheduleAccount, setScheduleAccount] = useState<number | "all">("all");
 
   // ── カレンダー ────────────────────────────────────────────────
-  const [viewYear, setViewYear] = useState(now.getFullYear());
+  // カレンダーの年は対象年度（左のメニュー）に合わせる。月を送って年をまたいだら、対象年度も変える
+  const viewYear = useFiscalYear();
+  const setViewYear = (v: number | ((y: number) => number)) =>
+    setFiscalYear(typeof v === "function" ? v(viewYear) : v);
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
   const [calForm, setCalForm] = useState(BLANK_CAL_FORM);
@@ -465,9 +468,7 @@ export default function CardTransactionsPage() {
   }
 
   // 同じファイルを選び直しても change が発火するようにクリアする
-  function resetFileInput() {
-    if (fileRef.current) fileRef.current.value = "";
-  }
+  function resetFileInput() {}
 
   async function importFile(file: File) {
     if (accountId === null) return;
@@ -493,18 +494,6 @@ export default function CardTransactionsPage() {
       setImporting(false);
       resetFileInput();
     }
-  }
-
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) requestImport(file);
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) requestImport(file);
   }
 
   async function deleteTxn(txnId: number) {
@@ -759,56 +748,53 @@ export default function CardTransactionsPage() {
   return (
     <AppShell>
       {/* ヘッダ（台帳の登録は設定から移設し、借入金管理の「借入追加」と同じ要領でここに置く） */}
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h1 className="page-title">カード・電子マネー管理</h1>
-          <PageLead>{CARD_HELP.page}</PageLead>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setCardError(null);
-            setCardForm(BLANK_CARD);
-          }}
-          className="btn-primary px-4 py-2 text-sm shrink-0"
-        >
-          カード・電子マネー追加
-        </button>
-      </div>
-
-      {accounts && accounts.length === 0 && (
-        <div className="mb-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2.5 flex items-center justify-between gap-3">
-          <span>
-            カード・電子マネーが登録されていません。利用明細を記録するには、先に登録してください。
-          </span>
+      <PageHeader
+        title="カード・電子マネー管理"
+        lead={CARD_HELP.page}
+        actions={
           <button
             type="button"
             onClick={() => {
               setCardError(null);
               setCardForm(BLANK_CARD);
             }}
-            className="shrink-0 text-amber-900 font-medium underline underline-offset-2 hover:text-amber-700"
+            className="btn-primary shrink-0"
           >
-            カード・電子マネーを登録する
+            カード・電子マネー追加
           </button>
-        </div>
+        }
+      />
+
+      {accounts && accounts.length === 0 && (
+        <Notice tone="warn" className="mb-4">
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              カード・電子マネーが登録されていません。利用明細を記録するには、先に登録してください。
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setCardError(null);
+                setCardForm(BLANK_CARD);
+              }}
+              className="shrink-0 text-amber-900 font-medium underline underline-offset-2 hover:text-amber-700"
+            >
+              カード・電子マネーを登録する
+            </button>
+          </div>
+        </Notice>
       )}
 
       {/* タブ */}
-      <div className="flex gap-1 mb-4 border-b border-slate-200">
-        {TABS.map(([t, label]) => (
-          <button
-            key={t}
-            onClick={() => {
-              setTab(t);
-              setMsg(null);
-            }}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t ? "border-indigo-500 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={TABS}
+        value={tab}
+        onChange={(t) => {
+          setTab(t);
+          setMsg(null);
+        }}
+        className="mb-4"
+      />
 
       {/* 表示対象のカード・電子マネー（タブ直下に置き、どのタブでも同じ位置で切り替えられる）。
           銀行管理の明細一覧と同じく、ラベルを置かず右端に寄せた input-field のセレクタで統一する。
@@ -1055,12 +1041,9 @@ export default function CardTransactionsPage() {
       )}
 
       {msg && (
-        <div className="mb-4 text-sm text-slate-700 bg-indigo-50 border border-indigo-100 rounded-md px-3 py-2 flex items-center justify-between">
+        <Notice tone="info" onClose={() => setMsg(null)} className="mb-4">
           {msg}
-          <button onClick={() => setMsg(null)} className="text-slate-400 hover:text-slate-600 ml-4">
-            ✕
-          </button>
-        </div>
+        </Notice>
       )}
 
       {/* ── サマリタブ ───────────────────────────────────────
@@ -1103,22 +1086,11 @@ export default function CardTransactionsPage() {
             ここは表示専用にしている（同じ操作を 2 か所に置くと登録先が分かりにくくなるため）。 */}
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <h2 className="section-title">引き落とし・固定決済スケジュール</h2>
-            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
-              {CARD_SCHEDULE_MODES.map(([m, label]) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setScheduleMode(m)}
-                  className={`text-xs px-3 py-1 rounded-md font-medium transition-colors ${
-                    scheduleMode === m
-                      ? "bg-white text-slate-800 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              options={CARD_SCHEDULE_MODES}
+              value={scheduleMode}
+              onChange={setScheduleMode}
+            />
             <select
               value={scheduleAccount === "all" ? "all" : String(scheduleAccount)}
               onChange={(e) =>
@@ -1345,7 +1317,7 @@ export default function CardTransactionsPage() {
                   className="input-field text-sm"
                 />
               </div>
-              <button type="submit" className="btn-primary px-5 py-2 text-sm self-end">
+              <button type="submit" className="btn-primary self-end">
                 登録する
               </button>
             </form>
@@ -1660,27 +1632,13 @@ export default function CardTransactionsPage() {
               </table>
             </div>
             {filteredTxns.length > TXN_PAGE_SIZE && (
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setTxnPage(Math.max(0, currentTxnPage - 1))}
-                  disabled={currentTxnPage === 0}
-                  className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  ← 前の {TXN_PAGE_SIZE} 件
-                </button>
-                <span className="text-xs text-slate-400">
-                  {currentTxnPage + 1} / {txnPageCount} ページ
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setTxnPage(Math.min(txnPageCount - 1, currentTxnPage + 1))}
-                  disabled={currentTxnPage >= txnPageCount - 1}
-                  className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  次の {TXN_PAGE_SIZE} 件 →
-                </button>
-              </div>
+              <Pager
+                offset={currentTxnPage * TXN_PAGE_SIZE}
+                pageSize={TXN_PAGE_SIZE}
+                total={filteredTxns.length}
+                onChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
+                className="px-4 py-3 border-t border-slate-100"
+              />
             )}
           </div>
         </>
@@ -1893,7 +1851,7 @@ export default function CardTransactionsPage() {
                     <button
                       type="submit"
                       disabled={calSaving || accountId === null}
-                      className="btn-primary text-xs py-2 mt-1"
+                      className="btn-primary text-xs mt-1"
                     >
                       {calSaving ? "登録中..." : "登録"}
                     </button>
@@ -1917,42 +1875,7 @@ export default function CardTransactionsPage() {
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
           <SectionLead className="-mb-3">{CARD_HELP.csv}</SectionLead>
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => fileRef.current?.click()}
-            className={`card cursor-pointer border-2 border-dashed transition-colors text-center py-12 ${
-              dragOver
-                ? "border-indigo-400 bg-indigo-50"
-                : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
-            }`}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={onFileChange}
-            />
-            {importing ? (
-              <div className="space-y-2">
-                <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-slate-500">インポート中…</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-3xl">📂</p>
-                <p className="text-sm font-medium text-slate-700">
-                  クリックしてファイルを選択 または ドラッグ＆ドロップ
-                </p>
-                <p className="text-xs text-slate-400">CSV ファイル (.csv) に対応</p>
-              </div>
-            )}
-          </div>
+          <CsvDropzone busy={importing} onFile={requestImport} />
 
           {importResult && (
             <div

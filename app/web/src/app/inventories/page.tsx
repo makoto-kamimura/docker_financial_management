@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 type InventoryItem = {
   itemName: string;
@@ -234,12 +236,7 @@ function NewInventoryModal({ onClose }: { onClose: () => void }) {
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : "保存"}
           </button>
         </div>
@@ -249,8 +246,8 @@ function NewInventoryModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function InventoriesPage() {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [showModal, setShowModal] = useState(false);
   const qc = useQueryClient();
 
@@ -280,28 +277,13 @@ export default function InventoriesPage() {
           <h1 className="page-title">棚卸管理</h1>
           <p className="text-sm text-slate-500 mt-0.5">期末棚卸資産の記録・確定（F006）</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="btn-primary text-sm px-4 py-2"
-        >
+        <button type="button" onClick={() => setShowModal(true)} className="btn-primary">
           + 棚卸入力
         </button>
       </div>
 
       <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm text-slate-600">年度:</label>
-        <select
-          className="input-field w-28 py-1 text-sm"
-          value={year}
-          onChange={(e) => setYear(Number(e.target.value))}
-        >
-          {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2].map((y) => (
-            <option key={y} value={y}>
-              {y}年
-            </option>
-          ))}
-        </select>
+        <YearBadge />
       </div>
 
       {isLoading ? (

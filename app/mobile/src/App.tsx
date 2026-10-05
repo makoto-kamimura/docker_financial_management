@@ -32,6 +32,7 @@ import { JournalsScreen } from "./screens/JournalsScreen";
 import { InvoicesScreen } from "./screens/InvoicesScreen";
 import { ClosingScreen } from "./screens/ClosingScreen";
 import { GovernanceScreen } from "./screens/GovernanceScreen";
+import { setFiscalYear, useFiscalYear } from "./fiscal-year";
 
 type BottomTab = "home" | "budget" | "entry" | "more";
 
@@ -68,6 +69,7 @@ const SYSTEM_NAME: Record<ViewMode, string> = {
 };
 
 export default function App() {
+  const fiscalYear = useFiscalYear();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [activeTab, setActiveTab] = useState<BottomTab>("home");
@@ -176,9 +178,26 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      {/* システム名サブヘッダー */}
+      {/* システム名と対象年度（どの画面もこの年度の内容を表示する）のサブヘッダー */}
       <View style={s.subHeader}>
         <Text style={s.systemName}>{SYSTEM_NAME[viewMode]}</Text>
+        <View style={s.yearBar} accessibilityLabel={`対象年度 ${fiscalYear}年`}>
+          <TouchableOpacity
+            onPress={() => setFiscalYear(fiscalYear - 1)}
+            hitSlop={8}
+            accessibilityLabel="前の年度"
+          >
+            <Text style={s.yearArrow}>◀</Text>
+          </TouchableOpacity>
+          <Text style={s.yearText}>{fiscalYear}年</Text>
+          <TouchableOpacity
+            onPress={() => setFiscalYear(fiscalYear + 1)}
+            hitSlop={8}
+            accessibilityLabel="次の年度"
+          >
+            <Text style={s.yearArrow}>▶</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={s.userName}>{user.name}</Text>
       </View>
 
@@ -289,6 +308,9 @@ const s = StyleSheet.create({
     borderBottomColor: "#e2e8f0",
   },
   systemName: { fontSize: 11, color: "#64748b" },
+  yearBar: { flexDirection: "row", alignItems: "center", gap: 10 },
+  yearArrow: { fontSize: 12, color: "#4f46e5" },
+  yearText: { fontSize: 12, fontWeight: "700", color: "#1e293b" },
   userName: { fontSize: 11, color: "#94a3b8" },
   body: { flex: 1 },
   tabBar: {

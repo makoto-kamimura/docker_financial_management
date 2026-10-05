@@ -100,7 +100,7 @@ function ApportionmentForm({
           type="button"
           onClick={submit}
           disabled={saving || !accountId}
-          className="btn-primary text-sm px-4 py-1.5"
+          className="btn-primary"
         >
           {saving ? "保存中…" : "保存"}
         </button>
@@ -151,11 +151,7 @@ export default function AppportionmentsPage() {
           <p className="text-sm text-slate-500 mt-0.5">費用科目の事業利用率を設定（F009）</p>
         </div>
         {!showForm && (
-          <button
-            type="button"
-            onClick={() => setShowForm(true)}
-            className="btn-primary text-sm px-4 py-2"
-          >
+          <button type="button" onClick={() => setShowForm(true)} className="btn-primary">
             + 按分設定を追加
           </button>
         )}

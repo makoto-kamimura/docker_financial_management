@@ -309,12 +309,7 @@ function PersonalAssetFormModal({
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : isEdit ? "保存" : "登録"}
           </button>
         </div>
@@ -451,11 +446,7 @@ function PersonalAssetsSection() {
             {hasExcluded && <span> ・ 「資産計上外」の項目は負債のみ反映</span>}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="btn-primary text-sm px-4 py-2"
-        >
+        <button type="button" onClick={() => setShowModal(true)} className="btn-primary">
           + 資産を登録
         </button>
       </div>

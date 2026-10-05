@@ -20,6 +20,7 @@ import {
 } from "@/components/CycleSteps";
 import { ENTRY_HELP, textFor } from "@/lib/help-texts";
 import type { ViewMode } from "@/lib/display-name";
+import { Notice } from "@/components/ui";
 
 export function ActualsConfirmPanel({
   mode,
@@ -130,14 +131,7 @@ export function ActualsConfirmPanel({
         </p>
       )}
 
-      {message && (
-        <p
-          role="status"
-          className={`text-sm rounded-lg px-3 py-2 ${message.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
-        >
-          {message.text}
-        </p>
-      )}
+      {message && <Notice tone={message.ok ? "success" : "error"}>{message.text}</Notice>}
 
       {isLoading && <LoadingSpinner />}
 
@@ -258,7 +252,7 @@ function ActualsCard({
             type="button"
             disabled={busy || nextConfirmed}
             onClick={onUnconfirm}
-            className="btn-secondary text-sm disabled:opacity-40"
+            className="btn-secondary"
             title={
               nextConfirmed
                 ? "翌月の予算が確定済みのため、先に翌月の予算の確定を解除してください"
@@ -272,7 +266,7 @@ function ActualsCard({
             type="button"
             disabled={busy || !!blockedReason}
             onClick={onConfirm}
-            className="btn-primary text-sm disabled:opacity-40"
+            className="btn-primary"
           >
             {month}月の実績を確定
           </button>

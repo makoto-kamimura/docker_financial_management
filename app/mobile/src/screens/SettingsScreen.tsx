@@ -1,5 +1,5 @@
 // 設定（web 版 /settings と同じ 5 区分を閲覧のみで表示する。変更は web 版で行う）。
-// 予算配分ルールの編集は web 版と同じく予算画面の「予算配分」タブへ移した。
+// 予算配分ルールの編集は web 版と同じく予算画面の「設定」タブへ移した。
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,

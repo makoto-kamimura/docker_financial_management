@@ -1,6 +1,6 @@
 "use client";
 
-// 予算配分（旧「設定 › 予算配分ルール」）。予算管理の「予算配分」タブから使う。
+// 予算配分（旧「設定 › 予算配分ルール」）。予算管理の「設定」タブ（右端）から使う。
 //   1. 予算配分ルール … 収入に対する各項目の割当割合（%）のマスタ。
 //      未登録のテナント向けに、ファイナンシャルプランナー推奨の既定ルールを取り込むボタンを置く。
 //      科目は、科目名のキーワードと受け皿の区分で自動で振り分ける（追加した科目も入る）。
@@ -15,6 +15,7 @@ import { Trash2 } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
 import { BUDGET_HELP } from "@/lib/help-texts";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 import { planAllocationApply, type AssignmentSource } from "@/lib/allocation-assign";
 
 // 配分ルールのメンバー科目（自動の振り分け＋手動の割り当てを解決したもの）
@@ -311,11 +312,7 @@ function AllocationRulesSection() {
           <SectionLead className="mt-1">{BUDGET_HELP.allocationRules}</SectionLead>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
-          <button
-            onClick={save}
-            disabled={saving}
-            className="btn-primary px-4 py-2 whitespace-nowrap disabled:opacity-50"
-          >
+          <button onClick={save} disabled={saving} className="btn-primary whitespace-nowrap">
             {saving ? "保存中…" : "変更を保存"}
           </button>
           <button
@@ -544,10 +541,11 @@ type AllocationBasis = "budget" | "actual" | "manual";
 const ALLOC_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const allocYen = (v: number) => Math.round(v).toLocaleString("ja-JP");
 
-function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
+function AllocationSuggestSection() {
   const qc = useQueryClient();
   const now = new Date();
-  const [year, setYear] = useState(fiscalYear);
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
   // 既定は「手入力」。予算・実績の入力状況に左右されず、入れた金額をそのまま振り分けられる
   const [basis, setBasis] = useState<AllocationBasis>("manual");
@@ -655,20 +653,6 @@ function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
       </SectionLead>
 
       <div className="flex flex-wrap items-end gap-4 mb-4">
-        <div className="flex flex-col gap-1 w-28">
-          <label className="text-xs font-medium text-slate-600">年度</label>
-          <select
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="input-field"
-          >
-            {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-              <option key={y} value={y}>
-                {y}年度
-              </option>
-            ))}
-          </select>
-        </div>
         <div className="flex flex-col gap-1 w-24">
           <label className="text-xs font-medium text-slate-600">対象月</label>
           <select
@@ -719,7 +703,7 @@ function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
               type="button"
               onClick={() => setCommittedIncome(Number(incomeInput))}
               disabled={incomeInput === ""}
-              className="btn-primary px-4 py-2 whitespace-nowrap disabled:opacity-40"
+              className="btn-primary whitespace-nowrap"
             >
               配分を算出
             </button>
@@ -855,7 +839,7 @@ function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
           </div>
 
           <div className="mt-4 flex items-center gap-3">
-            <button onClick={apply} disabled={applying} className="btn-primary px-5 py-2">
+            <button onClick={apply} disabled={applying} className="btn-primary">
               {applying ? "反映中…" : `${month}月の予算が未設定の科目へ反映`}
             </button>
             {message && <span className="text-sm text-slate-600">{message}</span>}
@@ -866,11 +850,11 @@ function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
   );
 }
 
-export function BudgetAllocationPanel({ fiscalYear }: { fiscalYear: number }) {
+export function BudgetAllocationPanel() {
   return (
     <>
       <AllocationRulesSection />
-      <AllocationSuggestSection fiscalYear={fiscalYear} />
+      <AllocationSuggestSection />
     </>
   );
 }

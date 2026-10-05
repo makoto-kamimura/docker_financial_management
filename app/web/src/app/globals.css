@@ -72,6 +72,21 @@
     @apply focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2;
     @apply disabled:opacity-50 disabled:cursor-not-allowed;
   }
+  /* 小さいボタン（btn-primary / btn-secondary / btn-danger と組み合わせる） */
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  /* 枠だけの危険な操作（削除など、強く目立たせたくないもの） */
+  .btn-outline-danger {
+    @apply inline-flex items-center justify-center bg-white hover:bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer;
+    @apply focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* 表の上やタブの中に置く小さい select・入力（input-field の小型版） */
+  .select-sm {
+    @apply text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white text-slate-900;
+    @apply focus:outline-none focus:ring-2 focus:ring-indigo-500;
+  }
   .card {
     @apply bg-white rounded-xl border border-slate-200 p-6;
   }

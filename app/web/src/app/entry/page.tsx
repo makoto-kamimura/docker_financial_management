@@ -1,24 +1,21 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useRef, useState, useMemo } from "react";
+import { Suspense, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { LoadingSpinner } from "@/components/StateViews";
+import { EmptyState, LoadingSpinner } from "@/components/StateViews";
+import { AccountMonthMatrix, type MatrixCell } from "@/components/AccountMonthMatrix";
 import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
-import { PageLead, SectionLead } from "@/components/Explain";
+import { CsvDropzone, Notice, PageHeader, Pager, Tabs } from "@/components/ui";
+import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
+import { SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { ENTRY_HELP, textFor } from "@/lib/help-texts";
-import { useMonthColumnScroll } from "@/hooks/useMonthColumnScroll";
 import { displayName } from "@/lib/display-name";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
-import {
-  buildFinancialMatrix,
-  editableRecord,
-  MATRIX_MONTHS,
-  type MatrixRecord,
-} from "@/lib/financial-matrix";
+import { buildFinancialMatrix, editableRecord, type MatrixRecord } from "@/lib/financial-matrix";
 import {
   CATEGORY_LABEL as GROUP_LABELS,
   CATEGORY_ORDER as GROUP_ORDER,
@@ -83,6 +80,8 @@ type MatrixResponse = {
   year: number;
   data: MatrixEntry[];
   years: number[];
+  /** 実績を確定済みの月 */
+  confirmedMonths: number[];
 };
 
 type JournalDetail = {
@@ -111,16 +110,6 @@ const ACTION_COLOR: Record<string, string> = {
   create: "text-green-700 bg-green-50",
   update: "text-amber-700 bg-amber-50",
   delete: "text-red-700 bg-red-50",
-};
-
-const CATEGORY_BADGE: Record<string, string> = {
-  REVENUE: "bg-blue-50 text-blue-700",
-  COGS: "bg-orange-50 text-orange-700",
-  EXPENSE: "bg-amber-50 text-amber-700",
-  PROFIT: "bg-green-50 text-green-700",
-  ASSET: "bg-emerald-50 text-emerald-700",
-  LIABILITY: "bg-rose-50 text-rose-700",
-  OTHER: "bg-slate-100 text-slate-600",
 };
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -180,9 +169,15 @@ function entryAmount(e: JournalEntry): { income: number; expense: number } {
 
 const now = new Date();
 const THIS_YEAR = now.getFullYear();
-const THIS_MONTH = now.getMonth() + 1;
 
 type Tab = "manual" | "calendar" | "confirm" | "csv" | "history";
+const TABS: readonly (readonly [Tab, string])[] = [
+  ["manual", "一覧"],
+  ["confirm", "実績の確定"],
+  ["calendar", "カレンダー"],
+  ["csv", "CSV インポート"],
+  ["history", "履歴"],
+];
 
 const TAB_IDS: Tab[] = ["manual", "calendar", "confirm", "csv", "history"];
 // 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）
@@ -241,13 +236,8 @@ function EntryContent() {
   const recentHistory = history?.data;
   const histTotal = history?.total ?? 0;
 
-  const [matrixYear, setMatrixYear] = useState<number | null>(null);
-  const [matrixEdit, setMatrixEdit] = useState<{ id: number; amount: string } | null>(null);
-  const [matrixAdd, setMatrixAdd] = useState<{
-    accountCode: string;
-    month: number;
-    amount: string;
-  } | null>(null);
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const matrixYear = useFiscalYear();
   const [matrixError, setMatrixError] = useState<string | null>(null);
   // 「◯件」を押して開くセル内訳モーダル（同じ科目・月に複数の実績があるセル）
   const [cellDetail, setCellDetail] = useState<{ accountCode: string; month: number } | null>(null);
@@ -265,10 +255,7 @@ function EntryContent() {
     },
     placeholderData: (prev) => prev,
   });
-  const matrixCurrentYear = matrixData?.year ?? matrixYear ?? THIS_YEAR;
-
-  // 明細一覧は当月の列を左端に寄せて開く（当年以外を表示中は 1 月始まりのまま）
-  const monthScrollRef = useMonthColumnScroll(matrixCurrentYear === THIS_YEAR ? THIS_MONTH : null);
+  const matrixCurrentYear = matrixYear;
 
   // 科目 × 月へ組み替え、予算管理と同じカテゴリ順（資産→負債→収入→…）で並べる
   const matrixRows = useMemo(() => {
@@ -302,14 +289,14 @@ function EntryContent() {
   }
 
   // ── CSV インポート ─────────────────────────────────────────────
-  const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
 
   // ── カレンダー ────────────────────────────────────────────────
-  const [viewYear, setViewYear] = useState(now.getFullYear());
+  // カレンダーの年は対象年度に合わせる。月を送って年をまたいだら、対象年度も変える
+  const viewYear = matrixYear;
+  const setViewYear = (f: (y: number) => number) => setFiscalYear(f(viewYear));
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
   const [calForm, setCalForm] = useState(BLANK_CAL_FORM);
@@ -390,9 +377,8 @@ function EntryContent() {
     queryClient.invalidateQueries({ queryKey: ["recent-history"] });
   }
 
-  // 実績 1 行の金額更新。テーブルのセル編集とセル内訳モーダルの両方から使う
-  async function updateRecordAmount(id: number, amount: number): Promise<boolean> {
-    setMatrixError(null);
+  // 実績 1 行の金額更新。一覧のセル編集とセル内訳モーダルの両方から使う。失敗ならメッセージを返す
+  async function updateRecordAmount(id: number, amount: number): Promise<string | null> {
     const res = await fetch(`/api/financials/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -400,57 +386,85 @@ function EntryContent() {
     });
     if (res.ok) {
       invalidateRecords();
-      return true;
+      return null;
     }
     const err = await res.json().catch(() => ({}));
-    setMatrixError(err.error ?? "更新に失敗しました。");
-    return false;
-  }
-
-  async function saveMatrixCell() {
-    if (!matrixEdit) return;
-    if (await updateRecordAmount(matrixEdit.id, Number(matrixEdit.amount))) setMatrixEdit(null);
+    return err.error ?? "更新に失敗しました。";
   }
 
   // 内訳モーダルからの更新・削除。削除は取り消せないので確認を挟む
   async function saveDetailAmount() {
     if (!detailEdit) return;
-    if (await updateRecordAmount(detailEdit.id, Number(detailEdit.amount))) setDetailEdit(null);
+    const message = await updateRecordAmount(detailEdit.id, Number(detailEdit.amount));
+    setMatrixError(message);
+    if (!message) setDetailEdit(null);
   }
 
   async function deleteDetailRecord(r: MatrixEntry) {
     if (!confirm(`${yen(Number(r.amount))} の実績を削除します。よろしいですか？`)) return;
     if (detailEdit?.id === r.id) setDetailEdit(null);
-    await deleteMatrixCell(r.id);
+    setMatrixError(await deleteMatrixCell(r.id));
   }
 
-  async function deleteMatrixCell(id: number) {
-    setMatrixError(null);
+  async function deleteMatrixCell(id: number): Promise<string | null> {
     const res = await fetch(`/api/financials/${id}`, { method: "DELETE" });
-    if (res.ok) invalidateRecords();
-    else setMatrixError("削除に失敗しました。");
+    if (res.ok) {
+      invalidateRecords();
+      return null;
+    }
+    const err = await res.json().catch(() => ({}));
+    return err.error ?? "削除に失敗しました。";
   }
 
-  async function addMatrixCell() {
-    if (!matrixAdd || matrixAdd.amount === "") return;
-    setMatrixError(null);
+  async function addMatrixCell(
+    accountCode: string,
+    month: number,
+    amount: number,
+  ): Promise<string | null> {
     const res = await fetch("/api/financials", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        accountCode: matrixAdd.accountCode,
-        fiscalYear: matrixCurrentYear,
-        month: matrixAdd.month,
-        amount: Number(matrixAdd.amount),
-      }),
+      body: JSON.stringify({ accountCode, fiscalYear: matrixCurrentYear, month, amount }),
     });
     if (res.ok) {
-      setMatrixAdd(null);
       invalidateRecords();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setMatrixError(err.error ?? "登録に失敗しました。");
+      return null;
     }
+    const err = await res.json().catch(() => ({}));
+    return err.error ?? "登録に失敗しました。";
+  }
+
+  // 一覧のセル。同じ月に複数件あるセルは内訳から、仕訳と連動した実績は仕訳帳から直す
+  function entryCell(code: string, m: number): MatrixCell | null {
+    const cell = matrixRows.find((r) => r.account.code === code)?.byMonth.get(m);
+    if (!cell) return null;
+    const single = editableRecord(cell);
+    return {
+      amount: cell.total,
+      editable:
+        single && single.journalEntryId === null
+          ? { id: single.id, amount: Number(single.amount) }
+          : null,
+      action:
+        cell.records.length > 1 ? (
+          // 複数件のセルはその場で編集できないため、内訳モーダルで 1 行ずつ確認して直す
+          <button
+            type="button"
+            onClick={() => setCellDetail({ accountCode: code, month: m })}
+            title="この月の実績の内訳を表示"
+            className="text-[10px] text-indigo-500 hover:text-indigo-700 underline underline-offset-2 whitespace-nowrap"
+          >
+            {cell.records.length}件
+          </button>
+        ) : single && single.journalEntryId !== null ? (
+          <span
+            className="text-[10px] text-slate-400"
+            title="仕訳と連動した実績のため、金額は仕訳帳から修正してください。"
+          >
+            仕訳
+          </span>
+        ) : undefined,
+    };
   }
 
   // ── CSV ハンドラ ─────────────────────────────────────────────
@@ -477,20 +491,7 @@ function EntryContent() {
       setImportError(importNetworkErrorMessage);
     } finally {
       setImporting(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
-  }
-
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) importFile(file);
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) importFile(file);
   }
 
   // ── カレンダーハンドラ ───────────────────────────────────────
@@ -545,59 +546,14 @@ function EntryContent() {
 
   return (
     <AppShell>
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="page-title">実績管理</h1>
-          <PageLead>{textFor(ENTRY_HELP.page, sysMode)}</PageLead>
-        </div>
-        {/* 年度は予算管理と同じくページ上部に置く（科目×月テーブルの対象年度） */}
-        {tab === "manual" && (
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">年度</label>
-            <select
-              value={matrixCurrentYear}
-              onChange={(e) => {
-                setMatrixYear(Number(e.target.value));
-                setMatrixEdit(null);
-                setMatrixAdd(null);
-              }}
-              className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {(matrixData?.years?.length ? matrixData.years : [matrixCurrentYear]).map((y) => (
-                <option key={y} value={y}>
-                  {y}年度
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        title="実績管理"
+        lead={textFor(ENTRY_HELP.page, sysMode)}
+        showYear={tab === "manual" || tab === "calendar"}
+      />
 
-      {/* タブ切り替え */}
-      <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(
-          [
-            ["manual", "明細一覧"],
-            ["calendar", "カレンダー"],
-            ["confirm", "実績の確定"],
-            ["csv", "CSV インポート"],
-            ["history", "履歴"],
-          ] as [Tab, string][]
-        ).map(([t, label]) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t
-                ? "border-indigo-600 text-indigo-700"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* タブ（予算管理と同じ並び：一覧 → 確定 → … → 履歴） */}
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
       {/* 実績の新規登録は下の「科目×月テーブル」のセルから行う（旧「新規登録」フォームは廃止）。
           科目名の変更は「設定 › 科目名設定」に集約した。 */}
@@ -924,11 +880,7 @@ function EntryContent() {
                       </select>
                     </div>
                     {calError && <p className="text-xs text-red-600">{calError}</p>}
-                    <button
-                      type="submit"
-                      disabled={calSaving}
-                      className="btn-primary text-xs py-2 mt-1"
-                    >
+                    <button type="submit" disabled={calSaving} className="btn-primary text-xs mt-1">
                       {calSaving ? "登録中..." : "登録"}
                     </button>
                   </form>
@@ -950,42 +902,7 @@ function EntryContent() {
       {/* ── CSV インポートタブ ──────────────────────────────────── */}
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => fileRef.current?.click()}
-            className={`card cursor-pointer border-2 border-dashed transition-colors text-center py-12 ${
-              dragOver
-                ? "border-indigo-400 bg-indigo-50"
-                : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
-            }`}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={onFileChange}
-            />
-            {importing ? (
-              <div className="space-y-2">
-                <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-slate-500">インポート中…</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-3xl">📂</p>
-                <p className="text-sm font-medium text-slate-700">
-                  クリックしてファイルを選択 または ドラッグ＆ドロップ
-                </p>
-                <p className="text-xs text-slate-400">CSV ファイル (.csv) に対応</p>
-              </div>
-            )}
-          </div>
+          <CsvDropzone busy={importing} onFile={importFile} />
           {importResult && (
             <div
               className={`card border ${importResult.errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}
@@ -1031,11 +948,7 @@ function EntryContent() {
               )}
             </div>
           )}
-          {importError && (
-            <div className="card border border-red-200 bg-red-50">
-              <p className="text-sm text-red-700">{importError}</p>
-            </div>
-          )}
+          {importError && <Notice tone="error">{importError}</Notice>}
           <div className="card bg-slate-50">
             <h3 className="text-xs font-semibold text-slate-700 mb-2">CSV フォーマット</h3>
             <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`accountCode,fiscalYear,month,amount
@@ -1097,220 +1010,41 @@ HA101,${THIS_YEAR},12,500000`}</pre>
       {(tab === "manual" || tab === "history") && (
         <div>
           {tab === "history" && histTotal > 0 && (
-            <p className="text-xs text-slate-500 mb-3">
-              全 {histTotal} 件中 {histOffset + 1}〜
+            <p className="text-xs text-slate-400 mb-2">
+              全 {histTotal.toLocaleString()} 件中 {histOffset + 1}〜
               {Math.min(histOffset + HISTORY_PAGE_SIZE, histTotal)} 件を表示
             </p>
           )}
 
-          {/* ── 科目×月テーブル（明細一覧タブ）───────────────────── */}
-          {tab === "manual" && (
-            <>
-              {matrixError && (
-                <p className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                  {matrixError}
-                </p>
-              )}
-              {matrixLoading && !matrixData ? (
-                <LoadingSpinner label="実績を読み込み中…" />
-              ) : matrixRows.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  {matrixCurrentYear}
-                  年度の実績がありません。CSV インポートまたはカレンダーから登録してください。
-                </p>
-              ) : (
-                <div className="card overflow-hidden p-0">
-                  <div ref={monthScrollRef} className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200">
-                          <th className="sticky left-0 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-600 min-w-44">
-                            勘定科目
-                          </th>
-                          {MATRIX_MONTHS.map((m) => (
-                            <th
-                              key={m}
-                              data-month={m}
-                              className="px-3 py-3 text-right text-xs font-semibold text-slate-600 whitespace-nowrap min-w-24"
-                            >
-                              {m}月
-                            </th>
-                          ))}
-                          <th className="px-3 py-3 text-right text-xs font-semibold text-slate-600 min-w-28">
-                            年間合計
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {matrixRows.map((row) => (
-                          <tr key={row.account.code} className="hover:bg-slate-50 group">
-                            <td className="sticky left-0 bg-white group-hover:bg-slate-50 px-4 py-2 font-medium">
-                              <span className="text-xs font-mono text-slate-400 mr-1.5">
-                                {row.account.code}
-                              </span>
-                              <span className="text-slate-800">
-                                {displayName(
-                                  accounts?.find((a) => a.code === row.account.code) ?? row.account,
-                                  sysMode,
-                                )}
-                              </span>
-                              <span
-                                className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${CATEGORY_BADGE[row.account.category] ?? ""}`}
-                              >
-                                {GROUP_LABELS[row.account.category] ?? row.account.category}
-                              </span>
-                            </td>
-                            {MATRIX_MONTHS.map((m) => {
-                              const cell = row.byMonth.get(m);
-                              const single = editableRecord(cell);
-                              const editing =
-                                single && matrixEdit?.id === single.id ? matrixEdit : null;
-                              const adding =
-                                matrixAdd &&
-                                matrixAdd.accountCode === row.account.code &&
-                                matrixAdd.month === m
-                                  ? matrixAdd
-                                  : null;
-                              return (
-                                <td key={m} className="px-3 py-1.5 text-right tabular-nums">
-                                  {editing ? (
-                                    <div className="flex items-center gap-1 justify-end">
-                                      <input
-                                        type="number"
-                                        value={editing.amount}
-                                        onChange={(e) =>
-                                          setMatrixEdit({ ...editing, amount: e.target.value })
-                                        }
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") saveMatrixCell();
-                                          if (e.key === "Escape") setMatrixEdit(null);
-                                        }}
-                                        autoFocus
-                                        className="w-24 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
-                                      />
-                                      <button
-                                        type="button"
-                                        aria-label="保存"
-                                        title="保存"
-                                        onClick={saveMatrixCell}
-                                        className="text-indigo-600 hover:text-indigo-700"
-                                      >
-                                        <Check className="w-4 h-4" aria-hidden="true" />
-                                      </button>
-                                    </div>
-                                  ) : adding ? (
-                                    <div className="flex items-center gap-1 justify-end">
-                                      <input
-                                        type="number"
-                                        value={adding.amount}
-                                        placeholder="金額"
-                                        onChange={(e) =>
-                                          setMatrixAdd({ ...adding, amount: e.target.value })
-                                        }
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") addMatrixCell();
-                                          if (e.key === "Escape") setMatrixAdd(null);
-                                        }}
-                                        autoFocus
-                                        className="w-24 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
-                                      />
-                                      <button
-                                        type="button"
-                                        aria-label="登録"
-                                        title="登録"
-                                        onClick={addMatrixCell}
-                                        className="text-indigo-600 hover:text-indigo-700"
-                                      >
-                                        <Check className="w-4 h-4" aria-hidden="true" />
-                                      </button>
-                                    </div>
-                                  ) : cell ? (
-                                    <div className="flex items-center justify-end gap-1 group/cell">
-                                      <span>{cell.total.toLocaleString("ja-JP")}</span>
-                                      {cell.records.length > 1 ? (
-                                        // 複数件のセルはその場で編集できないため、内訳モーダルで
-                                        // 1 行ずつ内容を確認して編集・削除する
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setCellDetail({
-                                              accountCode: row.account.code,
-                                              month: m,
-                                            })
-                                          }
-                                          title="この月の実績の内訳を表示"
-                                          className="text-[10px] text-indigo-500 hover:text-indigo-700 underline underline-offset-2 whitespace-nowrap"
-                                        >
-                                          {cell.records.length}件
-                                        </button>
-                                      ) : single && single.journalEntryId !== null ? (
-                                        <span
-                                          className="text-[10px] text-slate-400"
-                                          title="仕訳と連動した実績のため、金額は仕訳帳から修正してください。"
-                                        >
-                                          仕訳
-                                        </span>
-                                      ) : (
-                                        single && (
-                                          <>
-                                            <button
-                                              type="button"
-                                              aria-label="この実績を編集"
-                                              title="編集"
-                                              onClick={() =>
-                                                setMatrixEdit({
-                                                  id: single.id,
-                                                  amount: String(single.amount),
-                                                })
-                                              }
-                                              className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover/cell:opacity-100"
-                                            >
-                                              <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              aria-label="この実績を削除"
-                                              title="削除"
-                                              onClick={() => deleteMatrixCell(single.id)}
-                                              className="text-slate-300 hover:text-red-500 opacity-0 group-hover/cell:opacity-100"
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                            </button>
-                                          </>
-                                        )
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setMatrixAdd({
-                                          accountCode: row.account.code,
-                                          month: m,
-                                          amount: "",
-                                        })
-                                      }
-                                      className="text-slate-300 hover:text-indigo-500"
-                                      title={`${row.account.code} の ${m}月に実績を追加`}
-                                    >
-                                      —
-                                    </button>
-                                  )}
-                                </td>
-                              );
-                            })}
-                            <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700">
-                              {row.annual.toLocaleString("ja-JP")}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
+          {/* ── 科目×月テーブル（一覧タブ。予算管理の一覧と同じ部品）──────── */}
+          {tab === "manual" &&
+            (matrixLoading && !matrixData ? (
+              <LoadingSpinner label="実績を読み込み中…" />
+            ) : (
+              <>
+                {matrixRows.length === 0 && (
+                  <EmptyState
+                    title="実績データがありません"
+                    description={`${matrixCurrentYear}年の実績がありません。CSV インポートかカレンダーから登録するか、下の「科目を追加」から入れてください。`}
+                  />
+                )}
+                <AccountMonthMatrix
+                  mode={sysMode}
+                  year={matrixCurrentYear}
+                  noun="実績"
+                  rows={matrixRows.map(
+                    (r) => accounts?.find((a) => a.code === r.account.code) ?? r.account,
+                  )}
+                  allAccounts={accounts ?? []}
+                  getCell={entryCell}
+                  lockedMonths={new Set(matrixData?.confirmedMonths ?? [])}
+                  lockedTitle={(m) => `${m}月の実績は確定済みです。${ENTRY_HELP.actualsLocked}`}
+                  onAdd={addMatrixCell}
+                  onSave={updateRecordAmount}
+                  onDelete={deleteMatrixCell}
+                />
+              </>
+            ))}
 
           {/* ── 履歴（履歴タブ）─────────────────────────── */}
           {tab === "history" &&
@@ -1429,28 +1163,13 @@ HA101,${THIS_YEAR},12,500000`}</pre>
                     ))}
                   </tbody>
                 </table>
-                <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setHistOffset(Math.max(0, histOffset - HISTORY_PAGE_SIZE))}
-                    disabled={histOffset === 0}
-                    className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                  >
-                    ← 前の {HISTORY_PAGE_SIZE} 件
-                  </button>
-                  <span className="text-xs text-slate-400">
-                    {Math.floor(histOffset / HISTORY_PAGE_SIZE) + 1} /{" "}
-                    {Math.max(1, Math.ceil(histTotal / HISTORY_PAGE_SIZE))} ページ
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setHistOffset(histOffset + HISTORY_PAGE_SIZE)}
-                    disabled={histOffset + HISTORY_PAGE_SIZE >= histTotal}
-                    className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                  >
-                    次の {HISTORY_PAGE_SIZE} 件 →
-                  </button>
-                </div>
+                <Pager
+                  offset={histOffset}
+                  pageSize={HISTORY_PAGE_SIZE}
+                  total={histTotal}
+                  onChange={setHistOffset}
+                  className="pt-3 mt-3 border-t border-slate-100"
+                />
               </div>
             ) : (
               <p className="text-sm text-slate-400">まだ履歴はありません。</p>

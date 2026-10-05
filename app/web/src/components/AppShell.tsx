@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import type { ViewMode } from "@/lib/display-name";
 import { VIEW_MODES } from "@/lib/mode-labels";
+import { FiscalYearSwitcher } from "@/components/FiscalYearSwitcher";
 
 type NavItem = { href: string; label: string; icon: LucideIcon; modes: ViewMode[] };
 type NavGroup = { group: string; items: NavItem[] };
@@ -295,6 +296,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             ))}
           </div>
+          {/* 対象年度（どの画面もこの年度の内容を表示する） */}
+          <div className="mt-3">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+              対象年度
+            </p>
+            <FiscalYearSwitcher />
+          </div>
         </div>
 
         <nav className="flex-1 px-3 py-3 overflow-y-auto">
@@ -370,6 +378,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Menu size={20} strokeWidth={2} aria-hidden="true" />
           </button>
           <span className="font-semibold text-sm truncate">{TITLE[viewMode]}</span>
+          <FiscalYearSwitcher compact />
           {/* 観点切り替えはヘッダーからも操作できるようにする（サイドバーを開かずに済む） */}
           <div className="ml-auto flex rounded-lg overflow-hidden border border-slate-600 text-[11px]">
             {VIEW_MODES.map(({ value, short }) => (

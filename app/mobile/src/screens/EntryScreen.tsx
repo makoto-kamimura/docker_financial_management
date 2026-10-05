@@ -44,13 +44,14 @@ import { buildFinancialMatrix, editableRecord, type MatrixCell } from "../shared
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
 import { ActualsConfirmSection } from "../components/ActualsConfirmSection";
+import { useFiscalYear } from "../fiscal-year";
 
 export type EntryTab = "manual" | "calendar" | "confirm" | "history";
 type Tab = EntryTab;
 const TABS = [
-  ["manual", "明細一覧"],
-  ["calendar", "カレンダー"],
+  ["manual", "一覧"],
   ["confirm", "実績の確定"],
+  ["calendar", "カレンダー"],
   ["history", "履歴"],
 ] as const;
 
@@ -81,17 +82,22 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   // ── 明細一覧 ────────────────────────────────────────────────
-  const [year, setYear] = useState<number | null>(null); // null はサーバー既定（当年）
+  // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [matrix, setMatrix] = useState<{
     year: number;
     years: number[];
     data: FinancialRecordRow[];
+    confirmedMonths: number[];
   }>({
     year: now.getFullYear(),
     years: [],
+    confirmedMonths: [],
     data: [],
-  });
+  }); // 実績を確定済みの月は編集できない（web 版の一覧の鍵の印と同じ）
+  const locked = matrix.confirmedMonths.includes(month);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,10 +113,7 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
   const loadMatrix = useCallback(async () => {
     setError(null);
     try {
-      const [accs, m] = await Promise.all([
-        fetchAccounts(),
-        fetchFinancialMatrix(year ?? undefined),
-      ]);
+      const [accs, m] = await Promise.all([fetchAccounts(), fetchFinancialMatrix(year)]);
       setAccounts(accs);
       setMatrix(m);
     } catch (e) {
@@ -163,8 +166,6 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
 
   const detailRow = detailCode ? rows.find((r) => r.account.code === detailCode) : undefined;
   const detailCell: MatrixCell<FinancialRecordRow> | undefined = detailRow?.byMonth.get(month);
-
-  const yearOptions = [...new Set([...matrix.years, matrix.year])].sort((a, b) => a - b);
 
   async function run(action: () => Promise<void>) {
     try {
@@ -245,30 +246,27 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
             <ActivityIndicator color="#4f46e5" style={{ marginTop: 40 }} />
           ) : (
             <>
-              <View style={s.yearRow}>
-                <Text style={s.yearCaption}>年度</Text>
-                <Pills
-                  options={yearOptions.map((y) => ({ value: y, label: `${y}年度` }))}
-                  value={matrix.year}
-                  onChange={(y) => {
-                    setEdit(null);
-                    setYear(y);
-                  }}
-                />
-              </View>
               <Pills
-                options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
+                options={MONTHS.map((m) => ({
+                  value: m,
+                  label: matrix.confirmedMonths.includes(m) ? `🔒${m}月` : `${m}月`,
+                }))}
                 value={month}
                 onChange={(m) => {
                   setEdit(null);
                   setMonth(m);
                 }}
               />
+              {locked && (
+                <Notice tone="info">
+                  {`🔒 ${month}月の実績は確定済みです。${ENTRY_HELP.actualsLocked}`}
+                </Notice>
+              )}
               {error && <Notice tone="error">{error}</Notice>}
 
               {rows.length === 0 ? (
                 <EmptyText>
-                  {matrix.year}年度の実績がありません。カレンダーから登録してください（CSV
+                  {matrix.year}年の実績がありません。カレンダーから登録してください（CSV
                   インポートは Web 版で行えます）。
                 </EmptyText>
               ) : (
@@ -318,7 +316,8 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
                             ) : single && single.journalEntryId !== null ? (
                               <Text style={s.muted}>仕訳（仕訳帳から修正）</Text>
                             ) : (
-                              single && (
+                              single &&
+                              !locked && (
                                 <View style={s.actions}>
                                   <TouchableOpacity
                                     onPress={() =>
@@ -338,6 +337,8 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
                               )
                             )}
                           </View>
+                        ) : locked ? (
+                          <Text style={s.muted}>—</Text>
                         ) : (
                           <TouchableOpacity
                             onPress={() =>
@@ -448,8 +449,6 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#f8fafc" },
   scroll: { flex: 1 },
   content: { padding: 14, paddingBottom: 32 },
-  yearRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  yearCaption: { fontSize: 11, color: "#64748b" },
   groupLabel: {
     fontSize: 11,
     fontWeight: "700",

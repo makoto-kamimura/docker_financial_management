@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 type Payable = {
   id: number;
@@ -151,12 +153,7 @@ function NewPayableModal({ onClose }: { onClose: () => void }) {
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : "登録"}
           </button>
         </div>
@@ -243,12 +240,7 @@ function PayModal({ payable, onClose }: { payable: Payable; onClose: () => void 
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "処理中…" : "支払確定"}
           </button>
         </div>
@@ -259,8 +251,8 @@ function PayModal({ payable, onClose }: { payable: Payable; onClose: () => void 
 
 // ── メインページ ──────────────────────────────────────────────────────────
 export default function PayablesPage() {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [status, setStatus] = useState("all");
   const [showNew, setShowNew] = useState(false);
   const [paying, setPaying] = useState<Payable | null>(null);
@@ -292,11 +284,7 @@ export default function PayablesPage() {
           <h1 className="page-title">買掛金管理</h1>
           <p className="text-sm text-slate-500 mt-0.5">仕入先請求書・支払管理（F011）</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowNew(true)}
-          className="btn-primary text-sm px-4 py-2"
-        >
+        <button type="button" onClick={() => setShowNew(true)} className="btn-primary">
           + 買掛金 登録
         </button>
       </div>
@@ -325,17 +313,7 @@ export default function PayablesPage() {
 
       {/* フィルタ */}
       <div className="flex items-center gap-3 mb-4">
-        <select
-          className="input-field w-28 py-1 text-sm"
-          value={year}
-          onChange={(e) => setYear(Number(e.target.value))}
-        >
-          {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2].map((y) => (
-            <option key={y} value={y}>
-              {y}年
-            </option>
-          ))}
-        </select>
+        <YearBadge />
         <div className="flex gap-1">
           {[
             ["all", "全件"],

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 type Depreciation = { id: number; fiscalYear: number; amount: number | string };
 type FixedAsset = {
@@ -153,12 +155,7 @@ function NewAssetModal({ onClose }: { onClose: () => void }) {
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : "登録"}
           </button>
         </div>
@@ -168,9 +165,9 @@ function NewAssetModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function FixedAssetsPage() {
-  const currentYear = new Date().getFullYear();
   const [showModal, setShowModal] = useState(false);
-  const [deprYear, setDeprYear] = useState(currentYear);
+  // 償却を計上する年度は、左のメニューの対象年度
+  const deprYear = useFiscalYear();
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -201,28 +198,14 @@ export default function FixedAssetsPage() {
           <h1 className="page-title">固定資産管理</h1>
           <p className="text-sm text-slate-500 mt-0.5">固定資産台帳・減価償却計算（F007/F008）</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="btn-primary text-sm px-4 py-2"
-        >
+        <button type="button" onClick={() => setShowModal(true)} className="btn-primary">
           + 固定資産 登録
         </button>
       </div>
 
       <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm text-slate-600">償却計上年度:</label>
-        <select
-          className="input-field w-28 py-1 text-sm"
-          value={deprYear}
-          onChange={(e) => setDeprYear(Number(e.target.value))}
-        >
-          {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2].map((y) => (
-            <option key={y} value={y}>
-              {y}年
-            </option>
-          ))}
-        </select>
+        <span className="text-sm text-slate-600">償却計上年度:</span>
+        <YearBadge />
         <span className="text-xs text-slate-400">を選択して各資産の「償却計上」を押す</span>
       </div>
 

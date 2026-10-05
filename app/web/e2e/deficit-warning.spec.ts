@@ -11,7 +11,7 @@ test.describe("収支マイナス警告", () => {
     await page.goto("/dashboard");
     // KPI カードの描画（クライアント側フェッチ）を待ってからハイドレーション完了とみなす。
     // 完了前にモード切替ボタンを押すと onClick が未接続でクリックが no-op になるため。
-    await expect(page.getByText("対象月:")).toBeVisible();
+    await expect(page.getByText(/^対象月（\d+年）:$/)).toBeVisible();
 
     // 貯蓄額カードの赤字警告は household（家計）モード専用のため切り替える。
     await page.getByRole("button", { name: "家計" }).click();

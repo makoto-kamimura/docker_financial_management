@@ -12,6 +12,7 @@ import { fetchJournals, type JournalEntry, type ViewMode } from "../api";
 import { Card, EmptyText, Notice, Pills } from "../components/ui";
 import { fmtDate, MONTHS, yenJa } from "../format";
 import { displayName } from "../shared/display-name";
+import { useFiscalYear } from "../fiscal-year";
 
 // web 版と同じ区分名
 const APPROVAL_LABELS: Record<string, { label: string; bg: string; color: string }> = {
@@ -36,7 +37,8 @@ type Props = { viewMode: ViewMode };
 
 export function JournalsScreen({ viewMode }: Props) {
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
+  // 年は画面上部のサブヘッダーの対象年度（全画面で共通）。ここでは月だけを選ぶ
+  const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [entries, setEntries] = useState<JournalEntry[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -78,14 +80,6 @@ export function JournalsScreen({ viewMode }: Props) {
       <Notice>
         仕訳の入力・承認・削除と証憑の添付は Web 版から行ってください（モバイルでは閲覧のみ）。
       </Notice>
-      <Pills
-        options={Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => ({
-          value: y,
-          label: `${y}年`,
-        }))}
-        value={year}
-        onChange={setYear}
-      />
       <Pills
         options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
         value={month}

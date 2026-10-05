@@ -151,7 +151,7 @@ export function ChargeLinkModal({ source, target, onCancel, onConfirm }: Props) 
             type="button"
             onClick={() => selected !== null && onConfirm(selected)}
             disabled={selected === null}
-            className="btn-primary px-4 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
             紐づけて指定
           </button>
