@@ -370,10 +370,10 @@ function JournalForm({
           )}
         </div>
         <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
-          <button onClick={onClose} className="btn-secondary text-sm px-4 py-1.5">
+          <button onClick={onClose} className="btn-secondary">
             キャンセル
           </button>
-          <button onClick={save} disabled={saving} className="btn-primary text-sm px-5 py-1.5">
+          <button onClick={save} disabled={saving} className="btn-primary">
             {saving ? "登録中…" : "仕訳を登録"}
           </button>
         </div>
@@ -440,7 +440,7 @@ export default function JournalsPage() {
           <h1 className="page-title">仕訳帳</h1>
           <p className="text-sm text-slate-500 mt-0.5">日次取引の仕訳入力・管理（F002）</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn-primary text-sm px-4 py-2">
+        <button onClick={() => setShowForm(true)} className="btn-primary">
           ＋ 新規仕訳
         </button>
       </div>

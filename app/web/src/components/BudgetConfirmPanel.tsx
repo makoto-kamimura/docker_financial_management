@@ -30,6 +30,7 @@ import {
   type VarianceRow,
   type VarianceTreatment,
 } from "@/lib/budget-cycle";
+import { Notice } from "@/components/ui";
 
 type Row = VarianceRow & { soleName: string | null; corporateName: string | null };
 type VarianceResponse = CycleStatus & {
@@ -283,7 +284,7 @@ export function BudgetConfirmPanel({
             type="button"
             disabled={busy || data.prevActualsPending}
             onClick={() => confirm(year, month, false)}
-            className="btn-secondary text-xs px-3 py-1.5 ml-auto disabled:opacity-40"
+            className="btn-secondary btn-sm ml-auto"
             title={
               data.prevActualsPending
                 ? "前月の実績が確定していないため、まだ確定できません。実績管理の「実績の確定」で前月の実績を確定してください"
@@ -298,7 +299,7 @@ export function BudgetConfirmPanel({
             type="button"
             disabled={busy || actualsLocked}
             onClick={() => unconfirm(year, month)}
-            className="btn-secondary text-xs px-3 py-1.5 ml-auto disabled:opacity-40"
+            className="btn-secondary btn-sm ml-auto"
             title={
               actualsLocked ? "実績が確定済みのため、先に実績の確定を解除してください" : undefined
             }
@@ -308,14 +309,7 @@ export function BudgetConfirmPanel({
         )}
       </div>
 
-      {message && (
-        <p
-          role="status"
-          className={`text-sm rounded-lg px-3 py-2 ${message.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
-        >
-          {message.text}
-        </p>
-      )}
+      {message && <Notice tone={message.ok ? "success" : "error"}>{message.text}</Notice>}
 
       {isLoading && <LoadingSpinner />}
 
@@ -574,7 +568,7 @@ export function BudgetConfirmPanel({
                   type="button"
                   disabled={busy}
                   onClick={() => unconfirm(data.next.year, data.next.month)}
-                  className="btn-secondary text-sm disabled:opacity-40"
+                  className="btn-secondary"
                 >
                   {nextLabel}の確定を解除
                 </button>
@@ -583,7 +577,7 @@ export function BudgetConfirmPanel({
                   type="button"
                   disabled={busy || plan.length === 0 || invalidOverride || !!nextBlockedReason}
                   onClick={() => confirm(data.next.year, data.next.month, true)}
-                  className="btn-primary text-sm disabled:opacity-40"
+                  className="btn-primary"
                 >
                   この予算で{nextLabel}を確定
                 </button>

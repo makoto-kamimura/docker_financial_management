@@ -8,7 +8,7 @@ import { AppShell } from "@/components/AppShell";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { FundingPlanPanel } from "@/components/FundingPlanPanel";
-import { PageLead, SectionLead } from "@/components/Explain";
+import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
 import {
   BalanceTrendChart,
@@ -19,6 +19,7 @@ import {
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
 import { YearBadge } from "@/components/YearBadge";
 import { useFiscalYear } from "@/lib/use-fiscal-year";
+import { PageHeader, SegmentedControl, Tabs } from "@/components/ui";
 
 type BankAccount = {
   id: number;
@@ -299,28 +300,10 @@ function BankAccountsContent() {
 
   return (
     <AppShell>
-      <div className="mb-4">
-        <h1 className="page-title">銀行管理</h1>
-        <PageLead>{BANK_HELP.page}</PageLead>
-      </div>
+      <PageHeader title="銀行管理" lead={BANK_HELP.page} />
 
       {/* タブ（口座サマリと資金移動フロー図は「サマリ」タブにまとめた） */}
-      <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {TABS.map(([t, label]) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t
-                ? "border-indigo-600 text-indigo-700"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
       {/* 口座サマリ（サマリタブ） */}
       {tab === "summary" && (
@@ -332,7 +315,7 @@ function BankAccountsContent() {
                 setAccountError(null);
                 setShowAccountForm(true);
               }}
-              className="btn-primary px-4 py-2 text-sm ml-auto"
+              className="btn-primary ml-auto"
             >
               銀行追加
             </button>
@@ -489,7 +472,7 @@ function BankAccountsContent() {
           <select
             value={flowMonth}
             onChange={(e) => setFlowMonth(Number(e.target.value))}
-            className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white"
+            className="select-sm"
           >
             {MONTHS.map((m) => (
               <option key={m} value={m}>
@@ -511,21 +494,17 @@ function BankAccountsContent() {
               {flowYear}年{flowMonth}月の前後6か月
             </p>
             {/* 月末残高だけでは月の途中の上下（給与の入金前後・引き落とし日）が潰れるため日次に切り替えられる */}
-            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5 ml-auto">
-              {(["month", "day"] as const).map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  onClick={() => setTrendGranularity(g)}
-                  className={`text-xs px-3 py-1 rounded-md font-medium transition-colors ${
-                    trendGranularity === g
-                      ? "bg-white text-slate-800 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  {g === "month" ? "月次" : "日次"}
-                </button>
-              ))}
+            <div className="ml-auto">
+              <SegmentedControl
+                options={
+                  [
+                    ["month", "月次"],
+                    ["day", "日次"],
+                  ] as const
+                }
+                value={trendGranularity}
+                onChange={setTrendGranularity}
+              />
             </div>
           </div>
           <SectionLead>{BANK_HELP.trend}</SectionLead>
@@ -621,27 +600,16 @@ function BankAccountsContent() {
               スケジュールモード＝口座ごとの予定日を月次カレンダーで見る（登録・削除もできる）。 */}
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <h2 className="section-title">資金移動スケジュール</h2>
-            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
-              {SCHEDULE_MODES.map(([m, label]) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setScheduleMode(m)}
-                  className={`text-xs px-3 py-1 rounded-md font-medium transition-colors ${
-                    scheduleMode === m
-                      ? "bg-white text-slate-800 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              options={SCHEDULE_MODES}
+              value={scheduleMode}
+              onChange={setScheduleMode}
+            />
             <button
               type="button"
               onClick={() => setShowBankTransferForm(true)}
               disabled={accounts.length < 2}
-              className="btn-primary px-4 py-2 text-sm ml-auto disabled:opacity-40"
+              className="btn-primary ml-auto"
               title={accounts.length < 2 ? "振替には 2 つ以上の口座の登録が必要です" : undefined}
             >
               振替を登録（銀行 → 銀行）

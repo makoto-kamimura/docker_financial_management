@@ -236,12 +236,7 @@ function NewInventoryModal({ onClose }: { onClose: () => void }) {
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : "保存"}
           </button>
         </div>
@@ -282,11 +277,7 @@ export default function InventoriesPage() {
           <h1 className="page-title">棚卸管理</h1>
           <p className="text-sm text-slate-500 mt-0.5">期末棚卸資産の記録・確定（F006）</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="btn-primary text-sm px-4 py-2"
-        >
+        <button type="button" onClick={() => setShowModal(true)} className="btn-primary">
           + 棚卸入力
         </button>
       </div>

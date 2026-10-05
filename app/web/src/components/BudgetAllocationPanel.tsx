@@ -312,11 +312,7 @@ function AllocationRulesSection() {
           <SectionLead className="mt-1">{BUDGET_HELP.allocationRules}</SectionLead>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
-          <button
-            onClick={save}
-            disabled={saving}
-            className="btn-primary px-4 py-2 whitespace-nowrap disabled:opacity-50"
-          >
+          <button onClick={save} disabled={saving} className="btn-primary whitespace-nowrap">
             {saving ? "保存中…" : "変更を保存"}
           </button>
           <button
@@ -707,7 +703,7 @@ function AllocationSuggestSection() {
               type="button"
               onClick={() => setCommittedIncome(Number(incomeInput))}
               disabled={incomeInput === ""}
-              className="btn-primary px-4 py-2 whitespace-nowrap disabled:opacity-40"
+              className="btn-primary whitespace-nowrap"
             >
               配分を算出
             </button>
@@ -843,7 +839,7 @@ function AllocationSuggestSection() {
           </div>
 
           <div className="mt-4 flex items-center gap-3">
-            <button onClick={apply} disabled={applying} className="btn-primary px-5 py-2">
+            <button onClick={apply} disabled={applying} className="btn-primary">
               {applying ? "反映中…" : `${month}月の予算が未設定の科目へ反映`}
             </button>
             {message && <span className="text-sm text-slate-600">{message}</span>}

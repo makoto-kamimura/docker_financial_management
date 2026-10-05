@@ -19,11 +19,11 @@ import { downloadSvgAsPng } from "@/lib/export-client";
 import { BudgetActualChart } from "@/components/BudgetActualChart";
 import { CycleStatusStrip } from "@/components/CycleStatusStrip";
 import { KpiCards } from "@/components/KpiCards";
-import { YearBadge } from "@/components/YearBadge";
+import { PageHeader, SegmentedControl } from "@/components/ui";
 import { useFiscalYear } from "@/lib/use-fiscal-year";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
-import { PageLead, SectionLead } from "@/components/Explain";
+import { SectionLead } from "@/components/Explain";
 import { useViewMode, hasSwitchedViewMode } from "@/lib/use-view-mode";
 import { computeStepChecklist } from "@/lib/step-checklist";
 import { DEFAULT_FORECAST_METHOD, FORECAST_METHODS } from "@/lib/forecast-methods";
@@ -173,13 +173,7 @@ export default function DashboardPage() {
 
   return (
     <AppShell>
-      <div className="mb-6">
-        <div className="flex items-center gap-2">
-          <h1 className="page-title">ダッシュボード</h1>
-          <YearBadge />
-        </div>
-        <PageLead>{textFor(DASHBOARD_HELP.page, sysMode)}</PageLead>
-      </div>
+      <PageHeader title="ダッシュボード" lead={textFor(DASHBOARD_HELP.page, sysMode)} showYear />
 
       <StepChecklistCard />
 
@@ -196,22 +190,15 @@ export default function DashboardPage() {
 
       {/* ── 構成比グラフ ────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
-        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
-          {(["window", "year"] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setCompRange(r)}
-              className={`text-xs px-3 py-1 rounded-md font-medium transition-colors ${
-                compRange === r
-                  ? "bg-white text-slate-800 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {r === "window" ? `対象月±${TREND_BACK}か月` : "年度"}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="グラフの表示範囲"
+          options={[
+            ["window", `対象月±${TREND_BACK}か月`],
+            ["year", "年度"],
+          ]}
+          value={compRange}
+          onChange={setCompRange}
+        />
 
         {compRange === "year" ? (
           <span className="text-xs text-slate-500">{yearForComp}年（1〜12 月）</span>
@@ -225,11 +212,7 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-1.5">
           <label className="text-xs font-medium text-slate-600 whitespace-nowrap">予測手法</label>
-          <select
-            value={method}
-            onChange={(e) => setMethod(e.target.value)}
-            className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className="select-sm">
             {FORECAST_METHODS.map((m) => (
               <option key={m.value} value={m.value}>
                 {m.label}
@@ -241,7 +224,7 @@ export default function DashboardPage() {
         <button
           type="button"
           onClick={() => downloadSvgAsPng(chartRef.current, "composition.png")}
-          className="btn-secondary text-xs px-3 py-1.5 ml-auto"
+          className="btn-secondary btn-sm ml-auto"
         >
           PNG 出力
         </button>

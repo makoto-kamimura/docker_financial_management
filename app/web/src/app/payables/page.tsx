@@ -153,12 +153,7 @@ function NewPayableModal({ onClose }: { onClose: () => void }) {
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : "登録"}
           </button>
         </div>
@@ -245,12 +240,7 @@ function PayModal({ payable, onClose }: { payable: Payable; onClose: () => void 
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "処理中…" : "支払確定"}
           </button>
         </div>
@@ -294,11 +284,7 @@ export default function PayablesPage() {
           <h1 className="page-title">買掛金管理</h1>
           <p className="text-sm text-slate-500 mt-0.5">仕入先請求書・支払管理（F011）</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowNew(true)}
-          className="btn-primary text-sm px-4 py-2"
-        >
+        <button type="button" onClick={() => setShowNew(true)} className="btn-primary">
           + 買掛金 登録
         </button>
       </div>

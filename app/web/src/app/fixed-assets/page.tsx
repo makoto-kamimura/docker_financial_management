@@ -155,12 +155,7 @@ function NewAssetModal({ onClose }: { onClose: () => void }) {
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : "登録"}
           </button>
         </div>
@@ -203,11 +198,7 @@ export default function FixedAssetsPage() {
           <h1 className="page-title">固定資産管理</h1>
           <p className="text-sm text-slate-500 mt-0.5">固定資産台帳・減価償却計算（F007/F008）</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className="btn-primary text-sm px-4 py-2"
-        >
+        <button type="button" onClick={() => setShowModal(true)} className="btn-primary">
           + 固定資産 登録
         </button>
       </div>

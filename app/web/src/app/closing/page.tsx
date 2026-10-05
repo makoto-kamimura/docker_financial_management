@@ -631,7 +631,7 @@ export default function ClosingPage() {
                 finalizeMut.mutate({ fiscalYear: year, netIncome: data.pnl.netIncome });
               }}
               disabled={finalizeMut.isPending || isLoading}
-              className="btn-primary text-sm px-4 py-1.5"
+              className="btn-primary"
             >
               決算確定
             </button>

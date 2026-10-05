@@ -6,10 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
-import { PageLead, SectionLead } from "@/components/Explain";
+import { SectionLead } from "@/components/Explain";
 import { SETTINGS_HELP } from "@/lib/help-texts";
 // 区分名は予算管理・実績管理と同じ（lib/labels.ts）
 import { CATEGORY_LABEL } from "@/lib/labels";
+import { Notice, PageHeader, Tabs } from "@/components/ui";
 
 // ── 共通型 ──────────────────────────────────────────────────────
 type BusinessProfile = {
@@ -110,13 +111,11 @@ function ClosingMonthSection() {
           type="button"
           onClick={save}
           disabled={saving || tenantId === null}
-          className="btn-primary text-sm px-4 py-1.5"
+          className="btn-primary"
         >
           {saving ? "保存中…" : "保存"}
         </button>
-        {msg && (
-          <p className={`text-sm ${msg.ok ? "text-green-600" : "text-red-600"}`}>{msg.text}</p>
-        )}
+        {msg && <Notice tone={msg.ok ? "success" : "error"}>{msg.text}</Notice>}
       </div>
     </div>
   );
@@ -240,17 +239,10 @@ function BusinessProfileSection() {
         </label>
       </div>
       <div className="mt-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="btn-primary text-sm px-4 py-1.5"
-        >
+        <button type="button" onClick={save} disabled={saving} className="btn-primary">
           {saving ? "保存中…" : "保存"}
         </button>
-        {msg && (
-          <p className={`text-sm ${msg.ok ? "text-green-600" : "text-red-600"}`}>{msg.text}</p>
-        )}
+        {msg && <Notice tone={msg.ok ? "success" : "error"}>{msg.text}</Notice>}
       </div>
     </div>
   );
@@ -343,17 +335,10 @@ function TaxSettingsSection() {
           </label>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving}
-            className="btn-primary text-sm px-4 py-1.5"
-          >
+          <button type="button" onClick={save} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : "年度設定を保存"}
           </button>
-          {msg && (
-            <p className={`text-sm ${msg.ok ? "text-green-600" : "text-red-600"}`}>{msg.text}</p>
-          )}
+          {msg && <Notice tone={msg.ok ? "success" : "error"}>{msg.text}</Notice>}
         </div>
       </div>
       {settings.length > 0 && (
@@ -581,11 +566,9 @@ function SecuritySection() {
           </div>
         )}
         {mfaMsg && (
-          <p
-            className={`mt-4 text-sm rounded-lg px-3 py-2 border ${mfaMsg.ok ? "text-green-700 bg-green-50 border-green-200" : "text-red-600 bg-red-50 border-red-200"}`}
-          >
+          <Notice tone={mfaMsg.ok ? "success" : "error"} className="mt-4">
             {mfaMsg.text}
-          </p>
+          </Notice>
         )}
       </div>
 
@@ -609,7 +592,7 @@ function SecuritySection() {
             // MFA が無効なときはサーバが 400 を返すので、押せないようにしておく
             disabled={generating || totpCode.length !== 6 || !mfaEnabled}
             title={mfaEnabled ? undefined : "MFA を有効化すると発行できます"}
-            className="btn-primary text-sm px-3 py-1.5 disabled:opacity-50"
+            className="btn-primary px-3"
           >
             {generating ? "生成中…" : "リカバリーコードを発行"}
           </button>
@@ -631,13 +614,7 @@ function SecuritySection() {
             </div>
           </div>
         )}
-        {recMsg && (
-          <p
-            className={`text-sm rounded-lg px-3 py-2 border ${recMsg.ok ? "text-green-700 bg-green-50 border-green-200" : "text-red-600 bg-red-50 border-red-200"}`}
-          >
-            {recMsg.text}
-          </p>
-        )}
+        {recMsg && <Notice tone={recMsg.ok ? "success" : "error"}>{recMsg.text}</Notice>}
       </div>
     </div>
   );
@@ -796,22 +773,16 @@ function AccountNamesSection() {
         <button
           onClick={save}
           disabled={saving || dirtyCount === 0}
-          className="btn-primary px-4 py-2 whitespace-nowrap disabled:opacity-50"
+          className="btn-primary whitespace-nowrap"
         >
           {saving ? "保存中…" : dirtyCount > 0 ? `変更を保存 (${dirtyCount})` : "変更を保存"}
         </button>
       </div>
 
       {msg && (
-        <p
-          className={`text-xs rounded px-2 py-1.5 mb-3 border ${
-            msg.ok
-              ? "text-green-700 bg-green-50 border-green-200"
-              : "text-red-600 bg-red-50 border-red-200"
-          }`}
-        >
+        <Notice tone={msg.ok ? "success" : "error"} className="mb-3">
           {msg.text}
-        </p>
+        </Notice>
       )}
 
       {loading ? (
@@ -1025,13 +996,10 @@ function DepartmentsSection() {
               />
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={saveEdit} className="btn-primary flex-1 py-1.5 text-sm">
+              <button onClick={saveEdit} className="btn-primary flex-1">
                 保存
               </button>
-              <button
-                onClick={() => setEditItem(null)}
-                className="btn-secondary flex-1 py-1.5 text-sm"
-              >
+              <button onClick={() => setEditItem(null)} className="btn-secondary flex-1">
                 キャンセル
               </button>
             </div>
@@ -1046,15 +1014,9 @@ function DepartmentsSection() {
         </p>
 
         {msg && (
-          <p
-            className={`text-xs rounded px-2 py-1.5 mb-3 border ${
-              msg.ok
-                ? "text-green-700 bg-green-50 border-green-200"
-                : "text-red-600 bg-red-50 border-red-200"
-            }`}
-          >
+          <Notice tone={msg.ok ? "success" : "error"} className="mb-3">
             {msg.text}
-          </p>
+          </Notice>
         )}
 
         <form onSubmit={add} className="flex gap-2 mb-4 flex-wrap">
@@ -1071,7 +1033,7 @@ function DepartmentsSection() {
             onChange={(e) => setForm({ ...form, manager: e.target.value })}
             className="input-field w-36"
           />
-          <button type="submit" className="btn-primary px-4 inline-flex items-center gap-1">
+          <button type="submit" className="btn-primary gap-1">
             <Plus className="w-4 h-4" aria-hidden="true" />
             追加
           </button>
@@ -1116,46 +1078,28 @@ function DepartmentsSection() {
 }
 
 // ── メインページ ─────────────────────────────────────────────────
-const TABS: { id: Tab; label: string }[] = [
-  { id: "profile", label: "基本設定" },
-  { id: "tax", label: "消費税設定" },
-  { id: "accountNames", label: "科目名設定" },
-  { id: "departments", label: "部門・担当" },
-  { id: "security", label: "セキュリティ" },
+const TABS: readonly (readonly [Tab, string])[] = [
+  ["profile", "基本設定"],
+  ["tax", "消費税設定"],
+  ["accountNames", "科目名設定"],
+  ["departments", "部門・担当"],
+  ["security", "セキュリティ"],
 ];
 
 function SettingsContent() {
   const searchParams = useSearchParams();
   // 他画面から ?tab=departments のように開けるようにする
   // （予算配分ルールと口座・カード管理は、それぞれ予算管理・銀行/カード管理へ移設した）
-  const initialTab = TABS.some((t) => t.id === searchParams.get("tab"))
+  const initialTab = TABS.some(([id]) => id === searchParams.get("tab"))
     ? (searchParams.get("tab") as Tab)
     : "profile";
   const [tab, setTab] = useState<Tab>(initialTab);
 
   return (
     <AppShell>
-      <div className="mb-5">
-        <h1 className="page-title">設定</h1>
-        <PageLead>{SETTINGS_HELP.page}</PageLead>
-      </div>
+      <PageHeader title="設定" lead={SETTINGS_HELP.page} />
 
-      {/* タブ */}
-      <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
-              tab === id
-                ? "border-indigo-500 text-indigo-600"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
       {tab === "profile" && (
         <>

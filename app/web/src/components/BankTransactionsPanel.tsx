@@ -5,7 +5,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
@@ -17,6 +17,7 @@ import {
   TXN_SOURCE_LABEL as SOURCE_LABELS,
 } from "@/lib/labels";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
+import { CsvDropzone, Notice, Pager, Tabs } from "@/components/ui";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
@@ -162,7 +163,6 @@ export function BankTransactionsPanel({
   onBankTransferOpenChange,
 }: Props = {}) {
   const qc = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
   const [innerTab, setInnerTab] = useState<Tab>("list");
   const tab = view ?? innerTab;
   const setTab = (t: Tab) => {
@@ -195,7 +195,6 @@ export function BankTransactionsPanel({
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
 
   // カレンダー状態
   // カレンダーの年は対象年度（左のメニュー）に合わせる。月を送って年をまたいだら、対象年度も変える
@@ -341,20 +340,7 @@ export function BankTransactionsPanel({
       setImportError(importNetworkErrorMessage);
     } finally {
       setImporting(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
-  }
-
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) importFile(file);
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) importFile(file);
   }
 
   async function sync() {
@@ -796,47 +782,51 @@ export function BankTransactionsPanel({
       </div>
 
       {accounts && accounts.length === 0 && (
-        <div className="mb-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2.5 flex items-center justify-between gap-3">
-          <span>口座が登録されていません。入出金を記録するには、先に口座を登録してください。</span>
-          <Link
-            href="/bank-accounts"
-            className="shrink-0 text-amber-900 font-medium underline underline-offset-2 hover:text-amber-700"
-          >
-            口座を登録する
-          </Link>
-        </div>
+        <Notice tone="warn" className="mb-4">
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              口座が登録されていません。入出金を記録するには、先に口座を登録してください。
+            </span>
+            <Link
+              href="/bank-accounts"
+              className="shrink-0 text-amber-900 font-medium underline underline-offset-2 hover:text-amber-700"
+            >
+              口座を登録する
+            </Link>
+          </div>
+        </Notice>
       )}
 
       {/* タブ（銀行管理ページ側でタブを持つ場合は出さない） */}
       {view === undefined && (
-        <div className="flex gap-1 mb-4 border-b border-slate-200">
-          {TABS.map(([t, label]) => (
-            <button
-              key={t}
-              onClick={() => {
-                setTab(t);
-                setMsg(null);
-              }}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t ? "border-indigo-500 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-            >
-              {label}
-              {t === "recurring" && transfers.length > 0 && (
-                <span className="ml-1.5 text-xs bg-slate-200 text-slate-600 rounded-full px-1.5">
-                  {transfers.length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          tabs={TABS.map(
+            ([t, label]) =>
+              [
+                t,
+                <>
+                  {label}
+                  {t === "recurring" && transfers.length > 0 && (
+                    <span className="ml-1.5 text-xs bg-slate-200 text-slate-600 rounded-full px-1.5">
+                      {transfers.length}
+                    </span>
+                  )}
+                </>,
+              ] as const,
+          )}
+          value={tab}
+          onChange={(t) => {
+            setTab(t);
+            setMsg(null);
+          }}
+          className="mb-4"
+        />
       )}
 
       {msg && (
-        <div className="mb-4 text-sm text-slate-700 bg-indigo-50 border border-indigo-100 rounded-md px-3 py-2 flex items-center justify-between">
+        <Notice tone="info" onClose={() => setMsg(null)} className="mb-4">
           {msg}
-          <button onClick={() => setMsg(null)} className="text-slate-400 hover:text-slate-600 ml-4">
-            ✕
-          </button>
-        </div>
+        </Notice>
       )}
 
       {/* ── 明細一覧タブ ─────────────────────────────────────── */}
@@ -891,7 +881,7 @@ export function BankTransactionsPanel({
                   className="input-field text-sm"
                 />
               </div>
-              <button type="submit" className="btn-primary px-5 py-2 text-sm self-end">
+              <button type="submit" className="btn-primary self-end">
                 登録する
               </button>
             </form>
@@ -1179,27 +1169,13 @@ export function BankTransactionsPanel({
               </table>
             </div>
             {txnTotal > TXN_PAGE_SIZE && (
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setTxnPage(Math.max(0, currentTxnPage - 1))}
-                  disabled={currentTxnPage === 0}
-                  className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  ← 前の {TXN_PAGE_SIZE} 件
-                </button>
-                <span className="text-xs text-slate-400">
-                  {currentTxnPage + 1} / {txnPageCount} ページ
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setTxnPage(Math.min(txnPageCount - 1, currentTxnPage + 1))}
-                  disabled={currentTxnPage >= txnPageCount - 1}
-                  className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  次の {TXN_PAGE_SIZE} 件 →
-                </button>
-              </div>
+              <Pager
+                offset={currentTxnPage * TXN_PAGE_SIZE}
+                pageSize={TXN_PAGE_SIZE}
+                total={txnTotal}
+                onChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
+                className="px-4 py-3 border-t border-slate-100"
+              />
             )}
           </div>
         </>
@@ -1209,49 +1185,14 @@ export function BankTransactionsPanel({
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
           <SectionLead className="-mb-3">{BANK_HELP.csv}</SectionLead>
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => fileRef.current?.click()}
-            className={`card cursor-pointer border-2 border-dashed transition-colors text-center py-12 ${
-              dragOver
-                ? "border-indigo-400 bg-indigo-50"
-                : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
-            }`}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={onFileChange}
-            />
-            {importing ? (
-              <div className="space-y-2">
-                <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-slate-500">インポート中…</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-3xl">📂</p>
-                <p className="text-sm font-medium text-slate-700">
-                  クリックしてファイルを選択 または ドラッグ＆ドロップ
-                </p>
-                <p className="text-xs text-slate-400">CSV ファイル (.csv) に対応</p>
-              </div>
-            )}
-          </div>
+          <CsvDropzone busy={importing} onFile={importFile} />
 
           <div className="card flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-700">自動取得（同期）</p>
               <p className="text-xs text-slate-400 mt-0.5">口座と連携して最新の明細を取得します</p>
             </div>
-            <button onClick={sync} className="btn-secondary px-4 py-2 text-sm whitespace-nowrap">
+            <button onClick={sync} className="btn-secondary whitespace-nowrap">
               同期する
             </button>
           </div>
@@ -1346,7 +1287,7 @@ export function BankTransactionsPanel({
                 type="button"
                 onClick={() => setBankTransferOpen(true)}
                 disabled={(accounts ?? []).length < 2}
-                className="btn-primary px-4 py-2 text-sm disabled:opacity-40"
+                className="btn-primary"
                 title={
                   (accounts ?? []).length < 2
                     ? "振替には 2 つ以上の口座の登録が必要です"
@@ -1449,7 +1390,7 @@ export function BankTransactionsPanel({
                     <button
                       type="submit"
                       disabled={(accounts ?? []).length < 2}
-                      className="btn-primary px-5 py-2 text-sm disabled:opacity-40"
+                      className="btn-primary"
                     >
                       振替を登録
                     </button>
@@ -1478,7 +1419,7 @@ export function BankTransactionsPanel({
                     // 追加フォームの登録先・相手先は対象口座に追従させる（前の口座の指定を持ち越さない）
                     setRecurring((r) => ({ ...r, ownerAccountId: "", partnerAccountId: "" }));
                   }}
-                  className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white"
+                  className="select-sm"
                 >
                   <option value="all">すべての銀行</option>
                   {(accounts ?? []).map((a) => (
@@ -1838,7 +1779,7 @@ export function BankTransactionsPanel({
                               className="input-field text-xs"
                             />
                           </div>
-                          <button type="submit" className="btn-primary text-xs py-2 mt-1">
+                          <button type="submit" className="btn-primary text-xs mt-1">
                             追加
                           </button>
                         </form>

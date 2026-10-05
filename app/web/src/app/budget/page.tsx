@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Home, CreditCard } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
@@ -13,9 +13,9 @@ import {
   type MatrixAccount,
   type MatrixCell,
 } from "@/components/AccountMonthMatrix";
-import { YearBadge } from "@/components/YearBadge";
+import { CsvDropzone, Notice, PageHeader, Pager, Tabs } from "@/components/ui";
 import { useFiscalYear } from "@/lib/use-fiscal-year";
-import { InfoNote, PageLead, SectionLead } from "@/components/Explain";
+import { InfoNote, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { BUDGET_HELP, textFor } from "@/lib/help-texts";
 import { displayName } from "@/lib/display-name";
@@ -59,6 +59,13 @@ type BudgetResponse = {
 };
 type ImportResult = { imported: number; skipped?: number; errors: string[] };
 type Tab = "manual" | "allocation" | "confirm" | "csv" | "history";
+const TABS: readonly (readonly [Tab, string])[] = [
+  ["manual", "一覧"],
+  ["confirm", "予算の確定"],
+  ["csv", "CSV インポート"],
+  ["history", "履歴"],
+  ["allocation", "設定"],
+];
 
 const TAB_IDS: Tab[] = ["manual", "allocation", "confirm", "csv", "history"];
 // 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）
@@ -145,11 +152,9 @@ function BudgetContent() {
   const [histOrder, setHistOrder] = useState<"asc" | "desc">("desc");
 
   // CSV インポート
-  const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
 
   const { data: accounts } = useQuery({
     queryKey: ["accounts"],
@@ -325,58 +330,19 @@ function BudgetContent() {
       setImportError(importNetworkErrorMessage);
     } finally {
       setImporting(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
-  }
-
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) importFile(file);
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) importFile(file);
   }
 
   return (
     <AppShell>
-      {/* ヘッダ */}
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="page-title">予算管理</h1>
-          <PageLead>{textFor(BUDGET_HELP.page, sysMode)}</PageLead>
-        </div>
-        {tab !== "confirm" && <YearBadge />}
-      </div>
+      <PageHeader
+        title="予算管理"
+        lead={textFor(BUDGET_HELP.page, sysMode)}
+        showYear={tab !== "confirm"}
+      />
 
-      {/* タブ切り替え（予算と実績で同じ並び：一覧 → 確定 → … → 履歴。予算配分の「設定」は右端） */}
-      <div className="flex gap-1 mb-6 border-b border-slate-200 overflow-x-auto">
-        {(
-          [
-            ["manual", "一覧"],
-            ["confirm", "予算の確定"],
-            ["csv", "CSV インポート"],
-            ["history", "履歴"],
-            ["allocation", "設定"],
-          ] as [Tab, string][]
-        ).map(([t, label]) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
-              tab === t
-                ? "border-indigo-600 text-indigo-700"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* タブ（予算と実績で同じ並び：一覧 → 確定 → … → 履歴。予算配分の「設定」は右端） */}
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
       {/* 予算の追加は下の表のセル（「—」をクリック）から行う。旧「予算を追加」フォームは廃止した。 */}
 
@@ -384,43 +350,7 @@ function BudgetContent() {
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6 mb-6">
           <SectionLead className="-mb-3">{BUDGET_HELP.csv}</SectionLead>
-          {/* ドロップゾーン */}
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => fileRef.current?.click()}
-            className={`card cursor-pointer border-2 border-dashed transition-colors text-center py-12 ${
-              dragOver
-                ? "border-indigo-400 bg-indigo-50"
-                : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
-            }`}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={onFileChange}
-            />
-            {importing ? (
-              <div className="space-y-2">
-                <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-slate-500">インポート中…</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-3xl">📂</p>
-                <p className="text-sm font-medium text-slate-700">
-                  クリックしてファイルを選択 または ドラッグ＆ドロップ
-                </p>
-                <p className="text-xs text-slate-400">CSV ファイル (.csv) に対応</p>
-              </div>
-            )}
-          </div>
+          <CsvDropzone busy={importing} onFile={importFile} />
 
           {/* インポート結果 */}
           {importResult && (
@@ -457,11 +387,7 @@ function BudgetContent() {
               )}
             </div>
           )}
-          {importError && (
-            <div className="card border border-red-200 bg-red-50">
-              <p className="text-sm text-red-700">{importError}</p>
-            </div>
-          )}
+          {importError && <Notice tone="error">{importError}</Notice>}
 
           {/* フォーマットガイド */}
           <div className="card bg-slate-50">
@@ -589,28 +515,13 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                   ))}
                 </tbody>
               </table>
-              <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setHistOffset(Math.max(0, histOffset - HISTORY_PAGE_SIZE))}
-                  disabled={histOffset === 0}
-                  className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  ← 前の {HISTORY_PAGE_SIZE} 件
-                </button>
-                <span className="text-xs text-slate-400">
-                  {Math.floor(histOffset / HISTORY_PAGE_SIZE) + 1} /{" "}
-                  {Math.max(1, Math.ceil(histTotal / HISTORY_PAGE_SIZE))} ページ
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setHistOffset(histOffset + HISTORY_PAGE_SIZE)}
-                  disabled={histOffset + HISTORY_PAGE_SIZE >= histTotal}
-                  className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                >
-                  次の {HISTORY_PAGE_SIZE} 件 →
-                </button>
-              </div>
+              <Pager
+                offset={histOffset}
+                pageSize={HISTORY_PAGE_SIZE}
+                total={histTotal}
+                onChange={setHistOffset}
+                className="pt-3 mt-3 border-t border-slate-100"
+              />
             </div>
           </>
         ))}

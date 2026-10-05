@@ -139,11 +139,7 @@ export default function LoginPage() {
                   </p>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="btn-primary w-full py-2.5 mt-2 disabled:opacity-60"
-                >
+                <button type="submit" disabled={loading} className="btn-primary w-full py-2.5 mt-2">
                   {loading ? "ログイン中…" : "ログイン"}
                 </button>
               </form>
@@ -184,7 +180,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading || !code}
-                  className="btn-primary w-full py-2.5 mt-2 disabled:opacity-60"
+                  className="btn-primary w-full py-2.5 mt-2"
                 >
                   {loading ? "確認中…" : "確認"}
                 </button>

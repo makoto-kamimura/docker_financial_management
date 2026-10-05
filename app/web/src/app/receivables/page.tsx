@@ -166,12 +166,7 @@ function NewReceivableModal({ onClose }: { onClose: () => void }) {
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "保存中…" : "登録"}
           </button>
         </div>
@@ -258,12 +253,7 @@ function PayModal({ receivable, onClose }: { receivable: Receivable; onClose: ()
           >
             キャンセル
           </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm px-5 py-2"
-          >
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
             {saving ? "処理中…" : "入金確定"}
           </button>
         </div>
@@ -307,11 +297,7 @@ export default function ReceivablesPage() {
           <h1 className="page-title">売掛金管理</h1>
           <p className="text-sm text-slate-500 mt-0.5">請求書発行・入金管理（F010）</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowNew(true)}
-          className="btn-primary text-sm px-4 py-2"
-        >
+        <button type="button" onClick={() => setShowNew(true)} className="btn-primary">
           + 売掛金 登録
         </button>
       </div>

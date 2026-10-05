@@ -131,7 +131,7 @@ export default function AdminUsersPage() {
               </div>
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={saveEdit} className="btn-primary flex-1 py-1.5 text-sm">
+              <button onClick={saveEdit} className="btn-primary flex-1">
                 保存
               </button>
               <button
@@ -139,7 +139,7 @@ export default function AdminUsersPage() {
                   setEditUser(null);
                   setResetPw("");
                 }}
-                className="btn-secondary flex-1 py-1.5 text-sm"
+                className="btn-secondary flex-1"
               >
                 キャンセル
               </button>
@@ -272,7 +272,7 @@ export default function AdminUsersPage() {
                 {formError}
               </p>
             )}
-            <button type="submit" className="btn-primary w-full py-2">
+            <button type="submit" className="btn-primary w-full">
               作成
             </button>
           </form>

@@ -1,16 +1,16 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useRef, useState, useMemo } from "react";
+import { Suspense, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { EmptyState, LoadingSpinner } from "@/components/StateViews";
 import { AccountMonthMatrix, type MatrixCell } from "@/components/AccountMonthMatrix";
 import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
-import { YearBadge } from "@/components/YearBadge";
+import { CsvDropzone, Notice, PageHeader, Pager, Tabs } from "@/components/ui";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
-import { PageLead, SectionLead } from "@/components/Explain";
+import { SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { ENTRY_HELP, textFor } from "@/lib/help-texts";
 import { displayName } from "@/lib/display-name";
@@ -171,6 +171,13 @@ const now = new Date();
 const THIS_YEAR = now.getFullYear();
 
 type Tab = "manual" | "calendar" | "confirm" | "csv" | "history";
+const TABS: readonly (readonly [Tab, string])[] = [
+  ["manual", "一覧"],
+  ["confirm", "実績の確定"],
+  ["calendar", "カレンダー"],
+  ["csv", "CSV インポート"],
+  ["history", "履歴"],
+];
 
 const TAB_IDS: Tab[] = ["manual", "calendar", "confirm", "csv", "history"];
 // 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）
@@ -282,11 +289,9 @@ function EntryContent() {
   }
 
   // ── CSV インポート ─────────────────────────────────────────────
-  const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
 
   // ── カレンダー ────────────────────────────────────────────────
   // カレンダーの年は対象年度に合わせる。月を送って年をまたいだら、対象年度も変える
@@ -486,20 +491,7 @@ function EntryContent() {
       setImportError(importNetworkErrorMessage);
     } finally {
       setImporting(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
-  }
-
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) importFile(file);
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) importFile(file);
   }
 
   // ── カレンダーハンドラ ───────────────────────────────────────
@@ -554,39 +546,14 @@ function EntryContent() {
 
   return (
     <AppShell>
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="page-title">実績管理</h1>
-          <PageLead>{textFor(ENTRY_HELP.page, sysMode)}</PageLead>
-        </div>
-        {(tab === "manual" || tab === "calendar") && <YearBadge />}
-      </div>
+      <PageHeader
+        title="実績管理"
+        lead={textFor(ENTRY_HELP.page, sysMode)}
+        showYear={tab === "manual" || tab === "calendar"}
+      />
 
-      {/* タブ切り替え */}
-      <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(
-          [
-            ["manual", "一覧"],
-            ["confirm", "実績の確定"],
-            ["calendar", "カレンダー"],
-            ["csv", "CSV インポート"],
-            ["history", "履歴"],
-          ] as [Tab, string][]
-        ).map(([t, label]) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t
-                ? "border-indigo-600 text-indigo-700"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* タブ（予算管理と同じ並び：一覧 → 確定 → … → 履歴） */}
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
       {/* 実績の新規登録は下の「科目×月テーブル」のセルから行う（旧「新規登録」フォームは廃止）。
           科目名の変更は「設定 › 科目名設定」に集約した。 */}
@@ -913,11 +880,7 @@ function EntryContent() {
                       </select>
                     </div>
                     {calError && <p className="text-xs text-red-600">{calError}</p>}
-                    <button
-                      type="submit"
-                      disabled={calSaving}
-                      className="btn-primary text-xs py-2 mt-1"
-                    >
+                    <button type="submit" disabled={calSaving} className="btn-primary text-xs mt-1">
                       {calSaving ? "登録中..." : "登録"}
                     </button>
                   </form>
@@ -939,42 +902,7 @@ function EntryContent() {
       {/* ── CSV インポートタブ ──────────────────────────────────── */}
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => fileRef.current?.click()}
-            className={`card cursor-pointer border-2 border-dashed transition-colors text-center py-12 ${
-              dragOver
-                ? "border-indigo-400 bg-indigo-50"
-                : "border-slate-300 hover:border-indigo-400 hover:bg-slate-50"
-            }`}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={onFileChange}
-            />
-            {importing ? (
-              <div className="space-y-2">
-                <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-slate-500">インポート中…</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-3xl">📂</p>
-                <p className="text-sm font-medium text-slate-700">
-                  クリックしてファイルを選択 または ドラッグ＆ドロップ
-                </p>
-                <p className="text-xs text-slate-400">CSV ファイル (.csv) に対応</p>
-              </div>
-            )}
-          </div>
+          <CsvDropzone busy={importing} onFile={importFile} />
           {importResult && (
             <div
               className={`card border ${importResult.errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}
@@ -1020,11 +948,7 @@ function EntryContent() {
               )}
             </div>
           )}
-          {importError && (
-            <div className="card border border-red-200 bg-red-50">
-              <p className="text-sm text-red-700">{importError}</p>
-            </div>
-          )}
+          {importError && <Notice tone="error">{importError}</Notice>}
           <div className="card bg-slate-50">
             <h3 className="text-xs font-semibold text-slate-700 mb-2">CSV フォーマット</h3>
             <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`accountCode,fiscalYear,month,amount
@@ -1086,8 +1010,8 @@ HA101,${THIS_YEAR},12,500000`}</pre>
       {(tab === "manual" || tab === "history") && (
         <div>
           {tab === "history" && histTotal > 0 && (
-            <p className="text-xs text-slate-500 mb-3">
-              全 {histTotal} 件中 {histOffset + 1}〜
+            <p className="text-xs text-slate-400 mb-2">
+              全 {histTotal.toLocaleString()} 件中 {histOffset + 1}〜
               {Math.min(histOffset + HISTORY_PAGE_SIZE, histTotal)} 件を表示
             </p>
           )}
@@ -1239,28 +1163,13 @@ HA101,${THIS_YEAR},12,500000`}</pre>
                     ))}
                   </tbody>
                 </table>
-                <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setHistOffset(Math.max(0, histOffset - HISTORY_PAGE_SIZE))}
-                    disabled={histOffset === 0}
-                    className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                  >
-                    ← 前の {HISTORY_PAGE_SIZE} 件
-                  </button>
-                  <span className="text-xs text-slate-400">
-                    {Math.floor(histOffset / HISTORY_PAGE_SIZE) + 1} /{" "}
-                    {Math.max(1, Math.ceil(histTotal / HISTORY_PAGE_SIZE))} ページ
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setHistOffset(histOffset + HISTORY_PAGE_SIZE)}
-                    disabled={histOffset + HISTORY_PAGE_SIZE >= histTotal}
-                    className="px-3 py-1.5 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
-                  >
-                    次の {HISTORY_PAGE_SIZE} 件 →
-                  </button>
-                </div>
+                <Pager
+                  offset={histOffset}
+                  pageSize={HISTORY_PAGE_SIZE}
+                  total={histTotal}
+                  onChange={setHistOffset}
+                  className="pt-3 mt-3 border-t border-slate-100"
+                />
               </div>
             ) : (
               <p className="text-sm text-slate-400">まだ履歴はありません。</p>

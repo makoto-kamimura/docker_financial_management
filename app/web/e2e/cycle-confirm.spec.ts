@@ -6,7 +6,10 @@ test.describe("予算と実績の確定", () => {
   test("予算管理の「予算の確定」タブを ?tab=confirm で開ける", async ({ page }) => {
     await page.goto("/budget?tab=confirm&month=2026-05");
     await expect(page.getByLabel("比べる月")).toHaveValue("2026-05");
-    await expect(page.getByRole("button", { name: "予算の確定" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "予算の確定" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   test("実績管理の「実績の確定」タブで明細の最終日と確定ボタンが出る", async ({ page }) => {

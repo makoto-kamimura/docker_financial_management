@@ -397,10 +397,7 @@ export default function LoansPage() {
         ) : (
           <span />
         )}
-        <button
-          onClick={() => setShowForm(true)}
-          className="btn-primary px-4 py-2 text-sm shrink-0"
-        >
+        <button onClick={() => setShowForm(true)} className="btn-primary shrink-0">
           借入追加
         </button>
       </div>
