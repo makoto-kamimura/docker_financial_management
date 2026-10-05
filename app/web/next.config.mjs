@@ -28,6 +28,9 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   typedRoutes: true,
+  // Docker イメージのビルド（platform/docker/web.Dockerfile）では型チェックを飛ばす。
+  // 型チェックは CI の web ジョブで済ませている
+  typescript: { ignoreBuildErrors: process.env.SKIP_TYPECHECK === "1" },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

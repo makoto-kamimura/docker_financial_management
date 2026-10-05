@@ -49,7 +49,6 @@ type TrendResponse = {
 const TREND_BACK = 6;
 const TREND_FORWARD = 6;
 
-const yen = (v: number | null) => (v == null ? "—" : v.toLocaleString("ja-JP"));
 const man = (v: number) => `${Math.round(v / 10000).toLocaleString()}万`;
 // "2026-07" → "2026年7月"
 const periodLabel = (key: string) => {
@@ -359,74 +358,6 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </div>
           </div>
-        </div>
-      )}
-
-      {months.length > 0 && (
-        <div className="card overflow-hidden p-0">
-          <h2 className="section-title px-4 pt-4">
-            月次収支サマリー（
-            {compRange === "year" ? `${yearForComp}年度` : `対象月±${TREND_BACK}か月`}）
-          </h2>
-          <SectionLead className="px-4 pb-2">
-            {textFor(DASHBOARD_HELP.summary, sysMode)}
-            支出が収入を上回った月は赤背景で表示しています。実績が未入力の月は予測値（「予測」表示）です。
-          </SectionLead>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                {["月", "収入", "支出", "差引"].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wide"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {months.map((m) => {
-                const revenue = Number(m.REVENUE ?? 0);
-                const expense = Number(m.COGS ?? 0) + Number(m.EXPENSE ?? 0);
-                const net = revenue - expense;
-                const isDeficit = expense > revenue;
-                return (
-                  <tr
-                    key={m.key}
-                    className={
-                      isDeficit
-                        ? "bg-red-50 hover:bg-red-100 transition-colors"
-                        : "hover:bg-slate-50 transition-colors"
-                    }
-                  >
-                    <td
-                      className={`px-4 py-2.5 font-medium ${isDeficit ? "text-red-700" : "text-slate-700"}`}
-                    >
-                      {isDeficit && (
-                        <span aria-hidden="true" className="mr-1">
-                          ⚠
-                        </span>
-                      )}
-                      {compRange === "year" ? monthLabel(m.key) : periodLabel(m.key)}
-                      {m.isForecast && (
-                        <span className="ml-1.5 text-[10px] font-normal text-orange-500 border border-orange-200 bg-orange-50 rounded px-1 py-0.5 align-middle">
-                          予測
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{yen(revenue)}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{yen(expense)}</td>
-                    <td
-                      className={`px-4 py-2.5 text-right tabular-nums font-medium ${net < 0 ? "text-red-600" : "text-green-600"}`}
-                    >
-                      {yen(net)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
       )}
     </AppShell>

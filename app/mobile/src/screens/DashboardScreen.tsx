@@ -210,7 +210,7 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
         : `（${periodLabel(annual.startKey)}〜${periodLabel(annual.endKey)}）`)
     : undefined;
   // 利益カード（家計では貯蓄額）の補助表示は、利益率ではなく年間見込み
-  const profitSub = annualProfit ? `年間見込み ${yen(annualProfit.projected)}` : undefined;
+  const profitSub = ytdSub(annualProfit);
   const stepItems = steps
     ? computeStepChecklist({ ...steps, hasSwitchedMode: hasSwitchedViewMode() })
     : [];
@@ -512,46 +512,6 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
               />
             </View>
           )}
-
-          {/* 月次収支サマリー */}
-          {months.length > 0 && (
-            <View style={[s.card, s.cardGap]}>
-              <Text style={s.cardTitle}>
-                月次収支サマリー（
-                {range === "year" ? `${displayYear}年度` : `対象月±${TREND_BACK}か月`}）
-              </Text>
-              <Text style={s.cardNote}>
-                {textFor(DASHBOARD_HELP.summary, viewMode)}
-                支出が収入を上回った月は赤字表示です。「予測」は実績が未入力の月の推測値です。
-              </Text>
-              <View style={s.tableHead}>
-                <Text style={[s.thCell, s.colMonth]}>月</Text>
-                <Text style={[s.thCell, s.colNum]}>収入</Text>
-                <Text style={[s.thCell, s.colNum]}>支出</Text>
-                <Text style={[s.thCell, s.colNum]}>差引</Text>
-              </View>
-              {months.map((m) => {
-                const revenue = Number(m.REVENUE ?? 0);
-                const expense = Number(m.COGS ?? 0) + Number(m.EXPENSE ?? 0);
-                const net = revenue - expense;
-                const isDeficit = expense > revenue;
-                return (
-                  <View key={m.key} style={[s.tableRow, isDeficit && s.tableRowDeficit]}>
-                    <Text style={[s.tdCell, s.colMonth, isDeficit && s.tdDeficit]}>
-                      {isDeficit ? "⚠ " : ""}
-                      {range === "year" ? monthLabel(m.key) : periodLabel(m.key)}
-                      {m.isForecast ? " (予測)" : ""}
-                    </Text>
-                    <Text style={[s.tdCell, s.colNum]}>{yen(revenue)}</Text>
-                    <Text style={[s.tdCell, s.colNum]}>{yen(expense)}</Text>
-                    <Text style={[s.tdCell, s.colNum, net < 0 ? s.netMinus : s.netPlus]}>
-                      {yen(net)}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          )}
         </>
       )}
     </ScrollView>
@@ -691,27 +651,4 @@ const s = StyleSheet.create({
   },
   compBarFill: { height: 10, borderRadius: 5 },
   compValue: { fontSize: 11, color: "#0f172a", width: 52, textAlign: "right" },
-
-  tableHead: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
-    paddingBottom: 6,
-    marginBottom: 4,
-  },
-  thCell: { fontSize: 10, color: "#64748b", fontWeight: "600" },
-  tableRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-  },
-  tableRowDeficit: { backgroundColor: "#fef2f2" },
-  tdCell: { fontSize: 11, color: "#334155" },
-  tdDeficit: { color: "#b91c1c", fontWeight: "600" },
-  colMonth: { flex: 1.4 },
-  colNum: { flex: 1, textAlign: "right" },
-  netMinus: { color: "#dc2626", fontWeight: "600" },
-  netPlus: { color: "#16a34a", fontWeight: "600" },
 });

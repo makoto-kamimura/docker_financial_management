@@ -171,6 +171,9 @@ function KpiCard({
 }) {
   return (
     <div
+      // カードの区切りと名前をスクリーンリーダー・テストに伝える（赤字時の ⚠ は aria-hidden）
+      role="group"
+      aria-label={label}
       className={`rounded-xl border px-5 py-4 flex flex-col gap-1 ${
         warn ? "bg-red-50 border-red-300" : "bg-white border-slate-200"
       }`}
@@ -254,7 +257,7 @@ export function KpiCards({
         : `（${periodLabel(annual.startKey)}〜${periodLabel(annual.endKey)}）`)
     : undefined;
   // 利益カード（家計では貯蓄額）の補助表示は、利益率ではなく年間見込み
-  const profitSub = annualProfit ? `年間見込み ${yen(annualProfit.projected)}` : undefined;
+  const profitSub = annualProfit ? outlookSub(annualProfit) : undefined;
   const selector = (
     <PeriodSelector
       periods={data?.periods ?? [kpi.period]}
