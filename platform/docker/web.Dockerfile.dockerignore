@@ -1,0 +1,20 @@
+# web.Dockerfile 専用の .dockerignore（BuildKit は「<Dockerfile 名>.dockerignore」を優先して読む）。
+# ビルドのコンテキストはリポジトリのルートなので、app/web/.dockerignore は効かない。
+# ホストの node_modules（glibc 版のネイティブモジュールを含む）や .next（開発用キャッシュ）が
+# イメージに混ざると、ビルドが重くなり、イメージも大きくなるため除外する。
+**/node_modules
+**/.next
+**/.turbo
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+**/test-results
+**/playwright-report
+**/e2e/.auth
+.git
+.github
+app/mobile
+backups
+docs
+*.work.md
+work.md

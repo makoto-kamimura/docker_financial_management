@@ -1,14 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 // ログイン後のフローの E2E（DB の migrate + seed が前提）。
-// シードユーザー: admin@example.com / password
+// ログインは e2e/auth.setup.ts で 1 回だけ行い、保存したセッションを使う（playwright.config.ts）。
 test.describe("ダッシュボードと主要フロー", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByLabel("メールアドレス").fill("admin@example.com");
-    await page.getByLabel("パスワード").fill("password");
-    await page.getByRole("button", { name: "ログイン" }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await page.goto("/dashboard");
   });
 
   test("ダッシュボードに KPI と推移グラフが表示される", async ({ page }) => {
@@ -16,7 +12,8 @@ test.describe("ダッシュボードと主要フロー", () => {
     // KPI カード（F-11: 初期 viewMode は household）。
     // 「収入」は KPI カード・構成比グラフの凡例・予算と実績のグラフにも出るため first() で先頭を見る。
     await expect(page.getByText("収入", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("貯蓄額")).toBeVisible();
+    // 説明文にも「貯蓄額」が出るので、KPI カード（role=group）で見る
+    await expect(page.getByRole("group", { name: "貯蓄額", exact: true })).toBeVisible();
     // 予測手法セレクタ（構成比グラフの将来月の予測に使う）
     await expect(page.getByText("予測手法")).toBeVisible();
   });

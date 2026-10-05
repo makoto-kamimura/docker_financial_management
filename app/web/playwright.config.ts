@@ -14,7 +14,19 @@ export default defineConfig({
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    // ログインを 1 回だけ行い、セッションを保存する（e2e/auth.setup.ts）
+    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    // ログイン後の画面のテスト。保存したセッションを使う
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"], storageState: "e2e/.auth/admin.json" },
+      dependencies: ["setup"],
+      testIgnore: /auth\.(spec|setup)\.ts/,
+    },
+    // ログイン画面そのもののテスト。未ログインの状態で動かす
+    { name: "chromium-anon", use: { ...devices["Desktop Chrome"] }, testMatch: /auth\.spec\.ts/ },
+  ],
   // E2E_BASE_URL が指定された場合は既存サーバーを使う（自前起動しない）
   webServer: process.env.E2E_BASE_URL
     ? undefined
