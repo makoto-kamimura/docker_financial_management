@@ -19,6 +19,8 @@ import { downloadSvgAsPng } from "@/lib/export-client";
 import { BudgetActualChart } from "@/components/BudgetActualChart";
 import { CycleStatusStrip } from "@/components/CycleStatusStrip";
 import { KpiCards } from "@/components/KpiCards";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { PageLead, SectionLead } from "@/components/Explain";
@@ -129,7 +131,6 @@ function StepChecklistCard() {
 // 確定の操作は予算管理（予算の確定）と実績管理（実績の確定）で行い、ここには状況とリンクだけ置く。
 export default function DashboardPage() {
   const [method, setMethod] = useState(DEFAULT_FORECAST_METHOD);
-  const [compYear, setCompYear] = useState<number | null>(null);
   const sysMode = useViewMode();
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -138,8 +139,8 @@ export default function DashboardPage() {
   // 構成比グラフの表示範囲。既定は対象月を中心とした前後 6 か月
   const [compRange, setCompRange] = useState<"window" | "year">("window");
 
-  const centerYear = kpiPeriod ? Number(kpiPeriod.slice(0, 4)) : new Date().getFullYear();
-  const yearForComp = compYear ?? centerYear;
+  // 構成比グラフの「年度」は、左のメニューの対象年度
+  const yearForComp = useFiscalYear();
 
   // 対象月±6か月（window）と年度（year）で同じ API を使う。
   // どちらも実績が確定している月より後は予測値で埋まる。
@@ -173,7 +174,10 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="mb-6">
-        <h1 className="page-title">ダッシュボード</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="page-title">ダッシュボード</h1>
+          <YearBadge />
+        </div>
         <PageLead>{textFor(DASHBOARD_HELP.page, sysMode)}</PageLead>
       </div>
 
@@ -210,20 +214,7 @@ export default function DashboardPage() {
         </div>
 
         {compRange === "year" ? (
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">年度</label>
-            <select
-              value={yearForComp}
-              onChange={(e) => setCompYear(Number(e.target.value))}
-              className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {(trend?.years ?? [yearForComp]).map((y) => (
-                <option key={y} value={y}>
-                  {y}年度
-                </option>
-              ))}
-            </select>
-          </div>
+          <span className="text-xs text-slate-500">{yearForComp}年（1〜12 月）</span>
         ) : (
           trend && (
             <span className="text-xs text-slate-500">

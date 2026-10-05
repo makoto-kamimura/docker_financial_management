@@ -16,6 +16,7 @@ import {
   TRANSFER_CHANNEL_LABELS as CHANNEL_LABELS,
   TXN_SOURCE_LABEL as SOURCE_LABELS,
 } from "@/lib/labels";
+import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
@@ -197,7 +198,10 @@ export function BankTransactionsPanel({
   const [dragOver, setDragOver] = useState(false);
 
   // カレンダー状態
-  const [viewYear, setViewYear] = useState(now.getFullYear());
+  // カレンダーの年は対象年度（左のメニュー）に合わせる。月を送って年をまたいだら、対象年度も変える
+  const viewYear = useFiscalYear();
+  const setViewYear = (v: number | ((y: number) => number)) =>
+    setFiscalYear(typeof v === "function" ? v(viewYear) : v);
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 

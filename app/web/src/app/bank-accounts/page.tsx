@@ -17,6 +17,8 @@ import {
   type TrendPoint,
 } from "@/components/BalanceTrendChart";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 type BankAccount = {
   id: number;
@@ -178,7 +180,8 @@ function BankAccountsContent() {
 
   // 資金フロー図（入出金管理から移設）: 設定ベース（既定）/ 実績ベース（月次・F-6）
   const [flowSource, setFlowSource] = useState<"config" | "actual">("config");
-  const [flowYear, setFlowYear] = useState(now.getFullYear());
+  // 年は左のメニューの対象年度（全画面で共通）。ここでは月だけを選ぶ
+  const flowYear = useFiscalYear();
   const [flowMonth, setFlowMonth] = useState(now.getMonth() + 1);
   // 振替タブ: 資金移動スケジュールの表示モードと、振替登録モーダルの開閉
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("list");
@@ -480,17 +483,9 @@ function BankAccountsContent() {
             </div>
           )}
           {/* 年月はフロー図（実績ベース）と残高推移・資金繰りの起点を兼ねる */}
-          <select
-            value={flowYear}
-            onChange={(e) => setFlowYear(Number(e.target.value))}
-            className={`text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white ${tab === "summary" ? "ml-auto" : ""}`}
-          >
-            {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => (
-              <option key={y} value={y}>
-                {y}年
-              </option>
-            ))}
-          </select>
+          <span className={tab === "summary" ? "ml-auto" : ""}>
+            <YearBadge />
+          </span>
           <select
             value={flowMonth}
             onChange={(e) => setFlowMonth(Number(e.target.value))}

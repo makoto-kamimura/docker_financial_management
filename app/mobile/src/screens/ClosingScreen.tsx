@@ -17,6 +17,7 @@ import {
 import { Card, Notice, Pills, SectionTitle, TabBar } from "../components/ui";
 import { MONTHS, yen } from "../format";
 import { displayName } from "../shared/display-name";
+import { useFiscalYear } from "../fiscal-year";
 
 type Tab = "pnl" | "bs" | "monthly" | "trial" | "ratios";
 const TABS = [
@@ -107,8 +108,8 @@ function Metric({
 type Props = { viewMode: ViewMode };
 
 export function ClosingScreen({ viewMode }: Props) {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
+  // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [tab, setTab] = useState<Tab>("pnl");
   const [data, setData] = useState<ClosingStatements | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -158,20 +159,6 @@ export function ClosingScreen({ viewMode }: Props) {
         決算確定・申告書類の印刷・e-Tax XML の出力は Web
         版から行ってください（モバイルでは閲覧のみ）。
       </Notice>
-      <Pills
-        options={[
-          currentYear + 1,
-          currentYear,
-          currentYear - 1,
-          currentYear - 2,
-          currentYear - 3,
-        ].map((y) => ({
-          value: y,
-          label: `${y}年`,
-        }))}
-        value={year}
-        onChange={setYear}
-      />
       {error && <Notice tone="error">{error}</Notice>}
 
       {!data || !pnl || !bs ? (

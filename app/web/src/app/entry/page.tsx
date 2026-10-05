@@ -1,12 +1,14 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useRef, useState, useMemo } from "react";
+import { Suspense, useEffect, useRef, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
+import { YearBadge } from "@/components/YearBadge";
+import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
 import { PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { ENTRY_HELP, textFor } from "@/lib/help-texts";
@@ -241,13 +243,19 @@ function EntryContent() {
   const recentHistory = history?.data;
   const histTotal = history?.total ?? 0;
 
-  const [matrixYear, setMatrixYear] = useState<number | null>(null);
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const matrixYear = useFiscalYear();
   const [matrixEdit, setMatrixEdit] = useState<{ id: number; amount: string } | null>(null);
   const [matrixAdd, setMatrixAdd] = useState<{
     accountCode: string;
     month: number;
     amount: string;
   } | null>(null);
+  // 年度を変えたら、編集中のセルを閉じる
+  useEffect(() => {
+    setMatrixEdit(null);
+    setMatrixAdd(null);
+  }, [matrixYear]);
   const [matrixError, setMatrixError] = useState<string | null>(null);
   // 「◯件」を押して開くセル内訳モーダル（同じ科目・月に複数の実績があるセル）
   const [cellDetail, setCellDetail] = useState<{ accountCode: string; month: number } | null>(null);
@@ -265,7 +273,7 @@ function EntryContent() {
     },
     placeholderData: (prev) => prev,
   });
-  const matrixCurrentYear = matrixData?.year ?? matrixYear ?? THIS_YEAR;
+  const matrixCurrentYear = matrixYear;
 
   // 明細一覧は当月の列を左端に寄せて開く（当年以外を表示中は 1 月始まりのまま）
   const monthScrollRef = useMonthColumnScroll(matrixCurrentYear === THIS_YEAR ? THIS_MONTH : null);
@@ -309,7 +317,9 @@ function EntryContent() {
   const [dragOver, setDragOver] = useState(false);
 
   // ── カレンダー ────────────────────────────────────────────────
-  const [viewYear, setViewYear] = useState(now.getFullYear());
+  // カレンダーの年は対象年度に合わせる。月を送って年をまたいだら、対象年度も変える
+  const viewYear = matrixYear;
+  const setViewYear = (f: (y: number) => number) => setFiscalYear(f(viewYear));
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
   const [calForm, setCalForm] = useState(BLANK_CAL_FORM);
@@ -550,27 +560,7 @@ function EntryContent() {
           <h1 className="page-title">実績管理</h1>
           <PageLead>{textFor(ENTRY_HELP.page, sysMode)}</PageLead>
         </div>
-        {/* 年度は予算管理と同じくページ上部に置く（科目×月テーブルの対象年度） */}
-        {tab === "manual" && (
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">年度</label>
-            <select
-              value={matrixCurrentYear}
-              onChange={(e) => {
-                setMatrixYear(Number(e.target.value));
-                setMatrixEdit(null);
-                setMatrixAdd(null);
-              }}
-              className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {(matrixData?.years?.length ? matrixData.years : [matrixCurrentYear]).map((y) => (
-                <option key={y} value={y}>
-                  {y}年度
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        {(tab === "manual" || tab === "calendar") && <YearBadge />}
       </div>
 
       {/* タブ切り替え */}

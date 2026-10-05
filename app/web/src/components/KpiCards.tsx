@@ -6,6 +6,7 @@ import { HelpTip } from "@/components/HelpTip";
 import type { ViewMode } from "@/lib/display-name";
 import { KPI_LABELS } from "@/lib/mode-labels";
 import { kpiTermHelp } from "@/lib/help-texts";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 type Kpi = {
   period: string;
@@ -68,8 +69,8 @@ const outlookSub = (a: AnnualOutlook) => {
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const periodKey = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
-// 対象年月セレクタ。periods は実データのある月の昇順リスト。
-// 年はプルダウンで選び、月は 1〜12 を並べて選択中の月を色で示す（データの無い月は選べない）。
+// 対象月セレクタ。periods は実データのある月の昇順リスト。
+// 年は左のメニューの対象年度で決まり、ここでは月（1〜12）だけを選ぶ（データの無い月は選べない）。
 function PeriodSelector({
   periods,
   selected,
@@ -81,44 +82,14 @@ function PeriodSelector({
 }) {
   const selectedYear = Number(selected.slice(0, 4));
   const selectedMonth = Number(selected.slice(5));
-  // 実データのある年（昇順）。選択中の年が periods に無いときも候補に含める
-  const years = [...new Set([...periods.map((p) => Number(p.slice(0, 4))), selectedYear])].sort(
-    (a, b) => a - b,
-  );
   // 選択中の年で実データのある月
   const available = new Set(
     periods.filter((p) => Number(p.slice(0, 4)) === selectedYear).map((p) => Number(p.slice(5))),
   );
 
-  // 年を変えたら、同じ月があればその月、無ければその年で最も新しい月へ移す
-  const changeYear = (year: number) => {
-    const monthsOfYear = periods
-      .filter((p) => Number(p.slice(0, 4)) === year)
-      .map((p) => Number(p.slice(5)));
-    if (monthsOfYear.length === 0) return;
-    const month = monthsOfYear.includes(selectedMonth)
-      ? selectedMonth
-      : monthsOfYear[monthsOfYear.length - 1];
-    onChange(periodKey(year, month));
-  };
-
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 mb-3">
-      <label htmlFor="kpi-period-year" className="text-xs font-medium text-slate-500">
-        対象月:
-      </label>
-      <select
-        id="kpi-period-year"
-        value={selectedYear}
-        onChange={(e) => changeYear(Number(e.target.value))}
-        className="text-xs border border-slate-300 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-      >
-        {[...years].reverse().map((y) => (
-          <option key={y} value={y}>
-            {y}年
-          </option>
-        ))}
-      </select>
+      <span className="text-xs font-medium text-slate-500">対象月（{selectedYear}年）:</span>
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="対象月">
         {MONTHS.map((m) => {
           const isSelected = m === selectedMonth;
@@ -216,6 +187,8 @@ export function KpiCards({
 }) {
   // null のうちはサーバー既定（現在月以前の最新月）に従う
   const [period, setPeriod] = useState<string | null>(null);
+  // 対象年度（左のメニュー）。年度を変えたら、その年でデータのある最新の月へ移す
+  const fiscalYear = useFiscalYear();
   const { data } = useQuery({
     queryKey: ["kpi", period],
     queryFn: async (): Promise<{
@@ -242,6 +215,20 @@ export function KpiCards({
     if (resolvedPeriod) onPeriodChange?.(resolvedPeriod);
   }, [resolvedPeriod, onPeriodChange]);
 
+  // 表示中の月が対象年度の外なら、その年度でデータのある最新の月（今月以前を優先）へ移す
+  const periods = data?.periods;
+  const yearPeriods = (periods ?? []).filter((p) => p.startsWith(`${fiscalYear}-`));
+  useEffect(() => {
+    if (!periods || !resolvedPeriod || resolvedPeriod.startsWith(`${fiscalYear}-`)) return;
+    const inYear = periods.filter((p) => p.startsWith(`${fiscalYear}-`));
+    if (inYear.length === 0) return;
+    const now = new Date();
+    const nowKey = periodKey(now.getFullYear(), now.getMonth() + 1);
+    setPeriod([...inYear].reverse().find((p) => p <= nowKey) ?? inYear[inYear.length - 1]);
+  }, [fiscalYear, periods, resolvedPeriod]);
+
+  if (data && yearPeriods.length === 0)
+    return <p className="text-sm text-slate-400 py-4">{fiscalYear}年にはデータがありません。</p>;
   if (!kpi) return <p className="text-sm text-slate-400 py-4">KPI データがありません。</p>;
 
   const help = kpiTermHelp(mode);

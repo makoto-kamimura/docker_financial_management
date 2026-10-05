@@ -48,6 +48,7 @@ import { displayName } from "../shared/display-name";
 import { BANK_HELP } from "../shared/help-texts";
 import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
 import { BANK_ACCOUNT_TYPE_LABEL } from "../shared/labels";
+import { useFiscalYear } from "../fiscal-year";
 
 type Tab = "summary" | "list" | "flow";
 const TABS = [
@@ -99,7 +100,8 @@ export function BankAccountsScreen({ viewMode }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 残高推移・資金繰り・実績フロー図の起点年月
-  const [year, setYear] = useState(now.getFullYear());
+  // 年は画面上部のサブヘッダーの対象年度（全画面で共通）。ここでは月だけを選ぶ
+  const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [granularity, setGranularity] = useState<TrendGranularity>("month");
   const [trend, setTrend] = useState<{
@@ -237,14 +239,6 @@ export function BankAccountsScreen({ viewMode }: Props) {
   // 残高推移・資金繰り・実績フロー図の起点年月（web 版と同じく直近 5 年から選ぶ）
   const periodPicker = (
     <View style={s.periodRow}>
-      <Pills
-        options={Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => ({
-          value: y,
-          label: `${y}年`,
-        }))}
-        value={year}
-        onChange={setYear}
-      />
       <Pills
         options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
         value={month}

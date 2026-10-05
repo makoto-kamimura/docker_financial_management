@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 type TenantSummary = {
   tenantId: number;
@@ -28,8 +29,8 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 };
 
 export default function PortalPage() {
-  const now = new Date();
-  const [fiscalYear, setFiscalYear] = useState(now.getFullYear());
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const fiscalYear = useFiscalYear();
 
   const { data, isLoading, error } = useQuery<PortalResponse>({
     queryKey: ["portal", fiscalYear],
@@ -42,8 +43,6 @@ export default function PortalPage() {
       return res.json();
     },
   });
-
-  const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
   const totalRevenue = data?.tenants.reduce((s, t) => s + t.revenue, 0) ?? 0;
   const totalExpense = data?.tenants.reduce((s, t) => s + t.expense, 0) ?? 0;
@@ -60,21 +59,7 @@ export default function PortalPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <label htmlFor="portal-year" className="text-sm text-slate-600">
-            会計年度
-          </label>
-          <select
-            id="portal-year"
-            value={fiscalYear}
-            onChange={(e) => setFiscalYear(Number(e.target.value))}
-            className="input-field w-28 py-1.5 text-sm"
-          >
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>
-                {y}年
-              </option>
-            ))}
-          </select>
+          <YearBadge />
         </div>
       </div>
 

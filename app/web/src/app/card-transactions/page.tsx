@@ -17,6 +17,7 @@ import {
   type LinkedAccountType,
 } from "@/lib/linked-account-type";
 import { TXN_SOURCE_LABEL as SOURCE_LABELS } from "@/lib/labels";
+import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -217,7 +218,10 @@ export default function CardTransactionsPage() {
   const [scheduleAccount, setScheduleAccount] = useState<number | "all">("all");
 
   // ── カレンダー ────────────────────────────────────────────────
-  const [viewYear, setViewYear] = useState(now.getFullYear());
+  // カレンダーの年は対象年度（左のメニュー）に合わせる。月を送って年をまたいだら、対象年度も変える
+  const viewYear = useFiscalYear();
+  const setViewYear = (v: number | ((y: number) => number)) =>
+    setFiscalYear(typeof v === "function" ? v(viewYear) : v);
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
   const [calForm, setCalForm] = useState(BLANK_CAL_FORM);

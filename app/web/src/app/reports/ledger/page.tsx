@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useViewMode } from "@/lib/use-view-mode";
 import { displayName } from "@/lib/display-name";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 type Account = {
   id: number;
@@ -37,7 +39,8 @@ export default function LedgerPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [loading, setLoading] = useState(false);
-  const [year, setYear] = useState(new Date().getFullYear());
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [accountId, setAccId] = useState<number | "">("");
   const [searched, setSearched] = useState(false);
 
@@ -79,14 +82,8 @@ export default function LedgerPage() {
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 flex gap-4 items-end">
-        <div>
-          <label className="block text-sm font-medium text-slate-600 mb-1">年度</label>
-          <input
-            type="number"
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-28"
-          />
+        <div className="self-center">
+          <YearBadge />
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-600 mb-1">

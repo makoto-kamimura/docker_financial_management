@@ -15,6 +15,7 @@ import { Trash2 } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
 import { BUDGET_HELP } from "@/lib/help-texts";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 import { planAllocationApply, type AssignmentSource } from "@/lib/allocation-assign";
 
 // 配分ルールのメンバー科目（自動の振り分け＋手動の割り当てを解決したもの）
@@ -544,10 +545,11 @@ type AllocationBasis = "budget" | "actual" | "manual";
 const ALLOC_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const allocYen = (v: number) => Math.round(v).toLocaleString("ja-JP");
 
-function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
+function AllocationSuggestSection() {
   const qc = useQueryClient();
   const now = new Date();
-  const [year, setYear] = useState(fiscalYear);
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
   // 既定は「手入力」。予算・実績の入力状況に左右されず、入れた金額をそのまま振り分けられる
   const [basis, setBasis] = useState<AllocationBasis>("manual");
@@ -655,20 +657,6 @@ function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
       </SectionLead>
 
       <div className="flex flex-wrap items-end gap-4 mb-4">
-        <div className="flex flex-col gap-1 w-28">
-          <label className="text-xs font-medium text-slate-600">年度</label>
-          <select
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="input-field"
-          >
-            {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-              <option key={y} value={y}>
-                {y}年度
-              </option>
-            ))}
-          </select>
-        </div>
         <div className="flex flex-col gap-1 w-24">
           <label className="text-xs font-medium text-slate-600">対象月</label>
           <select
@@ -866,11 +854,11 @@ function AllocationSuggestSection({ fiscalYear }: { fiscalYear: number }) {
   );
 }
 
-export function BudgetAllocationPanel({ fiscalYear }: { fiscalYear: number }) {
+export function BudgetAllocationPanel() {
   return (
     <>
       <AllocationRulesSection />
-      <AllocationSuggestSection fiscalYear={fiscalYear} />
+      <AllocationSuggestSection />
     </>
   );
 }

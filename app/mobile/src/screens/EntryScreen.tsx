@@ -44,6 +44,7 @@ import { buildFinancialMatrix, editableRecord, type MatrixCell } from "../shared
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
 import { ActualsConfirmSection } from "../components/ActualsConfirmSection";
+import { useFiscalYear } from "../fiscal-year";
 
 export type EntryTab = "manual" | "calendar" | "confirm" | "history";
 type Tab = EntryTab;
@@ -81,7 +82,8 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   // ── 明細一覧 ────────────────────────────────────────────────
-  const [year, setYear] = useState<number | null>(null); // null はサーバー既定（当年）
+  // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [matrix, setMatrix] = useState<{
     year: number;
@@ -107,10 +109,7 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
   const loadMatrix = useCallback(async () => {
     setError(null);
     try {
-      const [accs, m] = await Promise.all([
-        fetchAccounts(),
-        fetchFinancialMatrix(year ?? undefined),
-      ]);
+      const [accs, m] = await Promise.all([fetchAccounts(), fetchFinancialMatrix(year)]);
       setAccounts(accs);
       setMatrix(m);
     } catch (e) {
@@ -163,8 +162,6 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
 
   const detailRow = detailCode ? rows.find((r) => r.account.code === detailCode) : undefined;
   const detailCell: MatrixCell<FinancialRecordRow> | undefined = detailRow?.byMonth.get(month);
-
-  const yearOptions = [...new Set([...matrix.years, matrix.year])].sort((a, b) => a - b);
 
   async function run(action: () => Promise<void>) {
     try {
@@ -245,17 +242,6 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
             <ActivityIndicator color="#4f46e5" style={{ marginTop: 40 }} />
           ) : (
             <>
-              <View style={s.yearRow}>
-                <Text style={s.yearCaption}>年度</Text>
-                <Pills
-                  options={yearOptions.map((y) => ({ value: y, label: `${y}年度` }))}
-                  value={matrix.year}
-                  onChange={(y) => {
-                    setEdit(null);
-                    setYear(y);
-                  }}
-                />
-              </View>
               <Pills
                 options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
                 value={month}
@@ -448,8 +434,6 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#f8fafc" },
   scroll: { flex: 1 },
   content: { padding: 14, paddingBottom: 32 },
-  yearRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  yearCaption: { fontSize: 11, color: "#64748b" },
   groupLabel: {
     fontSize: 11,
     fontWeight: "700",

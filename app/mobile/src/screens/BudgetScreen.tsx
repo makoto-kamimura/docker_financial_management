@@ -35,6 +35,7 @@ import { BUDGET_HELP, textFor } from "../shared/help-texts";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { digitsOnly, MONTHS, yen } from "../format";
 import { BudgetConfirmSection } from "../components/BudgetConfirmSection";
+import { useFiscalYear } from "../fiscal-year";
 
 export type BudgetTab = "manual" | "allocation" | "confirm" | "history";
 type Tab = BudgetTab;
@@ -74,10 +75,10 @@ type Props = {
 
 export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals }: Props) {
   const now = new Date();
-  const thisYear = now.getFullYear();
   const [tab, setTab] = useState<Tab>(initialTab ?? "manual");
   // 年度の既定はサーバー（GET /budgets）と同じ当年
-  const [year, setYear] = useState(thisYear);
+  // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [data, setData] = useState<BudgetResponse>(EMPTY_BUDGETS);
@@ -181,9 +182,6 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
       0,
     );
 
-  const yearOptions = [...new Set([...data.years, year])].sort((a, b) => a - b);
-  const yearIndex = yearOptions.indexOf(year);
-
   async function handleSave() {
     const entries = Object.entries(edits).filter(([, v]) => v.trim() !== "");
     if (entries.length === 0) return;
@@ -224,25 +222,6 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
 
   return (
     <View style={s.root}>
-      {/* 年度（web 版と同じく期間のある年度＋当年から選ぶ）。予算の確定は月で選ぶので出さない */}
-      <View style={[s.yearRow, tab === "confirm" && s.hidden]}>
-        <TouchableOpacity
-          style={s.yearBtn}
-          disabled={yearIndex <= 0}
-          onPress={() => setYear(yearOptions[yearIndex - 1])}
-        >
-          <Text style={[s.yearBtnTxt, yearIndex <= 0 && s.disabled]}>◀</Text>
-        </TouchableOpacity>
-        <Text style={s.yearLabel}>{year}年度</Text>
-        <TouchableOpacity
-          style={s.yearBtn}
-          disabled={yearIndex >= yearOptions.length - 1}
-          onPress={() => setYear(yearOptions[yearIndex + 1])}
-        >
-          <Text style={[s.yearBtnTxt, yearIndex >= yearOptions.length - 1 && s.disabled]}>▶</Text>
-        </TouchableOpacity>
-      </View>
-
       <TabBar tabs={TABS} value={tab} onChange={setTab} />
 
       {loading ? (
@@ -420,26 +399,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
 }
 
 const s = StyleSheet.create({
-  hidden: { display: "none" },
   root: { flex: 1, backgroundColor: "#f8fafc" },
-  yearRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    gap: 20,
-    backgroundColor: "#fff",
-  },
-  yearBtn: { paddingHorizontal: 12, paddingVertical: 6 },
-  yearBtnTxt: { fontSize: 16, color: "#4f46e5" },
-  disabled: { opacity: 0.3 },
-  yearLabel: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#1e293b",
-    minWidth: 80,
-    textAlign: "center",
-  },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   scroll: { flex: 1 },
   scrollContent: { padding: 14 },

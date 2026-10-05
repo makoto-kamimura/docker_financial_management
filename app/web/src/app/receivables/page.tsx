@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 
 type Receivable = {
   id: number;
@@ -272,8 +274,8 @@ function PayModal({ receivable, onClose }: { receivable: Receivable; onClose: ()
 
 // ── メインページ ──────────────────────────────────────────────────────────
 export default function ReceivablesPage() {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
+  // 対象年度は左のメニューで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [status, setStatus] = useState("all");
   const [showNew, setShowNew] = useState(false);
   const [paying, setPaying] = useState<Receivable | null>(null);
@@ -338,17 +340,7 @@ export default function ReceivablesPage() {
 
       {/* フィルタ */}
       <div className="flex items-center gap-3 mb-4">
-        <select
-          className="input-field w-28 py-1 text-sm"
-          value={year}
-          onChange={(e) => setYear(Number(e.target.value))}
-        >
-          {[currentYear + 1, currentYear, currentYear - 1, currentYear - 2].map((y) => (
-            <option key={y} value={y}>
-              {y}年
-            </option>
-          ))}
-        </select>
+        <YearBadge />
         <div className="flex gap-1">
           {[
             ["all", "全件"],

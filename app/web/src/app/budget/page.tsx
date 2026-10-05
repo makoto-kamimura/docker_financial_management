@@ -1,13 +1,15 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Pencil, Trash2, Home, CreditCard, Check, Lock } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
 import { BudgetConfirmPanel } from "@/components/BudgetConfirmPanel";
+import { YearBadge } from "@/components/YearBadge";
+import { useFiscalYear } from "@/lib/use-fiscal-year";
 import { InfoNote, PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { BUDGET_HELP, textFor } from "@/lib/help-texts";
@@ -135,7 +137,6 @@ function BudgetContent() {
   const initial = useInitialTab();
   const [tab, setTab] = useState<Tab>(initial.tab);
 
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [editCell, setEditCell] = useState<{ id: number; amount: string } | null>(null);
   // セルからの新規登録（科目 × 月）と、予算がまだ無い科目の行追加
   const [addCell, setAddCell] = useState<{
@@ -166,7 +167,9 @@ function BudgetContent() {
 
   // 年度未選択時はサーバー既定（GET /api/budgets の暦年）と同じ当年を使う。
   // 4 月始まりで判定すると 1〜3 月に表と「適正額」「履歴」「セル登録」の年度がずれる。
-  const year = selectedYear ?? THIS_YEAR;
+  // 対象年度は左のメニューで選ぶ（全画面で共通）。変わったら履歴は 1 ページ目に戻す
+  const year = useFiscalYear();
+  useEffect(() => setHistOffset(0), [year]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["budgets", year],
@@ -379,28 +382,7 @@ function BudgetContent() {
           <h1 className="page-title">予算管理</h1>
           <PageLead>{textFor(BUDGET_HELP.page, sysMode)}</PageLead>
         </div>
-        {tab !== "confirm" && (data?.years ?? []).length > 0 && (
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">年度</label>
-            <select
-              value={year}
-              onChange={(e) => {
-                setSelectedYear(Number(e.target.value));
-                setHistOffset(0); // 年度を切り替えたら履歴も 1 ページ目に戻す
-              }}
-              className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {/* 表示中の年度に期間がまだ無いときも選択肢に含める */}
-              {[...new Set([...(data?.years ?? []), year])]
-                .sort((a, b) => a - b)
-                .map((y) => (
-                  <option key={y} value={y}>
-                    {y}年度
-                  </option>
-                ))}
-            </select>
-          </div>
-        )}
+        {tab !== "confirm" && <YearBadge />}
       </div>
 
       {/* タブ切り替え（予算配分は明細一覧の右、履歴は実績管理の履歴と同じ末尾に置く） */}
@@ -542,7 +524,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
 
       {/* ── 予算配分タブ（旧「設定 › 予算配分ルール」から移設）────────────
           ルールの割合は明細一覧の「適正 ¥…」にも反映される。 */}
-      {tab === "allocation" && <BudgetAllocationPanel fiscalYear={year} />}
+      {tab === "allocation" && <BudgetAllocationPanel />}
 
       {/* ── 予算の確定タブ（① その月の予算・予実対比・③ 翌月の予算案と確定）── */}
       {tab === "confirm" && <BudgetConfirmPanel mode={sysMode} initialMonth={initial.month} />}

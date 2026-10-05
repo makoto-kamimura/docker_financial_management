@@ -23,6 +23,7 @@ import { DEFAULT_FORECAST_METHOD, FORECAST_METHODS } from "../shared/forecast-me
 import { DASHBOARD_HELP, kpiTermHelp, textFor } from "../shared/help-texts";
 import { KPI_LABELS } from "../shared/mode-labels";
 import { computeStepChecklist } from "../shared/step-checklist";
+import { useFiscalYear } from "../fiscal-year";
 
 // web 版ダッシュボードと同じ表示範囲（対象月を中心に前後 6 か月）
 const TREND_BACK = 6;
@@ -113,9 +114,9 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string | null>(null); // null はサーバー既定に従う
   const [months, setMonths] = useState<TrendMonth[]>([]);
-  const [years, setYears] = useState<number[]>([]);
   const [range, setRange] = useState<"window" | "year">("window");
-  const [year, setYear] = useState<number | null>(null);
+  // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
+  const year = useFiscalYear();
   const [steps, setSteps] = useState<OnboardingSteps | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -147,15 +148,12 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
           )
         : null,
     );
-    // 年度モードの既定は対象月の年（実績が無ければ今年）
-    const targetYear = year ?? (Number((center ?? "").slice(0, 4)) || new Date().getFullYear());
     const trend = await fetchMonthlyTrend(
       range === "year"
-        ? { year: targetYear, method }
+        ? { year, method }
         : { period: center ?? undefined, back: TREND_BACK, forward: TREND_FORWARD, method },
     ).catch(() => null);
     setMonths(trend?.months ?? []);
-    setYears(trend?.years ?? []);
 
     if (kpiRes.status === "rejected" && trend === null) {
       setError("データの取得に失敗しました");
@@ -174,20 +172,23 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
     setRefreshing(false);
   }
 
-  // ── 対象月・年度の送り ─────────────────────────────────────
+  // ── 対象月の送り（対象年度の中の月だけ）────────────────────────
   const currentPeriod = kpi?.period ?? null;
-  const periodIndex = currentPeriod ? periods.indexOf(currentPeriod) : -1;
+  const yearPeriods = periods.filter((p) => p.startsWith(`${year}-`));
+  const periodIndex = currentPeriod ? yearPeriods.indexOf(currentPeriod) : -1;
   function movePeriod(delta: number) {
-    const next = periods[periodIndex + delta];
+    const next = yearPeriods[periodIndex + delta];
     if (next) setPeriod(next);
   }
-  const displayYear =
-    year ?? (Number((currentPeriod ?? "").slice(0, 4)) || new Date().getFullYear());
-  const yearIndex = years.indexOf(displayYear);
-  function moveYear(delta: number) {
-    const next = years[yearIndex + delta];
-    if (next) setYear(next);
-  }
+  // 表示中の月が対象年度の外なら、その年度でデータのある最新の月（今月以前を優先）へ移す
+  useEffect(() => {
+    if (!currentPeriod || currentPeriod.startsWith(`${year}-`)) return;
+    const inYear = periods.filter((p) => p.startsWith(`${year}-`));
+    if (inYear.length === 0) return;
+    const now = new Date();
+    const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    setPeriod([...inYear].reverse().find((p) => p <= nowKey) ?? inYear[inYear.length - 1]);
+  }, [year, periods, currentPeriod]);
 
   // ── 構成比（実績が未入力の将来月は予測値を含む）───────────────
   const totals = CATEGORIES.map((cat) => ({
@@ -253,9 +254,13 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
             </View>
           )}
 
-          {!kpi ? (
+          {!kpi || (periods.length > 0 && yearPeriods.length === 0) ? (
             <View style={s.noticeBox}>
-              <Text style={s.noticeText}>実績が未入力のため KPI は表示できません</Text>
+              <Text style={s.noticeText}>
+                {kpi
+                  ? `${year}年にはデータがありません`
+                  : "実績が未入力のため KPI は表示できません"}
+              </Text>
             </View>
           ) : (
             <>
@@ -273,9 +278,9 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
                 <TouchableOpacity
                   style={[
                     s.navBtn,
-                    (periodIndex < 0 || periodIndex >= periods.length - 1) && s.navBtnDisabled,
+                    (periodIndex < 0 || periodIndex >= yearPeriods.length - 1) && s.navBtnDisabled,
                   ]}
-                  disabled={periodIndex < 0 || periodIndex >= periods.length - 1}
+                  disabled={periodIndex < 0 || periodIndex >= yearPeriods.length - 1}
                   onPress={() => movePeriod(1)}
                 >
                   <Text style={s.navBtnTxt}>›</Text>
@@ -406,29 +411,7 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
             ))}
           </View>
 
-          {range === "year" && (
-            <View style={s.selectorRow}>
-              <Text style={s.selectorLabel}>年度</Text>
-              <TouchableOpacity
-                style={[s.navBtn, yearIndex <= 0 && s.navBtnDisabled]}
-                disabled={yearIndex <= 0}
-                onPress={() => moveYear(-1)}
-              >
-                <Text style={s.navBtnTxt}>‹</Text>
-              </TouchableOpacity>
-              <Text style={s.selectorValue}>{displayYear}年度</Text>
-              <TouchableOpacity
-                style={[
-                  s.navBtn,
-                  (yearIndex < 0 || yearIndex >= years.length - 1) && s.navBtnDisabled,
-                ]}
-                disabled={yearIndex < 0 || yearIndex >= years.length - 1}
-                onPress={() => moveYear(1)}
-              >
-                <Text style={s.navBtnTxt}>›</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          {range === "year" && <Text style={s.selectorLabel}>{year}年（1〜12 月）</Text>}
 
           {/* 予測手法（実績が未入力の月をどの計算方法で見積もるか。web 版と同じ 5 手法） */}
           <View style={s.methodHeader}>
