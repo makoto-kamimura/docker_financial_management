@@ -8,7 +8,6 @@ const rentRule: AllocationRule = {
   group: "固定費",
   minPercent: 20,
   maxPercent: 30,
-  accountId: 10,
   sortOrder: 0,
 };
 
@@ -19,7 +18,6 @@ const savingsRule: AllocationRule = {
   group: "その他",
   minPercent: 20,
   maxPercent: null,
-  accountId: null,
   sortOrder: 1,
 };
 
@@ -30,7 +28,6 @@ const foodRule: AllocationRule = {
   group: "生活費",
   minPercent: 15,
   maxPercent: 20,
-  accountId: 11,
   sortOrder: 2,
 };
 

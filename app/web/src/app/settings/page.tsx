@@ -667,16 +667,26 @@ function AccountNamesSection() {
     corporateName: string;
   };
   const [dirty, setDirty] = useState<Record<number, NameEdit>>({});
+  // 科目が入っている予算配分ルール（科目名のキーワードと区分で自動で振り分け。予算管理 › 予算配分で変える）
+  const [ruleByAccount, setRuleByAccount] = useState<Map<number, string>>(new Map());
 
   const load = () => {
     setLoading(true);
-    fetch("/api/accounts")
-      .then((r) => r.json())
-      .then((j) => {
-        setRows(j.data ?? []);
-        setDirty({});
-        setLoading(false);
-      });
+    Promise.all([
+      fetch("/api/accounts").then((r) => r.json()),
+      fetch("/api/allocation-rules")
+        .then((r) => r.json())
+        .catch(() => ({})),
+    ]).then(([j, rulesJson]) => {
+      setRows(j.data ?? []);
+      setDirty({});
+      const map = new Map<number, string>();
+      for (const rule of rulesJson.data ?? []) {
+        for (const a of rule.accounts ?? []) map.set(a.id, rule.label);
+      }
+      setRuleByAccount(map);
+      setLoading(false);
+    });
   };
   useEffect(() => {
     load();
@@ -820,6 +830,7 @@ function AccountNamesSection() {
                 <th className="text-left py-2 pr-3 whitespace-nowrap">区分</th>
                 <th className="text-left py-2 pr-3">個人事業主モード表示名</th>
                 <th className="text-left py-2 pr-3">法人モード表示名</th>
+                <th className="text-left py-2 pr-3 whitespace-nowrap">予算配分</th>
                 <th className="py-2"></th>
               </tr>
             </thead>
@@ -869,6 +880,12 @@ function AccountNamesSection() {
                       className="input-field w-full min-w-[12rem]"
                     />
                   </td>
+                  <td
+                    className="py-1.5 pr-3 text-xs text-slate-500 whitespace-nowrap"
+                    title="科目名と区分から自動で振り分けます。予算管理の「予算配分」で変えられます"
+                  >
+                    {ruleByAccount.get(r.id) ?? "—"}
+                  </td>
                   <td className="py-1.5">
                     <button
                       type="button"
@@ -909,7 +926,7 @@ function AccountNamesSection() {
                     ))}
                   </select>
                 </td>
-                <td className="py-2 pr-3" colSpan={3}>
+                <td className="py-2 pr-3" colSpan={4}>
                   <button
                     type="button"
                     onClick={addAccount}
@@ -921,7 +938,7 @@ function AccountNamesSection() {
                     {adding ? "追加中…" : "科目を追加"}
                   </button>
                   <span className="ml-2 text-[11px] text-slate-400">
-                    コードは同じ区分の既存コードから自動で採番されます。
+                    コードは同じ区分の既存コードから自動で採番されます。予算配分のルールにも、科目名と区分で自動で入ります。
                   </span>
                 </td>
               </tr>

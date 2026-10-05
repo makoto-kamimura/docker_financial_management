@@ -375,7 +375,6 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
           {tab === "allocation" && (
             <BudgetAllocationPanel
               fiscalYear={year}
-              accounts={accounts}
               viewMode={viewMode}
               onApplied={() => {
                 load();

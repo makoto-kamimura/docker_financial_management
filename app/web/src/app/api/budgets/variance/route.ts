@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { loadAllocationContext } from "@/lib/allocation-data";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
 import {
   BUDGET_CYCLE_CATEGORIES,
@@ -12,7 +13,7 @@ import { loadCycleStatus } from "@/lib/cycle-status";
 
 // GET /api/budgets/variance?year=&month= … 予実対比（科目別）と翌月の予算・確定状況（読み取り専用）
 //   当月の予算（自動反映を含む）と実績の差、翌月に登録済みの予算、両月の確定状況、
-//   余りの回し先の既定（予算配分ルール「貯蓄・投資」にひも付けた科目）を返す。
+//   余りの回し先の既定（予算配分ルール「貯蓄・投資」に入る科目のうちコードが一番小さいもの）を返す。
 //   確定状況（① 当月の予算・② 当月の実績・③ 翌月の予算と、前月の実績）は lib/cycle-status.ts で出す。
 //   翌月の予算案そのものは、差額の扱いを画面で選びながら lib/budget-cycle.ts で作る。
 export const GET = withApi({
@@ -62,11 +63,19 @@ export const GET = withApi({
           : [],
         computeLoanOverlay(db, tenantId, year),
         computePersonalAssetDebtOverlay(db, tenantId, year),
+        // 余りの回し先の既定: 「貯蓄・投資」ルールのメンバー科目のうちコードが一番小さいもの
         db.allocationRule.findUnique({
           where: { tenantId_key: { tenantId, key: "savings" } },
-          select: { accountId: true },
+          select: { id: true },
         }),
       ]);
+
+    let savingsTargetId: number | null = null;
+    if (savingsRule) {
+      const { members, accounts: targets } = await loadAllocationContext(db, tenantId);
+      const ids = new Set(members.get(savingsRule.id) ?? []);
+      savingsTargetId = targets.find((a) => ids.has(a.id))?.id ?? null;
+    }
 
     const budgetMap = new Map(budgets.map((b) => [b.accountId, Number(b.amount)]));
     const nextBudgetMap = new Map(nextBudgets.map((b) => [b.accountId, Number(b.amount)]));
@@ -103,7 +112,7 @@ export const GET = withApi({
     return NextResponse.json({
       data: {
         ...status,
-        transferTargetId: savingsRule?.accountId ?? null,
+        transferTargetId: savingsTargetId,
         rows,
         summary: summarizeVariance(rows),
       },

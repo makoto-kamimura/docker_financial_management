@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { suggestAllocation, type AllocationRule } from "@/lib/allocation";
+import { suggestAllocation } from "@/lib/allocation";
+import { splitByRatio } from "@/lib/allocation-assign";
+import { loadActualWeights, loadAllocationContext } from "@/lib/allocation-data";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
 
 // GET /api/budgets/allocation-guide?year=YYYY
 //   … 予算管理のマトリクスに重ねる「適正金額」。収入（REVENUE）の実績が入力済みの月について、
-//     予算配分ルール（予算管理 › 予算配分タブ）の割合で各科目の推奨額を算出する。
+//     予算配分ルール（予算管理 › 予算配分タブ）の割合で各ルールの推奨額を出し、
+//     ルールのメンバー科目（自動の振り分け＋手動の割り当て）へ、前の 3 か月の実績の比率で按分する
+//     （実績が無ければ均等）。予算の有無に関係なく出す参考値で、予算の値は変えない。
 //     実績が無い月は算出しない（0 円の推奨を出さない）。
 export const GET = withApi({
   role: "viewer",
@@ -26,28 +30,19 @@ export const GET = withApi({
       basisByMonth.set(m, (basisByMonth.get(m) ?? 0) + Number(r.amount));
     }
 
-    const [rules, loanOverlay, debtOverlay] = await Promise.all([
-      db.allocationRule.findMany({
-        where: { tenantId },
-        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-        include: { account: { select: { id: true, code: true } } },
-      }),
+    const [context, loanOverlay, debtOverlay] = await Promise.all([
+      loadAllocationContext(db, tenantId),
       computeLoanOverlay(db, tenantId, year),
       computePersonalAssetDebtOverlay(db, tenantId, year),
     ]);
-
-    const ruleInputs: AllocationRule[] = rules.map((r) => ({
-      id: r.id,
-      key: r.key,
-      label: r.label,
-      group: r.group,
-      minPercent: Number(r.minPercent),
-      maxPercent: r.maxPercent === null ? null : Number(r.maxPercent),
-      accountId: r.accountId,
-      sortOrder: r.sortOrder,
-    }));
-    const codeByAccountId = new Map(
-      rules.filter((r) => r.account).map((r) => [r.account!.id, r.account!.code]),
+    const { ruleInputs, members, accounts } = context;
+    const codeById = new Map(accounts.map((a) => [a.id, a.code]));
+    const weightsFor = await loadActualWeights(
+      db,
+      tenantId,
+      accounts.map((a) => a.id),
+      { year, month: 1 },
+      { year, month: 12 },
     );
 
     const overlaysAll = [...loanOverlay, ...debtOverlay];
@@ -59,12 +54,15 @@ export const GET = withApi({
         .filter((o) => o.month === month)
         .map((o) => ({ accountId: o.accountId, amount: o.amount }));
       const { items } = suggestAllocation({ basisAmount, overlays, rules: ruleInputs });
+      const weights = weightsFor(year, month);
       for (const item of items) {
-        const accountId = item.rule.accountId;
-        const accountCode = accountId === null ? null : (codeByAccountId.get(accountId) ?? null);
-        // 対応科目が未設定のルールは予算表に重ねられないので飛ばす
-        if (accountId === null || accountCode === null || item.recommended <= 0) continue;
-        rows.push({ accountId, accountCode, month, amount: item.recommended });
+        // メンバー科目が無いルールは予算表に重ねられないので飛ばす
+        const ids = members.get(item.rule.id) ?? [];
+        if (ids.length === 0 || item.recommended <= 0) continue;
+        for (const [accountId, amount] of splitByRatio(item.recommended, ids, weights)) {
+          if (amount <= 0) continue;
+          rows.push({ accountId, accountCode: codeById.get(accountId)!, month, amount });
+        }
       }
     }
 

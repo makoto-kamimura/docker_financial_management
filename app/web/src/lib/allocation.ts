@@ -7,7 +7,6 @@ export type AllocationRule = {
   group: string;
   minPercent: number;
   maxPercent: number | null;
-  accountId: number | null;
   sortOrder: number;
 };
 
