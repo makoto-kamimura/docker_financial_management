@@ -1,7 +1,7 @@
 import type { TenantDbClient } from "@/lib/tenant-db";
 import { LINKED_ACCOUNT_TYPE_LABELS, type LinkedAccountType } from "@/lib/linked-account-type";
 
-// 実績がどこまで入力済みかの判定（「予実と確定」の ② 実績確定の前提）。
+// 実績がどこまで入力済みかの判定（実績管理の「実績の確定」＝ ② の前提）。
 //
 // 銀行口座・カード・電子マネーごとに、取り込んだ明細の最終日（取引日の最大値）を出す。
 // 明細が 1 件以上あるソースの最終日のうち一番古い日（coveredThrough）が月末日以降なら、

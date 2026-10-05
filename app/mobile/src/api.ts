@@ -517,7 +517,7 @@ export async function deleteBudget(id: number): Promise<void> {
   await request(`/budgets/${id}`, "予算の削除に失敗しました", { method: "DELETE" });
 }
 
-// ── 予実と確定（GET /budgets/variance・POST/DELETE /budgets/confirm・/actuals/confirm）──
+// ── 予算と実績の確定（GET /cycle-status・/budgets/variance、POST/DELETE /budgets/confirm・/actuals/confirm）──
 /** 実績の入力状況の判定に使うソース（銀行口座・カード・電子マネー）と明細の最終日 */
 export type ActualsSource = {
   kind: "bank" | "card";
@@ -533,7 +533,8 @@ export type BudgetVarianceRow = VarianceRow & {
   corporateName: string | null;
 };
 
-export type BudgetVariance = {
+/** 月ごとの流れ（① 予算確定 → ② 実績確定 → ③ 翌月の予算確定）の状況（GET /cycle-status） */
+export type CycleStatus = {
   year: number;
   month: number;
   next: { year: number; month: number };
@@ -553,6 +554,18 @@ export type BudgetVariance = {
     /** この月の未転記の明細の件数（参考） */
     unposted: number;
   };
+};
+
+export async function fetchCycleStatus(year: number, month: number): Promise<CycleStatus> {
+  const json = await request<{ data: CycleStatus }>(
+    `/cycle-status?year=${year}&month=${month}`,
+    "確定状況の取得に失敗しました",
+  );
+  return json.data;
+}
+
+/** 予実対比（確定状況に、科目別の予実と合計を足したもの） */
+export type BudgetVariance = CycleStatus & {
   /** 余りの回し先の既定（予算配分の「貯蓄・投資」にひも付けた科目） */
   transferTargetId: number | null;
   rows: BudgetVarianceRow[];

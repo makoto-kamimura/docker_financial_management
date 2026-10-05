@@ -38,6 +38,7 @@ import { emptyRouteContext } from "@/lib/api-handler";
 import { importRows } from "@/lib/import";
 import { POST as actualsConfirmPost, DELETE as actualsConfirmDelete } from "./confirm/route";
 import { GET as varianceGet } from "../budgets/variance/route";
+import { GET as cycleStatusGet } from "../cycle-status/route";
 import { POST as budgetConfirmPost, DELETE as budgetConfirmDelete } from "../budgets/confirm/route";
 import { POST as financialsPost } from "../financials/route";
 import { PATCH as financialPatch, DELETE as financialDelete } from "../financials/[id]/route";
@@ -326,6 +327,39 @@ describe("実績の確定", () => {
   it("③ 当月の実績を確定すると、翌月の予算を確定できる", async () => {
     actingUser = editor;
     expect((await confirmBudget(6)).status).toBe(201);
+  });
+
+  it("GET /api/cycle-status: ①②③ の状況と明細の最終日を、予実対比と同じ形で返す", async () => {
+    actingUser = editor;
+    const res = await cycleStatusGet(
+      makeReq("GET", `http://x/api/cycle-status?year=${YEAR}&month=5`),
+      emptyRouteContext(),
+    );
+    expect(res.status).toBe(200);
+    const { data } = await res.json();
+    expect(data).toMatchObject({
+      year: YEAR,
+      month: 5,
+      next: { year: YEAR, month: 6 },
+      prevActualsPending: false,
+      actuals: { entered: true, monthEnd: `${YEAR}-05-31`, unposted: 2 },
+    });
+    expect(data.confirmedAt).not.toBeNull();
+    expect(data.actuals.confirmedAt).not.toBeNull();
+    expect(data.nextConfirmedAt).not.toBeNull();
+    expect(data.actuals.sources).toHaveLength(3);
+    // 予実対比も同じ確定状況を返す
+    const v = await variance(5);
+    expect(v.nextConfirmedAt).toBe(data.nextConfirmedAt);
+    expect(v.actuals).toEqual(data.actuals);
+    // 6 月から見ると、前月（5 月）の実績は確定済み
+    const june = await (
+      await cycleStatusGet(
+        makeReq("GET", `http://x/api/cycle-status?year=${YEAR}&month=6`),
+        emptyRouteContext(),
+      )
+    ).json();
+    expect(june.data.prevActualsPending).toBe(false);
   });
 
   it("解除は逆順・admin のみ: 予算 → 実績の順には外せず、翌月予算 → 実績 → 予算の順で外せる", async () => {

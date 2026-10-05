@@ -1,11 +1,13 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Pencil, Trash2, Home, CreditCard, Check, Lock } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
+import { BudgetConfirmPanel } from "@/components/BudgetConfirmPanel";
 import { InfoNote, PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { BUDGET_HELP, textFor } from "@/lib/help-texts";
@@ -50,7 +52,19 @@ type BudgetResponse = {
   confirmedMonths?: number[];
 };
 type ImportResult = { imported: number; skipped?: number; errors: string[] };
-type Tab = "manual" | "allocation" | "csv" | "history";
+type Tab = "manual" | "allocation" | "confirm" | "csv" | "history";
+
+const TAB_IDS: Tab[] = ["manual", "allocation", "confirm", "csv", "history"];
+// 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）
+function useInitialTab(): { tab: Tab; month: string | undefined } {
+  const searchParams = useSearchParams();
+  const tab = searchParams.get("tab");
+  const month = searchParams.get("month");
+  return {
+    tab: TAB_IDS.includes(tab as Tab) ? (tab as Tab) : "manual",
+    month: month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : undefined,
+  };
+}
 
 // 収入実績から算出した「適正金額」（予算配分ルールの割合による推奨額）
 type AllocationGuideRow = { accountId: number; accountCode: string; month: number; amount: number };
@@ -108,9 +122,18 @@ function groupByAccount(
 }
 
 export default function BudgetPage() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <BudgetContent />
+    </Suspense>
+  );
+}
+
+function BudgetContent() {
   const qc = useQueryClient();
   const sysMode = useViewMode();
-  const [tab, setTab] = useState<Tab>("manual");
+  const initial = useInitialTab();
+  const [tab, setTab] = useState<Tab>(initial.tab);
 
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [editCell, setEditCell] = useState<{ id: number; amount: string } | null>(null);
@@ -356,7 +379,7 @@ export default function BudgetPage() {
           <h1 className="page-title">予算管理</h1>
           <PageLead>{textFor(BUDGET_HELP.page, sysMode)}</PageLead>
         </div>
-        {(data?.years ?? []).length > 0 && (
+        {tab !== "confirm" && (data?.years ?? []).length > 0 && (
           <div className="flex items-center gap-2">
             <label className="text-xs font-medium text-slate-600">年度</label>
             <select
@@ -386,6 +409,7 @@ export default function BudgetPage() {
           [
             ["manual", "明細一覧"],
             ["allocation", "予算配分"],
+            ["confirm", "予算の確定"],
             ["csv", "CSV インポート"],
             ["history", "履歴"],
           ] as [Tab, string][]
@@ -519,6 +543,9 @@ H3000,${THIS_YEAR},1,115000`}</pre>
       {/* ── 予算配分タブ（旧「設定 › 予算配分ルール」から移設）────────────
           ルールの割合は明細一覧の「適正 ¥…」にも反映される。 */}
       {tab === "allocation" && <BudgetAllocationPanel fiscalYear={year} />}
+
+      {/* ── 予算の確定タブ（① その月の予算・予実対比・③ 翌月の予算案と確定）── */}
+      {tab === "confirm" && <BudgetConfirmPanel mode={sysMode} initialMonth={initial.month} />}
 
       {/* ── 履歴タブ（実績管理の履歴と同じ見た目）──────────── */}
       {tab === "history" &&

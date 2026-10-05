@@ -1,10 +1,12 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState, useMemo } from "react";
+import { Suspense, useRef, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
 import { PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { ENTRY_HELP, textFor } from "@/lib/help-texts";
@@ -180,15 +182,36 @@ const now = new Date();
 const THIS_YEAR = now.getFullYear();
 const THIS_MONTH = now.getMonth() + 1;
 
-type Tab = "manual" | "calendar" | "csv" | "history";
+type Tab = "manual" | "calendar" | "confirm" | "csv" | "history";
+
+const TAB_IDS: Tab[] = ["manual", "calendar", "confirm", "csv", "history"];
+// 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）
+function useInitialTab(): { tab: Tab; month: string | undefined } {
+  const searchParams = useSearchParams();
+  const tab = searchParams.get("tab");
+  const month = searchParams.get("month");
+  return {
+    tab: TAB_IDS.includes(tab as Tab) ? (tab as Tab) : "manual",
+    month: month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : undefined,
+  };
+}
 
 // ── ページ ─────────────────────────────────────────────────────────
 export default function EntryPage() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <EntryContent />
+    </Suspense>
+  );
+}
+
+function EntryContent() {
   const queryClient = useQueryClient();
   const sysMode = useViewMode();
 
   // ── タブ ──────────────────────────────────────────────────────
-  const [tab, setTab] = useState<Tab>("manual");
+  const initial = useInitialTab();
+  const [tab, setTab] = useState<Tab>(initial.tab);
 
   // ── クエリ ────────────────────────────────────────────────────
   const { data: accounts } = useQuery({
@@ -556,6 +579,7 @@ export default function EntryPage() {
           [
             ["manual", "明細一覧"],
             ["calendar", "カレンダー"],
+            ["confirm", "実績の確定"],
             ["csv", "CSV インポート"],
             ["history", "履歴"],
           ] as [Tab, string][]
@@ -578,17 +602,22 @@ export default function EntryPage() {
       {/* 実績の新規登録は下の「科目×月テーブル」のセルから行う（旧「新規登録」フォームは廃止）。
           科目名の変更は「設定 › 科目名設定」に集約した。 */}
 
-      {/* 開いているタブで何ができるかの説明 */}
-      <SectionLead className="-mt-3 mb-4">
-        {
+      {/* 開いているタブで何ができるかの説明（実績の確定タブは中に説明がある） */}
+      {tab !== "confirm" && (
+        <SectionLead className="-mt-3 mb-4">
           {
-            manual: ENTRY_HELP.table,
-            calendar: ENTRY_HELP.calendar,
-            csv: ENTRY_HELP.csv,
-            history: ENTRY_HELP.history,
-          }[tab]
-        }
-      </SectionLead>
+            {
+              manual: ENTRY_HELP.table,
+              calendar: ENTRY_HELP.calendar,
+              csv: ENTRY_HELP.csv,
+              history: ENTRY_HELP.history,
+            }[tab]
+          }
+        </SectionLead>
+      )}
+
+      {/* ── 実績の確定タブ（② その月の実績。明細の最終日がそろったら確定する）── */}
+      {tab === "confirm" && <ActualsConfirmPanel mode={sysMode} initialMonth={initial.month} />}
 
       {/* ── カレンダータブ ────────────────────────────────────── */}
       {tab === "calendar" && (

@@ -1,18 +1,21 @@
 import { useEffect, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
+  fetchBudgetVariance,
   fetchKpi,
   fetchMonthlyTrend,
   fetchOnboardingSteps,
   hasSwitchedViewMode,
   type AnnualOutlook,
+  type BudgetVariance,
   type KpiBudget,
   type KpiData,
   type OnboardingSteps,
   type TrendMonth,
   type ViewMode,
 } from "../api";
-import { BudgetCycleSection } from "../components/BudgetCycleSection";
+import { BudgetActualChart } from "../components/BudgetActualChart";
+import { CycleStatusRow, type CycleScreen } from "../components/CycleStatusRow";
 import { LoadingView } from "../components/LoadingView";
 import { MonthlyCategoryChart } from "../components/MonthlyCategoryChart";
 import { Lead, TermList } from "../components/ui";
@@ -92,12 +95,18 @@ function KpiCard({
   );
 }
 
-type Props = { viewMode: ViewMode };
+type Props = {
+  viewMode: ViewMode;
+  /** 予算・実績の画面の確定タブへ移る（状況の 1 行を押したとき） */
+  onOpenCycle?: (screen: CycleScreen, month: string) => void;
+};
 
-export function DashboardScreen({ viewMode }: Props) {
+export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
   const [kpi, setKpi] = useState<KpiData | null>(null);
   const [budget, setBudget] = useState<KpiBudget | null>(null);
   const [annual, setAnnual] = useState<AnnualOutlook | null>(null);
+  // 対象月の予実（「予算と実績」グラフ）
+  const [variance, setVariance] = useState<BudgetVariance | null>(null);
   const [method, setMethod] = useState(DEFAULT_FORECAST_METHOD);
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string | null>(null); // null はサーバー既定に従う
@@ -128,6 +137,13 @@ export function DashboardScreen({ viewMode }: Props) {
     setSteps(stepRes.status === "fulfilled" ? stepRes.value : null);
 
     const center = k?.kpi?.period ?? null;
+    setVariance(
+      center
+        ? await fetchBudgetVariance(Number(center.slice(0, 4)), Number(center.slice(5, 7))).catch(
+            () => null,
+          )
+        : null,
+    );
     // 年度モードの既定は対象月の年（実績が無ければ今年）
     const targetYear = year ?? (Number((center ?? "").slice(0, 4)) || new Date().getFullYear());
     const trend = await fetchMonthlyTrend(
@@ -357,11 +373,13 @@ export function DashboardScreen({ viewMode }: Props) {
         </>
       )}
 
-      {/* 予実と確定（KPI の下）。対象月・予測手法の切り替えで画面を読み直しても、
-          選んだ月と入力中の扱い・金額が消えないよう、読み込み中も外さずに隠すだけにする */}
-      <View style={loading || error ? s.hidden : undefined}>
-        <BudgetCycleSection viewMode={viewMode} refreshKey={refreshKey} />
-      </View>
+      {/* 予算と実績の確定の状況（前月）。確定の操作は予算・実績の画面で行う */}
+      {!loading && !error && <CycleStatusRow refreshKey={refreshKey} onOpen={onOpenCycle} />}
+
+      {/* 予算と実績（KPI の対象月の差をひと目で） */}
+      {!loading && !error && kpi && (
+        <BudgetActualChart viewMode={viewMode} period={kpi.period} data={variance} />
+      )}
 
       {!loading && !error && (kpi || months.length > 0) && (
         <>
@@ -535,7 +553,6 @@ export function DashboardScreen({ viewMode }: Props) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc" },
   content: { padding: 16 },
-  hidden: { display: "none" },
   errorBox: {
     backgroundColor: "#fef2f2",
     borderRadius: 8,

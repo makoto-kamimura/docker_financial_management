@@ -1,22 +1,19 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { loadActualsCoverage } from "@/lib/actuals-coverage";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
 import {
   BUDGET_CYCLE_CATEGORIES,
   computeVariance,
-  nextYearMonth,
-  prevYearMonth,
   summarizeVariance,
   type BudgetCycleCategory,
 } from "@/lib/budget-cycle";
+import { loadCycleStatus } from "@/lib/cycle-status";
 
 // GET /api/budgets/variance?year=&month= … 予実対比（科目別）と翌月の予算・確定状況（読み取り専用）
 //   当月の予算（自動反映を含む）と実績の差、翌月に登録済みの予算、両月の確定状況、
 //   余りの回し先の既定（予算配分ルール「貯蓄・投資」にひも付けた科目）を返す。
-//   あわせて当月の実績の入力状況（明細の最終日・実績入力済みか・実績の確定状況）と、
-//   前月の確定状況（当月の予算を確定できるか）を返す。
+//   確定状況（① 当月の予算・② 当月の実績・③ 翌月の予算と、前月の実績）は lib/cycle-status.ts で出す。
 //   翌月の予算案そのものは、差額の扱いを画面で選びながら lib/budget-cycle.ts で作る。
 export const GET = withApi({
   role: "viewer",
@@ -27,28 +24,7 @@ export const GET = withApi({
   handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const { year, month } = query;
-    const next = nextYearMonth(year, month);
-    const prev = prevYearMonth(year, month);
-
-    const [period, nextPeriod, prevPeriod, coverage] = await Promise.all([
-      db.period.findUnique({
-        where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
-        include: { budgetConfirmation: true, actualsConfirmation: true },
-      }),
-      db.period.findUnique({
-        where: {
-          tenantId_fiscalYear_month: { tenantId, fiscalYear: next.year, month: next.month },
-        },
-        include: { budgetConfirmation: true },
-      }),
-      db.period.findUnique({
-        where: {
-          tenantId_fiscalYear_month: { tenantId, fiscalYear: prev.year, month: prev.month },
-        },
-        include: { budgetConfirmation: true, actualsConfirmation: true },
-      }),
-      loadActualsCoverage(db, tenantId, year, month),
-    ]);
+    const { periodId, nextPeriodId, status } = await loadCycleStatus(db, tenantId, year, month);
 
     const categoryFilter = { category: { in: [...BUDGET_CYCLE_CATEGORIES] } };
     const [accounts, budgets, nextBudgets, actuals, loanOverlay, debtOverlay, savingsRule] =
@@ -65,22 +41,22 @@ export const GET = withApi({
           },
           orderBy: { code: "asc" },
         }),
-        period
+        periodId
           ? db.budget.findMany({
-              where: { tenantId, periodId: period.id },
+              where: { tenantId, periodId },
               select: { accountId: true, amount: true },
             })
           : [],
-        nextPeriod
+        nextPeriodId
           ? db.budget.findMany({
-              where: { tenantId, periodId: nextPeriod.id },
+              where: { tenantId, periodId: nextPeriodId },
               select: { accountId: true, amount: true },
             })
           : [],
-        period
+        periodId
           ? db.financialRecord.groupBy({
               by: ["accountId"],
-              where: { tenantId, periodId: period.id },
+              where: { tenantId, periodId },
               _sum: { amount: true },
             })
           : [],
@@ -126,22 +102,7 @@ export const GET = withApi({
 
     return NextResponse.json({
       data: {
-        year,
-        month,
-        next,
-        confirmedAt: period?.budgetConfirmation?.confirmedAt ?? null,
-        nextConfirmedAt: nextPeriod?.budgetConfirmation?.confirmedAt ?? null,
-        // 前月の予算が確定済みで実績が未確定なら、当月の予算はまだ確定できない
-        prevActualsPending: !!prevPeriod?.budgetConfirmation && !prevPeriod.actualsConfirmation,
-        actuals: {
-          confirmedAt: period?.actualsConfirmation?.confirmedAt ?? null,
-          entered: coverage.entered,
-          coveredThrough: coverage.coveredThrough,
-          monthEnd: coverage.monthEnd,
-          sources: coverage.sources,
-          lagging: coverage.lagging,
-          unposted: coverage.unposted,
-        },
+        ...status,
         transferTargetId: savingsRule?.accountId ?? null,
         rows,
         summary: summarizeVariance(rows),

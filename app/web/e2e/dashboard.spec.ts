@@ -21,20 +21,17 @@ test.describe("ダッシュボードと主要フロー", () => {
     await expect(page.getByText("予測手法")).toBeVisible();
   });
 
-  test("KPI の下に予実と確定が表示される", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "予実と確定" })).toBeVisible();
-    // 比べる月の既定は前月
+  test("KPI の下に確定の状況と予算と実績のグラフが表示される", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "予算と実績の確定" })).toBeVisible();
+    // 状況は前月の ①②③。各段は予算管理・実績管理の確定タブへのリンク
     const d = new Date();
     d.setDate(1);
     d.setMonth(d.getMonth() - 1);
-    const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    await expect(page.getByLabel("比べる月")).toHaveValue(prev);
-    // ② 実績: 明細の最終日の一覧と、実績の確定ボタン（または確定済みの解除ボタン）
     const month = d.getMonth() + 1;
-    await expect(page.getByRole("heading", { name: new RegExp(`${month}月の実績`) })).toBeVisible();
     await expect(
-      page.getByRole("button", { name: new RegExp(`^${month}月の実績(を確定|の確定を解除)$`) }),
-    ).toBeVisible();
+      page.getByRole("link", { name: new RegExp(`② ${month}月の実績`) }),
+    ).toHaveAttribute("href", /\/entry\?tab=confirm&month=/);
+    await expect(page.getByRole("heading", { name: /^予算と実績（/ })).toBeVisible();
   });
 
   test("予測手法を切り替えても表示が維持される", async ({ page }) => {

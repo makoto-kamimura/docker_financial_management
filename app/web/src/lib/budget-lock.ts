@@ -5,7 +5,7 @@ import { conflict } from "@/lib/api-error";
 // 予算を書き込むルート（登録・変更・削除・CSV 取込・配分の反映）から呼ぶ。
 
 export const BUDGET_LOCKED_MESSAGE =
-  "この月の予算は確定済みのため変更できません。変更するには、ダッシュボードの「予実と確定」で確定を解除してください";
+  "この月の予算は確定済みのため変更できません。変更するには、予算管理の「予算の確定」で確定を解除してください";
 
 export async function isBudgetPeriodConfirmed(
   db: Pick<TenantDbClient, "budgetConfirmation">,
@@ -45,7 +45,7 @@ export async function confirmedBudgetMonths(
 // 明細（bank/card_transactions）の取込そのものは止めない。止めるのは実績への転記だけ。
 
 export const ACTUALS_LOCKED_MESSAGE =
-  "この月の実績は確定済みのため変更できません。変更するには、ダッシュボードの「予実と確定」で実績の確定を解除してください";
+  "この月の実績は確定済みのため変更できません。変更するには、実績管理の「実績の確定」で確定を解除してください";
 
 export async function isActualsPeriodConfirmed(
   db: Pick<TenantDbClient, "actualsConfirmation">,
