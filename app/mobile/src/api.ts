@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import type { VarianceRow } from "./shared/budget-cycle";
 import type { ViewMode } from "./shared/display-name";
 import type { PersonalAssetCategory } from "./shared/labels";
+import type { BuildingStructure, ValuationMethod, ValueTrend } from "./shared/asset-valuation";
 import type { Loan } from "./shared/loan-schedule";
 
 const _devHost = Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
@@ -420,17 +421,24 @@ export async function deleteActual(id: number): Promise<void> {
 }
 
 // ── 総資産サマリ（実物資産・銀行口座残高・ローンを含む純資産）──────────────
+// ホームの KPI の対象月の時点で出す（時点は月末、今月なら今日）
 export type NetWorthSummary = {
   year: number;
   month: number;
+  /** 時点（YYYY-MM-DD） */
+  asOf: string;
+  isCurrentMonth: boolean;
   totalAssets: number;
   totalLiabilities: number;
   netWorth: number;
   breakdown: { key: string; label: string; amount: number }[];
 };
 
-export async function fetchNetWorthSummary(): Promise<NetWorthSummary> {
-  return request<NetWorthSummary>("/assets/summary", "総資産サマリの取得に失敗しました");
+export async function fetchNetWorthSummary(year: number, month: number): Promise<NetWorthSummary> {
+  return request<NetWorthSummary>(
+    `/assets/summary?year=${year}&month=${month}`,
+    "総資産サマリの取得に失敗しました",
+  );
 }
 
 // ── 予算 ──────────────────────────────────────────────────────────────
@@ -1532,30 +1540,104 @@ export async function patchLoanRateChange(
 }
 
 // ── 実物資産（土地・建物・車・金など）──────────────────────────────
-export type PersonalAsset = {
+/** 価値の変わり方の設定（資産・内訳で共通。shared/asset-valuation.ts） */
+export type ValuationSettingsFields = {
+  valuationMethod: ValuationMethod;
+  /** 年率（%）。rate は増減率、declining は下落率 */
+  valuationRate: number | string | null;
+  usefulLifeYears: number | null;
+  buildingStructure: BuildingStructure | null;
+};
+
+/** 見積もりの情報（サーバー計算） */
+type ValuationInfo = {
+  /** 今日の時点の評価額の見積もり */
+  estimatedValue: number | null;
+  trend: ValueTrend;
+  /** 最後に評価額を入れた日（YYYY-MM-DD） */
+  lastValuedOn: string | null;
+};
+
+/** 実物資産の内訳（住宅ローン 1 本で買った土地と建物など） */
+export type PersonalAssetPart = ValuationSettingsFields &
+  ValuationInfo & {
+    id: number;
+    name: string;
+    category: PersonalAssetCategory;
+    acquisitionCost: number | string | null;
+    currentValue: number | string;
+    ruleLabel: string;
+  };
+
+export type PersonalAsset = ValuationSettingsFields &
+  ValuationInfo & {
+    id: number;
+    name: string;
+    category: PersonalAssetCategory;
+    acquiredOn: string | null;
+    acquisitionCost: number | string | null;
+    currentValue: number | string;
+    /** 純資産に評価額を計上するか。false = 負債のみ反映（ローンの諸費用等） */
+    countAsAsset: boolean;
+    note: string | null;
+    linkedAccountId: number | null;
+    debtStartOn: string | null; // 支払い開始年月
+    debtPayoffDue: string | null; // 負債解消（完済）予定年月
+    debtInitialAmount: number | string | null; // 当初負債額
+    /** 年利（小数。0.0081 = 0.810%） */
+    debtInterestRate: number | string | null;
+    /** 残価設定ローンの据置額（最終回に一括支払い）。null / 0 = 通常ローン */
+    debtResidualValue: number | string | null;
+    debtMonthly: number | null; // 月額（サーバー計算）
+    debtRemaining: number | null; // 現在の負債残高（サーバー計算）
+    debtRemainingMonths: number | null; // 残り支払い回数（サーバー計算）
+    /** 価値の変わり方の説明（内訳がある資産は null） */
+    ruleLabel: string | null;
+    /** 内訳。無ければ空 */
+    parts: PersonalAssetPart[];
+    createdAt: string;
+    updatedAt: string;
+  };
+
+/** 内訳の入力。id があれば既存の内訳を直す */
+export type PersonalAssetPartInput = {
+  id?: number;
+  name: string;
+  category: PersonalAssetCategory;
+  acquisitionCost: number | null;
+  currentValue: number;
+  valuationMethod?: ValuationMethod;
+  valuationRate?: number | null;
+  usefulLifeYears?: number | null;
+  buildingStructure?: BuildingStructure | null;
+};
+
+/** 評価額の推移（GET /personal-assets/trend。月末ごと。持っていない月は null） */
+export type AssetTrendSeries = {
   id: number;
   name: string;
   category: PersonalAssetCategory;
-  acquiredOn: string | null;
-  acquisitionCost: number | string | null;
-  currentValue: number | string;
-  /** 純資産に評価額を計上するか。false = 負債のみ反映（ローンの諸費用等） */
-  countAsAsset: boolean;
-  note: string | null;
-  linkedAccountId: number | null;
-  debtStartOn: string | null; // 支払い開始年月
-  debtPayoffDue: string | null; // 負債解消（完済）予定年月
-  debtInitialAmount: number | string | null; // 当初負債額
-  /** 年利（小数。0.0081 = 0.810%） */
-  debtInterestRate: number | string | null;
-  /** 残価設定ローンの据置額（最終回に一括支払い）。null / 0 = 通常ローン */
-  debtResidualValue: number | string | null;
-  debtMonthly: number | null; // 月額（サーバー計算）
-  debtRemaining: number | null; // 現在の負債残高（サーバー計算）
-  debtRemainingMonths: number | null; // 残り支払い回数（サーバー計算）
-  createdAt: string;
-  updatedAt: string;
+  series: (number | null)[];
 };
+export type AssetTrend = {
+  months: string[];
+  currentKey: string;
+  /** 資産計上の資産の合計 */
+  total: (number | null)[];
+  assets: (AssetTrendSeries & {
+    countAsAsset: boolean;
+    estimatedValue: number | null;
+    parts: AssetTrendSeries[];
+  })[];
+};
+
+export async function fetchAssetTrend(): Promise<AssetTrend> {
+  const json = await request<{ data: AssetTrend }>(
+    "/personal-assets/trend",
+    "評価額の推移の取得に失敗しました",
+  );
+  return json.data;
+}
 
 export async function fetchPersonalAssets(): Promise<PersonalAsset[]> {
   const json = await request<{ data?: PersonalAsset[] }>(
@@ -1570,7 +1652,8 @@ export type PersonalAssetInput = {
   category: PersonalAssetCategory;
   acquiredOn: string | null;
   acquisitionCost: number | null;
-  currentValue: number;
+  /** 内訳（parts）を送るときは省略できる（内訳の合計になる） */
+  currentValue?: number;
   countAsAsset: boolean;
   note: string | null;
   linkedAccountId: number | null;
@@ -1579,6 +1662,12 @@ export type PersonalAssetInput = {
   debtInitialAmount: number | null;
   debtInterestRate: number | null;
   debtResidualValue: number | null;
+  valuationMethod?: ValuationMethod;
+  valuationRate?: number | null;
+  usefulLifeYears?: number | null;
+  buildingStructure?: BuildingStructure | null;
+  /** 内訳。空の配列で内訳をやめる */
+  parts?: PersonalAssetPartInput[];
 };
 
 // 新規登録は未入力の項目を送らない（サーバー側の既定値に任せる）
