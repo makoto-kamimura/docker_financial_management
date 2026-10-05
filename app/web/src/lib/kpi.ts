@@ -15,9 +15,7 @@ export type Kpi = {
   grossMargin: number; // 売上総利益率
   operatingProfit: number; // 営業利益 = 売上総利益 - 販管費
   operatingMargin: number; // 営業利益率
-  mom: number | null; // 前月比（売上）
-  yoy: number | null; // 前年同月比（売上）
-  ytd: number; // 当年累計（売上）
+  ytd: number; // 期首（12 月決算なら 1 月）から対象月までの累計（売上）
 };
 
 // 対象月の予算（KPI カードに実績と並べて表示する）
@@ -42,6 +40,23 @@ export function shiftMonthKey(key: string, delta: number): string {
   return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
 }
 
+// 対象月を含む期（決算月で締める 1 年）の範囲。closingMonth は決算月（1〜12、既定 12 ＝ 1〜12 月）。
+// 月キーは暦の "YYYY-MM"（Period.fiscalYear は暦年）なので、期首キー〜期末キーの範囲で扱う。
+export function fiscalPeriodOf(
+  targetKey: string,
+  closingMonth = 12,
+): { startKey: string; endKey: string; elapsedMonths: number } {
+  const [y, m] = targetKey.split("-").map(Number);
+  const startMonth = (closingMonth % 12) + 1;
+  const startYear = m >= startMonth ? y : y - 1;
+  const startKey = `${startYear}-${String(startMonth).padStart(2, "0")}`;
+  return {
+    startKey,
+    endKey: shiftMonthKey(startKey, 11),
+    elapsedMonths: y * 12 + m - (startYear * 12 + startMonth) + 1,
+  };
+}
+
 // カテゴリを売上/原価/費用にマップする
 export function categoryBucket(
   category: AccountCategory,
@@ -61,7 +76,12 @@ export function categoryBucket(
 // 月次系列から指定月の主要 KPI を算出する。targetKey 省略時は最新月。
 // monthly は key 昇順（古い→新しい）で渡すこと。
 // 系列に存在しない月を指定した場合は null（対象月セレクタは実データのある月だけを提示する）。
-export function computeKpiAt(monthly: MonthlyByCategory[], targetKey?: string): Kpi | null {
+// closingMonth は決算月（累計の区切り。既定 12 ＝ 1 月から）。
+export function computeKpiAt(
+  monthly: MonthlyByCategory[],
+  targetKey?: string,
+  closingMonth = 12,
+): Kpi | null {
   if (monthly.length === 0) return null;
 
   const target = targetKey
@@ -72,16 +92,10 @@ export function computeKpiAt(monthly: MonthlyByCategory[], targetKey?: string): 
   const grossProfit = target.revenue - target.cogs;
   const operatingProfit = grossProfit - target.expense;
 
-  // 前月・前年同月は暦上のキーで引く（データが欠けている月は null＝「—」表示）
-  const prevMonthKey = shiftMonthKey(target.key, -1);
-  const prevMonth = monthly.find((x) => x.key === prevMonthKey) ?? null;
-  const prevYearKey = shiftMonthKey(target.key, -12);
-  const prevYear = monthly.find((x) => x.key === prevYearKey) ?? null;
-
-  // 当年累計（同一年で対象月までの売上合計）
-  const year = target.key.slice(0, 4);
+  // 期首から対象月までの売上合計
+  const { startKey } = fiscalPeriodOf(target.key, closingMonth);
   const ytd = monthly
-    .filter((x) => x.key.startsWith(`${year}-`) && x.key <= target.key)
+    .filter((x) => x.key >= startKey && x.key <= target.key)
     .reduce((s, x) => s + x.revenue, 0);
 
   return {
@@ -91,8 +105,6 @@ export function computeKpiAt(monthly: MonthlyByCategory[], targetKey?: string): 
     grossMargin: ratio(grossProfit, target.revenue),
     operatingProfit,
     operatingMargin: ratio(operatingProfit, target.revenue),
-    mom: prevMonth ? ratio(target.revenue - prevMonth.revenue, prevMonth.revenue) : null,
-    yoy: prevYear ? ratio(target.revenue - prevYear.revenue, prevYear.revenue) : null,
     ytd,
   };
 }
@@ -102,48 +114,72 @@ export function computeLatestKpi(monthly: MonthlyByCategory[]): Kpi | null {
   return computeKpiAt(monthly);
 }
 
-// 当年の着地見込み（実績の当年累計 + 残り月の予測）と、その時点での達成率。
+// 期（決算月で締める 1 年）の着地見込みと、その時点での達成率。
 export type AnnualOutlook = {
-  year: number;
-  /** 当年累計（実績）＝ Kpi.ytd と同じ */
+  /** 決算月（1〜12） */
+  closingMonth: number;
+  /** 期首・期末の月キー（"YYYY-MM"） */
+  startKey: string;
+  endKey: string;
+  /** 期首から対象月までの累計（入力のある月の合計） */
   ytd: number;
-  /** 対象月より後の残り月数（12 - 対象月） */
+  /** 期首から対象月までの月数（1〜12） */
+  elapsedMonths: number;
+  /** そのうち入力のある月数 */
+  enteredMonths: number;
+  /** そのうち入力の無い月数（入力済み月の平均で埋める） */
+  missingMonths: number;
+  /** 入力の無い月の見積もり合計 = 入力済み月の平均 × missingMonths */
+  estimatedMissing: number;
+  /** 対象月より後の残り月数（12 - elapsedMonths） */
   remainingMonths: number;
   /** 残り月の予測合計 */
   forecastRemaining: number;
-  /** 年間累計の想定額 = ytd + forecastRemaining */
+  /** 年間の見込み = ytd + estimatedMissing + forecastRemaining */
   projected: number;
-  /** 現時点の達成率 = ytd ÷ 想定額。想定額が 0 なら null（「—」表示） */
+  /** 現時点の達成率 = ytd ÷ 見込み。見込みが 0 なら null（「—」表示） */
   progressRate: number | null;
 };
 
-// 対象月までの売上実績から、残り月を予測して年間の着地見込みを出す。
-// forecastFn は lib/forecast.ts の forecast()（履歴, 月数）を想定する。
+// 対象月までの実績から、期の着地見込みを出す。
+//   - 期首から対象月までで入力の無い月は、入力のある月の平均で埋める（按分）。
+//     入力が対象月だけなら、その月 × 経過月数になる（1 か月の入力だけで年間の目安が出る）
+//   - 残りの月は forecastFn（lib/forecast.ts の forecast()（履歴, 月数）を想定）で予測する。
+//     予測の学習には対象月以前の全実績を使う（前の期も含める）
+// value は月から取り出す値（既定は売上・収入。利益の見込みにも同じ計算を使う）。
 export function computeAnnualOutlook(
   monthly: MonthlyByCategory[],
   targetKey: string,
   forecastFn: (history: number[], months: number) => number[],
+  opts: { closingMonth?: number; value?: (m: MonthlyByCategory) => number } = {},
 ): AnnualOutlook | null {
-  if (!targetKey) return null;
-  const year = Number(targetKey.slice(0, 4));
-  const month = Number(targetKey.slice(5, 7));
-  if (!Number.isFinite(year) || !Number.isFinite(month)) return null;
+  if (!/^\d{4}-\d{2}$/.test(targetKey ?? "")) return null;
+  const closingMonth = opts.closingMonth ?? 12;
+  const value = opts.value ?? ((m: MonthlyByCategory) => m.revenue);
+  const { startKey, endKey, elapsedMonths } = fiscalPeriodOf(targetKey, closingMonth);
 
-  const ytd = monthly
-    .filter((x) => x.key.startsWith(`${year}-`) && x.key <= targetKey)
-    .reduce((s, x) => s + x.revenue, 0);
+  const entered = monthly.filter((x) => x.key >= startKey && x.key <= targetKey);
+  const ytd = entered.reduce((s, x) => s + value(x), 0);
+  const enteredMonths = entered.length;
+  const missingMonths = Math.max(elapsedMonths - enteredMonths, 0);
+  const estimatedMissing = enteredMonths === 0 ? 0 : (ytd / enteredMonths) * missingMonths;
 
-  const remainingMonths = 12 - month;
-  // 予測の学習には対象月以前の全実績を使う（前年以前も含める）
-  const history = monthly.filter((x) => x.key <= targetKey).map((x) => x.revenue);
+  const remainingMonths = 12 - elapsedMonths;
+  const history = monthly.filter((x) => x.key <= targetKey).map(value);
   const forecast =
     remainingMonths > 0 && history.length > 0 ? forecastFn(history, remainingMonths) : [];
   const forecastRemaining = forecast.reduce((s, v) => s + v, 0);
-  const projected = ytd + forecastRemaining;
+  const projected = ytd + estimatedMissing + forecastRemaining;
 
   return {
-    year,
+    closingMonth,
+    startKey,
+    endKey,
     ytd,
+    elapsedMonths,
+    enteredMonths,
+    missingMonths,
+    estimatedMissing,
     remainingMonths,
     forecastRemaining,
     projected,

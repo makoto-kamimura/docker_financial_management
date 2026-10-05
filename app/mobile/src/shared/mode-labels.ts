@@ -47,7 +47,6 @@ export type KpiLabels = {
   grossProfit: string;
   grossMargin: string;
   profit: string;
-  profitRate: string;
 };
 
 function kpiLabelsOf(mode: ViewMode): KpiLabels {
@@ -57,12 +56,11 @@ function kpiLabelsOf(mode: ViewMode): KpiLabels {
     grossProfit: m.grossProfit,
     grossMargin: `${m.grossProfit}率`,
     profit: m.operatingProfit,
-    profitRate: `${m.operatingProfit}率`,
   };
 }
 
 export const KPI_LABELS: Record<ViewMode, KpiLabels> = {
-  household: { ...kpiLabelsOf("household"), profit: "貯蓄額", profitRate: "貯蓄率" },
+  household: { ...kpiLabelsOf("household"), profit: "貯蓄額" },
   sole: kpiLabelsOf("sole"),
   corporate: kpiLabelsOf("corporate"),
 };

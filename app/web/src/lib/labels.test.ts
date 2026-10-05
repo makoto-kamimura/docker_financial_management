@@ -41,11 +41,10 @@ describe("KPI_LABELS", () => {
     expect(KPI_LABELS.sole.revenue).toBe(MODE_LABELS.sole.revenue);
     expect(KPI_LABELS.sole.profit).toBe(MODE_LABELS.sole.operatingProfit);
     expect(KPI_LABELS.corporate.grossProfit).toBe("売上総利益");
-    expect(KPI_LABELS.corporate.profitRate).toBe("営業利益率");
+    expect(KPI_LABELS.corporate.grossMargin).toBe("売上総利益率");
   });
 
   it("家計は貯蓄の言葉で見せる", () => {
     expect(KPI_LABELS.household.profit).toBe("貯蓄額");
-    expect(KPI_LABELS.household.profitRate).toBe("貯蓄率");
   });
 });
