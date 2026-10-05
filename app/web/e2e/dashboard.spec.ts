@@ -21,6 +21,16 @@ test.describe("ダッシュボードと主要フロー", () => {
     await expect(page.getByText("予測手法")).toBeVisible();
   });
 
+  test("KPI の下に予実と確定が表示される", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "予実と確定" })).toBeVisible();
+    // 比べる月の既定は前月
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
+    const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    await expect(page.getByLabel("比べる月")).toHaveValue(prev);
+  });
+
   test("予測手法を切り替えても表示が維持される", async ({ page }) => {
     // holt_winters オプションを持つ予測手法セレクトを直接指定
     const select = page.locator('select:has(option[value="holt_winters"])');

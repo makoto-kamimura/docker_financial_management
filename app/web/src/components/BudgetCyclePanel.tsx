@@ -1,6 +1,6 @@
 "use client";
 
-// 予算管理の「予実と確定」タブ。
+// ダッシュボードの「予実と確定」（KPI の下の欄）。
 //   1. 選んだ月の予算と実績を科目ごとに比べる（GET /api/budgets/variance）
 //   2. 差額の扱い（何もしない・期ズレ・回し先へ）を科目ごとに選び、翌月の予算案を作る
 //      （計算は lib/budget-cycle.ts。案の金額は手で直せる＝流用）
@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Lock, RotateCcw } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
-import { BUDGET_HELP, textFor } from "@/lib/help-texts";
+import { BUDGET_HELP, DASHBOARD_HELP, textFor } from "@/lib/help-texts";
 import { displayName, type ViewMode } from "@/lib/display-name";
 import {
   defaultTreatment,
@@ -245,7 +245,7 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
 
   return (
     <div className="space-y-5 mb-6">
-      <SectionLead className="-mb-2">{textFor(BUDGET_HELP.cycle, mode)}</SectionLead>
+      <SectionLead className="-mb-2">{textFor(DASHBOARD_HELP.cycle, mode)}</SectionLead>
 
       {/* 対象月と確定状況 */}
       <div className="card flex flex-wrap items-end gap-4">
@@ -342,11 +342,11 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
           {/* 科目別の予実と差額の扱い */}
           <div className="card p-0 overflow-hidden">
             <div className="px-4 pt-4">
-              <h2 className="section-title mb-1">
+              <h3 className="section-title mb-1">
                 {year}年{month}月の予算と実績
-              </h2>
+              </h3>
               <TermDetails
-                terms={BUDGET_HELP.cycleTreatments}
+                terms={DASHBOARD_HELP.cycleTreatments}
                 summary="差額の扱いの説明"
                 className="mb-3"
               />
@@ -369,7 +369,7 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
                 </select>
                 {data.transferTargetId === null && household && (
                   <span className="text-[11px] text-slate-400">
-                    予算配分タブで「貯蓄・投資」に科目をひも付けると、ここの既定になります。
+                    予算管理の「予算配分」で「貯蓄・投資」に科目をひも付けると、ここの既定になります。
                   </span>
                 )}
               </div>
@@ -443,10 +443,10 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
           {/* 翌月の予算案と確定 */}
           <div className="card p-0 overflow-hidden">
             <div className="px-4 pt-4">
-              <h2 className="section-title mb-1 flex items-center gap-1.5">
+              <h3 className="section-title mb-1 flex items-center gap-1.5">
                 {nextLocked && <Lock className="w-4 h-4 text-slate-500" aria-hidden="true" />}
                 {nextLabel}の予算案
-              </h2>
+              </h3>
               <SectionLead>
                 {nextLocked
                   ? `${nextLabel}の予算は確定済みです。${BUDGET_HELP.cycleLocked}`

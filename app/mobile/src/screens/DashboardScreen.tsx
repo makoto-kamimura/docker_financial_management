@@ -12,6 +12,7 @@ import {
   type TrendMonth,
   type ViewMode,
 } from "../api";
+import { BudgetCycleSection } from "../components/BudgetCycleSection";
 import { LoadingView } from "../components/LoadingView";
 import { MonthlyCategoryChart } from "../components/MonthlyCategoryChart";
 import { Lead, TermList } from "../components/ui";
@@ -108,6 +109,7 @@ export function DashboardScreen({ viewMode }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   async function load() {
     setLoading(true);
@@ -148,6 +150,7 @@ export function DashboardScreen({ viewMode }: Props) {
 
   async function onRefresh() {
     setRefreshing(true);
+    setRefreshKey((k) => k + 1);
     await load();
     setRefreshing(false);
   }
@@ -351,7 +354,17 @@ export function DashboardScreen({ viewMode }: Props) {
               />
             </>
           )}
+        </>
+      )}
 
+      {/* 予実と確定（KPI の下）。対象月・予測手法の切り替えで画面を読み直しても、
+          選んだ月と入力中の扱い・金額が消えないよう、読み込み中も外さずに隠すだけにする */}
+      <View style={loading || error ? s.hidden : undefined}>
+        <BudgetCycleSection viewMode={viewMode} refreshKey={refreshKey} />
+      </View>
+
+      {!loading && !error && (kpi || months.length > 0) && (
+        <>
           {/* 表示範囲の切替（web 版の「対象月±6か月 / 年度」と同じ） */}
           <View style={s.toggleRow}>
             {(["window", "year"] as const).map((r) => (
@@ -522,6 +535,7 @@ export function DashboardScreen({ viewMode }: Props) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc" },
   content: { padding: 16 },
+  hidden: { display: "none" },
   errorBox: {
     backgroundColor: "#fef2f2",
     borderRadius: 8,

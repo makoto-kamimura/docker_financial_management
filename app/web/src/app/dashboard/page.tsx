@@ -16,6 +16,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { downloadSvgAsPng } from "@/lib/export-client";
+import { BudgetCyclePanel } from "@/components/BudgetCyclePanel";
 import { KpiCards } from "@/components/KpiCards";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
@@ -124,7 +125,7 @@ function StepChecklistCard() {
   );
 }
 
-// ダッシュボードは KPI と構成比グラフに絞る（予実対比は「レポート」へ集約した）。
+// ダッシュボードは KPI・予実と確定（月次の締め）・構成比グラフを置く。
 export default function DashboardPage() {
   const [method, setMethod] = useState(DEFAULT_FORECAST_METHOD);
   const [compYear, setCompYear] = useState<number | null>(null);
@@ -181,6 +182,14 @@ export default function DashboardPage() {
         <SectionLead>{textFor(DASHBOARD_HELP.kpi, sysMode)}</SectionLead>
         <KpiCards mode={sysMode} onPeriodChange={setKpiPeriod} />
       </div>
+
+      {/* ── 予実と確定（前月の予実を見て、今月の予算を確定する）──── */}
+      <section aria-labelledby="budget-cycle-title">
+        <h2 id="budget-cycle-title" className="section-title mb-3">
+          予実と確定
+        </h2>
+        <BudgetCyclePanel mode={sysMode} />
+      </section>
 
       {/* ── 構成比グラフ ────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3 mb-6">

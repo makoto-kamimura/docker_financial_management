@@ -6,7 +6,6 @@ import { Pencil, Trash2, Home, CreditCard, Check, Lock } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
-import { BudgetCyclePanel } from "@/components/BudgetCyclePanel";
 import { InfoNote, PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { BUDGET_HELP, textFor } from "@/lib/help-texts";
@@ -51,7 +50,7 @@ type BudgetResponse = {
   confirmedMonths?: number[];
 };
 type ImportResult = { imported: number; skipped?: number; errors: string[] };
-type Tab = "manual" | "cycle" | "allocation" | "csv" | "history";
+type Tab = "manual" | "allocation" | "csv" | "history";
 
 // 収入実績から算出した「適正金額」（予算配分ルールの割合による推奨額）
 type AllocationGuideRow = { accountId: number; accountCode: string; month: number; amount: number };
@@ -386,7 +385,6 @@ export default function BudgetPage() {
         {(
           [
             ["manual", "明細一覧"],
-            ["cycle", "予実と確定"],
             ["allocation", "予算配分"],
             ["csv", "CSV インポート"],
             ["history", "履歴"],
@@ -521,9 +519,6 @@ H3000,${THIS_YEAR},1,115000`}</pre>
       {/* ── 予算配分タブ（旧「設定 › 予算配分ルール」から移設）────────────
           ルールの割合は明細一覧の「適正 ¥…」にも反映される。 */}
       {tab === "allocation" && <BudgetAllocationPanel fiscalYear={year} />}
-
-      {/* ── 予実と確定タブ（科目別の予実 → 翌月の予算案 → 確定）──────────── */}
-      {tab === "cycle" && <BudgetCyclePanel mode={sysMode} />}
 
       {/* ── 履歴タブ（実績管理の履歴と同じ見た目）──────────── */}
       {tab === "history" &&
