@@ -5,7 +5,7 @@ import { conflict } from "@/lib/api-error";
 // 予算を書き込むルート（登録・変更・削除・CSV 取込・配分の反映）から呼ぶ。
 
 export const BUDGET_LOCKED_MESSAGE =
-  "この月の予算は確定済みのため変更できません。変更するには、予実と確定タブで確定を解除してください";
+  "この月の予算は確定済みのため変更できません。変更するには、ダッシュボードの「予実と確定」で確定を解除してください";
 
 export async function isBudgetPeriodConfirmed(
   db: Pick<TenantDbClient, "budgetConfirmation">,

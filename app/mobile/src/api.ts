@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
+import type { VarianceRow } from "./shared/budget-cycle";
 import type { ViewMode } from "./shared/display-name";
 import type { PersonalAssetCategory } from "./shared/labels";
 import type { Loan } from "./shared/loan-schedule";
@@ -514,6 +515,57 @@ export async function postBudget(data: {
 
 export async function deleteBudget(id: number): Promise<void> {
   await request(`/budgets/${id}`, "予算の削除に失敗しました", { method: "DELETE" });
+}
+
+// ── 予実と確定（GET /budgets/variance・POST/DELETE /budgets/confirm）────────
+export type BudgetVarianceRow = VarianceRow & {
+  soleName: string | null;
+  corporateName: string | null;
+};
+
+export type BudgetVariance = {
+  year: number;
+  month: number;
+  next: { year: number; month: number };
+  confirmedAt: string | null;
+  nextConfirmedAt: string | null;
+  /** 余りの回し先の既定（予算配分の「貯蓄・投資」にひも付けた科目） */
+  transferTargetId: number | null;
+  rows: BudgetVarianceRow[];
+  summary: {
+    revenue: { plan: number; actual: number };
+    expense: { plan: number; actual: number };
+    surplusTotal: number;
+    overrunTotal: number;
+  };
+};
+
+export async function fetchBudgetVariance(year: number, month: number): Promise<BudgetVariance> {
+  const json = await request<{ data: BudgetVariance }>(
+    `/budgets/variance?year=${year}&month=${month}`,
+    "予実の取得に失敗しました",
+  );
+  return json.data;
+}
+
+// 指定した月の予算を確定する。items が空なら、いま入っている予算のまま確定する
+export async function confirmBudget(data: {
+  year: number;
+  month: number;
+  items: { accountId: number; amount: number }[];
+}): Promise<void> {
+  await request("/budgets/confirm", "確定に失敗しました", jsonInit("POST", data));
+}
+
+// 確定の解除（管理者だけ）
+export async function unconfirmBudget(year: number, month: number): Promise<void> {
+  const res = await apiFetch(`/budgets/confirm?year=${year}&month=${month}`, {
+    method: "DELETE",
+  });
+  if (res.ok) return;
+  if (res.status === 403) throw new Error("確定の解除は管理者だけができます。");
+  const json = await res.json().catch(() => null);
+  throw new Error(errorMessage(json, "解除に失敗しました"));
 }
 
 // 収入実績 × 予算配分ルールの割合による「適正金額」（予算表の補助表示）
