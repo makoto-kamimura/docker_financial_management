@@ -567,8 +567,8 @@ function EntryContent() {
         {(
           [
             ["manual", "一覧"],
-            ["calendar", "カレンダー"],
             ["confirm", "実績の確定"],
+            ["calendar", "カレンダー"],
             ["csv", "CSV インポート"],
             ["history", "履歴"],
           ] as [Tab, string][]

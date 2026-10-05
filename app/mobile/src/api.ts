@@ -696,7 +696,7 @@ export async function fetchBudgetHistory(year: number, q: HistoryQuery): Promise
   };
 }
 
-// ── 予算配分ルール（テナント別マスタ。web 版 予算管理の「予算配分」タブと同じ）──────
+// ── 予算配分ルール（テナント別マスタ。web 版 予算管理の「設定」タブと同じ）──────
 export const ALLOCATION_GROUPS = ["固定費", "生活費", "その他"] as const;
 export type AllocationGroup = (typeof ALLOCATION_GROUPS)[number];
 

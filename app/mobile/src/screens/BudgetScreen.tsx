@@ -41,9 +41,9 @@ export type BudgetTab = "manual" | "allocation" | "confirm" | "history";
 type Tab = BudgetTab;
 const TABS = [
   ["manual", "一覧"],
-  ["allocation", "予算配分"],
   ["confirm", "予算の確定"],
   ["history", "履歴"],
+  ["allocation", "設定"],
 ] as const;
 
 const EMPTY_BUDGETS: BudgetResponse = {

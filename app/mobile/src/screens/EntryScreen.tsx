@@ -50,8 +50,8 @@ export type EntryTab = "manual" | "calendar" | "confirm" | "history";
 type Tab = EntryTab;
 const TABS = [
   ["manual", "一覧"],
-  ["calendar", "カレンダー"],
   ["confirm", "実績の確定"],
+  ["calendar", "カレンダー"],
   ["history", "履歴"],
 ] as const;
 

@@ -882,7 +882,7 @@ function AccountNamesSection() {
                   </td>
                   <td
                     className="py-1.5 pr-3 text-xs text-slate-500 whitespace-nowrap"
-                    title="科目名と区分から自動で振り分けます。予算管理の「予算配分」で変えられます"
+                    title="科目名と区分から自動で振り分けます。予算管理の「設定」タブ（予算配分）で変えられます"
                   >
                     {ruleByAccount.get(r.id) ?? "—"}
                   </td>

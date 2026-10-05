@@ -352,15 +352,15 @@ function BudgetContent() {
         {tab !== "confirm" && <YearBadge />}
       </div>
 
-      {/* タブ切り替え（予算と実績で同じ並び：一覧 → 確定 → … → 履歴） */}
+      {/* タブ切り替え（予算と実績で同じ並び：一覧 → 確定 → … → 履歴。予算配分の「設定」は右端） */}
       <div className="flex gap-1 mb-6 border-b border-slate-200 overflow-x-auto">
         {(
           [
             ["manual", "一覧"],
-            ["allocation", "予算配分"],
             ["confirm", "予算の確定"],
             ["csv", "CSV インポート"],
             ["history", "履歴"],
+            ["allocation", "設定"],
           ] as [Tab, string][]
         ).map(([t, label]) => (
           <button
@@ -489,7 +489,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
         </div>
       )}
 
-      {/* ── 予算配分タブ（旧「設定 › 予算配分ルール」から移設）────────────
+      {/* ── 設定タブ（予算配分のルール。旧「設定 › 予算配分ルール」から移設）──
           ルールの割合は一覧の「適正 ¥…」にも反映される。 */}
       {tab === "allocation" && <BudgetAllocationPanel />}
 
@@ -615,7 +615,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
           </>
         ))}
 
-      {/* 配分提案（収入からの推奨配分）は上の「予算配分」タブに集約した。
+      {/* 配分提案（収入からの推奨配分）は「設定」タブに集約した。
           ここでは下の表に「適正 ¥…」として推奨額を重ねて表示する。 */}
 
       {/* ── 予算テーブル（一覧タブのみ）── */}
@@ -682,7 +682,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                               onClick={() => setTab("allocation")}
                               className="underline underline-offset-2 mx-1 text-indigo-600 hover:text-indigo-800"
                             >
-                              「予算配分」タブ
+                              「設定」タブ
                             </button>
                             で変えられます。
                           </li>
