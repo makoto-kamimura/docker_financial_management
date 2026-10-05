@@ -1,30 +1,32 @@
 // ホームの「予算と実績の確定」の状況（web 版 components/CycleStatusStrip.tsx と同じ）。
-// 前月の ① 予算 → ② 実績 → ③ 翌月の予算 の確定状況を出し、押すと予算・実績の画面の確定タブへ移る。
+// KPI の対象月の ① 予算 → ② 実績 → ③ 翌月の予算 の確定状況を出し、押すと予算・実績の画面の確定タブへ移る。
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { fetchCycleStatus, type CycleStatus } from "../api";
 import { DASHBOARD_HELP } from "../shared/help-texts";
-import { CycleSteps, defaultCycleMonth } from "./CycleSteps";
+import { CycleSteps } from "./CycleSteps";
 import { COLORS } from "./ui";
 
 export type CycleScreen = "budget" | "entry";
 
 export function CycleStatusRow({
+  period,
   refreshKey,
   onOpen,
 }: {
+  /** 対象月（YYYY-MM。KPI の対象月） */
+  period: string;
   refreshKey: number;
   onOpen?: (screen: CycleScreen, month: string) => void;
 }) {
-  const target = defaultCycleMonth();
   const [data, setData] = useState<CycleStatus | null>(null);
 
   useEffect(() => {
-    const [year, month] = target.split("-").map(Number);
+    const [year, month] = period.split("-").map(Number);
     fetchCycleStatus(year, month)
       .then(setData)
       .catch(() => setData(null));
-  }, [target, refreshKey]);
+  }, [period, refreshKey]);
 
   if (!data) return null;
   return (
@@ -32,8 +34,8 @@ export function CycleStatusRow({
       <Text style={s.title}>予算と実績の確定</Text>
       <CycleSteps
         status={data}
-        onPressBudget={onOpen && (() => onOpen("budget", target))}
-        onPressActuals={onOpen && (() => onOpen("entry", target))}
+        onPressBudget={onOpen && ((m) => onOpen("budget", m))}
+        onPressActuals={onOpen && ((m) => onOpen("entry", m))}
       />
       <Text style={s.note}>{DASHBOARD_HELP.cycleStatus}</Text>
     </View>

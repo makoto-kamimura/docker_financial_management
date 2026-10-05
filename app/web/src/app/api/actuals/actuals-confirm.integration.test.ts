@@ -39,6 +39,7 @@ import { importRows } from "@/lib/import";
 import { POST as actualsConfirmPost, DELETE as actualsConfirmDelete } from "./confirm/route";
 import { GET as varianceGet } from "../budgets/variance/route";
 import { GET as cycleStatusGet } from "../cycle-status/route";
+import { GET as cycleLatestGet } from "../cycle-status/latest/route";
 import { POST as budgetConfirmPost, DELETE as budgetConfirmDelete } from "../budgets/confirm/route";
 import { POST as financialsPost } from "../financials/route";
 import { PATCH as financialPatch, DELETE as financialDelete } from "../financials/[id]/route";
@@ -67,6 +68,7 @@ let cash: { id: number; code: string };
 let mayRecordId: number;
 let bankTxnId: number;
 let cardId: number;
+let bankId: number;
 
 async function variance(month: number) {
   const res = await varianceGet(
@@ -77,9 +79,9 @@ async function variance(month: number) {
   return (await res.json()).data;
 }
 
-const confirmActuals = (month: number) =>
+const confirmActuals = (month: number, noChange?: { kind: "bank" | "card"; id: number }[]) =>
   actualsConfirmPost(
-    makeReq("POST", "http://x/api/actuals/confirm", { year: YEAR, month }),
+    makeReq("POST", "http://x/api/actuals/confirm", { year: YEAR, month, noChange }),
     emptyRouteContext(),
   );
 const unconfirmActuals = (month: number) =>
@@ -173,6 +175,7 @@ beforeAll(async () => {
     },
   });
   bankTxnId = bankTxn.id;
+  bankId = bank.id;
 
   // カードは 5/20 で止まっている（未転記 1 件）。電子マネーは明細なし
   const card = await prisma.linkedAccount.create({
@@ -260,6 +263,41 @@ describe("実績の確定", () => {
     expect((await res.json()).error).toContain(`${YEAR}-05-20`);
   });
 
+  it("② 当月末まで変動なし: 届いていないソースすべてに付ければ確定でき、確定時点の状況を記録する", async () => {
+    actingUser = editor;
+    // 月末まで届いている銀行に付けても意味が無く、カードが残るので確定できない
+    const partial = await confirmActuals(5, [{ kind: "bank", id: bankId }]);
+    expect(partial.status).toBe(409);
+    expect((await partial.json()).error).toContain("テストカードは");
+
+    expect((await confirmActuals(5, [{ kind: "card", id: cardId }])).status).toBe(201);
+    const data = await variance(5);
+    expect(data.actuals.confirmedAt).not.toBeNull();
+    expect(data.actuals.confirmedCoverage).toMatchObject({
+      monthEnd: `${YEAR}-05-31`,
+      coveredThrough: `${YEAR}-05-20`,
+    });
+    const marks = Object.fromEntries(
+      data.actuals.confirmedCoverage.sources.map(
+        (s: { name: string; lastDate: string | null; noChange: boolean }) => [
+          s.name,
+          [s.lastDate, s.noChange],
+        ],
+      ),
+    );
+    expect(marks).toEqual({
+      給与口座: [`${YEAR}-05-31`, false],
+      テストカード: [`${YEAR}-05-20`, true],
+      テスト電子マネー: [null, false],
+    });
+
+    // 次のテストのために確定を外す（解除は admin のみ）。解除すると記録も無くなる
+    actingUser = admin;
+    expect((await unconfirmActuals(5)).status).toBe(204);
+    actingUser = editor;
+    expect((await variance(5)).actuals.confirmedCoverage).toBeNull();
+  });
+
   it("② 全ソースが月末日まで届くと入力済みになり、実績を確定できる", async () => {
     actingUser = editor;
     await prisma.cardTransaction.create({
@@ -272,6 +310,13 @@ describe("実績の確定", () => {
     expect((await confirmActuals(5)).status).toBe(201);
     expect((await confirmActuals(5)).status).toBe(409); // 二重確定
     expect((await variance(5)).actuals.confirmedAt).not.toBeNull();
+
+    // 最後に実績を確定した月（予実差確認などの既定の月に使う）
+    const latest = await cycleLatestGet(
+      makeReq("GET", "http://x/api/cycle-status/latest"),
+      emptyRouteContext(),
+    );
+    expect((await latest.json()).data).toEqual({ lastActualsConfirmed: `${YEAR}-05` });
   });
 
   it("実績を確定した月は、実績の登録・変更・削除を受け付けない（409）", async () => {

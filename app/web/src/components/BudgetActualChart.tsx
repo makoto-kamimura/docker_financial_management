@@ -5,7 +5,7 @@
 //   - 実績の色は有利＝青・不利＝赤（発散配色。赤緑は色覚の違いで見分けにくいため使わない）、
 //     予算 0 は灰色。色だけに頼らず、右に「余り／超過」などの
 //     ラベルと矢印を出し、金額も文字で並べる（ツールチップだけで値を読ませない）
-//   データは予算管理の「予算の確定」と同じ GET /api/budgets/variance。整形は lib/budget-actual-chart.ts。
+//   データは予算管理の「予実差確認」「予算の確定」と同じ GET /api/budgets/variance。整形は lib/budget-actual-chart.ts。
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -14,7 +14,7 @@ import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
 import { budgetConfirmHref } from "@/components/CycleSteps";
 import { buildBudgetActualGroups, type BudgetActualBar } from "@/lib/budget-actual-chart";
-import type { VarianceRow } from "@/lib/budget-cycle";
+import { nextYearMonth, type VarianceRow } from "@/lib/budget-cycle";
 import { displayName, type ViewMode } from "@/lib/display-name";
 import { DASHBOARD_HELP, textFor } from "@/lib/help-texts";
 
@@ -107,6 +107,9 @@ export function BudgetActualChart({ mode, period }: { mode: ViewMode; period: st
 
   if (!enabled) return null;
 
+  // 差額の扱いは、翌月の予算案を作るときに選ぶ（予算の確定タブは予算の月で開く）
+  const next = nextYearMonth(year, month);
+
   const rows = data?.rows ?? [];
   const groups = buildBudgetActualGroups(rows, (r) => displayName(r as Row, mode), {
     revenue: household ? "収入の合計" : "売上・収入の合計",
@@ -178,7 +181,7 @@ export function BudgetActualChart({ mode, period }: { mode: ViewMode; period: st
 
           <p className="text-[11px] text-slate-400 mt-3">
             差の大きい科目から並べています。差額の扱いと翌月の予算は、
-            <Link href={budgetConfirmHref(year, month) as never} className="underline">
+            <Link href={budgetConfirmHref(next.year, next.month) as never} className="underline">
               予算管理の「予算の確定」
             </Link>
             で決めます。

@@ -8,6 +8,7 @@ import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
 import { BudgetConfirmPanel } from "@/components/BudgetConfirmPanel";
+import { BudgetVariancePanel } from "@/components/BudgetVariancePanel";
 import {
   AccountMonthMatrix,
   type MatrixAccount,
@@ -58,17 +59,19 @@ type BudgetResponse = {
   confirmedMonths?: number[];
 };
 type ImportResult = { imported: number; skipped?: number; errors: string[] };
-type Tab = "manual" | "allocation" | "confirm" | "csv" | "history";
+type Tab = "manual" | "allocation" | "variance" | "confirm" | "csv" | "history";
 const TABS: readonly (readonly [Tab, string])[] = [
   ["manual", "一覧"],
+  ["variance", "予実差確認"],
   ["confirm", "予算の確定"],
   ["csv", "CSV インポート"],
   ["history", "履歴"],
   ["allocation", "設定"],
 ];
 
-const TAB_IDS: Tab[] = ["manual", "allocation", "confirm", "csv", "history"];
-// 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）
+const TAB_IDS: Tab[] = ["manual", "allocation", "variance", "confirm", "csv", "history"];
+// 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）。
+// month は予実差確認なら比べる月、予算の確定なら予算の月
 function useInitialTab(): { tab: Tab; month: string | undefined } {
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab");
@@ -145,6 +148,18 @@ function BudgetContent() {
   const sysMode = useViewMode();
   const initial = useInitialTab();
   const [tab, setTab] = useState<Tab>(initial.tab);
+  // 予実差確認・予算の確定を、指定した月で開く（URL か、もう一方のタブのボタンから）。
+  // key を変えてパネルを作り直し、その月から始める。月は開いたタブにだけ渡す
+  const [cycleNav, setCycleNav] = useState<{ tab: Tab; month?: string; key: number }>({
+    tab: initial.tab,
+    month: initial.month,
+    key: 0,
+  });
+  const openCycleTab = (next: "variance" | "confirm", month: string) => {
+    setCycleNav((n) => ({ tab: next, month, key: n.key + 1 }));
+    setTab(next);
+  };
+  const cycleMonthFor = (t: Tab) => (cycleNav.tab === t ? cycleNav.month : undefined);
 
   // 履歴タブのページングとソート
   const [histOffset, setHistOffset] = useState(0);
@@ -335,11 +350,7 @@ function BudgetContent() {
 
   return (
     <AppShell>
-      <PageHeader
-        title="予算管理"
-        lead={textFor(BUDGET_HELP.page, sysMode)}
-        showYear={tab !== "confirm"}
-      />
+      <PageHeader title="予算管理" lead={textFor(BUDGET_HELP.page, sysMode)} showYear />
 
       {/* タブ（予算と実績で同じ並び：一覧 → 確定 → … → 履歴。予算配分の「設定」は右端） */}
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
@@ -419,8 +430,25 @@ H3000,${THIS_YEAR},1,115000`}</pre>
           ルールの割合は一覧の「適正 ¥…」にも反映される。 */}
       {tab === "allocation" && <BudgetAllocationPanel />}
 
-      {/* ── 予算の確定タブ（① その月の予算・予実対比・③ 翌月の予算案と確定）── */}
-      {tab === "confirm" && <BudgetConfirmPanel mode={sysMode} initialMonth={initial.month} />}
+      {/* ── 予実差確認タブ（選んだ月の予算と実績を見比べる）── */}
+      {tab === "variance" && (
+        <BudgetVariancePanel
+          key={`variance-${cycleNav.key}`}
+          mode={sysMode}
+          initialMonth={cycleMonthFor("variance")}
+          onOpenConfirm={(m) => openCycleTab("confirm", m)}
+        />
+      )}
+
+      {/* ── 予算の確定タブ（予算の月の予算案を、前月の差額の扱いから作って確定する）── */}
+      {tab === "confirm" && (
+        <BudgetConfirmPanel
+          key={`confirm-${cycleNav.key}`}
+          mode={sysMode}
+          initialMonth={cycleMonthFor("confirm")}
+          onOpenVariance={(m) => openCycleTab("variance", m)}
+        />
+      )}
 
       {/* ── 履歴タブ（実績管理の履歴と同じ見た目）──────────── */}
       {tab === "history" &&

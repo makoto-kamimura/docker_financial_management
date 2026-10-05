@@ -3,6 +3,7 @@
  *
  * テナントの決算月（tenants.closingMonth）で期を区切り、未入力の月を按分した年間見込みを
  * GET /api/kpi が返すことを、実際のルートハンドラ経由で確かめる。
+ * 実績を確定した月があれば、見込みはその月までを実績とし、その後の月は予測で埋める。
  *
  * 実行: `npm run test:integration`（platform-db 起動が前提）
  */
@@ -38,6 +39,7 @@ const makeReq = (url: string) =>
   }) as unknown as import("next/server").NextRequest;
 
 let tenantId: number;
+let salaryId: number;
 
 async function kpi(period: string) {
   const res = await kpiGet(makeReq(`http://x/api/kpi?period=${period}`), emptyRouteContext());
@@ -46,7 +48,14 @@ async function kpi(period: string) {
 }
 
 beforeAll(async () => {
-  for (const t of ["tenants", "users", "accounts", "periods", "financial_records"]) {
+  for (const t of [
+    "tenants",
+    "users",
+    "accounts",
+    "periods",
+    "financial_records",
+    "actuals_confirmations",
+  ]) {
     await prisma.$executeRawUnsafe(
       `SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 1))`,
     );
@@ -67,6 +76,7 @@ beforeAll(async () => {
   const salary = await prisma.account.create({
     data: { tenantId, code: `R_${SUFFIX}`, name: "給与", category: "REVENUE" },
   });
+  salaryId = salary.id;
   const food = await prisma.account.create({
     data: { tenantId, code: `F_${SUFFIX}`, name: "食費", category: "EXPENSE" },
   });
@@ -89,6 +99,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const where = { tenantId };
+  await prisma.actualsConfirmation.deleteMany({ where });
   await prisma.financialRecord.deleteMany({ where });
   await prisma.period.deleteMany({ where });
   await prisma.account.deleteMany({ where });
@@ -127,5 +138,36 @@ describe("GET /api/kpi の年間見込み", () => {
     // 残り月の予測（移動平均）は前の期の 3 月も学習に使うため、4 月 × 12 ちょうどにはならない
     expect(data.annual.projected).toBeGreaterThan(300_000 * 12);
     expect(data.annualProfit.ytd).toBe(100_000);
+  });
+
+  it("実績を確定した月より後は、明細が途中まで入っていても予測で埋める", async () => {
+    await prisma.tenant.update({ where: { id: tenantId }, data: { closingMonth: 12 } });
+    // 3 月まで確定済みで、5 月は明細が途中まで（1 件だけ）
+    const march = await prisma.period.findFirstOrThrow({
+      where: { tenantId, fiscalYear: YEAR, month: 3 },
+    });
+    await prisma.actualsConfirmation.create({ data: { tenantId, periodId: march.id } });
+    const may = await prisma.period.create({
+      data: { tenantId, fiscalYear: YEAR, month: 5, quarter: 2 },
+    });
+    await prisma.financialRecord.create({
+      data: { tenantId, accountId: salaryId, periodId: may.id, amount: 1_000 },
+    });
+
+    const data = await kpi(`${YEAR}-05`);
+    // カードの累計は選んだ月までの実績のまま
+    expect(data.kpi.ytd).toBe(1_300_999);
+    expect(data.annual).toMatchObject({
+      actualThroughKey: `${YEAR}-03`,
+      ytd: 999_999,
+      elapsedMonths: 3,
+      enteredMonths: 1,
+      missingMonths: 2,
+      remainingMonths: 9,
+    });
+    expect(data.annualProfit.actualThroughKey).toBe(`${YEAR}-03`);
+
+    // 確定済みの月を選んだときは、その月まで実績
+    expect((await kpi(`${YEAR}-03`)).annual.actualThroughKey).toBe(`${YEAR}-03`);
   });
 });

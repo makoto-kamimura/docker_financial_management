@@ -121,9 +121,11 @@ export type AnnualOutlook = {
   /** 期首・期末の月キー（"YYYY-MM"） */
   startKey: string;
   endKey: string;
-  /** 期首から対象月までの累計（入力のある月の合計） */
+  /** 実績として扱う最後の月（"YYYY-MM"）。これより後は入力があっても予測で見積もる */
+  actualThroughKey: string;
+  /** 期首から actualThroughKey までの累計（入力のある月の合計） */
   ytd: number;
-  /** 期首から対象月までの月数（1〜12） */
+  /** 期首から actualThroughKey までの月数（0〜12。前の期で区切ると 0） */
   elapsedMonths: number;
   /** そのうち入力のある月数 */
   enteredMonths: number;
@@ -131,7 +133,7 @@ export type AnnualOutlook = {
   missingMonths: number;
   /** 入力の無い月の見積もり合計 = 入力済み月の平均 × missingMonths */
   estimatedMissing: number;
-  /** 対象月より後の残り月数（12 - elapsedMonths） */
+  /** actualThroughKey より後の残り月数（12 - elapsedMonths） */
   remainingMonths: number;
   /** 残り月の予測合計 */
   forecastRemaining: number;
@@ -146,26 +148,37 @@ export type AnnualOutlook = {
 //     入力が対象月だけなら、その月 × 経過月数になる（1 か月の入力だけで年間の目安が出る）
 //   - 残りの月は forecastFn（lib/forecast.ts の forecast()（履歴, 月数）を想定）で予測する。
 //     予測の学習には対象月以前の全実績を使う（前の期も含める）
+//   - actualThroughKey（実績を確定した最後の月など）が対象月より前なら、そこまでを実績とし、
+//     その後の月は入力があっても予測で埋める（明細が途中までしか無い月で見込みがぶれないように）
 // value は月から取り出す値（既定は売上・収入。利益の見込みにも同じ計算を使う）。
 export function computeAnnualOutlook(
   monthly: MonthlyByCategory[],
   targetKey: string,
   forecastFn: (history: number[], months: number) => number[],
-  opts: { closingMonth?: number; value?: (m: MonthlyByCategory) => number } = {},
+  opts: {
+    closingMonth?: number;
+    value?: (m: MonthlyByCategory) => number;
+    actualThroughKey?: string;
+  } = {},
 ): AnnualOutlook | null {
   if (!/^\d{4}-\d{2}$/.test(targetKey ?? "")) return null;
   const closingMonth = opts.closingMonth ?? 12;
   const value = opts.value ?? ((m: MonthlyByCategory) => m.revenue);
-  const { startKey, endKey, elapsedMonths } = fiscalPeriodOf(targetKey, closingMonth);
+  const { startKey, endKey } = fiscalPeriodOf(targetKey, closingMonth);
+  const through =
+    opts.actualThroughKey && opts.actualThroughKey < targetKey ? opts.actualThroughKey : targetKey;
+  const [ty, tm] = through.split("-").map(Number);
+  const [sy, sm] = startKey.split("-").map(Number);
+  const elapsedMonths = Math.max(ty * 12 + tm - (sy * 12 + sm) + 1, 0);
 
-  const entered = monthly.filter((x) => x.key >= startKey && x.key <= targetKey);
+  const entered = monthly.filter((x) => x.key >= startKey && x.key <= through);
   const ytd = entered.reduce((s, x) => s + value(x), 0);
   const enteredMonths = entered.length;
   const missingMonths = Math.max(elapsedMonths - enteredMonths, 0);
   const estimatedMissing = enteredMonths === 0 ? 0 : (ytd / enteredMonths) * missingMonths;
 
   const remainingMonths = 12 - elapsedMonths;
-  const history = monthly.filter((x) => x.key <= targetKey).map(value);
+  const history = monthly.filter((x) => x.key <= through).map(value);
   const forecast =
     remainingMonths > 0 && history.length > 0 ? forecastFn(history, remainingMonths) : [];
   const forecastRemaining = forecast.reduce((s, v) => s + v, 0);
@@ -175,6 +188,7 @@ export function computeAnnualOutlook(
     closingMonth,
     startKey,
     endKey,
+    actualThroughKey: through,
     ytd,
     elapsedMonths,
     enteredMonths,

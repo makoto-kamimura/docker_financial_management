@@ -1,8 +1,9 @@
 "use client";
 
 // 月ごとの流れ「① 予算の確定 → ② 実績の確定 → ③ 翌月の予算の確定」の状況表示。
-// 予算管理の「予算の確定」、実績管理の「実績の確定」、ダッシュボードの状況の 1 行で共用する。
-// ①③ は予算管理、② は実績管理で操作するので、links を指定すると各段をその画面へのリンクにする。
+// 予算管理の「予実差確認」「予算の確定」、実績管理の「実績の確定」、ダッシュボードの状況の 1 行で共用する。
+// ①③ は予算管理、② は実績管理で操作するので、links を指定すると各段をその画面へのリンクにする
+// （予算の確定タブは「予算の月」で開くので、① はその月、③ は翌月の予算の確定へ）。
 
 import Link from "next/link";
 import { CheckCircle2, Clock, Lock } from "lucide-react";
@@ -14,6 +15,13 @@ export type ActualsSource = {
   typeLabel: string;
   /** 明細の最終日（YYYY-MM-DD）。明細が無ければ null（判定に含めない） */
   lastDate: string | null;
+};
+
+/** 実績を確定したときに記録した、確定時点の明細の状況（lib/actuals-coverage.ts の CoverageSnapshot） */
+export type CoverageSnapshot = {
+  monthEnd: string;
+  coveredThrough: string | null;
+  sources: (ActualsSource & { noChange: boolean })[];
 };
 
 /** GET /api/cycle-status（lib/cycle-status.ts）の data。予実対比のレスポンスにも同じ項目が入る */
@@ -32,20 +40,17 @@ export type CycleStatus = {
     sources: ActualsSource[];
     lagging: { kind: ActualsSource["kind"]; id: number }[];
     unposted: number;
+    /** 確定時点の記録。確定していない月と、記録を始める前に確定した月は null */
+    confirmedCoverage: CoverageSnapshot | null;
   };
 };
 
 const ym = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
-// 実績の月が締まるのは翌月なので、既定は前月（前月の実績を確定し、今月の予算を確定する）
-export function defaultCycleMonth(): string {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - 1);
-  return ym(d.getFullYear(), d.getMonth() + 1);
-}
-
-/** 予算管理の「予算の確定」タブ（対象月付き） */
+/** 予算管理の「予実差確認」タブ（比べる月付き） */
+export const budgetVarianceHref = (year: number, month: number) =>
+  `/budget?tab=variance&month=${ym(year, month)}`;
+/** 予算管理の「予算の確定」タブ（予算の月付き） */
 export const budgetConfirmHref = (year: number, month: number) =>
   `/budget?tab=confirm&month=${ym(year, month)}`;
 /** 実績管理の「実績の確定」タブ（対象月付き） */
@@ -133,7 +138,7 @@ export function CycleSteps({
         />
       </Step>
       {arrow}
-      <Step href={links.budget ? budgetConfirmHref(year, month) : undefined}>
+      <Step href={links.budget ? budgetConfirmHref(next.year, next.month) : undefined}>
         <StatusBadge label={`③ ${next.month}月の予算`} confirmedAt={status.nextConfirmedAt} />
       </Step>
     </div>

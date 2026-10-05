@@ -35,12 +35,14 @@ import { BUDGET_HELP, textFor } from "../shared/help-texts";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { digitsOnly, MONTHS, yen } from "../format";
 import { BudgetConfirmSection } from "../components/BudgetConfirmSection";
+import { BudgetVarianceSection } from "../components/BudgetVarianceSection";
 import { useFiscalYear } from "../fiscal-year";
 
-export type BudgetTab = "manual" | "allocation" | "confirm" | "history";
+export type BudgetTab = "manual" | "allocation" | "variance" | "confirm" | "history";
 type Tab = BudgetTab;
 const TABS = [
   ["manual", "一覧"],
+  ["variance", "予実差確認"],
   ["confirm", "予算の確定"],
   ["history", "履歴"],
   ["allocation", "設定"],
@@ -68,7 +70,7 @@ type Props = {
   viewMode: ViewMode;
   /** 開いたときのタブ（ホームの状況の 1 行から「予算の確定」を開くときなど） */
   initialTab?: Tab;
-  /** 「予算の確定」の比べる月の初期値（YYYY-MM） */
+  /** 開いたタブの月の初期値（YYYY-MM。予実差確認は比べる月、予算の確定は予算の月） */
   initialMonth?: string;
   /** 実績の画面の「実績の確定」へ移る */
   onOpenActuals?: (month: string) => void;
@@ -77,6 +79,18 @@ type Props = {
 export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals }: Props) {
   const now = new Date();
   const [tab, setTab] = useState<Tab>(initialTab ?? "manual");
+  // 予実差確認・予算の確定を、指定した月で開く（他の画面か、もう一方のタブのボタンから）。
+  // key を変えて作り直し、その月から始める。月は開いたタブにだけ渡す
+  const [cycleNav, setCycleNav] = useState<{ tab?: Tab; month?: string; key: number }>({
+    tab: initialTab,
+    month: initialMonth,
+    key: 0,
+  });
+  const openCycleTab = (next: "variance" | "confirm", m: string) => {
+    setCycleNav((n) => ({ tab: next, month: m, key: n.key + 1 }));
+    setTab(next);
+  };
+  const cycleMonthFor = (t: Tab) => (cycleNav.tab === t ? cycleNav.month : undefined);
   // 年度の既定はサーバー（GET /budgets）と同じ当年
   // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
   const year = useFiscalYear();
@@ -241,12 +255,25 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
           {error && <Notice tone="error">{error}</Notice>}
           <Lead>{textFor(BUDGET_HELP.page, viewMode)}</Lead>
 
-          {/* 予算の確定（① その月の予算・予実対比・③ 翌月の予算案と確定） */}
+          {/* 予実差確認（選んだ月の予算と実績を見比べる） */}
+          {tab === "variance" && (
+            <BudgetVarianceSection
+              key={`variance-${cycleNav.key}`}
+              viewMode={viewMode}
+              initialMonth={cycleMonthFor("variance")}
+              onOpenConfirm={(m) => openCycleTab("confirm", m)}
+              onOpenActuals={onOpenActuals}
+            />
+          )}
+
+          {/* 予算の確定（予算の月の予算案を、前月の差額の扱いから作って確定する） */}
           {tab === "confirm" && (
             <BudgetConfirmSection
+              key={`confirm-${cycleNav.key}`}
               viewMode={viewMode}
-              initialMonth={initialMonth}
+              initialMonth={cycleMonthFor("confirm")}
               onOpenActuals={onOpenActuals}
+              onOpenVariance={(m) => openCycleTab("variance", m)}
             />
           )}
 

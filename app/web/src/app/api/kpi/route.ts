@@ -9,6 +9,7 @@ import {
   type MonthlyByCategory,
 } from "@/lib/kpi";
 import { forecast } from "@/lib/forecast";
+import { loadLastActualsConfirmed } from "@/lib/cycle-status";
 
 // GET /api/kpi?period=YYYY-MM … 指定月（既定は現在月以前の最新月）の主要 KPI を返す。
 // periods は実データのある月の昇順リストで、ダッシュボードの対象月セレクタが使う。
@@ -27,7 +28,7 @@ export const GET = withApi({
     const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
     // 対象月を切り替えられるよう、未来月を含む全期間を取得する（既定値の決定は下の defaultKey で行う）
-    const [records, budgets, tenant] = await Promise.all([
+    const [records, budgets, tenant, lastConfirmed] = await Promise.all([
       db.financialRecord.findMany({
         where: { tenantId },
         include: { period: true, account: true },
@@ -37,6 +38,7 @@ export const GET = withApi({
         include: { period: true, account: true },
       }),
       db.tenant.findUnique({ where: { id: tenantId }, select: { closingMonth: true } }),
+      loadLastActualsConfirmed(db, tenantId),
     ]);
     const closingMonth = tenant?.closingMonth ?? 12;
 
@@ -64,16 +66,23 @@ export const GET = withApi({
 
     const kpi = computeKpiAt(monthly, targetKey, closingMonth);
     const budget = targetKey ? computeKpiBudgetAt(budgetMonthly, targetKey, kpi) : null;
+    // 見込みで実績として扱う最後の月。対象月より前に実績を確定した月があれば、その最後の月まで
+    // （明細が途中までしか無い未確定の月で見込みがぶれないように）。確定を使っていない場合と、
+    // 対象月以降に確定済みの月がある（過去の月を見ている）場合は対象月まで。
+    const actualThroughKey =
+      targetKey && lastConfirmed && lastConfirmed < targetKey ? lastConfirmed : targetKey;
+
     // 期の着地見込み（未入力の月は入力済み月の平均、残り月は移動平均で予測）と、その時点の達成率。
     // 収入（annual）と利益（annualProfit。家計では貯蓄額）の 2 つを同じ計算で出す
     const movingAverage = (history: number[], months: number) =>
       forecast(history, months, "moving_average");
     const annual = targetKey
-      ? computeAnnualOutlook(monthly, targetKey, movingAverage, { closingMonth })
+      ? computeAnnualOutlook(monthly, targetKey, movingAverage, { closingMonth, actualThroughKey })
       : null;
     const annualProfit = targetKey
       ? computeAnnualOutlook(monthly, targetKey, movingAverage, {
           closingMonth,
+          actualThroughKey,
           value: (m) => m.revenue - m.cogs - m.expense,
         })
       : null;

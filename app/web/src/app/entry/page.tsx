@@ -546,11 +546,7 @@ function EntryContent() {
 
   return (
     <AppShell>
-      <PageHeader
-        title="実績管理"
-        lead={textFor(ENTRY_HELP.page, sysMode)}
-        showYear={tab === "manual" || tab === "calendar"}
-      />
+      <PageHeader title="実績管理" lead={textFor(ENTRY_HELP.page, sysMode)} showYear />
 
       {/* タブ（予算管理と同じ並び：一覧 → 確定 → … → 履歴） */}
       <Tabs tabs={TABS} value={tab} onChange={setTab} />

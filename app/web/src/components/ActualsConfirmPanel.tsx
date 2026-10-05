@@ -3,10 +3,13 @@
 // 実績管理の「実績の確定」タブ。月ごとの流れ ① → ② → ③（順番は API が強制）のうち ② を受け持つ。
 //   銀行・カード・電子マネーの明細の最終日が月末日までそろうと「実績入力済み」になるので、
 //   ボタンで実績を確定する（POST /api/actuals/confirm。判定は lib/actuals-coverage.ts）。
+//   明細が月末まで届かない口座・カードは、行ごとの「当月末まで変動なし」で、そろったものとして扱える。
+//   その印と確定時点の最終日は、確定の記録として残す（確定後はその記録を表示する）。
 //   前提の ① と、あとに続く ③ は予算管理の「予算の確定」タブ（components/BudgetConfirmPanel.tsx）で行う。
+//   年は左のメニュー、月は上のボタンで選ぶ（lib/use-cycle-month.ts）。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Lock } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
@@ -14,10 +17,12 @@ import { SectionLead } from "@/components/Explain";
 import {
   budgetConfirmHref,
   CycleSteps,
-  defaultCycleMonth,
   formatYmd,
+  type ActualsSource,
   type CycleStatus,
 } from "@/components/CycleSteps";
+import { MonthPicker } from "@/components/MonthPicker";
+import { useCycleMonth } from "@/lib/use-cycle-month";
 import { ENTRY_HELP, textFor } from "@/lib/help-texts";
 import type { ViewMode } from "@/lib/display-name";
 import { Notice } from "@/components/ui";
@@ -27,25 +32,42 @@ export function ActualsConfirmPanel({
   initialMonth,
 }: {
   mode: ViewMode;
-  /** 対象月の初期値（YYYY-MM）。省略時は前月 */
+  /** 対象月の初期値（YYYY-MM）。省略時は最後に実績を確定した月の翌月 */
   initialMonth?: string;
 }) {
   const qc = useQueryClient();
-  const [target, setTarget] = useState(() => initialMonth ?? defaultCycleMonth());
-  const [year, month] = target.split("-").map(Number);
+  const { year, month, setMonth } = useCycleMonth("actuals", initialMonth);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // 「当月末まで変動なし」を付けた口座・カード（"kind:id"）。確定を押したときにまとめて送る
+  const [noChange, setNoChange] = useState<Set<string>>(new Set());
+
+  // 月を変えたら、変動なしの印とメッセージを消す
+  useEffect(() => {
+    setNoChange(new Set());
+    setMessage(null);
+  }, [year, month]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["cycle-status", year, month],
     queryFn: async (): Promise<CycleStatus> =>
       (await (await fetch(`/api/cycle-status?year=${year}&month=${month}`)).json()).data,
-    enabled: Number.isInteger(year) && Number.isInteger(month),
+    enabled: month !== null,
   });
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ["cycle-status"] });
+    qc.invalidateQueries({ queryKey: ["cycle-latest"] });
     qc.invalidateQueries({ queryKey: ["budget-variance"] });
+  }
+
+  function toggleNoChange(key: string) {
+    setNoChange((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   async function confirmActuals() {
@@ -60,10 +82,18 @@ export function ActualsConfirmPanel({
       const res = await fetch("/api/actuals/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ year, month }),
+        body: JSON.stringify({
+          year,
+          month,
+          noChange: [...noChange].map((key) => {
+            const [kind, id] = key.split(":");
+            return { kind, id: Number(id) };
+          }),
+        }),
       });
       if (res.ok) {
         setMessage({ ok: true, text: `${label}の実績を確定しました。` });
+        setNoChange(new Set());
         refresh();
       } else {
         const err = await res.json().catch(() => ({}));
@@ -102,27 +132,12 @@ export function ActualsConfirmPanel({
       <SectionLead className="-mb-2">{textFor(ENTRY_HELP.confirm, mode)}</SectionLead>
 
       {/* 対象月と確定状況（①③ は予算管理へのリンク） */}
-      <div className="card flex flex-wrap items-end gap-4">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="actuals-confirm-month" className="text-xs font-medium text-slate-600">
-            対象月
-          </label>
-          <input
-            id="actuals-confirm-month"
-            type="month"
-            value={target}
-            onChange={(e) => {
-              if (!e.target.value) return;
-              setTarget(e.target.value);
-              setMessage(null);
-            }}
-            className="input-field w-40"
-          />
-        </div>
+      <div className="card flex flex-col gap-3">
+        <MonthPicker year={year} month={month} onChange={setMonth} />
         {data && <CycleSteps status={data} links={{ budget: true }} />}
       </div>
 
-      {data && !data.confirmedAt && (
+      {data && month !== null && !data.confirmedAt && (
         <p className="text-sm rounded-lg px-3 py-2 bg-amber-50 text-amber-800">
           実績を確定する前に、{month}月の予算（①）を確定してください。{" "}
           <Link href={budgetConfirmHref(year, month) as never} className="underline">
@@ -135,7 +150,7 @@ export function ActualsConfirmPanel({
 
       {isLoading && <LoadingSpinner />}
 
-      {data && (
+      {data && month !== null && (
         <ActualsCard
           year={year}
           month={month}
@@ -143,6 +158,8 @@ export function ActualsConfirmPanel({
           budgetConfirmed={!!data.confirmedAt}
           nextConfirmed={!!data.nextConfirmedAt}
           busy={busy}
+          noChange={noChange}
+          onToggleNoChange={toggleNoChange}
           onConfirm={confirmActuals}
           onUnconfirm={unconfirmActuals}
         />
@@ -151,7 +168,10 @@ export function ActualsConfirmPanel({
       {data?.actuals.confirmedAt && !data.nextConfirmedAt && (
         <p className="text-sm text-slate-600">
           次は、予算管理で{month}月の予算と実績を比べ、{data.next.month}月の予算を確定します（③）。{" "}
-          <Link href={budgetConfirmHref(year, month) as never} className="underline">
+          <Link
+            href={budgetConfirmHref(data.next.year, data.next.month) as never}
+            className="underline"
+          >
             予算の確定へ
           </Link>
         </p>
@@ -160,7 +180,11 @@ export function ActualsConfirmPanel({
   );
 }
 
-// ② 実績の確定。明細の最終日をソースごとに出し、全ソースが月末日まで届いたら確定できる
+const sourceKey = (s: { kind: string; id: number }) => `${s.kind}:${s.id}`;
+
+// ② 実績の確定。明細の最終日をソースごとに出し、全ソースが月末日まで届いたら確定できる。
+// 届いていないソースは「当月末まで変動なし」を付ければ、そろったものとして確定できる。
+// 確定済みの月は、確定時点の記録（最終日と変動なしの印）を出す（記録の無い古い確定は今の最終日）。
 function ActualsCard({
   year,
   month,
@@ -168,6 +192,8 @@ function ActualsCard({
   budgetConfirmed,
   nextConfirmed,
   busy,
+  noChange,
+  onToggleNoChange,
   onConfirm,
   onUnconfirm,
 }: {
@@ -177,18 +203,32 @@ function ActualsCard({
   budgetConfirmed: boolean;
   nextConfirmed: boolean;
   busy: boolean;
+  noChange: Set<string>;
+  onToggleNoChange: (key: string) => void;
   onConfirm: () => void;
   onUnconfirm: () => void;
 }) {
   const locked = !!actuals.confirmedAt;
-  const lagging = new Set(actuals.lagging.map((l) => `${l.kind}:${l.id}`));
+  const snapshot = locked ? actuals.confirmedCoverage : null;
+  const rows: (ActualsSource & { noChange?: boolean })[] = snapshot
+    ? snapshot.sources
+    : actuals.sources;
+  const lagging = new Set(
+    snapshot
+      ? snapshot.sources
+          .filter((s) => s.lastDate !== null && s.lastDate < snapshot.monthEnd)
+          .map(sourceKey)
+      : actuals.lagging.map(sourceKey),
+  );
+  const remaining = actuals.lagging.filter((l) => !noChange.has(sourceKey(l)));
+  const ready = actuals.coveredThrough !== null && remaining.length === 0;
   const blockedReason = !budgetConfirmed
     ? `先に${month}月の予算（①）を確定してください。`
-    : !actuals.entered
-      ? actuals.coveredThrough
-        ? `明細が月末（${formatYmd(actuals.monthEnd)}）までそろうと確定できます。`
-        : "明細を取り込むと確定できます。"
-      : null;
+    : actuals.coveredThrough === null
+      ? "明細を取り込むと確定できます。"
+      : !ready
+        ? `明細が月末（${formatYmd(actuals.monthEnd)}）までそろうか、届いていないものに「当月末まで変動なし」を付けると確定できます。`
+        : null;
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -200,10 +240,11 @@ function ActualsCard({
         {locked && (
           <SectionLead>
             {month}月の実績は確定済みです。{ENTRY_HELP.actualsLocked}
+            {snapshot && "明細の最終日は、確定した時点の記録です。"}
           </SectionLead>
         )}
       </div>
-      {actuals.sources.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="px-4 pb-4 text-sm text-slate-400">
           銀行口座・カード・電子マネーが登録されていません。
         </p>
@@ -219,25 +260,50 @@ function ActualsCard({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {actuals.sources.map((s) => {
-                const late = lagging.has(`${s.kind}:${s.id}`);
+              {rows.map((s) => {
+                const key = sourceKey(s);
+                const late = lagging.has(key);
+                // 変動なし: 確定済みなら記録した印、未確定なら画面で付けた印
+                const marked = locked ? !!s.noChange : noChange.has(key);
                 return (
-                  <tr key={`${s.kind}:${s.id}`}>
+                  <tr key={key}>
                     <td className="px-4 py-2">{s.name}</td>
                     <td className="px-3 py-2 text-xs text-slate-500">{s.typeLabel}</td>
                     <td
-                      className={`px-3 py-2 text-right tabular-nums ${late ? "text-red-600 font-medium" : ""}`}
+                      className={`px-3 py-2 text-right tabular-nums ${late && !marked ? "text-red-600 font-medium" : ""}`}
                     >
                       {s.lastDate ? formatYmd(s.lastDate) : "—"}
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      {s.lastDate === null ? (
-                        <span className="text-slate-400">明細なし（判定に含めない）</span>
-                      ) : late ? (
-                        <span className="text-red-600">月末まで届いていません</span>
-                      ) : (
-                        <span className="text-emerald-700">入力済み</span>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {s.lastDate === null ? (
+                          <span className="text-slate-400">明細なし（判定に含めない）</span>
+                        ) : late && marked ? (
+                          <span className="text-emerald-700">
+                            月末まで変動なし{locked ? "（確定時に記録）" : "（確定時に記録します）"}
+                          </span>
+                        ) : late ? (
+                          <span className="text-red-600">月末まで届いていません</span>
+                        ) : (
+                          <span className="text-emerald-700">入力済み</span>
+                        )}
+                        {!locked && late && (
+                          <button
+                            type="button"
+                            aria-pressed={marked}
+                            disabled={busy}
+                            onClick={() => onToggleNoChange(key)}
+                            className={`btn-secondary btn-sm ${marked ? "border-emerald-400 bg-emerald-50 text-emerald-700" : ""}`}
+                            title={
+                              marked
+                                ? "変動なしの印を外します"
+                                : `${formatYmd(s.lastDate!)} のあと月末まで取引が無いとして、そろったものとして扱います`
+                            }
+                          >
+                            {marked ? "変動なしを取り消す" : "当月末まで変動なし"}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

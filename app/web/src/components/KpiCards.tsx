@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { HelpTip } from "@/components/HelpTip";
+import { MonthPicker } from "@/components/MonthPicker";
 import type { ViewMode } from "@/lib/display-name";
 import { KPI_LABELS } from "@/lib/mode-labels";
 import { kpiTermHelp } from "@/lib/help-texts";
@@ -22,6 +23,7 @@ type AnnualOutlook = {
   closingMonth: number;
   startKey: string;
   endKey: string;
+  actualThroughKey: string;
   ytd: number;
   elapsedMonths: number;
   enteredMonths: number;
@@ -57,16 +59,17 @@ const periodLabel = (key: string) => {
   return `${y}年${Number(m)}月`;
 };
 
-// 年間見込みの補助表示。未入力の月（平均で按分）と残りの月（予測）の内訳を添える
+// 年間見込みの補助表示。未入力の月（平均で按分）と予測で埋めた月の内訳を添える。
+// 予測は実績として扱う最後の月（実績を確定した月）の翌月からで、対象月より前のこともある
 const outlookSub = (a: AnnualOutlook) => {
+  const forecastFrom = (Number(a.actualThroughKey.slice(5)) % 12) + 1;
   const notes = [
     a.missingMonths > 0 ? `未入力${a.missingMonths}か月は平均` : null,
-    a.remainingMonths > 0 ? `残り${a.remainingMonths}か月は予測` : null,
+    a.remainingMonths > 0 ? `${forecastFrom}月以降は予測` : null,
   ].filter(Boolean);
   return `年間見込み ${yen(a.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
 };
 
-const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const periodKey = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
 // 対象月セレクタ。periods は実データのある月の昇順リスト。
@@ -81,40 +84,20 @@ function PeriodSelector({
   onChange: (period: string) => void;
 }) {
   const selectedYear = Number(selected.slice(0, 4));
-  const selectedMonth = Number(selected.slice(5));
   // 選択中の年で実データのある月
   const available = new Set(
     periods.filter((p) => Number(p.slice(0, 4)) === selectedYear).map((p) => Number(p.slice(5))),
   );
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 mb-3">
-      <span className="text-xs font-medium text-slate-500">対象月（{selectedYear}年）:</span>
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="対象月">
-        {MONTHS.map((m) => {
-          const isSelected = m === selectedMonth;
-          const hasData = available.has(m);
-          return (
-            <button
-              key={m}
-              type="button"
-              disabled={!hasData}
-              aria-pressed={isSelected}
-              title={hasData ? undefined : `${selectedYear}年${m}月のデータはありません`}
-              onClick={() => onChange(periodKey(selectedYear, m))}
-              className={`text-xs w-11 py-1 rounded-md border font-medium transition-colors ${
-                isSelected
-                  ? "border-indigo-600 bg-indigo-600 text-white shadow-sm"
-                  : hasData
-                    ? "border-slate-300 bg-white text-slate-600 hover:bg-indigo-50 hover:border-indigo-300"
-                    : "border-slate-200 bg-slate-50 text-slate-300 cursor-not-allowed"
-              }`}
-            >
-              {m}月
-            </button>
-          );
-        })}
-      </div>
+    <div className="mb-3">
+      <MonthPicker
+        year={selectedYear}
+        month={Number(selected.slice(5))}
+        onChange={(m) => onChange(periodKey(selectedYear, m))}
+        isAvailable={(m) => available.has(m)}
+        unavailableTitle={(m) => `${selectedYear}年${m}月のデータはありません`}
+      />
     </div>
   );
 }

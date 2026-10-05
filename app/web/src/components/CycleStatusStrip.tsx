@@ -1,21 +1,25 @@
 "use client";
 
 // ダッシュボードの「予算と実績の確定」の状況（KPI の下の 1 行）。
-// 前月の ① 予算 → ② 実績 → ③ 翌月の予算 の確定状況を出し、各段から予算管理・実績管理の
+// KPI の対象月の ① 予算 → ② 実績 → ③ 翌月の予算 の確定状況を出し、各段から予算管理・実績管理の
 // 確定タブへ移れるようにする。確定の操作そのものは、それぞれの画面で行う。
 
 import { useQuery } from "@tanstack/react-query";
-import { CycleSteps, defaultCycleMonth, type CycleStatus } from "@/components/CycleSteps";
+import { CycleSteps, type CycleStatus } from "@/components/CycleSteps";
 import { DASHBOARD_HELP } from "@/lib/help-texts";
 
-export function CycleStatusStrip() {
-  const [year, month] = defaultCycleMonth().split("-").map(Number);
+export function CycleStatusStrip({ period }: { period: string | null }) {
+  const [year, month] = (period ?? "").split("-").map(Number);
+  const enabled = Number.isInteger(year) && Number.isInteger(month);
   const { data } = useQuery({
     queryKey: ["cycle-status", year, month],
     queryFn: async (): Promise<CycleStatus> =>
       (await (await fetch(`/api/cycle-status?year=${year}&month=${month}`)).json()).data,
+    enabled,
+    // 月の切り替え中も前の状況を出し続け、行のちらつきを防ぐ
+    placeholderData: (prev) => prev,
   });
-  if (!data) return null;
+  if (!enabled || !data) return null;
 
   return (
     <section aria-labelledby="cycle-status-title" className="card mb-6 py-3">

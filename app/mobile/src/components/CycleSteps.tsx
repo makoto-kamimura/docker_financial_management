@@ -1,16 +1,10 @@
 // 月ごとの流れ「① 予算の確定 → ② 実績の確定 → ③ 翌月の予算の確定」の状況表示
 // （web 版 components/CycleSteps.tsx と同じ）。予算の確定・実績の確定・ホームの状況の 1 行で共用する。
-// ①③ は予算の画面、② は実績の画面で操作するので、onPress を渡すと各段を押せるようにする。
+// ①③ は予算の画面、② は実績の画面で操作するので、onPress を渡すと各段を押せるようにする
+// （予算の確定タブは「予算の月」で開くので、① はその月、③ は翌月を渡す）。
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import type { CycleStatus } from "../api";
-
-// 実績の月が締まるのは翌月なので、既定は前月（前月の実績を確定し、今月の予算を確定する）
-export function defaultCycleMonth(): string {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
+import { cycleKey } from "../shared/cycle-month";
 
 export const formatYmd = (ymd: string) => {
   const [y, m, d] = ymd.split("-").map(Number);
@@ -61,25 +55,27 @@ export function CycleSteps({
   onPressActuals,
 }: {
   status: CycleStatus;
-  /** ①③ を押したとき（予算の確定へ） */
-  onPressBudget?: () => void;
-  /** ② を押したとき（実績の確定へ） */
-  onPressActuals?: () => void;
+  /** ①③ を押したとき（予算の確定へ。month はその段の予算の月 YYYY-MM） */
+  onPressBudget?: (month: string) => void;
+  /** ② を押したとき（実績の確定へ。month は実績の月 YYYY-MM） */
+  onPressActuals?: (month: string) => void;
 }) {
-  const { month, next } = status;
+  const { year, month, next } = status;
+  const own = cycleKey(year, month);
+  const nextKey = cycleKey(next.year, next.month);
   return (
     <View style={s.badges}>
-      <Step onPress={onPressBudget}>
+      <Step onPress={onPressBudget && (() => onPressBudget(own))}>
         <StatusBadge label={`① ${month}月の予算`} confirmedAt={status.confirmedAt} />
       </Step>
-      <Step onPress={onPressActuals}>
+      <Step onPress={onPressActuals && (() => onPressActuals(own))}>
         <ActualsBadge
           label={`② ${month}月の実績`}
           confirmedAt={status.actuals.confirmedAt}
           entered={status.actuals.entered}
         />
       </Step>
-      <Step onPress={onPressBudget}>
+      <Step onPress={onPressBudget && (() => onPressBudget(nextKey))}>
         <StatusBadge label={`③ ${next.month}月の予算`} confirmedAt={status.nextConfirmedAt} />
       </Step>
     </View>
