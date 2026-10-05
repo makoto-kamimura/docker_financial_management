@@ -88,12 +88,19 @@ export const GET = withApi({
       orderBy: [{ account: { code: "asc" } }, { period: { month: "asc" } }, { id: "asc" }],
     });
 
-    const years = await db.period.findMany({
-      where: { tenantId },
-      select: { fiscalYear: true },
-      distinct: ["fiscalYear"],
-      orderBy: { fiscalYear: "asc" },
-    });
+    const [years, confirmed] = await Promise.all([
+      db.period.findMany({
+        where: { tenantId },
+        select: { fiscalYear: true },
+        distinct: ["fiscalYear"],
+        orderBy: { fiscalYear: "asc" },
+      }),
+      // 実績を確定済みの月（一覧の月の見出しに鍵の印を付け、セルを編集できなくする）
+      db.actualsConfirmation.findMany({
+        where: { tenantId, period: { fiscalYear: year } },
+        select: { period: { select: { month: true } } },
+      }),
+    ]);
 
     return NextResponse.json({
       year,
@@ -108,6 +115,7 @@ export const GET = withApi({
         source: recordSource(r),
       })),
       years: years.map((y) => y.fiscalYear),
+      confirmedMonths: confirmed.map((c) => c.period.month).sort((a, b) => a - b),
     });
   },
 });

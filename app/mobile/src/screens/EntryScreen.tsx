@@ -49,7 +49,7 @@ import { useFiscalYear } from "../fiscal-year";
 export type EntryTab = "manual" | "calendar" | "confirm" | "history";
 type Tab = EntryTab;
 const TABS = [
-  ["manual", "明細一覧"],
+  ["manual", "一覧"],
   ["calendar", "カレンダー"],
   ["confirm", "実績の確定"],
   ["history", "履歴"],
@@ -89,11 +89,15 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
     year: number;
     years: number[];
     data: FinancialRecordRow[];
+    confirmedMonths: number[];
   }>({
     year: now.getFullYear(),
     years: [],
+    confirmedMonths: [],
     data: [],
-  });
+  }); // 実績を確定済みの月は編集できない（web 版の一覧の鍵の印と同じ）
+  const locked = matrix.confirmedMonths.includes(month);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -243,18 +247,26 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
           ) : (
             <>
               <Pills
-                options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
+                options={MONTHS.map((m) => ({
+                  value: m,
+                  label: matrix.confirmedMonths.includes(m) ? `🔒${m}月` : `${m}月`,
+                }))}
                 value={month}
                 onChange={(m) => {
                   setEdit(null);
                   setMonth(m);
                 }}
               />
+              {locked && (
+                <Notice tone="info">
+                  {`🔒 ${month}月の実績は確定済みです。${ENTRY_HELP.actualsLocked}`}
+                </Notice>
+              )}
               {error && <Notice tone="error">{error}</Notice>}
 
               {rows.length === 0 ? (
                 <EmptyText>
-                  {matrix.year}年度の実績がありません。カレンダーから登録してください（CSV
+                  {matrix.year}年の実績がありません。カレンダーから登録してください（CSV
                   インポートは Web 版で行えます）。
                 </EmptyText>
               ) : (
@@ -304,7 +316,8 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
                             ) : single && single.journalEntryId !== null ? (
                               <Text style={s.muted}>仕訳（仕訳帳から修正）</Text>
                             ) : (
-                              single && (
+                              single &&
+                              !locked && (
                                 <View style={s.actions}>
                                   <TouchableOpacity
                                     onPress={() =>
@@ -324,6 +337,8 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
                               )
                             )}
                           </View>
+                        ) : locked ? (
+                          <Text style={s.muted}>—</Text>
                         ) : (
                           <TouchableOpacity
                             onPress={() =>

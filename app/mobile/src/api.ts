@@ -367,17 +367,24 @@ export type FinancialRecordRow = {
   source: RecordSource;
 };
 
-export async function fetchFinancialMatrix(
-  year?: number,
-): Promise<{ year: number; years: number[]; data: FinancialRecordRow[] }> {
-  const json = await request<{ year: number; years?: number[]; data?: FinancialRecordRow[] }>(
-    year ? `/financials/matrix?year=${year}` : "/financials/matrix",
-    "実績の取得に失敗しました",
-  );
+export async function fetchFinancialMatrix(year?: number): Promise<{
+  year: number;
+  years: number[];
+  data: FinancialRecordRow[];
+  /** 実績を確定済みの月（編集できない） */
+  confirmedMonths: number[];
+}> {
+  const json = await request<{
+    year: number;
+    years?: number[];
+    data?: FinancialRecordRow[];
+    confirmedMonths?: number[];
+  }>(year ? `/financials/matrix?year=${year}` : "/financials/matrix", "実績の取得に失敗しました");
   return {
     year: json.year,
     years: json.years ?? [],
     data: (json.data ?? []).map((r) => ({ ...r, amount: Number(r.amount) })),
+    confirmedMonths: json.confirmedMonths ?? [],
   };
 }
 
@@ -497,6 +504,8 @@ export type BudgetResponse = {
   years: number[];
   loanOverlay: LoanOverlayRow[];
   personalAssetDebtOverlay: PersonalAssetDebtOverlayRow[];
+  /** 予算を確定済みの月（編集できない） */
+  confirmedMonths: number[];
 };
 
 export async function fetchBudgets(year: number): Promise<BudgetResponse> {
@@ -505,12 +514,14 @@ export async function fetchBudgets(year: number): Promise<BudgetResponse> {
     years?: number[];
     loanOverlay?: LoanOverlayRow[];
     personalAssetDebtOverlay?: PersonalAssetDebtOverlayRow[];
+    confirmedMonths?: number[];
   }>(`/budgets?year=${year}`, "予算データの取得に失敗しました");
   return {
     budgets: (json.data ?? []).map((b) => ({ ...b, amount: Number(b.amount) })),
     years: json.years ?? [],
     loanOverlay: json.loanOverlay ?? [],
     personalAssetDebtOverlay: json.personalAssetDebtOverlay ?? [],
+    confirmedMonths: json.confirmedMonths ?? [],
   };
 }
 

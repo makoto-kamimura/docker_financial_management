@@ -3,20 +3,24 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Pencil, Trash2, Home, CreditCard, Check, Lock } from "lucide-react";
+import { Home, CreditCard } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
 import { BudgetConfirmPanel } from "@/components/BudgetConfirmPanel";
+import {
+  AccountMonthMatrix,
+  type MatrixAccount,
+  type MatrixCell,
+} from "@/components/AccountMonthMatrix";
 import { YearBadge } from "@/components/YearBadge";
 import { useFiscalYear } from "@/lib/use-fiscal-year";
 import { InfoNote, PageLead, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
 import { BUDGET_HELP, textFor } from "@/lib/help-texts";
-import { useMonthColumnScroll } from "@/hooks/useMonthColumnScroll";
 import { displayName } from "@/lib/display-name";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
-import { CHANGE_ACTION_LABEL as ACTION_LABEL, categoryRank } from "@/lib/labels";
+import { CHANGE_ACTION_LABEL as ACTION_LABEL } from "@/lib/labels";
 
 type AccountRef = {
   id: number;
@@ -101,12 +105,10 @@ const fmtDateTime = (iso: string) => {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
-const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const yen = (v: number) => Math.round(v).toLocaleString("ja-JP");
 
 const now = new Date();
 const THIS_YEAR = now.getFullYear();
-const THIS_MONTH = now.getMonth() + 1;
 
 // 「適正 ¥…」の説明（セルの title と表の注記で共用）
 const GUIDE_HELP = BUDGET_HELP.guide;
@@ -137,16 +139,6 @@ function BudgetContent() {
   const initial = useInitialTab();
   const [tab, setTab] = useState<Tab>(initial.tab);
 
-  const [editCell, setEditCell] = useState<{ id: number; amount: string } | null>(null);
-  // セルからの新規登録（科目 × 月）と、予算がまだ無い科目の行追加
-  const [addCell, setAddCell] = useState<{
-    accountCode: string;
-    month: number;
-    amount: string;
-  } | null>(null);
-  const [extraAccountCodes, setExtraAccountCodes] = useState<string[]>([]);
-  const [addRowCode, setAddRowCode] = useState("");
-
   // 履歴タブのページングとソート
   const [histOffset, setHistOffset] = useState(0);
   const [histSort, setHistSort] = useState<HistorySort>("changedAt");
@@ -175,9 +167,6 @@ function BudgetContent() {
     queryKey: ["budgets", year],
     queryFn: async (): Promise<BudgetResponse> => (await fetch(`/api/budgets?year=${year}`)).json(),
   });
-
-  // 明細一覧は当月の列を左端に寄せて開く（当年以外を表示中は 1 月始まりのまま）
-  const monthScrollRef = useMonthColumnScroll(year === THIS_YEAR ? THIS_MONTH : null);
 
   // 収入実績から算出した「適正金額」を予算表に重ねる（予算配分ルールの割合による推奨額）
   const { data: guide } = useQuery({
@@ -237,68 +226,81 @@ function BudgetContent() {
     (data?.personalAssetDebtOverlay ?? []).map((o) => o.accountCode),
   );
 
-  const sortedAccounts = accounts
-    ? accounts
-        .filter(
-          (a) =>
-            grouped.has(a.code) ||
-            overlayAccountCodes.has(a.code) ||
-            debtOverlayAccountCodes.has(a.code) ||
-            // 予算がまだ無い科目も「科目を追加」で行として出す
-            extraAccountCodes.includes(a.code),
-        )
-        // 実績管理と同じカテゴリ順（lib/labels.ts の CATEGORY_ORDER）
-        .sort((a, b) => categoryRank(a.category) - categoryRank(b.category))
+  // 一覧に出す科目（予算か自動反映のある科目）。並び替えと「科目を追加」は AccountMonthMatrix が行う
+  const rowAccounts: MatrixAccount[] = accounts
+    ? accounts.filter(
+        (a) =>
+          grouped.has(a.code) ||
+          overlayAccountCodes.has(a.code) ||
+          debtOverlayAccountCodes.has(a.code),
+      )
     : Array.from(grouped.values()).map((g) => ({
-        id: 0,
         code: g.account.code,
         name: g.account.name,
         category: "",
-        soleName: null,
-        corporateName: null,
       }));
 
   const confirmedMonths = new Set(data?.confirmedMonths ?? []);
 
-  // 書き込みの失敗（確定済みの月など）を知らせる。成功時は何もしない
-  async function alertIfFailed(res: Response) {
-    if (res.ok) return;
+  // 書き込みの失敗（確定済みの月など）のメッセージ。成功なら null
+  async function failure(res: Response): Promise<string | null> {
+    qc.invalidateQueries({ queryKey: ["budgets"] });
+    if (res.ok) return null;
     const err = await res.json().catch(() => ({}));
-    window.alert(typeof err.error === "string" ? err.error : "予算の保存に失敗しました");
+    return typeof err.error === "string" ? err.error : "予算の保存に失敗しました";
   }
 
-  async function addBudgetCell() {
-    if (!addCell || addCell.amount === "") return;
-    const res = await fetch("/api/budgets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        accountCode: addCell.accountCode,
-        fiscalYear: year,
-        month: addCell.month,
-        amount: Number(addCell.amount),
+  const addBudgetCell = async (accountCode: string, month: number, amount: number) =>
+    failure(
+      await fetch("/api/budgets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountCode, fiscalYear: year, month, amount }),
       }),
-    });
-    await alertIfFailed(res);
-    setAddCell(null);
-    qc.invalidateQueries({ queryKey: ["budgets"] });
-  }
+    );
 
-  async function saveCell() {
-    if (!editCell) return;
-    const res = await fetch(`/api/budgets/${editCell.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: Number(editCell.amount) }),
-    });
-    await alertIfFailed(res);
-    setEditCell(null);
-    qc.invalidateQueries({ queryKey: ["budgets"] });
-  }
+  const saveCell = async (id: number, amount: number) =>
+    failure(
+      await fetch(`/api/budgets/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount }),
+      }),
+    );
 
-  async function deleteBudget(id: number) {
-    await alertIfFailed(await fetch(`/api/budgets/${id}`, { method: "DELETE" }));
-    qc.invalidateQueries({ queryKey: ["budgets"] });
+  const deleteBudget = async (id: number) =>
+    failure(await fetch(`/api/budgets/${id}`, { method: "DELETE" }));
+
+  // 一覧のセル。予算に自動反映（ローン返済・負債返済分）を足して出し、適正額を添える
+  function budgetCell(code: string, m: number): MatrixCell | null {
+    const cell = grouped.get(code)?.byMonth.get(m);
+    const auto = overlayMap.get(`${code}:${m}`) ?? 0;
+    const debtAuto = debtOverlayMap.get(`${code}:${m}`) ?? 0;
+    const guideAmount = guideMap.get(`${code}:${m}`) ?? 0;
+    if (!cell && auto === 0 && debtAuto === 0) return null;
+    return {
+      amount: (cell ? Number(cell.amount) : 0) + auto + debtAuto,
+      editable: cell ? { id: cell.id, amount: Number(cell.amount) } : null,
+      extras: (
+        <>
+          {auto > 0 && (
+            <div className="text-[10px] text-indigo-500">
+              {cell ? "内 " : ""}ローン返済 {cell ? yen(auto) : "自動反映"}
+            </div>
+          )}
+          {debtAuto > 0 && (
+            <div className="text-[10px] text-amber-600">
+              {cell ? "内 " : ""}負債返済分 {cell ? yen(debtAuto) : "自動反映"}
+            </div>
+          )}
+          {guideAmount > 0 && (
+            <div className="text-[10px] text-emerald-600" title={GUIDE_HELP}>
+              適正 {yen(guideAmount)}
+            </div>
+          )}
+        </>
+      ),
+    };
   }
 
   async function importFile(file: File) {
@@ -339,41 +341,6 @@ function BudgetContent() {
     if (file) importFile(file);
   }
 
-  // 予算がまだ無い科目を行として足すバー（表の下・空表示の両方で使う）
-  const addAccountRowBar = (
-    <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-      <label className="text-xs font-medium text-slate-600">科目を追加</label>
-      <select
-        value={addRowCode}
-        onChange={(e) => setAddRowCode(e.target.value)}
-        className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white max-w-64"
-      >
-        <option value="">選択してください</option>
-        {(accounts ?? [])
-          .filter((a) => !sortedAccounts.some((x) => x.code === a.code))
-          .map((a) => (
-            <option key={a.code} value={a.code}>
-              {a.code} {displayName(a, sysMode)}
-            </option>
-          ))}
-      </select>
-      <button
-        type="button"
-        disabled={addRowCode === ""}
-        onClick={() => {
-          setExtraAccountCodes((codes) =>
-            codes.includes(addRowCode) ? codes : [...codes, addRowCode],
-          );
-          setAddRowCode("");
-        }}
-        className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40"
-      >
-        行を追加
-      </button>
-      <p className="text-[11px] text-slate-400 ml-auto">{BUDGET_HELP.table}</p>
-    </div>
-  );
-
   return (
     <AppShell>
       {/* ヘッダ */}
@@ -385,11 +352,11 @@ function BudgetContent() {
         {tab !== "confirm" && <YearBadge />}
       </div>
 
-      {/* タブ切り替え（予算配分は明細一覧の右、履歴は実績管理の履歴と同じ末尾に置く） */}
+      {/* タブ切り替え（予算と実績で同じ並び：一覧 → 確定 → … → 履歴） */}
       <div className="flex gap-1 mb-6 border-b border-slate-200 overflow-x-auto">
         {(
           [
-            ["manual", "明細一覧"],
+            ["manual", "一覧"],
             ["allocation", "予算配分"],
             ["confirm", "予算の確定"],
             ["csv", "CSV インポート"],
@@ -523,7 +490,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
       )}
 
       {/* ── 予算配分タブ（旧「設定 › 予算配分ルール」から移設）────────────
-          ルールの割合は明細一覧の「適正 ¥…」にも反映される。 */}
+          ルールの割合は一覧の「適正 ¥…」にも反映される。 */}
       {tab === "allocation" && <BudgetAllocationPanel />}
 
       {/* ── 予算の確定タブ（① その月の予算・予実対比・③ 翌月の予算案と確定）── */}
@@ -651,291 +618,98 @@ H3000,${THIS_YEAR},1,115000`}</pre>
       {/* 配分提案（収入からの推奨配分）は上の「予算配分」タブに集約した。
           ここでは下の表に「適正 ¥…」として推奨額を重ねて表示する。 */}
 
-      {/* ── 予算テーブル（明細一覧タブのみ。CSV インポートタブでは出さない）── */}
-      {tab === "manual" && isLoading && <LoadingSpinner />}
-
-      {tab === "manual" && !isLoading && sortedAccounts.length === 0 && (
+      {/* ── 予算テーブル（一覧タブのみ）── */}
+      {tab === "manual" && (
         <>
-          <EmptyState title="予算データがありません" description={BUDGET_HELP.empty} />
-          <div className="card mt-4">{addAccountRowBar}</div>
-        </>
-      )}
-
-      {tab === "manual" && sortedAccounts.length > 0 && (
-        <div className="card overflow-hidden p-0">
-          {/* 表の金額に付く印の意味。表に出ている印の分だけ説明する */}
-          {((guide ?? []).length > 0 ||
-            overlayAccountCodes.size > 0 ||
-            debtOverlayAccountCodes.size > 0) && (
-            <InfoNote title="表の印の見かた" className="mx-4 mt-3">
-              <ul className="space-y-0.5">
-                {(guide ?? []).length > 0 && (
-                  <li>
-                    <span className="font-medium text-emerald-700">適正 ¥…</span>：{GUIDE_HELP}
-                    割合は
-                    <button
-                      type="button"
-                      onClick={() => setTab("allocation")}
-                      className="underline underline-offset-2 mx-1 text-indigo-600 hover:text-indigo-800"
-                    >
-                      「予算配分」タブ
-                    </button>
-                    で変えられます。
-                  </li>
+          <SectionLead>{BUDGET_HELP.table}</SectionLead>
+          {isLoading ? (
+            <LoadingSpinner label="予算を読み込み中…" />
+          ) : (
+            <>
+              {rowAccounts.length === 0 && (
+                <EmptyState title="予算データがありません" description={BUDGET_HELP.empty} />
+              )}
+              <AccountMonthMatrix
+                mode={sysMode}
+                year={year}
+                noun="予算"
+                rows={rowAccounts}
+                allAccounts={accounts ?? []}
+                getCell={budgetCell}
+                emptyCellLabel={(code, m) => {
+                  const g = guideMap.get(`${code}:${m}`) ?? 0;
+                  return g > 0 ? (
+                    <span className="text-[10px] text-emerald-600">適正 {yen(g)}</span>
+                  ) : undefined;
+                }}
+                rowBadges={(code) => (
+                  <>
+                    {overlayAccountCodes.has(code) && (
+                      <span
+                        className="ml-1.5 inline-flex items-center gap-1 text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded"
+                        title="ローンの月々の返済額が自動加算されています"
+                      >
+                        <Home className="w-3 h-3" aria-hidden="true" />
+                        自動反映
+                      </span>
+                    )}
+                    {debtOverlayAccountCodes.has(code) && (
+                      <span
+                        className="ml-1.5 inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded"
+                        title={`実物資産（${(debtOverlayAssetNames.get(code) ?? []).join("・")}）の負債残高を解消予定月まで月割りして自動加算しています`}
+                      >
+                        <CreditCard className="w-3 h-3" aria-hidden="true" />
+                        返済分
+                      </span>
+                    )}
+                  </>
                 )}
-                {overlayAccountCodes.size > 0 && (
-                  <li>
-                    <span className="font-medium text-indigo-600">自動反映</span>：
-                    {BUDGET_HELP.autoLoan}
-                  </li>
-                )}
-                {debtOverlayAccountCodes.size > 0 && (
-                  <li>
-                    <span className="font-medium text-amber-600">返済分</span>：
-                    {BUDGET_HELP.autoDebt}
-                  </li>
-                )}
-              </ul>
-            </InfoNote>
+                lockedMonths={confirmedMonths}
+                lockedTitle={(m) => `${m}月の予算は確定済みです。${BUDGET_HELP.cycleLocked}`}
+                legend={
+                  ((guide ?? []).length > 0 ||
+                    overlayAccountCodes.size > 0 ||
+                    debtOverlayAccountCodes.size > 0) && (
+                    <InfoNote title="表の印の見かた" className="mx-4 mt-3">
+                      <ul className="space-y-0.5">
+                        {(guide ?? []).length > 0 && (
+                          <li>
+                            <span className="font-medium text-emerald-700">適正 ¥…</span>：
+                            {GUIDE_HELP}
+                            割合は
+                            <button
+                              type="button"
+                              onClick={() => setTab("allocation")}
+                              className="underline underline-offset-2 mx-1 text-indigo-600 hover:text-indigo-800"
+                            >
+                              「予算配分」タブ
+                            </button>
+                            で変えられます。
+                          </li>
+                        )}
+                        {overlayAccountCodes.size > 0 && (
+                          <li>
+                            <span className="font-medium text-indigo-600">自動反映</span>：
+                            {BUDGET_HELP.autoLoan}
+                          </li>
+                        )}
+                        {debtOverlayAccountCodes.size > 0 && (
+                          <li>
+                            <span className="font-medium text-amber-600">返済分</span>：
+                            {BUDGET_HELP.autoDebt}
+                          </li>
+                        )}
+                      </ul>
+                    </InfoNote>
+                  )
+                }
+                onAdd={addBudgetCell}
+                onSave={saveCell}
+                onDelete={deleteBudget}
+              />
+            </>
           )}
-          <div ref={monthScrollRef} className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="sticky left-0 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-600 min-w-44">
-                    勘定科目
-                  </th>
-                  {MONTHS.map((m) => (
-                    <th
-                      key={m}
-                      data-month={m}
-                      className="px-3 py-3 text-right text-xs font-semibold text-slate-600 whitespace-nowrap min-w-24"
-                    >
-                      {confirmedMonths.has(m) ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-emerald-700"
-                          title={`${m}月の予算は確定済みです。${BUDGET_HELP.cycleLocked}`}
-                        >
-                          <Lock className="w-3 h-3" aria-hidden="true" />
-                          {m}月
-                        </span>
-                      ) : (
-                        `${m}月`
-                      )}
-                    </th>
-                  ))}
-                  <th className="px-3 py-3 text-right text-xs font-semibold text-slate-600 min-w-28">
-                    年間合計
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {sortedAccounts.map((acct) => {
-                  const g = grouped.get(acct.code) ?? { account: undefined, byMonth: new Map() };
-                  const hasOverlay = overlayAccountCodes.has(acct.code);
-                  const hasDebtOverlay = debtOverlayAccountCodes.has(acct.code);
-                  const annual = MONTHS.reduce(
-                    (s, m) =>
-                      s +
-                      (Number(g.byMonth.get(m)?.amount) || 0) +
-                      (overlayMap.get(`${acct.code}:${m}`) ?? 0) +
-                      (debtOverlayMap.get(`${acct.code}:${m}`) ?? 0),
-                    0,
-                  );
-                  return (
-                    <tr key={acct.code} className="hover:bg-slate-50 group">
-                      <td className="sticky left-0 bg-white group-hover:bg-slate-50 px-4 py-2 font-medium">
-                        <span className="text-xs font-mono text-slate-400 mr-1.5">{acct.code}</span>
-                        <span className="text-slate-800">{displayName(acct, sysMode)}</span>
-                        {hasOverlay && (
-                          <span
-                            className="ml-1.5 inline-flex items-center gap-1 text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded"
-                            title="ローンの月々の返済額が自動加算されています"
-                          >
-                            <Home className="w-3 h-3" aria-hidden="true" />
-                            自動反映
-                          </span>
-                        )}
-                        {hasDebtOverlay && (
-                          <span
-                            className="ml-1.5 inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded"
-                            title={`実物資産（${(debtOverlayAssetNames.get(acct.code) ?? []).join("・")}）の負債残高を解消予定月まで月割りして自動加算しています`}
-                          >
-                            <CreditCard className="w-3 h-3" aria-hidden="true" />
-                            返済分
-                          </span>
-                        )}
-                      </td>
-                      {MONTHS.map((m) => {
-                        const cell = g.byMonth.get(m);
-                        const auto = overlayMap.get(`${acct.code}:${m}`) ?? 0;
-                        const debtAuto = debtOverlayMap.get(`${acct.code}:${m}`) ?? 0;
-                        // 収入実績から算出した推奨額（予算配分ルール）。補助表示のみ。
-                        const guideAmount = guideMap.get(`${acct.code}:${m}`) ?? 0;
-                        const locked = confirmedMonths.has(m);
-                        const isEditing = editCell && cell && editCell.id === cell.id;
-                        const isAdding =
-                          addCell !== null &&
-                          addCell.accountCode === acct.code &&
-                          addCell.month === m;
-                        return (
-                          <td key={m} className="px-3 py-1.5 text-right tabular-nums">
-                            {isEditing ? (
-                              <div className="flex items-center gap-1 justify-end">
-                                <input
-                                  type="number"
-                                  value={editCell.amount}
-                                  onChange={(e) =>
-                                    setEditCell({ ...editCell, amount: e.target.value })
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") saveCell();
-                                    if (e.key === "Escape") setEditCell(null);
-                                  }}
-                                  autoFocus
-                                  className="w-24 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
-                                />
-                                <button
-                                  type="button"
-                                  aria-label="保存"
-                                  title="保存"
-                                  onClick={saveCell}
-                                  className="text-indigo-600 hover:text-indigo-700"
-                                >
-                                  <Check className="w-4 h-4" aria-hidden="true" />
-                                </button>
-                              </div>
-                            ) : cell ? (
-                              <div>
-                                <div className="flex items-center justify-end gap-1 group/cell">
-                                  <span>{yen(Number(cell.amount) + auto + debtAuto)}</span>
-                                  {!locked && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        aria-label="この予算を編集"
-                                        title="編集"
-                                        onClick={() =>
-                                          setEditCell({ id: cell.id, amount: String(cell.amount) })
-                                        }
-                                        className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover/cell:opacity-100"
-                                      >
-                                        <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        aria-label="この予算を削除"
-                                        title="削除"
-                                        onClick={() => deleteBudget(cell.id)}
-                                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover/cell:opacity-100"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                                {auto > 0 && (
-                                  <div className="text-[10px] text-indigo-500">
-                                    内 ローン返済 {yen(auto)}
-                                  </div>
-                                )}
-                                {debtAuto > 0 && (
-                                  <div className="text-[10px] text-amber-600">
-                                    内 負債返済分 {yen(debtAuto)}
-                                  </div>
-                                )}
-                                {guideAmount > 0 && (
-                                  <div className="text-[10px] text-emerald-600" title={GUIDE_HELP}>
-                                    適正 {yen(guideAmount)}
-                                  </div>
-                                )}
-                              </div>
-                            ) : auto > 0 || debtAuto > 0 ? (
-                              <div>
-                                {auto > 0 && (
-                                  <div className="text-indigo-600">
-                                    {yen(auto)}
-                                    <div className="text-[10px] text-indigo-400">
-                                      ローン返済自動反映
-                                    </div>
-                                  </div>
-                                )}
-                                {debtAuto > 0 && (
-                                  <div className="text-amber-600">
-                                    {yen(debtAuto)}
-                                    <div className="text-[10px] text-amber-500">
-                                      負債返済分自動反映
-                                    </div>
-                                  </div>
-                                )}
-                                {guideAmount > 0 && (
-                                  <div className="text-[10px] text-emerald-600" title={GUIDE_HELP}>
-                                    適正 {yen(guideAmount)}
-                                  </div>
-                                )}
-                              </div>
-                            ) : isAdding ? (
-                              <div className="flex items-center gap-1 justify-end">
-                                <input
-                                  type="number"
-                                  value={addCell.amount}
-                                  placeholder="金額"
-                                  onChange={(e) =>
-                                    setAddCell({ ...addCell, amount: e.target.value })
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") addBudgetCell();
-                                    if (e.key === "Escape") setAddCell(null);
-                                  }}
-                                  autoFocus
-                                  className="w-24 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
-                                />
-                                <button
-                                  type="button"
-                                  aria-label="登録"
-                                  title="登録"
-                                  onClick={addBudgetCell}
-                                  className="text-indigo-600 hover:text-indigo-700"
-                                >
-                                  <Check className="w-4 h-4" aria-hidden="true" />
-                                </button>
-                              </div>
-                            ) : locked ? (
-                              <span className="text-slate-300" title="確定済みの月です">
-                                —
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setAddCell({ accountCode: acct.code, month: m, amount: "" })
-                                }
-                                title={`${acct.code} の ${m}月に予算を追加`}
-                                className="text-slate-300 hover:text-indigo-500"
-                              >
-                                {guideAmount > 0 ? (
-                                  <span className="text-[10px] text-emerald-600">
-                                    適正 {yen(guideAmount)}
-                                  </span>
-                                ) : (
-                                  "—"
-                                )}
-                              </button>
-                            )}
-                          </td>
-                        );
-                      })}
-                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700">
-                        {annual > 0 ? yen(annual) : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="border-t border-slate-100">{addAccountRowBar}</div>
-        </div>
+        </>
       )}
     </AppShell>
   );

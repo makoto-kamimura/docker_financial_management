@@ -40,7 +40,7 @@ import { useFiscalYear } from "../fiscal-year";
 export type BudgetTab = "manual" | "allocation" | "confirm" | "history";
 type Tab = BudgetTab;
 const TABS = [
-  ["manual", "明細一覧"],
+  ["manual", "一覧"],
   ["allocation", "予算配分"],
   ["confirm", "予算の確定"],
   ["history", "履歴"],
@@ -51,6 +51,7 @@ const EMPTY_BUDGETS: BudgetResponse = {
   years: [],
   loanOverlay: [],
   personalAssetDebtOverlay: [],
+  confirmedMonths: [],
 };
 
 const key = (code: string, month: number) => `${code}:${month}`;
@@ -219,6 +220,8 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
   }
 
   const hasEdits = Object.values(edits).some((v) => v.trim() !== "");
+  // 予算を確定済みの月は編集できない（web 版の一覧の鍵の印と同じ）
+  const locked = data.confirmedMonths.includes(month);
 
   return (
     <View style={s.root}>
@@ -235,7 +238,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
           keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
-          {error && <Text style={s.error}>{error}</Text>}
+          {error && <Notice tone="error">{error}</Notice>}
           <Lead>{textFor(BUDGET_HELP.page, viewMode)}</Lead>
 
           {/* 予算の確定（① その月の予算・予実対比・③ 翌月の予算案と確定） */}
@@ -250,13 +253,21 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
           {tab === "manual" && (
             <>
               <Pills
-                options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
+                options={MONTHS.map((m) => ({
+                  value: m,
+                  label: data.confirmedMonths.includes(m) ? `🔒${m}月` : `${m}月`,
+                }))}
                 value={month}
                 onChange={(m) => {
                   setMonth(m);
                   setEdits({});
                 }}
               />
+              {locked && (
+                <Notice tone="info">
+                  {`🔒 ${month}月の予算は確定済みです。${BUDGET_HELP.cycleLocked}`}
+                </Notice>
+              )}
               {/* 金額に付く印の意味。出ている印の分だけ説明する（web 版の「表の印の見かた」） */}
               {(guide.length > 0 || loanMap.size > 0 || debtMap.size > 0) && (
                 <Notice>
@@ -315,6 +326,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
                             <Input
                               style={s.amountInput}
                               keyboardType="number-pad"
+                              editable={!locked}
                               value={val}
                               placeholder="—"
                               selectTextOnFocus
@@ -322,7 +334,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
                                 setEdits((prev) => ({ ...prev, [a.code]: digitsOnly(t) }))
                               }
                             />
-                            {budget && !edited && (
+                            {budget && !edited && !locked && (
                               <TouchableOpacity
                                 onPress={() => confirmDelete(budget.id, name)}
                                 hitSlop={8}
@@ -403,7 +415,6 @@ const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   scroll: { flex: 1 },
   scrollContent: { padding: 14 },
-  error: { color: "#dc2626", fontSize: 13, marginBottom: 10 },
   groupLabel: {
     fontSize: 11,
     fontWeight: "700",
