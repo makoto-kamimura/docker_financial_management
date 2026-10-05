@@ -12,3 +12,6 @@ test-results
 playwright-report
 blob-report
 playwright/.cache
+
+# Playwright のログイン済みセッション（e2e/auth.setup.ts が作る）
+e2e/.auth

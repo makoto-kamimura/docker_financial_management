@@ -1,16 +1,8 @@
 import { test, expect } from "@playwright/test";
 
 // 予算の確定（予算管理）と実績の確定（実績管理）のタブ。
-// DB の migrate + seed が前提。シードユーザー: admin@example.com / password
+// DB の migrate + seed が前提。ログインは e2e/auth.setup.ts で 1 回だけ行い、保存したセッションを使う。
 test.describe("予算と実績の確定", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByLabel("メールアドレス").fill("admin@example.com");
-    await page.getByLabel("パスワード").fill("password");
-    await page.getByRole("button", { name: "ログイン" }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
-  });
-
   test("予算管理の「予算の確定」タブを ?tab=confirm で開ける", async ({ page }) => {
     await page.goto("/budget?tab=confirm&month=2026-05");
     await expect(page.getByLabel("比べる月")).toHaveValue("2026-05");
