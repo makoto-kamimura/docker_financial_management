@@ -43,11 +43,14 @@ import { ENTRY_HELP, textFor } from "../shared/help-texts";
 import { buildFinancialMatrix, editableRecord, type MatrixCell } from "../shared/financial-matrix";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
+import { ActualsConfirmSection } from "../components/ActualsConfirmSection";
 
-type Tab = "manual" | "calendar" | "history";
+export type EntryTab = "manual" | "calendar" | "confirm" | "history";
+type Tab = EntryTab;
 const TABS = [
   ["manual", "明細一覧"],
   ["calendar", "カレンダー"],
+  ["confirm", "実績の確定"],
   ["history", "履歴"],
 ] as const;
 
@@ -62,11 +65,19 @@ const SOURCE_LABEL: Record<RecordSource["kind"], string> = {
 // 金額入力中のセル（id あり = 既存 1 件の編集 / なし = 新規登録）
 type CellEdit = { accountCode: string; id: number | null; amount: string };
 
-type Props = { viewMode: ViewMode };
+type Props = {
+  viewMode: ViewMode;
+  /** 開いたときのタブ（ホームの状況の 1 行から「実績の確定」を開くときなど） */
+  initialTab?: Tab;
+  /** 「実績の確定」の対象月の初期値（YYYY-MM） */
+  initialMonth?: string;
+  /** 予算の画面の「予算の確定」へ移る */
+  onOpenBudget?: (month: string) => void;
+};
 
-export function EntryScreen({ viewMode }: Props) {
+export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }: Props) {
   const now = new Date();
-  const [tab, setTab] = useState<Tab>("manual");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "manual");
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   // ── 明細一覧 ────────────────────────────────────────────────
@@ -219,6 +230,15 @@ export function EntryScreen({ viewMode }: Props) {
         <Lead>{textFor(ENTRY_HELP.page, viewMode)}</Lead>
         {tab === "calendar" && <Lead>{ENTRY_HELP.calendar}</Lead>}
         {tab === "history" && <Lead>{ENTRY_HELP.history}</Lead>}
+
+        {/* 実績の確定（② 明細の最終日がそろったら確定する） */}
+        {tab === "confirm" && (
+          <ActualsConfirmSection
+            viewMode={viewMode}
+            initialMonth={initialMonth}
+            onOpenBudget={onOpenBudget}
+          />
+        )}
 
         {tab === "manual" &&
           (loading ? (

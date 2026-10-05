@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { assertActualsDateEditable } from "@/lib/budget-lock";
 import { badRequest, notFound } from "@/lib/api-error";
 import { resolvePeriod } from "@/lib/period";
 
@@ -40,6 +41,9 @@ export const POST = withApi({
       amount = Math.floor(bookValue * rate);
     }
     amount = Math.min(amount, Math.max(bookValue - 1, 0));
+
+    // 償却費は 12 月の実績に計上するため、その月の実績が確定済みなら償却前に止める
+    await assertActualsDateEditable(db, tenantId, new Date(fiscalYear, 11, 1));
 
     const [depreciation] = await db.$transaction([
       db.depreciation.create({ data: { fixedAssetId: asset.id, fiscalYear, amount } }),

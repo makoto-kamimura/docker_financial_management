@@ -76,12 +76,15 @@ describe("signedActualAmountFromSpend（明細を直接転記するときの符�
   });
 });
 
-function fakeDb(periodId = 42) {
+function fakeDb(periodId = 42, { actualsConfirmed = false } = {}) {
   const createMany = vi.fn().mockResolvedValue({ count: 0 });
   const upsert = vi.fn().mockResolvedValue({ id: periodId });
   const db = {
     period: { upsert },
     financialRecord: { createMany },
+    actualsConfirmation: {
+      findMany: vi.fn().mockResolvedValue(actualsConfirmed ? [{ periodId }] : []),
+    },
   } as unknown as TenantDbClient;
   return { db, createMany, upsert };
 }
@@ -117,6 +120,18 @@ describe("syncJournalToFinancialRecords (D-5c)", () => {
 
     await syncJournalToFinancialRecords(db, 7, 99, new Date("2026-07-01"), details);
 
+    expect(createMany).not.toHaveBeenCalled();
+  });
+
+  it("実績確定済みの月には同期せず 409 を投げる", async () => {
+    const { db, createMany } = fakeDb(42, { actualsConfirmed: true });
+    const details: JournalDetailForSync[] = [
+      { accountId: 1, category: "EXPENSE", side: "debit", amount: 3000 },
+    ];
+
+    await expect(
+      syncJournalToFinancialRecords(db, 7, 99, new Date("2026-07-01"), details),
+    ).rejects.toMatchObject({ status: 409 });
     expect(createMany).not.toHaveBeenCalled();
   });
 
