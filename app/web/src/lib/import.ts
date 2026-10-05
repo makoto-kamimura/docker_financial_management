@@ -94,6 +94,25 @@ export async function importRows(
   );
   const missingPeriodKeys = periodKeys.filter((k) => !periodIdByKey.has(k));
 
+  // 実績確定済みの月への取込は受け付けない（lib/budget-lock.ts の実績ロック。全体を中止する）
+  const lockedPeriods = await prisma.actualsConfirmation.findMany({
+    where: { tenantId, periodId: { in: existingPeriods.map((p) => p.id) } },
+    select: { periodId: true },
+  });
+  if (lockedPeriods.length > 0) {
+    const lockedIds = new Set(lockedPeriods.map((l) => l.periodId));
+    for (const r of parsedRows) {
+      const id = periodIdByKey.get(periodKey(r.fiscalYear, r.month));
+      if (id !== undefined && lockedIds.has(id)) {
+        errors.push({
+          row: r.row,
+          message: `${r.fiscalYear}年${r.month}月の実績は確定済みのため取り込めません`,
+        });
+      }
+    }
+    return { inserted: 0, skipped: 0, errors };
+  }
+
   // すでに同じ内容（科目 × 年月 × 金額）が登録済みの行は重複としてスキップする。
   // 同じ科目・月に複数の実績が並ぶこと自体は正当なので、金額まで一致した場合のみ除外する。
   const existingRecords = await prisma.financialRecord.findMany({

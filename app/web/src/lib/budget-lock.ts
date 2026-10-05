@@ -38,3 +38,62 @@ export async function confirmedBudgetMonths(
   });
   return rows.map((r) => ({ month: r.period.month, confirmedAt: r.confirmedAt }));
 }
+
+// ── 実績の確定 ──────────────────────────────────────────────
+// 確定済みの月の実績（financial_records）は書き換えさせない（予実対比の実績側を固定するため）。
+// 実績を書く経路（手入力・CSV 取込・仕訳の連動・明細の転記・債権債務の計上・減価償却・棚卸）から呼ぶ。
+// 明細（bank/card_transactions）の取込そのものは止めない。止めるのは実績への転記だけ。
+
+export const ACTUALS_LOCKED_MESSAGE =
+  "この月の実績は確定済みのため変更できません。変更するには、ダッシュボードの「予実と確定」で実績の確定を解除してください";
+
+export async function isActualsPeriodConfirmed(
+  db: Pick<TenantDbClient, "actualsConfirmation">,
+  periodId: number,
+): Promise<boolean> {
+  const row = await db.actualsConfirmation.findUnique({ where: { periodId } });
+  return row !== null;
+}
+
+/** 実績確定済みの periodId（渡したもののうち） */
+export async function confirmedActualsPeriodIds(
+  db: Pick<TenantDbClient, "actualsConfirmation">,
+  periodIds: number[],
+): Promise<Set<number>> {
+  const ids = [...new Set(periodIds)];
+  if (ids.length === 0) return new Set();
+  const rows = await db.actualsConfirmation.findMany({
+    where: { periodId: { in: ids } },
+    select: { periodId: true },
+  });
+  return new Set(rows.map((r) => r.periodId));
+}
+
+/** どれか 1 つでも実績確定済みの月なら 409 を throw する */
+export async function assertActualsPeriodsEditable(
+  db: Pick<TenantDbClient, "actualsConfirmation">,
+  periodIds: number[],
+): Promise<void> {
+  if ((await confirmedActualsPeriodIds(db, periodIds)).size > 0) {
+    throw conflict(ACTUALS_LOCKED_MESSAGE);
+  }
+}
+
+/** 日付（その年・月）の実績が確定済みなら 409 を throw する。会計期間がまだ無ければ何もしない */
+export async function assertActualsDateEditable(
+  db: Pick<TenantDbClient, "period">,
+  tenantId: number,
+  date: Date,
+): Promise<void> {
+  const period = await db.period.findUnique({
+    where: {
+      tenantId_fiscalYear_month: {
+        tenantId,
+        fiscalYear: date.getFullYear(),
+        month: date.getMonth() + 1,
+      },
+    },
+    select: { actualsConfirmation: { select: { id: true } } },
+  });
+  if (period?.actualsConfirmation) throw conflict(ACTUALS_LOCKED_MESSAGE);
+}

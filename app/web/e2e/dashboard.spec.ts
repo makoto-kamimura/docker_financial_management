@@ -29,6 +29,12 @@ test.describe("ダッシュボードと主要フロー", () => {
     d.setMonth(d.getMonth() - 1);
     const prev = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     await expect(page.getByLabel("比べる月")).toHaveValue(prev);
+    // ② 実績: 明細の最終日の一覧と、実績の確定ボタン（または確定済みの解除ボタン）
+    const month = d.getMonth() + 1;
+    await expect(page.getByRole("heading", { name: new RegExp(`${month}月の実績`) })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: new RegExp(`^${month}月の実績(を確定|の確定を解除)$`) }),
+    ).toBeVisible();
   });
 
   test("予測手法を切り替えても表示が維持される", async ({ page }) => {

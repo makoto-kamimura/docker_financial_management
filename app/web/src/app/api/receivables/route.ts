@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { zDate } from "@/lib/zod-helpers";
 import { postIssueRecord } from "@/lib/settlement";
+import { assertActualsDateEditable } from "@/lib/budget-lock";
 
 const ReceivableSchema = z.object({
   customerName: z.string().min(1),
@@ -43,6 +44,9 @@ export const POST = withApi({
   schema: ReceivableSchema,
   handler: async ({ user, db, body }) => {
     const { tenantId } = user;
+
+    // 実績（売掛金・買掛金の科目）へ連動するため、実績確定済みの月なら登録前に止める
+    await assertActualsDateEditable(db, tenantId, body.issueDate);
 
     const record = await db.receivable.create({
       data: {

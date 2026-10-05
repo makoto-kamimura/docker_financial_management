@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
+import { assertActualsDateEditable } from "@/lib/budget-lock";
 import { badRequest, notFound } from "@/lib/api-error";
 import { resolvePeriodForDate } from "@/lib/period";
 
@@ -19,6 +20,7 @@ export const POST = withApi({
     });
     if (!inventory) throw notFound();
     if (inventory.status === "closed") throw badRequest("already closed");
+    await assertActualsDateEditable(db, tenantId, inventory.inventoryDate);
 
     const stockAccount = await db.account.findFirst({
       where: { tenantId, code: INVENTORY_ASSET_ACCOUNT_CODE },

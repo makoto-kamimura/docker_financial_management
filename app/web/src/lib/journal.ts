@@ -1,6 +1,7 @@
 import type { TenantDbClient } from "@/lib/tenant-db";
 import type { AccountCategoryValue } from "@/lib/account-category";
 import { resolvePeriodForDate } from "@/lib/period";
+import { assertActualsDateEditable, assertActualsPeriodsEditable } from "@/lib/budget-lock";
 
 // 仕訳明細の共通 include（明細 + 科目、借方 → 貸方の順）。
 // journals / actuals（カレンダー入力）の各ルートで共用する。
@@ -83,6 +84,7 @@ export async function syncJournalToFinancialRecords(
   if (plDetails.length === 0) return;
 
   const period = await resolvePeriodForDate(db, tenantId, transactionDate);
+  await assertActualsPeriodsEditable(db, [period.id]);
 
   await db.financialRecord.createMany({
     data: plDetails.map((d) => ({
@@ -95,6 +97,25 @@ export async function syncJournalToFinancialRecords(
   });
 }
 
+// 仕訳を作る前の確認: P/L 科目を含む仕訳で、取引日の月の実績が確定済みなら 409。
+// syncJournalToFinancialRecords でも同じ判定をするが、仕訳を先に作ってから止めると
+// 実績に反映されない仕訳だけが残るため、仕訳を作るルートでは作成前にこれを呼ぶ。
+export async function assertJournalSyncAllowed(
+  db: TenantDbClient,
+  tenantId: number,
+  transactionDate: Date,
+  accountIds: number[],
+): Promise<void> {
+  const accounts = await db.account.findMany({
+    where: { tenantId, id: { in: [...new Set(accountIds)] } },
+    select: { category: true },
+  });
+  if (accounts.every((a) => BALANCE_SHEET_CATEGORIES.has(a.category as AccountCategoryValue))) {
+    return;
+  }
+  await assertActualsDateEditable(db, tenantId, transactionDate);
+}
+
 // 仕訳削除時、同期済み（journalEntryId が一致する）FinancialRecord 行も一緒に削除する。
 // D-5a: これを呼ばずに db.journalEntry.delete() だけを行うと、FK は ON DELETE SET NULL の
 // ため行自体は残ってしまい、発生元をたどれない孤立行になる（旧バグ）。
@@ -102,5 +123,14 @@ export async function deleteFinancialRecordsForJournalEntry(
   db: TenantDbClient,
   journalEntryId: number,
 ): Promise<void> {
+  const synced = await db.financialRecord.findMany({
+    where: { journalEntryId },
+    select: { periodId: true },
+  });
+  if (synced.length === 0) return;
+  await assertActualsPeriodsEditable(
+    db,
+    synced.map((r) => r.periodId),
+  );
   await db.financialRecord.deleteMany({ where: { journalEntryId } });
 }

@@ -1,15 +1,17 @@
 "use client";
 
-// ダッシュボードの「予実と確定」（KPI の下の欄）。
-//   1. 選んだ月の予算と実績を科目ごとに比べる（GET /api/budgets/variance）
-//   2. 差額の扱い（何もしない・期ズレ・回し先へ）を科目ごとに選び、翌月の予算案を作る
+// ダッシュボードの「予実と確定」（KPI の下の欄）。月ごとに ① → ② → ③ の順に進める（順番は API が強制）。
+//   ① その月の予算を確定する（初回は「そのまま確定」。以降は前月の ③ で確定済みになっている）
+//   ② 明細の最終日（銀行・カード・電子マネー）が月末日までそろうと「実績入力済み」になるので、
+//      ボタンで実績を確定する（POST /api/actuals/confirm。判定は lib/actuals-coverage.ts）
+//   ③ 予算と実績を科目ごとに比べ（GET /api/budgets/variance）、差額の扱い（何もしない・期ズレ・
+//      回し先へ）を選んで翌月の予算案を作り、「確定」で翌月の予算を確定する（POST /api/budgets/confirm）
 //      （計算は lib/budget-cycle.ts。案の金額は手で直せる＝流用）
-//   3. 「確定」で翌月の予算を書き込み、翌月を確定済みにする（POST /api/budgets/confirm）
-//   翌月になったら、その月を選んでまた 1 から繰り返す。
+//   翌月になったら、その月を選んで ② から繰り返す。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Lock, RotateCcw } from "lucide-react";
+import { CheckCircle2, Clock, Lock, RotateCcw } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
 import { BUDGET_HELP, DASHBOARD_HELP, textFor } from "@/lib/help-texts";
@@ -30,6 +32,16 @@ type VarianceResponse = {
   next: { year: number; month: number };
   confirmedAt: string | null;
   nextConfirmedAt: string | null;
+  prevActualsPending: boolean;
+  actuals: {
+    confirmedAt: string | null;
+    entered: boolean;
+    coveredThrough: string | null;
+    monthEnd: string;
+    sources: ActualsSource[];
+    lagging: { kind: ActualsSource["kind"]; id: number }[];
+    unposted: number;
+  };
   transferTargetId: number | null;
   rows: Row[];
   summary: {
@@ -38,6 +50,13 @@ type VarianceResponse = {
     surplusTotal: number;
     overrunTotal: number;
   };
+};
+type ActualsSource = {
+  kind: "bank" | "card";
+  id: number;
+  name: string;
+  typeLabel: string;
+  lastDate: string | null;
 };
 type AccountRef = {
   id: number;
@@ -232,6 +251,55 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
     }
   }
 
+  async function confirmActuals() {
+    const label = `${year}年${month}月`;
+    const ok = window.confirm(
+      `${label}の実績を確定します。確定すると、${label}の実績は登録・変更・削除や明細の転記ができなくなります。よろしいですか？`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/actuals/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, month }),
+      });
+      if (res.ok) {
+        setMessage({ ok: true, text: `${label}の実績を確定しました。` });
+        refresh();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setMessage({ ok: false, text: `エラー: ${err.error ?? "確定に失敗しました"}` });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unconfirmActuals() {
+    const label = `${year}年${month}月`;
+    if (!window.confirm(`${label}の実績の確定を解除します。実績の金額は変わりません。`)) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/actuals/confirm?year=${year}&month=${month}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setMessage({ ok: true, text: `${label}の実績の確定を解除しました。` });
+        refresh();
+      } else if (res.status === 403) {
+        setMessage({ ok: false, text: "確定の解除は管理者だけができます。" });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setMessage({ ok: false, text: `エラー: ${err.error ?? "解除に失敗しました"}` });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const diffClass = (r: VarianceRow) =>
     r.favorable === null ? "text-slate-500" : r.favorable ? "text-emerald-700" : "text-red-600";
   const diffLabel = (r: VarianceRow) => {
@@ -242,6 +310,15 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
 
   const nextLabel = data ? `${data.next.year}年${data.next.month}月` : "翌月";
   const nextLocked = !!data?.nextConfirmedAt;
+  const actualsLocked = !!data?.actuals.confirmedAt;
+  // ③ 翌月の予算を確定できない理由（② が済んでいない）
+  const nextBlockedReason = !data
+    ? null
+    : !data.confirmedAt
+      ? `先に${month}月の予算（①）と実績（②）を確定してください。`
+      : !actualsLocked
+        ? `先に${month}月の実績（②）を確定してください。`
+        : null;
 
   return (
     <div className="space-y-5 mb-6">
@@ -266,18 +343,36 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
           />
         </div>
         {data && (
-          <div className="flex flex-wrap gap-2 text-xs">
-            <StatusBadge label={`${year}年${month}月の予算`} confirmedAt={data.confirmedAt} />
-            <StatusBadge label={`${nextLabel}の予算`} confirmedAt={data.nextConfirmedAt} />
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <StatusBadge label={`① ${month}月の予算`} confirmedAt={data.confirmedAt} />
+            <span className="text-slate-300" aria-hidden="true">
+              →
+            </span>
+            <ActualsBadge
+              label={`② ${month}月の実績`}
+              confirmedAt={data.actuals.confirmedAt}
+              entered={data.actuals.entered}
+            />
+            <span className="text-slate-300" aria-hidden="true">
+              →
+            </span>
+            <StatusBadge
+              label={`③ ${data.next.month}月の予算`}
+              confirmedAt={data.nextConfirmedAt}
+            />
           </div>
         )}
         {data && !data.confirmedAt && data.rows.some((r) => r.budget !== null) && (
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || data.prevActualsPending}
             onClick={() => confirm(year, month, false)}
             className="btn-secondary text-xs px-3 py-1.5 ml-auto disabled:opacity-40"
-            title="この月の予算を、いま入っている金額のまま確定します（はじめて使うときなど）"
+            title={
+              data.prevActualsPending
+                ? "前月の実績が確定していないため、まだ確定できません。前月を選んで実績を確定してください"
+                : "この月の予算を、いま入っている金額のまま確定します（はじめて使うときなど）"
+            }
           >
             {month}月の予算をそのまま確定
           </button>
@@ -285,11 +380,14 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
         {data?.confirmedAt && (
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || actualsLocked}
             onClick={() => unconfirm(year, month)}
             className="btn-secondary text-xs px-3 py-1.5 ml-auto disabled:opacity-40"
+            title={
+              actualsLocked ? "実績が確定済みのため、先に実績の確定を解除してください" : undefined
+            }
           >
-            {month}月の確定を解除
+            {month}月の予算の確定を解除
           </button>
         )}
       </div>
@@ -304,6 +402,20 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
       )}
 
       {isLoading && <LoadingSpinner />}
+
+      {data && (
+        <ActualsCard
+          year={year}
+          month={month}
+          actuals={data.actuals}
+          budgetConfirmed={!!data.confirmedAt}
+          nextConfirmed={!!data.nextConfirmedAt}
+          busy={busy}
+          lead={textFor(DASHBOARD_HELP.cycleActuals, mode)}
+          onConfirm={confirmActuals}
+          onUnconfirm={unconfirmActuals}
+        />
+      )}
 
       {data && data.rows.length === 0 && (
         <p className="text-sm text-slate-400">
@@ -567,12 +679,15 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
               ) : (
                 <button
                   type="button"
-                  disabled={busy || plan.length === 0 || invalidOverride}
+                  disabled={busy || plan.length === 0 || invalidOverride || !!nextBlockedReason}
                   onClick={() => confirm(data.next.year, data.next.month, true)}
                   className="btn-primary text-sm disabled:opacity-40"
                 >
                   この予算で{nextLabel}を確定
                 </button>
+              )}
+              {!nextLocked && nextBlockedReason && (
+                <span className="text-xs text-amber-700">{nextBlockedReason}</span>
               )}
               {invalidOverride && (
                 <span className="text-xs text-red-600">金額は 0 以上の数で入れてください。</span>
@@ -582,7 +697,8 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
 
           <InfoNote>
             確定した予算は、{nextLabel}の実績と比べる基準になります。{nextLabel}
-            が終わったら、上の「比べる月」で{nextLabel}を選び、同じ手順で次の月の予算を確定します。
+            が終わって明細がそろったら、上の「比べる月」で{nextLabel}
+            を選び、実績の確定（②）から同じ手順で進めます。
           </InfoNote>
         </>
       )}
@@ -624,6 +740,158 @@ function SummaryTile({
       <p className="text-xs text-slate-500">{title}</p>
       <p className={`text-lg font-semibold tabular-nums ${color}`}>{main}</p>
       <p className="text-[11px] text-slate-400">{sub}</p>
+    </div>
+  );
+}
+
+function ActualsBadge({
+  label,
+  confirmedAt,
+  entered,
+}: {
+  label: string;
+  confirmedAt: string | null;
+  entered: boolean;
+}) {
+  if (confirmedAt) return <StatusBadge label={label} confirmedAt={confirmedAt} />;
+  return entered ? (
+    <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-1 text-sky-700">
+      <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+      {label}：入力済み
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-amber-700">
+      <Clock className="w-3 h-3" aria-hidden="true" />
+      {label}：入力待ち
+    </span>
+  );
+}
+
+const formatYmd = (ymd: string) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return `${y}/${m}/${d}`;
+};
+
+// ② 実績の確定。明細の最終日をソースごとに出し、全ソースが月末日まで届いたら確定できる
+function ActualsCard({
+  year,
+  month,
+  actuals,
+  budgetConfirmed,
+  nextConfirmed,
+  busy,
+  lead,
+  onConfirm,
+  onUnconfirm,
+}: {
+  year: number;
+  month: number;
+  actuals: VarianceResponse["actuals"];
+  budgetConfirmed: boolean;
+  nextConfirmed: boolean;
+  busy: boolean;
+  lead: string | undefined;
+  onConfirm: () => void;
+  onUnconfirm: () => void;
+}) {
+  const locked = !!actuals.confirmedAt;
+  const lagging = new Set(actuals.lagging.map((l) => `${l.kind}:${l.id}`));
+  const blockedReason = !budgetConfirmed
+    ? `先に${month}月の予算（①）を確定してください。`
+    : !actuals.entered
+      ? actuals.coveredThrough
+        ? `明細が月末（${formatYmd(actuals.monthEnd)}）までそろうと確定できます。`
+        : "明細を取り込むと確定できます。"
+      : null;
+
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-4 pt-4">
+        <h3 className="section-title mb-1 flex items-center gap-1.5">
+          {locked && <Lock className="w-4 h-4 text-slate-500" aria-hidden="true" />}② {year}年
+          {month}月の実績
+        </h3>
+        <SectionLead>
+          {locked ? `${month}月の実績は確定済みです。${DASHBOARD_HELP.actualsLocked}` : lead}
+        </SectionLead>
+      </div>
+      {actuals.sources.length === 0 ? (
+        <p className="px-4 pb-4 text-sm text-slate-400">
+          銀行口座・カード・電子マネーが登録されていません。
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-y border-slate-200 text-xs text-slate-600">
+                <th className="px-4 py-2 text-left font-semibold min-w-44">口座・カード</th>
+                <th className="px-3 py-2 text-left font-semibold">種別</th>
+                <th className="px-3 py-2 text-right font-semibold">明細の最終日</th>
+                <th className="px-3 py-2 text-left font-semibold">状況</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {actuals.sources.map((s) => {
+                const late = lagging.has(`${s.kind}:${s.id}`);
+                return (
+                  <tr key={`${s.kind}:${s.id}`}>
+                    <td className="px-4 py-2">{s.name}</td>
+                    <td className="px-3 py-2 text-xs text-slate-500">{s.typeLabel}</td>
+                    <td
+                      className={`px-3 py-2 text-right tabular-nums ${late ? "text-red-600 font-medium" : ""}`}
+                    >
+                      {s.lastDate ? formatYmd(s.lastDate) : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      {s.lastDate === null ? (
+                        <span className="text-slate-400">明細なし（判定に含めない）</span>
+                      ) : late ? (
+                        <span className="text-red-600">月末まで届いていません</span>
+                      ) : (
+                        <span className="text-emerald-700">入力済み</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-slate-100">
+        {locked ? (
+          <button
+            type="button"
+            disabled={busy || nextConfirmed}
+            onClick={onUnconfirm}
+            className="btn-secondary text-sm disabled:opacity-40"
+            title={
+              nextConfirmed
+                ? "翌月の予算が確定済みのため、先に翌月の予算の確定を解除してください"
+                : undefined
+            }
+          >
+            {month}月の実績の確定を解除
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy || !!blockedReason}
+            onClick={onConfirm}
+            className="btn-primary text-sm disabled:opacity-40"
+          >
+            {month}月の実績を確定
+          </button>
+        )}
+        {!locked && blockedReason && (
+          <span className="text-xs text-amber-700">{blockedReason}</span>
+        )}
+        {!locked && actuals.unposted > 0 && (
+          <span className="text-xs text-slate-500">
+            {month}月の明細のうち {actuals.unposted} 件がまだ実績に転記されていません。
+          </span>
+        )}
+      </div>
     </div>
   );
 }
