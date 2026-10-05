@@ -14,14 +14,18 @@ type Kpi = {
   grossMargin: number;
   operatingProfit: number;
   operatingMargin: number;
-  mom: number | null;
-  yoy: number | null;
   ytd: number;
 };
 
 type AnnualOutlook = {
-  year: number;
+  closingMonth: number;
+  startKey: string;
+  endKey: string;
   ytd: number;
+  elapsedMonths: number;
+  enteredMonths: number;
+  missingMonths: number;
+  estimatedMissing: number;
   remainingMonths: number;
   forecastRemaining: number;
   projected: number;
@@ -50,6 +54,15 @@ const budgetSub = (amount: number | undefined, rate: number | null, rateLabel: s
 const periodLabel = (key: string) => {
   const [y, m] = key.split("-");
   return `${y}年${Number(m)}月`;
+};
+
+// 年間見込みの補助表示。未入力の月（平均で按分）と残りの月（予測）の内訳を添える
+const outlookSub = (a: AnnualOutlook) => {
+  const notes = [
+    a.missingMonths > 0 ? `未入力${a.missingMonths}か月は平均` : null,
+    a.remainingMonths > 0 ? `残り${a.remainingMonths}か月は予測` : null,
+  ].filter(Boolean);
+  return `年間見込み ${yen(a.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
 };
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -207,6 +220,7 @@ export function KpiCards({
       budget: KpiBudget | null;
       periods: string[];
       annual: AnnualOutlook | null;
+      annualProfit: AnnualOutlook | null;
     }> => {
       const res = await fetch(period ? `/api/kpi?period=${period}` : "/api/kpi");
       return res.json();
@@ -218,6 +232,7 @@ export function KpiCards({
   const kpi = data?.kpi;
   const budget = data?.budget ?? null;
   const annual = data?.annual ?? null;
+  const annualProfit = data?.annualProfit ?? null;
   const resolvedPeriod = kpi?.period;
 
   useEffect(() => {
@@ -228,13 +243,18 @@ export function KpiCards({
 
   const help = kpiTermHelp(mode);
   const labels = KPI_LABELS[mode];
-  // 当年累計カードの補助表示（年間の着地見込みと現時点の達成率）
-  const ytdSub = annual
-    ? annual.remainingMonths > 0
-      ? `年間見込み ${yen(annual.projected)}（残り${annual.remainingMonths}か月は予測）`
-      : `年間見込み ${yen(annual.projected)}（実績確定）`
+  // 累計カード（期の着地見込みと現時点の達成率）。12 月決算以外は「当期」と呼び、期間を添える
+  const fiscalYearIsCalendar = !annual || annual.closingMonth === 12;
+  const ytdLabel = fiscalYearIsCalendar ? "当年累計 (YTD)" : "当期累計 (YTD)";
+  const ytdSub = annual ? outlookSub(annual) : undefined;
+  const ytdProgress = annual
+    ? `達成率 ${pct(annual.progressRate)}` +
+      (fiscalYearIsCalendar
+        ? ""
+        : `（${periodLabel(annual.startKey)}〜${periodLabel(annual.endKey)}）`)
     : undefined;
-  const ytdProgress = annual ? `達成率 ${pct(annual.progressRate)}` : undefined;
+  // 利益カード（家計では貯蓄額）の補助表示は、利益率ではなく年間見込み
+  const profitSub = annualProfit ? `年間見込み ${yen(annualProfit.projected)}` : undefined;
   const selector = (
     <PeriodSelector
       periods={data?.periods ?? [kpi.period]}
@@ -273,27 +293,21 @@ export function KpiCards({
           <KpiCard
             label={labels.profit}
             value={yen(kpi.operatingProfit)}
-            sub={`${labels.profitRate} ${pct(kpi.operatingMargin)}`}
+            sub={profitSub}
             budget={budgetSub(
               budget?.operatingProfit,
               budget?.operatingProfitRate ?? null,
               "達成率",
             )}
+            help={help.profit}
             warn={isDeficit}
           />
           <KpiCard
-            label="当年累計 (YTD)"
+            label={ytdLabel}
             value={yen(kpi.ytd)}
             sub={ytdSub}
             budget={ytdProgress}
             help={help.ytd}
-            helpAlign="right"
-          />
-          <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} help={help.mom} />
-          <KpiCard
-            label="前年同月比 (YoY)"
-            value={pct(kpi.yoy)}
-            help={help.yoy}
             helpAlign="right"
           />
         </div>
@@ -319,19 +333,18 @@ export function KpiCards({
         <KpiCard
           label={labels.profit}
           value={yen(kpi.operatingProfit)}
-          sub={`${labels.profitRate} ${pct(kpi.operatingMargin)}`}
+          sub={profitSub}
           budget={budgetSub(budget?.operatingProfit, budget?.operatingProfitRate ?? null, "達成率")}
+          help={help.profit}
         />
         <KpiCard
-          label="当年累計 (YTD)"
+          label={ytdLabel}
           value={yen(kpi.ytd)}
           sub={ytdSub}
           budget={ytdProgress}
           help={help.ytd}
           helpAlign="right"
         />
-        <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} help={help.mom} />
-        <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} help={help.yoy} helpAlign="right" />
       </div>
     </div>
   );

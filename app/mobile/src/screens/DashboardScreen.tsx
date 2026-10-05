@@ -29,8 +29,6 @@ const yen = (v: number) =>
   Math.abs(v) >= 10_000
     ? `${(v / 10_000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
     : v.toLocaleString("ja-JP") + "円";
-const pct = (v: number | null) =>
-  v == null ? "—" : (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
 // 達成率・消化率は増減ではないので符号を付けない
 const rate = (v: number | null) => (v == null ? "—" : (v * 100).toFixed(1) + "%");
 const periodLabel = (key: string) => `${key.slice(0, 4)}年${Number(key.slice(5, 7))}月`;
@@ -56,12 +54,15 @@ const CAT_COLORS: Record<string, string> = {
 };
 const CATEGORIES = Object.keys(CAT_LABEL);
 
-// 当年累計カードの補助表示（web 版 KPI カードと同じ文言）
+// 累計カードの補助表示（web 版 KPI カードと同じ文言）。
+// 未入力の月（平均で按分）と残りの月（予測）の内訳を添える
 function ytdSub(annual: AnnualOutlook | null): string | undefined {
   if (!annual) return undefined;
-  return annual.remainingMonths > 0
-    ? `年間見込み ${yen(annual.projected)}（残り${annual.remainingMonths}か月は予測）`
-    : `年間見込み ${yen(annual.projected)}（実績確定）`;
+  const notes = [
+    annual.missingMonths > 0 ? `未入力${annual.missingMonths}か月は平均` : null,
+    annual.remainingMonths > 0 ? `残り${annual.remainingMonths}か月は予測` : null,
+  ].filter(Boolean);
+  return `年間見込み ${yen(annual.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
 }
 
 function KpiCard({
@@ -98,6 +99,7 @@ export function DashboardScreen({ viewMode }: Props) {
   const [kpi, setKpi] = useState<KpiData | null>(null);
   const [budget, setBudget] = useState<KpiBudget | null>(null);
   const [annual, setAnnual] = useState<AnnualOutlook | null>(null);
+  const [annualProfit, setAnnualProfit] = useState<AnnualOutlook | null>(null);
   const [method, setMethod] = useState(DEFAULT_FORECAST_METHOD);
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string | null>(null); // null はサーバー既定に従う
@@ -124,6 +126,7 @@ export function DashboardScreen({ viewMode }: Props) {
     setKpi(k?.kpi ?? null);
     setBudget(k?.budget ?? null);
     setAnnual(k?.annual ?? null);
+    setAnnualProfit(k?.annualProfit ?? null);
     setPeriods(k?.periods ?? []);
     setSteps(stepRes.status === "fulfilled" ? stepRes.value : null);
 
@@ -181,7 +184,17 @@ export function DashboardScreen({ viewMode }: Props) {
   const klabels = KPI_LABELS[viewMode];
   const termHelp = kpiTermHelp(viewMode);
   const selectedMethod = FORECAST_METHODS.find((m) => m.value === method);
-  const ytdProgress = annual ? `達成率 ${rate(annual.progressRate)}` : undefined;
+  // 12 月決算以外は「当期」と呼び、期間を添える
+  const fiscalYearIsCalendar = !annual || annual.closingMonth === 12;
+  const ytdLabel = fiscalYearIsCalendar ? "当年累計 (YTD)" : "当期累計 (YTD)";
+  const ytdProgress = annual
+    ? `達成率 ${rate(annual.progressRate)}` +
+      (fiscalYearIsCalendar
+        ? ""
+        : `（${periodLabel(annual.startKey)}〜${periodLabel(annual.endKey)}）`)
+    : undefined;
+  // 利益カード（家計では貯蓄額）の補助表示は、利益率ではなく年間見込み
+  const profitSub = annualProfit ? `年間見込み ${yen(annualProfit.projected)}` : undefined;
   const stepItems = steps
     ? computeStepChecklist({ ...steps, hasSwitchedMode: hasSwitchedViewMode() })
     : [];
@@ -287,7 +300,7 @@ export function DashboardScreen({ viewMode }: Props) {
                       value={yen(kpi.operatingProfit)}
                       color={kpi.operatingProfit >= 0 ? "#16a34a" : "#dc2626"}
                       warn={kpi.operatingProfit < 0}
-                      sub={`${klabels.profitRate} ${rate(kpi.operatingMargin)}`}
+                      sub={profitSub}
                       budget={budgetSub(
                         budget?.operatingProfit,
                         budget?.operatingProfitRate ?? null,
@@ -295,7 +308,7 @@ export function DashboardScreen({ viewMode }: Props) {
                       )}
                     />
                     <KpiCard
-                      label="当年累計 (YTD)"
+                      label={ytdLabel}
                       value={yen(kpi.ytd)}
                       sub={ytdSub(annual)}
                       budget={ytdProgress}
@@ -323,7 +336,7 @@ export function DashboardScreen({ viewMode }: Props) {
                       label={klabels.profit}
                       value={yen(kpi.operatingProfit)}
                       color={kpi.operatingProfit >= 0 ? "#16a34a" : "#dc2626"}
-                      sub={`${klabels.profitRate} ${rate(kpi.operatingMargin)}`}
+                      sub={profitSub}
                       budget={budgetSub(
                         budget?.operatingProfit,
                         budget?.operatingProfitRate ?? null,
@@ -331,7 +344,7 @@ export function DashboardScreen({ viewMode }: Props) {
                       )}
                     />
                     <KpiCard
-                      label="当年累計 (YTD)"
+                      label={ytdLabel}
                       value={yen(kpi.ytd)}
                       sub={ytdSub(annual)}
                       budget={ytdProgress}
@@ -340,16 +353,11 @@ export function DashboardScreen({ viewMode }: Props) {
                 </>
               )}
 
-              <View style={s.kpiRow}>
-                <KpiCard label="前月比 (MoM)" value={pct(kpi.mom)} />
-                <KpiCard label="前年同月比 (YoY)" value={pct(kpi.yoy)} />
-              </View>
               <TermList
-                label="当年累計・前月比・前年同月比の説明"
+                label="累計・年間見込みの説明"
                 terms={[
-                  { term: "当年累計 (YTD)", text: termHelp.ytd },
-                  { term: "前月比 (MoM)", text: termHelp.mom },
-                  { term: "前年同月比 (YoY)", text: termHelp.yoy },
+                  { term: ytdLabel, text: termHelp.ytd },
+                  { term: `${klabels.profit}の年間見込み`, text: termHelp.profit },
                 ]}
               />
             </>

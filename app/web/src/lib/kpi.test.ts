@@ -5,6 +5,7 @@ import {
   computeKpiAt,
   computeKpiBudgetAt,
   computeLatestKpi,
+  fiscalPeriodOf,
   shiftMonthKey,
   type MonthlyByCategory,
 } from "@/lib/kpi";
@@ -34,22 +35,8 @@ describe("computeLatestKpi", () => {
     expect(kpi.operatingMargin).toBeCloseTo(0.4);
   });
 
-  it("前月比(MoM)と当年累計(YTD)を算出する", () => {
-    const kpi = computeLatestKpi(monthly)!;
-    expect(kpi.mom).toBeCloseTo(0.2); // (1200-1000)/1000
-    expect(kpi.ytd).toBe(2200); // 1000+1200
-  });
-
-  it("前年同月が無ければ YoY は null", () => {
-    expect(computeLatestKpi(monthly)!.yoy).toBeNull();
-  });
-
-  it("前年同月があれば YoY を算出する", () => {
-    const withPrevYear: MonthlyByCategory[] = [
-      { key: "2024-02", revenue: 800, cogs: 0, expense: 0 },
-      ...monthly,
-    ];
-    expect(computeLatestKpi(withPrevYear)!.yoy).toBeCloseTo(0.5); // (1200-800)/800
+  it("当年累計(YTD)を算出する", () => {
+    expect(computeLatestKpi(monthly)!.ytd).toBe(2200); // 1000+1200
   });
 
   it("空配列なら null", () => {
@@ -97,16 +84,10 @@ describe("computeKpiAt", () => {
     expect(computeKpiAt(monthly, "2026-03")!.ytd).toBe(3700);
   });
 
-  it("MoM / YoY は対象月を基準にした暦上の前月・前年同月と比較する", () => {
-    const kpi = computeKpiAt(monthly, "2026-02")!;
-    expect(kpi.mom).toBeCloseTo(0.2); // (1200-1000)/1000
-    expect(kpi.yoy).toBeCloseTo(0.5); // (1200-800)/800
-  });
-
-  it("暦上の前月・前年同月のデータが無ければ null（欠測月を繰り上げない）", () => {
-    const kpi = computeKpiAt(monthly, "2026-01")!;
-    expect(kpi.mom).toBeNull(); // 2025-12 のデータが無い
-    expect(kpi.yoy).toBeNull(); // 2025-01 のデータが無い
+  it("決算月を指定すると、YTD は期首から対象月までの累計になる", () => {
+    // 1 月決算 → 2 月始まり
+    expect(computeKpiAt(monthly, "2026-03", 1)!.ytd).toBe(2700); // 2026-02〜03: 1200+1500
+    expect(computeKpiAt(monthly, "2026-01", 1)!.ytd).toBe(1800); // 2025-02〜2026-01: 800+1000
   });
 
   it("targetKey 省略時は最新月、系列に無い月の指定は null", () => {
@@ -151,6 +132,30 @@ describe("computeKpiBudgetAt", () => {
   });
 });
 
+describe("fiscalPeriodOf", () => {
+  it("12 月決算は暦年（1〜12 月）", () => {
+    expect(fiscalPeriodOf("2026-03")).toEqual({
+      startKey: "2026-01",
+      endKey: "2026-12",
+      elapsedMonths: 3,
+    });
+  });
+
+  it("3 月決算は 4 月始まり。1〜3 月は前の年の 4 月からの期", () => {
+    expect(fiscalPeriodOf("2027-01", 3)).toEqual({
+      startKey: "2026-04",
+      endKey: "2027-03",
+      elapsedMonths: 10,
+    });
+    expect(fiscalPeriodOf("2026-04", 3)).toEqual({
+      startKey: "2026-04",
+      endKey: "2027-03",
+      elapsedMonths: 1,
+    });
+    expect(fiscalPeriodOf("2026-03", 3).elapsedMonths).toBe(12);
+  });
+});
+
 describe("computeAnnualOutlook", () => {
   const monthly: MonthlyByCategory[] = [
     { key: "2026-01", revenue: 100, cogs: 0, expense: 0 },
@@ -164,26 +169,89 @@ describe("computeAnnualOutlook", () => {
   it("当年累計に残り月の予測を足して年間の想定額を出す", () => {
     const outlook = computeAnnualOutlook(monthly, "2026-03", flat(100))!;
     expect(outlook.ytd).toBe(300);
+    expect(outlook.missingMonths).toBe(0);
     expect(outlook.remainingMonths).toBe(9);
     expect(outlook.forecastRemaining).toBe(900);
     expect(outlook.projected).toBe(1200);
     expect(outlook.progressRate).toBeCloseTo(0.25);
   });
 
-  it("12月は残り月が無く、想定額は実績どおり（達成率 100%）", () => {
-    const dec = [...monthly, { key: "2026-12", revenue: 500, cogs: 0, expense: 0 }];
-    const outlook = computeAnnualOutlook(dec, "2026-12", flat(100))!;
-    expect(outlook.remainingMonths).toBe(0);
-    expect(outlook.forecastRemaining).toBe(0);
+  it("入力が対象月だけなら、その月 × 経過月数 ＋ 残りの予測（移動平均なら × 12）", () => {
+    const only = [{ key: "2026-10", revenue: 300_000, cogs: 0, expense: 0 }];
+    const outlook = computeAnnualOutlook(only, "2026-10", (h, n) =>
+      Array.from({ length: n }, () => h[h.length - 1]),
+    )!;
+    expect(outlook.elapsedMonths).toBe(10);
+    expect(outlook.enteredMonths).toBe(1);
+    expect(outlook.missingMonths).toBe(9);
+    expect(outlook.estimatedMissing).toBe(2_700_000);
+    expect(outlook.projected).toBe(3_600_000);
+  });
+
+  it("途中の未入力の月は、入力のある月の平均で埋める", () => {
+    const gaps: MonthlyByCategory[] = [
+      { key: "2026-01", revenue: 100, cogs: 0, expense: 0 },
+      { key: "2026-04", revenue: 300, cogs: 0, expense: 0 },
+    ];
+    const outlook = computeAnnualOutlook(gaps, "2026-04", flat(0))!;
+    expect(outlook.missingMonths).toBe(2); // 2・3 月
+    expect(outlook.estimatedMissing).toBe(400); // 平均 200 × 2
     expect(outlook.projected).toBe(800);
+    expect(outlook.progressRate).toBeCloseTo(0.5);
+  });
+
+  it("12 月まで入力がそろえば、予測も按分もなく実績どおり（達成率 100%）", () => {
+    const full = Array.from({ length: 12 }, (_, i) => ({
+      key: `2026-${String(i + 1).padStart(2, "0")}`,
+      revenue: 100,
+      cogs: 0,
+      expense: 0,
+    }));
+    const outlook = computeAnnualOutlook(full, "2026-12", flat(999))!;
+    expect(outlook.remainingMonths).toBe(0);
+    expect(outlook.missingMonths).toBe(0);
+    expect(outlook.projected).toBe(1200);
     expect(outlook.progressRate).toBe(1);
   });
 
-  it("前年の実績は当年累計に含めない", () => {
+  it("前年の実績は当年累計に含めないが、残りの予測の学習には使う", () => {
     const withPrev = [{ key: "2025-12", revenue: 999, cogs: 0, expense: 0 }, ...monthly];
-    const outlook = computeAnnualOutlook(withPrev, "2026-03", flat(0))!;
+    let learned: number[] = [];
+    const outlook = computeAnnualOutlook(withPrev, "2026-03", (h, n) => {
+      learned = h;
+      return Array.from({ length: n }, () => 0);
+    })!;
     expect(outlook.ytd).toBe(300);
     expect(outlook.projected).toBe(300);
+    expect(learned).toEqual([999, 100, 100, 100]);
+  });
+
+  it("value を指定すると利益（収入 − 原価 − 費用）の見込みを出す", () => {
+    const pl: MonthlyByCategory[] = [{ key: "2026-06", revenue: 300, cogs: 50, expense: 150 }];
+    const outlook = computeAnnualOutlook(pl, "2026-06", flat(100), {
+      value: (m) => m.revenue - m.cogs - m.expense,
+    })!;
+    expect(outlook.ytd).toBe(100);
+    expect(outlook.estimatedMissing).toBe(500); // 1〜5 月を 100 で埋める
+    expect(outlook.projected).toBe(1200); // 100 + 500 + 100 × 6
+  });
+
+  it("3 月決算: 期首の 4 月だけ入力なら 4 月 × 12、前の期の月は累計に含めない", () => {
+    const fy: MonthlyByCategory[] = [
+      { key: "2026-03", revenue: 999, cogs: 0, expense: 0 },
+      { key: "2026-04", revenue: 200, cogs: 0, expense: 0 },
+    ];
+    const outlook = computeAnnualOutlook(fy, "2026-04", flat(200), { closingMonth: 3 })!;
+    expect(outlook).toMatchObject({
+      closingMonth: 3,
+      startKey: "2026-04",
+      endKey: "2027-03",
+      ytd: 200,
+      elapsedMonths: 1,
+      missingMonths: 0,
+      remainingMonths: 11,
+      projected: 2400,
+    });
   });
 
   it("想定額が 0 なら達成率は null", () => {

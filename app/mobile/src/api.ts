@@ -224,8 +224,7 @@ export type KpiData = {
   grossMargin: number;
   operatingProfit: number;
   operatingMargin: number;
-  mom: number | null;
-  yoy: number | null;
+  /** 期首（12 月決算なら 1 月）から対象月までの累計 */
   ytd: number;
 };
 
@@ -241,10 +240,19 @@ export type KpiBudget = {
   operatingProfitRate: number | null;
 };
 
-// 当年の着地見込み（残り月は移動平均で予測）と、その時点の達成率
+// 期（決算月で締める 1 年）の着地見込みと、その時点の達成率。
+// 未入力の月は入力済み月の平均で埋め、残りの月は移動平均で予測する（web の lib/kpi.ts）
 export type AnnualOutlook = {
-  year: number;
+  /** 決算月（1〜12） */
+  closingMonth: number;
+  /** 期首・期末の月キー（"YYYY-MM"） */
+  startKey: string;
+  endKey: string;
   ytd: number;
+  elapsedMonths: number;
+  enteredMonths: number;
+  missingMonths: number;
+  estimatedMissing: number;
   remainingMonths: number;
   forecastRemaining: number;
   projected: number;
@@ -257,6 +265,8 @@ export type KpiResponse = {
   /** 実績のある月（昇順）。対象月セレクタの候補に使う */
   periods: string[];
   annual: AnnualOutlook | null;
+  /** 利益（家計では貯蓄額）の年間見込み */
+  annualProfit: AnnualOutlook | null;
 };
 
 // period 省略時はサーバー既定（現在月以前で最も新しい実績月）
@@ -270,6 +280,7 @@ export async function fetchKpi(period?: string): Promise<KpiResponse> {
     budget: json.budget ?? null,
     periods: json.periods ?? [],
     annual: json.annual ?? null,
+    annualProfit: json.annualProfit ?? null,
   };
 }
 
