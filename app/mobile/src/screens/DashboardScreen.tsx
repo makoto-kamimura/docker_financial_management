@@ -15,6 +15,7 @@ import {
 import { BudgetActualChart } from "../components/BudgetActualChart";
 import { CycleStatusRow, type CycleScreen } from "../components/CycleStatusRow";
 import { LoadingView } from "../components/LoadingView";
+import { NetWorthSummaryCard } from "../components/NetWorthSummaryCard";
 import { Lead, TermList } from "../components/ui";
 import { DASHBOARD_HELP, kpiTermHelp, textFor } from "../shared/help-texts";
 import { KPI_LABELS } from "../shared/mode-labels";
@@ -352,6 +353,11 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
       {/* 予算と実績（KPI の対象月の差をひと目で） */}
       {!loading && !error && kpi && (
         <BudgetActualChart viewMode={viewMode} period={kpi.period} data={variance} />
+      )}
+
+      {/* 総資産サマリ（KPI の対象月の時点。内訳と推移は資産管理） */}
+      {!loading && !error && kpi && (
+        <NetWorthSummaryCard period={kpi.period} refreshKey={refreshKey} />
       )}
     </ScrollView>
   );

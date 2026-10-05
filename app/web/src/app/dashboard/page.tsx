@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { BudgetActualChart } from "@/components/BudgetActualChart";
 import { CycleStatusStrip } from "@/components/CycleStatusStrip";
 import { KpiCards } from "@/components/KpiCards";
+import { NetWorthSummaryCard } from "@/components/NetWorthSummaryCard";
 import { PageHeader } from "@/components/ui";
 import { AppShell } from "@/components/AppShell";
 import { SectionLead } from "@/components/Explain";
@@ -65,11 +66,12 @@ function StepChecklistCard() {
   );
 }
 
-// ダッシュボードは KPI・予算と実績の確定の状況・予算と実績のグラフを置く。
+// ダッシュボードは KPI・予算と実績の確定の状況・予算と実績のグラフ・総資産サマリを置く。
+// どれも KPI カードで選んだ対象月の内容を出す（総資産サマリはその月末、今月なら今日の時点）。
 // 確定の操作は予算管理（予算の確定）と実績管理（実績の確定）で行い、ここには状況とリンクだけ置く。
 export default function DashboardPage() {
   const sysMode = useViewMode();
-  // KPI カードで選んだ対象月。確定の状況と予算と実績のグラフもこの月を出す
+  // KPI カードで選んだ対象月。確定の状況・予算と実績のグラフ・総資産サマリもこの月を出す
   const [kpiPeriod, setKpiPeriod] = useState<string | null>(null);
 
   return (
@@ -88,6 +90,9 @@ export default function DashboardPage() {
 
       {/* ── 予算と実績（KPI の対象月の差をひと目で）──── */}
       <BudgetActualChart mode={sysMode} period={kpiPeriod} />
+
+      {/* ── 総資産サマリ（KPI の対象月の時点。内訳と推移は資産管理）──── */}
+      <NetWorthSummaryCard period={kpiPeriod} />
     </AppShell>
   );
 }
