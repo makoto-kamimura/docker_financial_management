@@ -62,7 +62,7 @@ model Account {
   accruedExpenses       AccruedExpense[]
   loans                 Loan[]
   personalAssets        PersonalAsset[]
-  allocationRules       AllocationRule[]
+  allocationAssignment  AllocationAccountAssignment?
   categorizedTxns       BankTransaction[]
   categorizedCardTxns   CardTransaction[]
   txnCategoryRules      TxnCategoryRule[]
@@ -167,23 +167,43 @@ model BudgetConfirmation {
 // 予算配分ルール（FP 推奨の収入比率マスタ。ステップ 2 の配分提案に使用）
 // 既定ルール（旧モバイル DEFAULT_ALLOCATION）をテナント作成時に自動投入する。
 model AllocationRule {
-  id         Int      @id @default(autoincrement())
-  tenantId   Int
-  key        String // ルール識別子（rent / food など）
-  label      String // 表示名（家賃・住宅ローン など）
-  group      String // 固定費 / 生活費 / その他
-  minPercent Decimal  @db.Decimal(5, 2) // 推奨割合の下限（%）
-  maxPercent Decimal? @db.Decimal(5, 2) // 推奨割合の上限（%）。null = 上限なし
-  note       String? // 補足（「理想は25%以内」など）
-  account    Account? @relation(fields: [accountId], references: [id])
-  accountId  Int? // 対応する支払項目科目（null = 未紐付け）
-  sortOrder  Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id               Int              @id @default(autoincrement())
+  tenantId         Int
+  key              String // ルール識別子（rent / food など）
+  label            String // 表示名（家賃・住宅ローン など）
+  group            String // 固定費 / 生活費 / その他
+  minPercent       Decimal          @db.Decimal(5, 2) // 推奨割合の下限（%）
+  maxPercent       Decimal?         @db.Decimal(5, 2) // 推奨割合の上限（%）。null = 上限なし
+  note             String? // 補足（「理想は25%以内」など）
+  // 科目の振り分け（lib/allocation-assign.ts）。科目名にこのキーワードを含む科目をこのルールに入れる
+  keywords         String[]         @default([])
+  // 受け皿にする区分。キーワードに当たらなかったこの区分の科目をこのルールに入れる（null = 受け皿ではない）
+  fallbackCategory AccountCategory?
+  sortOrder        Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  assignments AllocationAccountAssignment[]
 
   @@unique([tenantId, key])
   @@index([tenantId])
   @@map("allocation_rules")
+}
+
+// 科目の配分ルールへの手動の割り当て。自動の振り分け（キーワード・受け皿）より優先する。
+// 行が無い科目は自動で振り分ける（保存しないので、追加した科目もすぐ配分に入る）。
+model AllocationAccountAssignment {
+  id        Int             @id @default(autoincrement())
+  tenantId  Int
+  account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId Int             @unique
+  rule      AllocationRule? @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  ruleId    Int? // null = 配分に入れない
+  createdAt DateTime        @default(now())
+
+  @@index([tenantId])
+  @@index([ruleId])
+  @@map("allocation_account_assignments")
 }
 
 // 実績データ

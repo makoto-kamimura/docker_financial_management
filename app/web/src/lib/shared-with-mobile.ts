@@ -3,6 +3,7 @@
 // モバイル側へそのまま複製する（npm run sync:mobile）。複製に差分が無いことは
 // shared-with-mobile.test.ts が検査する。挙げるファイルは lib 内の相対 import だけに依存させること。
 export const SHARED_WITH_MOBILE = [
+  "allocation-assign.ts",
   "budget-cycle.ts",
   "debt-schedule.ts",
   "display-name.ts",

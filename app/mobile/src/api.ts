@@ -529,7 +529,7 @@ export type BudgetVariance = {
   next: { year: number; month: number };
   confirmedAt: string | null;
   nextConfirmedAt: string | null;
-  /** 余りの回し先の既定（予算配分の「貯蓄・投資」にひも付けた科目） */
+  /** 余りの回し先の既定（予算配分の「貯蓄・投資」に入る科目） */
   transferTargetId: number | null;
   rows: BudgetVarianceRow[];
   summary: {
@@ -633,8 +633,24 @@ export type AllocationRule = {
   minPercent: number;
   maxPercent: number | null;
   note: string | null;
+  /** 科目名にこのどれかを含む科目をこのルールに入れる */
+  keywords: string[];
+  /** キーワードに当たらなかったこの区分の科目を受け取る（受け皿）。null = 受け皿ではない */
+  fallbackCategory: string | null;
   sortOrder: number;
-  account: { id: number; code: string; name: string } | null;
+  /** このルールに入っている科目（自動の振り分け＋手動の割り当て） */
+  accounts: AllocationMember[];
+};
+
+/** 配分ルールのメンバー科目。source: keyword / fallback = 自動、manual = 手で割り当て */
+export type AllocationMember = {
+  id: number;
+  code: string;
+  name: string;
+  soleName: string | null;
+  corporateName: string | null;
+  category: string;
+  source: "manual" | "keyword" | "fallback" | "none";
 };
 
 export type AllocationRuleInput = {
@@ -645,8 +661,8 @@ export type AllocationRuleInput = {
   /** null = 上限なし */
   maxPercent: number | null;
   note: string | null;
-  /** 対応科目コード（null = 紐付け解除） */
-  accountCode: string | null;
+  /** 省略時はサーバーの値を保つ */
+  keywords?: string[];
 };
 
 export async function fetchAllocationRules(): Promise<AllocationRule[]> {
@@ -700,12 +716,18 @@ export type AllocationSuggestion = {
       group: string;
       minPercent: number;
       maxPercent: number | null;
-      accountId: number | null;
       sortOrder: number;
     };
     min: number;
     max: number | null;
     recommended: number;
+    /** このルールの科目と、按分の重み・按分した推奨額・その月に入っている予算 */
+    accounts: (AllocationMember & {
+      weight: number;
+      recommended: number;
+      /** null = 予算が未設定 */
+      budget: number | null;
+    })[];
   }[];
   totalRecommended: number;
   overRecommended: boolean;
@@ -726,16 +748,18 @@ export async function fetchAllocationSuggestion(params: {
   return json.data;
 }
 
-// 推奨額を対応科目の予算へ一括反映する（POST /budgets/allocation-apply）
+// 推奨額を、予算が未設定の科目へ反映する（POST /budgets/allocation-apply）
 export async function applyAllocationToBudget(
   year: number,
   items: { accountId: number; month: number; amount: number }[],
-): Promise<void> {
-  await request(
+): Promise<{ applied: number; skipped: number }> {
+  // 予算が入っている科目は書き換えない（サーバー側でも飛ばす）
+  const json = await request<{ data: { applied: number; skipped: number } }>(
     "/budgets/allocation-apply",
     "予算への反映に失敗しました",
-    jsonInit("POST", { year, items }),
+    jsonInit("POST", { year, items, onlyUnset: true }),
   );
+  return json.data;
 }
 
 // ── 銀行口座 ──────────────────────────────────────────────────────────

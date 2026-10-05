@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
 import { prisma } from "@/lib/prisma";
 import { seedDefaultAllocationRulesForTenant } from "@/lib/default-allocation-rules";
-
-const RULE_INCLUDE = { account: { select: { id: true, code: true, name: true } } };
+import { loadAllocationRulesView } from "@/lib/allocation-data";
 
 // POST /api/allocation-rules/defaults
 //   … ファイナンシャルプランナー推奨の既定配分ルールを投入する（editor 以上）。
@@ -18,25 +17,7 @@ export const POST = withApi({
     );
     await audit("create", `allocation-rules:defaults:${created}`);
 
-    const rules = await db.allocationRule.findMany({
-      where: { tenantId },
-      include: RULE_INCLUDE,
-      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    });
-
-    return NextResponse.json({
-      data: rules.map((r) => ({
-        id: r.id,
-        key: r.key,
-        label: r.label,
-        group: r.group,
-        minPercent: Number(r.minPercent),
-        maxPercent: r.maxPercent === null ? null : Number(r.maxPercent),
-        note: r.note,
-        sortOrder: r.sortOrder,
-        account: r.account,
-      })),
-      created,
-    });
+    const view = await loadAllocationRulesView(db, tenantId);
+    return NextResponse.json({ data: view.rules, unassigned: view.unassigned, created });
   },
 });

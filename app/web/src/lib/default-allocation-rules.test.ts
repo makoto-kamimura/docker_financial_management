@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { DEFAULT_ALLOCATION_RULES } from "./default-allocation-rules";
-import { HOME_ACCOUNTS_SEED } from "./default-accounts";
 
 describe("既定の予算配分ルール", () => {
   it("key が一意である", () => {
@@ -24,12 +23,11 @@ describe("既定の予算配分ルール", () => {
     expect(totalMin).toBeLessThanOrEqual(100);
   });
 
-  it("紐付け科目コードは家庭モード既定科目に実在する", () => {
-    const codes = new Set<string>(HOME_ACCOUNTS_SEED.map((a) => a.code));
-    for (const r of DEFAULT_ALLOCATION_RULES) {
-      if (r.accountCode !== null) {
-        expect(codes.has(r.accountCode), `${r.key}: ${r.accountCode}`).toBe(true);
-      }
-    }
+  it("受け皿は区分ごとに 1 つだけ", () => {
+    const fallbacks = DEFAULT_ALLOCATION_RULES.filter((r) => r.fallbackCategory).map(
+      (r) => r.fallbackCategory,
+    );
+    expect(new Set(fallbacks).size).toBe(fallbacks.length);
+    expect(fallbacks.sort()).toEqual(["COGS", "EXPENSE"]);
   });
 });

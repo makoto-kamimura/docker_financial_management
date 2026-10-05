@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { badRequest } from "@/lib/api-error";
-import { findAccountByCode } from "@/lib/period";
-import { ALLOCATION_GROUPS } from "@/lib/default-allocation-rules";
+import { loadAllocationRulesView } from "@/lib/allocation-data";
+import { ALLOCATION_GROUPS, ALLOCATION_TARGET_CATEGORIES } from "@/lib/default-allocation-rules";
 
 const RuleSchema = z
   .object({
@@ -13,7 +12,10 @@ const RuleSchema = z
     minPercent: z.number().min(0).max(100),
     maxPercent: z.number().min(0).max(100).nullable(),
     note: z.string().max(255).nullable().optional(),
-    accountCode: z.string().nullable().optional(), // 対応科目コード（null = 紐付け解除）
+    // 科目名にこのどれかを含む科目をこのルールに入れる（lib/allocation-assign.ts）
+    keywords: z.array(z.string().trim().min(1).max(50)).max(50).optional(),
+    // キーワードに当たらなかったこの区分の科目を受け取る（受け皿）。null = 受け皿ではない
+    fallbackCategory: z.enum(ALLOCATION_TARGET_CATEGORIES).nullable().optional(),
   })
   .refine((r) => r.maxPercent === null || r.minPercent <= r.maxPercent, {
     message: "minPercent は maxPercent 以下にしてください",
@@ -25,91 +27,44 @@ const PutSchema = z.object({
   removedKeys: z.array(z.string()).max(100).optional(),
 });
 
-// ルール行を API レスポンス形式へ整形（Decimal → number）
-function serialize(rule: {
-  id: number;
-  key: string;
-  label: string;
-  group: string;
-  minPercent: unknown;
-  maxPercent: unknown;
-  note: string | null;
-  sortOrder: number;
-  account: { id: number; code: string; name: string } | null;
-}) {
-  return {
-    id: rule.id,
-    key: rule.key,
-    label: rule.label,
-    group: rule.group,
-    minPercent: Number(rule.minPercent),
-    maxPercent: rule.maxPercent === null ? null : Number(rule.maxPercent),
-    note: rule.note,
-    sortOrder: rule.sortOrder,
-    account: rule.account,
-  };
-}
-
-const RULE_INCLUDE = { account: { select: { id: true, code: true, name: true } } };
-
 // GET /api/allocation-rules … 予算配分ルール一覧（テナント別マスタ）
+//   ルールごとのメンバー科目（自動の振り分けと手動の割り当てを解決したもの）と、
+//   どのルールにも入っていない科目も返す。
 export const GET = withApi({
   role: "viewer",
   handler: async ({ user, db }) => {
-    const rules = await db.allocationRule.findMany({
-      where: { tenantId: user.tenantId },
-      include: RULE_INCLUDE,
-      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    });
-    return NextResponse.json({ data: rules.map(serialize) });
+    const view = await loadAllocationRulesView(db, user.tenantId);
+    return NextResponse.json({ data: view.rules, unassigned: view.unassigned });
   },
 });
 
 // PUT /api/allocation-rules … 予算配分ルールの一括更新（key 単位の upsert + 任意削除、editor 以上）
+//   科目はルールに直接結び付けない。キーワードと受け皿の区分を変えると、振り分けがその場で変わる。
+//   ルールを消すと、そのルールへの手動の割り当ても消え（FK の CASCADE）、科目は自動に戻る。
 export const PUT = withApi({
   role: "editor",
   schema: PutSchema,
   handler: async ({ user, db, body, audit }) => {
     const { tenantId } = user;
 
-    // 科目コードを事前解決（自テナントの科目のみ許可）
-    const accountIdByKey = new Map<string, number | null>();
-    for (const item of body.items) {
-      if (item.accountCode === undefined) continue;
-      if (item.accountCode === null || item.accountCode === "") {
-        accountIdByKey.set(item.key, null);
-        continue;
-      }
-      const account = await findAccountByCode(db, tenantId, item.accountCode);
-      if (!account) throw badRequest(`unknown accountCode: ${item.accountCode}`);
-      accountIdByKey.set(item.key, account.id);
-    }
-
     await db.$transaction(async (tx) => {
       for (const [index, item] of body.items.entries()) {
-        const accountId = accountIdByKey.get(item.key);
+        const common = {
+          label: item.label,
+          group: item.group,
+          minPercent: item.minPercent,
+          maxPercent: item.maxPercent,
+          note: item.note ?? null,
+          sortOrder: index,
+          ...(item.keywords !== undefined ? { keywords: item.keywords } : {}),
+          ...(item.fallbackCategory !== undefined
+            ? { fallbackCategory: item.fallbackCategory }
+            : {}),
+        };
         await tx.allocationRule.upsert({
           where: { tenantId_key: { tenantId, key: item.key } },
-          update: {
-            label: item.label,
-            group: item.group,
-            minPercent: item.minPercent,
-            maxPercent: item.maxPercent,
-            note: item.note ?? null,
-            sortOrder: index,
-            ...(accountId !== undefined ? { accountId } : {}),
-          },
-          create: {
-            tenantId,
-            key: item.key,
-            label: item.label,
-            group: item.group,
-            minPercent: item.minPercent,
-            maxPercent: item.maxPercent,
-            note: item.note ?? null,
-            accountId: accountId ?? null,
-            sortOrder: index,
-          },
+          update: common,
+          create: { tenantId, key: item.key, ...common },
         });
       }
       if (body.removedKeys?.length) {
@@ -121,11 +76,7 @@ export const PUT = withApi({
 
     await audit("update", `allocation-rules:${body.items.length}`);
 
-    const rules = await db.allocationRule.findMany({
-      where: { tenantId },
-      include: RULE_INCLUDE,
-      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    });
-    return NextResponse.json({ data: rules.map(serialize) });
+    const view = await loadAllocationRulesView(db, tenantId);
+    return NextResponse.json({ data: view.rules, unassigned: view.unassigned });
   },
 });

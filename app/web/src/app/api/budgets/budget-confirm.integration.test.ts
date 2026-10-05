@@ -90,15 +90,18 @@ beforeAll(async () => {
   savings = await mkAccount("S", "貯蓄", "EXPENSE");
   salary = await mkAccount("R", "給与", "REVENUE");
 
-  await prisma.allocationRule.create({
+  const savingsRule = await prisma.allocationRule.create({
     data: {
       tenantId,
       key: "savings",
       label: "貯蓄・投資",
       group: "その他",
       minPercent: 20,
-      accountId: savings.id,
     },
+  });
+  // 貯蓄の科目を「貯蓄・投資」ルールに手で割り当てる（余りの回し先の既定になる）
+  await prisma.allocationAccountAssignment.create({
+    data: { tenantId, accountId: savings.id, ruleId: savingsRule.id },
   });
 
   const may = await prisma.period.create({
@@ -126,6 +129,7 @@ afterAll(async () => {
   await prisma.budgetHistory.deleteMany({ where });
   await prisma.budget.deleteMany({ where });
   await prisma.financialRecord.deleteMany({ where });
+  await prisma.allocationAccountAssignment.deleteMany({ where });
   await prisma.allocationRule.deleteMany({ where });
   await prisma.period.deleteMany({ where });
   await prisma.account.deleteMany({ where });

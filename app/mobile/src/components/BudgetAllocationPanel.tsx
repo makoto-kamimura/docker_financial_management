@@ -1,6 +1,8 @@
 // 予算配分（web 版 components/BudgetAllocationPanel.tsx と同じ構成）。予算画面の「予算配分」タブから使う。
 //   1. 予算配分ルール … 収入に対する各項目の割当割合（%）のマスタ。FP 推奨の既定ルールを取り込める。
-//   2. 配分提案 … 収入額に割合を掛けた推奨額（計算はサーバー側）。予算へ一括反映できる。
+//      科目は科目名のキーワードと受け皿の区分で自動で振り分ける（ここでは表示のみ。移すのは web 版）。
+//   2. 配分提案 … 収入額に割合を掛けた推奨額（計算はサーバー側）。予算が未設定の科目にだけ、
+//      入っている予算を差し引いた残りを前の 3 か月の実績の比率で按分して反映する。
 //      既定の「手入力」は入力額をそのまま振り分ける（ローン等の控除なし）。
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -11,7 +13,6 @@ import {
   fetchAllocationSuggestion,
   importDefaultAllocationRules,
   saveAllocationRules,
-  type Account,
   type AllocationBasis,
   type AllocationRule,
   type AllocationSuggestion,
@@ -19,9 +20,9 @@ import {
 } from "../api";
 import { displayName } from "../shared/display-name";
 import { digitsOnly, MONTHS, yen } from "../format";
-import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, EmptyText, Field, Input, Notice, Pills, SectionTitle } from "./ui";
 import { BUDGET_HELP } from "../shared/help-texts";
+import { planAllocationApply } from "../shared/allocation-assign";
 
 type RuleEdit = {
   origKey: string | null; // null = 新規（保存前）
@@ -31,8 +32,18 @@ type RuleEdit = {
   minPercent: string;
   maxPercent: string; // 空 = 上限なし
   note: string;
-  accountCode: string; // 空 = 未紐付け
+  keywords: string; // 読点・カンマ区切り
+  members: AllocationRule["accounts"]; // 保存済みの内容で振り分けた科目（表示のみ）
 };
+
+const parseKeywords = (text: string) => [
+  ...new Set(
+    text
+      .split(/[、,，\s]+/)
+      .map((k) => k.trim())
+      .filter(Boolean),
+  ),
+];
 
 const toEdit = (r: AllocationRule): RuleEdit => ({
   origKey: r.key,
@@ -42,7 +53,8 @@ const toEdit = (r: AllocationRule): RuleEdit => ({
   minPercent: String(r.minPercent),
   maxPercent: r.maxPercent === null ? "" : String(r.maxPercent),
   note: r.note ?? "",
-  accountCode: r.account?.code ?? "",
+  keywords: r.keywords.join("、"),
+  members: r.accounts,
 });
 
 // 新規行の key は英数字で一意にする必要があるため、タイムスタンプで採番する
@@ -50,20 +62,13 @@ const newRuleKey = () => `rule_${Date.now().toString(36)}`;
 
 type Message = { ok: boolean; text: string } | null;
 
-function AllocationRulesSection({
-  accounts,
-  viewMode,
-}: {
-  accounts: Account[];
-  viewMode: ViewMode;
-}) {
+function AllocationRulesSection({ viewMode }: { viewMode: ViewMode }) {
   const [rules, setRules] = useState<RuleEdit[]>([]);
   const [removedKeys, setRemovedKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [msg, setMsg] = useState<Message>(null);
-  const [pickingIndex, setPickingIndex] = useState<number | null>(null);
 
   useEffect(() => {
     fetchAllocationRules()
@@ -86,7 +91,8 @@ function AllocationRulesSection({
         minPercent: "0",
         maxPercent: "",
         note: "",
-        accountCode: "",
+        keywords: "",
+        members: [],
       },
     ]);
 
@@ -126,7 +132,7 @@ function AllocationRulesSection({
       minPercent: Number(r.minPercent) || 0,
       maxPercent: r.maxPercent.trim() === "" ? null : Number(r.maxPercent),
       note: r.note.trim() === "" ? null : r.note.trim(),
-      accountCode: r.accountCode === "" ? null : r.accountCode,
+      keywords: parseKeywords(r.keywords),
     }));
     if (items.some((i) => !i.key || !i.label)) {
       setMsg({ ok: false, text: "項目名（ラベル）が未入力の行があります。" });
@@ -144,11 +150,6 @@ function AllocationRulesSection({
       setSaving(false);
     }
   }
-
-  const accountLabel = (code: string) => {
-    const a = accounts.find((x) => x.code === code);
-    return a ? `${a.code} ${displayName(a, viewMode)}` : "— 未紐付け —";
-  };
 
   return (
     <Card>
@@ -209,13 +210,20 @@ function AllocationRulesSection({
                 </Field>
               </View>
             </View>
-            <Field label="対応科目">
-              <TouchableOpacity style={s.picker} onPress={() => setPickingIndex(i)}>
-                <Text style={s.pickerText} numberOfLines={1}>
-                  {accountLabel(r.accountCode)}
-                </Text>
-              </TouchableOpacity>
+            <Field label="キーワード（科目名）">
+              <Input
+                value={r.keywords}
+                placeholder="例: 電気、ガス、水道"
+                onChangeText={(t) => setField(i, "keywords", t)}
+              />
             </Field>
+            <Text style={s.members}>
+              {r.members.length > 0
+                ? `入っている科目: ${r.members.map((a) => displayName(a, viewMode)).join("、")}`
+                : r.origKey
+                  ? "入っている科目はありません"
+                  : "保存すると、キーワードに当たる科目が入ります"}
+            </Text>
             <Field label="補足">
               <Input value={r.note} onChangeText={(t) => setField(i, "note", t)} />
             </Field>
@@ -223,23 +231,6 @@ function AllocationRulesSection({
         ))
       )}
       <Button small variant="link" label="+ ルールを追加" onPress={addRule} />
-
-      <AccountPickerModal
-        visible={pickingIndex !== null}
-        accounts={accounts}
-        title="対応科目を選択"
-        clearLabel="— 未紐付け —"
-        currentId={
-          pickingIndex !== null
-            ? (accounts.find((a) => a.code === rules[pickingIndex]?.accountCode)?.id ?? null)
-            : null
-        }
-        onSelect={(a) => {
-          if (pickingIndex !== null) setField(pickingIndex, "accountCode", a?.code ?? "");
-          setPickingIndex(null);
-        }}
-        onClose={() => setPickingIndex(null)}
-      />
     </Card>
   );
 }
@@ -252,12 +243,10 @@ const BASIS_OPTIONS: { value: AllocationBasis; label: string }[] = [
 
 function AllocationSuggestSection({
   fiscalYear,
-  accounts,
   viewMode,
   onApplied,
 }: {
   fiscalYear: number;
-  accounts: Account[];
   viewMode: ViewMode;
   onApplied: () => void;
 }) {
@@ -290,25 +279,43 @@ function AllocationSuggestSection({
       .finally(() => setLoading(false));
   }, [year, month, basis, committedIncome]);
 
+  // ルールごとの反映の計画（予算が入っている科目は残し、残りを未設定の科目へ按分）
+  const plans = new Map(
+    (data?.items ?? []).map((item) => [
+      item.rule.id,
+      planAllocationApply({
+        amount: Number(amounts[item.rule.id] ?? item.recommended) || 0,
+        accountIds: item.accounts.map((a) => a.id),
+        existingBudgets: new Map(
+          item.accounts.filter((a) => a.budget !== null).map((a) => [a.id, a.budget!]),
+        ),
+        weights: new Map(item.accounts.map((a) => [a.id, a.weight])),
+      }),
+    ]),
+  );
+
   async function apply() {
     if (!data) return;
-    const items = data.items
-      .filter((i) => i.rule.accountId !== null)
-      .map((i) => ({
-        accountId: i.rule.accountId as number,
-        month,
-        amount: Number(amounts[i.rule.id] ?? i.recommended),
-      }))
-      .filter((i) => i.amount > 0);
+    const items = [...plans.values()]
+      .flatMap((p) => p.added)
+      .filter((a) => a.amount > 0)
+      .map((a) => ({ accountId: a.accountId, month, amount: a.amount }));
     if (items.length === 0) {
-      setMessage("反映する科目がありません（配分ルールに対応科目が未設定です）");
+      setMessage(
+        "反映する科目がありません（予算が未設定の科目が無いか、入っている予算で推奨額に届いています）",
+      );
       return;
     }
     setApplying(true);
     setMessage(null);
     try {
-      await applyAllocationToBudget(year, items);
-      setMessage(`${items.length} 件の科目に予算を反映しました。`);
+      const result = await applyAllocationToBudget(year, items);
+      setMessage(
+        `${result.applied} 件の科目に予算を入れました。` +
+          (result.skipped > 0
+            ? `（その間に予算が入った ${result.skipped} 件はそのままにしました）`
+            : ""),
+      );
       onApplied();
     } catch (e) {
       setMessage(`エラー: ${e instanceof Error ? e.message : "反映に失敗しました"}`);
@@ -422,17 +429,30 @@ function AllocationSuggestSection({
           </View>
 
           {data.items.map((item) => {
-            const acct = accounts.find((a) => a.id === item.rule.accountId);
-            const linked = item.rule.accountId !== null;
+            const linked = item.accounts.length > 0;
+            const added = new Map(
+              (plans.get(item.rule.id)?.added ?? []).map((a) => [a.accountId, a.amount]),
+            );
             return (
               <View key={item.rule.id} style={s.item}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.itemLabel}>
                     {item.rule.label} <Text style={s.itemGroup}>{item.rule.group}</Text>
                   </Text>
-                  <Text style={s.itemMeta}>
-                    {acct ? `${acct.code} ${displayName(acct, viewMode)}` : "—未紐付け—"}
-                  </Text>
+                  {linked ? (
+                    item.accounts.map((a) => (
+                      <Text key={a.id} style={s.itemMeta}>
+                        {displayName(a, viewMode)}{" "}
+                        {a.budget !== null
+                          ? `予算 ${yen(a.budget)}（そのまま）`
+                          : added.has(a.id)
+                            ? `→ ${yen(added.get(a.id)!)}`
+                            : "—"}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text style={s.itemMeta}>—入っている科目なし—</Text>
+                  )}
                   <Text style={s.itemMeta}>
                     目安 {yen(item.min)}
                     {item.max !== null ? ` 〜 ${yen(item.max)}` : " 〜"}
@@ -448,14 +468,14 @@ function AllocationSuggestSection({
               </View>
             );
           })}
-          {data.items.some((i) => i.rule.accountId === null) && (
+          {data.items.some((i) => i.accounts.length === 0) && (
             <Text style={s.hint}>
-              対応科目が未設定の項目は反映できません（上のルールで紐付けてください）。
+              科目が入っていない項目は反映できません（web 版の予算配分で科目を移せます）。
             </Text>
           )}
 
           <Button
-            label={applying ? "反映中…" : `${month}月の予算へ一括反映`}
+            label={applying ? "反映中…" : `${month}月の予算が未設定の科目へ反映`}
             onPress={apply}
             loading={applying}
             style={{ marginTop: 10 }}
@@ -469,30 +489,24 @@ function AllocationSuggestSection({
 
 export function BudgetAllocationPanel({
   fiscalYear,
-  accounts,
   viewMode,
   onApplied,
 }: {
   fiscalYear: number;
-  accounts: Account[];
   viewMode: ViewMode;
   /** 予算への反映後に呼ぶ（呼び出し側で予算・履歴・適正額を取り直す） */
   onApplied: () => void;
 }) {
   return (
     <>
-      <AllocationRulesSection accounts={accounts} viewMode={viewMode} />
-      <AllocationSuggestSection
-        fiscalYear={fiscalYear}
-        accounts={accounts}
-        viewMode={viewMode}
-        onApplied={onApplied}
-      />
+      <AllocationRulesSection viewMode={viewMode} />
+      <AllocationSuggestSection fiscalYear={fiscalYear} viewMode={viewMode} onApplied={onApplied} />
     </>
   );
 }
 
 const s = StyleSheet.create({
+  members: { fontSize: 11, color: "#64748b", lineHeight: 16, marginBottom: 8 },
   actions: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   rule: {
     borderWidth: 1,
@@ -510,15 +524,6 @@ const s = StyleSheet.create({
   },
   remove: { fontSize: 12, color: "#dc2626", fontWeight: "600" },
   percentRow: { flexDirection: "row", gap: 10 },
-  picker: {
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "#fff",
-  },
-  pickerText: { fontSize: 14, color: "#1e293b" },
   incomeRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   hint: { fontSize: 12, color: "#94a3b8", marginBottom: 8 },
   basisBox: { alignItems: "flex-end", marginBottom: 10 },

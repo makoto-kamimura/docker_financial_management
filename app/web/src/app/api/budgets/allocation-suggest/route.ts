@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { suggestAllocation, type AllocationRule } from "@/lib/allocation";
+import { suggestAllocation } from "@/lib/allocation";
+import { splitByRatio } from "@/lib/allocation-assign";
+import { loadActualWeights, loadAllocationContext } from "@/lib/allocation-data";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
 
 // GET /api/budgets/allocation-suggest?year=&month=&basis=budget|actual|manual&amount= … 配分提案（読み取り専用）
@@ -10,6 +12,9 @@ import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budge
 //     （「この収入ならどう配分するか」を素の数字で確かめるための計算）。
 //   basis=budget / actual … その月の収入（予算 or 実績）からローン等の固定支出を差し引いた
 //     「配分可能額」をもとに算出する。
+//   各ルールには、メンバー科目（自動の振り分け＋手動の割り当て）と、按分の重み（前の 3 か月の実績）、
+//   その月にすでに入っている予算を付けて返す。「予算へ反映」は、予算が未設定の科目だけに
+//   残りを按分する（画面で lib/allocation-assign.ts の planAllocationApply を使う）。
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({
@@ -60,24 +65,49 @@ export const GET = withApi({
               .map((o) => ({ accountId: o.accountId, amount: o.amount }));
           })();
 
-    const rules = await db.allocationRule.findMany({
-      where: { tenantId },
-      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    });
-
-    const ruleInputs: AllocationRule[] = rules.map((r) => ({
-      id: r.id,
-      key: r.key,
-      label: r.label,
-      group: r.group,
-      minPercent: Number(r.minPercent),
-      maxPercent: r.maxPercent === null ? null : Number(r.maxPercent),
-      accountId: r.accountId,
-      sortOrder: r.sortOrder,
-    }));
-
+    const { ruleInputs, members, accounts, assignments } = await loadAllocationContext(
+      db,
+      tenantId,
+    );
     const result = suggestAllocation({ basisAmount, overlays, rules: ruleInputs });
 
-    return NextResponse.json({ data: { year, month, basis, ...result } });
+    const allIds = accounts.map((a) => a.id);
+    const [weightsFor, period] = await Promise.all([
+      loadActualWeights(db, tenantId, allIds, { year, month }, { year, month }),
+      db.period.findUnique({
+        where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
+        select: { id: true },
+      }),
+    ]);
+    const weights = weightsFor(year, month);
+    const budgets = period
+      ? await db.budget.findMany({
+          where: { tenantId, periodId: period.id, accountId: { in: allIds } },
+          select: { accountId: true, amount: true },
+        })
+      : [];
+    const budgetById = new Map(budgets.map((b) => [b.accountId, Number(b.amount)]));
+    const accountById = new Map(accounts.map((a) => [a.id, a]));
+    const sourceById = new Map(assignments.map((a) => [a.accountId, a.source]));
+
+    const items = result.items.map((item) => {
+      const ids = members.get(item.rule.id) ?? [];
+      const split = splitByRatio(item.recommended, ids, weights);
+      return {
+        ...item,
+        accounts: ids.map((id) => ({
+          ...accountById.get(id)!,
+          source: sourceById.get(id) ?? "none",
+          /** 按分の重み（前の 3 か月の実績の合計） */
+          weight: weights.get(id) ?? 0,
+          /** 推奨額をこの科目に按分した額 */
+          recommended: split.get(id) ?? 0,
+          /** その月にすでに入っている予算（null = 未設定） */
+          budget: budgetById.has(id) ? budgetById.get(id)! : null,
+        })),
+      };
+    });
+
+    return NextResponse.json({ data: { year, month, basis, ...result, items } });
   },
 });

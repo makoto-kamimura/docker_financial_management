@@ -369,7 +369,7 @@ export function BudgetCyclePanel({ mode }: { mode: ViewMode }) {
                 </select>
                 {data.transferTargetId === null && household && (
                   <span className="text-[11px] text-slate-400">
-                    予算管理の「予算配分」で「貯蓄・投資」に科目をひも付けると、ここの既定になります。
+                    予算配分の「貯蓄・投資」に入る科目（科目名に「貯蓄」「積立」などを含む科目）が、ここの既定になります。
                   </span>
                 )}
               </div>
