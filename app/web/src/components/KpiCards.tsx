@@ -254,7 +254,7 @@ export function KpiCards({
         : `（${periodLabel(annual.startKey)}〜${periodLabel(annual.endKey)}）`)
     : undefined;
   // 利益カード（家計では貯蓄額）の補助表示は、利益率ではなく年間見込み
-  const profitSub = annualProfit ? `年間見込み ${yen(annualProfit.projected)}` : undefined;
+  const profitSub = annualProfit ? outlookSub(annualProfit) : undefined;
   const selector = (
     <PeriodSelector
       periods={data?.periods ?? [kpi.period]}

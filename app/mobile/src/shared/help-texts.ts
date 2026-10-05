@@ -48,9 +48,6 @@ export const DASHBOARD_HELP = {
   monthly: {
     household: "月ごとの収入と支出の内訳です。支出の中で大きい区分が、見直しの目安になります。",
   } as ModeText,
-  summary: {
-    household: "差引は、収入から支出を引いた金額（その月に貯蓄に回せた分）です。",
-  } as ModeText,
   empty:
     "この期間に集計できるデータがありません。実績管理か、銀行・カードの明細から登録すると表示されます。",
 };

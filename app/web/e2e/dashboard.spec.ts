@@ -14,7 +14,7 @@ test.describe("ダッシュボードと主要フロー", () => {
   test("ダッシュボードに KPI と推移グラフが表示される", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
     // KPI カード（F-11: 初期 viewMode は household）。
-    // 「収入」は KPI カード・構成比グラフの凡例・月次収支サマリーの見出しにも出るため first() で先頭を見る。
+    // 「収入」は KPI カード・構成比グラフの凡例・予算と実績のグラフにも出るため first() で先頭を見る。
     await expect(page.getByText("収入", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("貯蓄額")).toBeVisible();
     // 予測手法セレクタ（構成比グラフの将来月の予測に使う）

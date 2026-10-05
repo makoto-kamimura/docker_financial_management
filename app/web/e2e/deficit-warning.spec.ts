@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 // シードユーザー: admin@example.com / password
 //
 // 当月に大きな支出を一時的に追加して赤字状態を作り、ダッシュボードの
-// 警告表示（KPI カードの赤色強調・メッセージ、月次収支サマリーの赤背景行）を
+// 警告表示（KPI カードの赤色強調・メッセージ）を
 // 確認したうえで、テストデータを必ず削除して元の状態へ戻す。
 test.describe("収支マイナス警告", () => {
   test.beforeEach(async ({ page }) => {
@@ -27,7 +27,7 @@ test.describe("収支マイナス警告", () => {
     await expect(page.getByText("は支出が収入を上回っています")).toHaveCount(0);
   });
 
-  test("赤字月は KPI カードと月次サマリーに赤字警告が表示される", async ({ page, baseURL }) => {
+  test("赤字月は KPI カードに赤字警告が表示される", async ({ page, baseURL }) => {
     const now = new Date();
     const fiscalYear = now.getFullYear();
     const month = now.getMonth() + 1;
@@ -46,10 +46,6 @@ test.describe("収支マイナス警告", () => {
       await expect(page.getByText("は支出が収入を上回っています")).toBeVisible();
       // 赤字時はラベルの先頭に警告アイコン（⚠）が付き "⚠貯蓄額" になるため部分一致で確認する。
       await expect(page.getByText("貯蓄額")).toBeVisible();
-
-      // 予実対比タブは廃止し、ダッシュボードは KPI + 構成比グラフ + 月次収支サマリーの 1 画面。
-      await expect(page.getByText("月次収支サマリー")).toBeVisible();
-      await expect(page.getByText("支出が収入を上回った月は赤背景")).toBeVisible();
     } finally {
       // テストデータの後始末（他のテストへ影響させない）
       const delRes = await page.request.delete(`/api/financials/${recordId}`, {
