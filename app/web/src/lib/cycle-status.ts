@@ -1,5 +1,5 @@
 import type { TenantDbClient } from "@/lib/tenant-db";
-import { loadActualsCoverage } from "@/lib/actuals-coverage";
+import { loadActualsCoverage, type CoverageSnapshot } from "@/lib/actuals-coverage";
 import { nextYearMonth, prevYearMonth } from "@/lib/budget-cycle";
 
 // 月ごとの流れ「① 予算確定 → ② 実績確定 → ③ 翌月の予算確定」の状況。
@@ -48,9 +48,25 @@ export async function loadCycleStatus(
         sources: coverage.sources,
         lagging: coverage.lagging,
         unposted: coverage.unposted,
+        /** 確定時点の記録（口座・カードごとの最終日と「当月末まで変動なし」の印） */
+        confirmedCoverage:
+          (period?.actualsConfirmation?.coverage as CoverageSnapshot | null | undefined) ?? null,
       },
     },
   };
 }
 
 export type CycleStatus = Awaited<ReturnType<typeof loadCycleStatus>>["status"];
+
+/** 最後に実績を確定した月（"YYYY-MM"）。一度も確定していなければ null */
+export async function loadLastActualsConfirmed(
+  db: TenantDbClient,
+  tenantId: number,
+): Promise<string | null> {
+  const row = await db.actualsConfirmation.findFirst({
+    where: { tenantId },
+    orderBy: [{ period: { fiscalYear: "desc" } }, { period: { month: "desc" } }],
+    select: { period: { select: { fiscalYear: true, month: true } } },
+  });
+  return row ? `${row.period.fiscalYear}-${String(row.period.month).padStart(2, "0")}` : null;
+}

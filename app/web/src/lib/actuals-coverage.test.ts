@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCoverageSnapshot,
   judgeActualsCoverage,
+  remainingLagging,
   monthEndYmd,
   toYmd,
   type ActualsSource,
@@ -68,5 +70,45 @@ describe("judgeActualsCoverage", () => {
       entered: false,
     });
     expect(judgeActualsCoverage([src("card", 1, null)], 2026, 9).entered).toBe(false);
+  });
+});
+
+describe("当月末まで変動なし", () => {
+  const sources = [
+    src("bank", 1, "2026-09-30"),
+    src("card", 2, "2026-09-20"),
+    src("card", 3, "2026-09-25"),
+    src("card", 4, null),
+  ];
+  const coverage = judgeActualsCoverage(sources, 2026, 9);
+
+  it("届いていないソースすべてに印を付けると、残りは無い（確定できる）", () => {
+    expect(
+      remainingLagging(coverage, [
+        { kind: "card", id: 2 },
+        { kind: "card", id: 3 },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("一部だけなら、印の無いソースが残る", () => {
+    expect(remainingLagging(coverage, [{ kind: "card", id: 2 }])).toEqual([
+      { kind: "card", id: 3 },
+    ]);
+  });
+
+  it("確定時点の記録には全ソースの最終日と印が入り、届いているソースへの印は無視する", () => {
+    const snap = buildCoverageSnapshot(sources, coverage, [
+      { kind: "card", id: 2 },
+      { kind: "bank", id: 1 },
+    ]);
+    expect(snap.monthEnd).toBe("2026-09-30");
+    expect(snap.coveredThrough).toBe("2026-09-20");
+    expect(snap.sources.map((s) => [s.kind, s.id, s.lastDate, s.noChange])).toEqual([
+      ["bank", 1, "2026-09-30", false],
+      ["card", 2, "2026-09-20", true],
+      ["card", 3, "2026-09-25", false],
+      ["card", 4, null, false],
+    ]);
   });
 });

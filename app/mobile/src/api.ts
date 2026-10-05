@@ -286,47 +286,6 @@ export async function fetchKpi(period?: string): Promise<KpiResponse> {
   };
 }
 
-// ── 推移（構成比グラフ）─────────────────────────────────────────────────
-// web 版ダッシュボードと同じ /reports/monthly-trend を使う。
-// 対象月以前は実績、実績が未入力の将来月は予測値（isForecast=true）。
-export type TrendMonth = {
-  key: string; // "YYYY-MM"
-  isForecast: boolean;
-  REVENUE: number;
-  COGS: number;
-  EXPENSE: number;
-  PROFIT: number;
-  OTHER: number;
-  savings: number | null;
-  savingsForecast: number | null;
-};
-
-export type TrendResponse = {
-  period: string;
-  year: number | null;
-  months: TrendMonth[];
-  years: number[];
-};
-
-export async function fetchMonthlyTrend(params: {
-  period?: string;
-  year?: number;
-  back?: number;
-  forward?: number;
-  method?: string;
-}): Promise<TrendResponse> {
-  const q = new URLSearchParams();
-  if (params.year != null) q.set("year", String(params.year));
-  else if (params.period) q.set("period", params.period);
-  if (params.back != null) q.set("back", String(params.back));
-  if (params.forward != null) q.set("forward", String(params.forward));
-  q.set("method", params.method ?? "moving_average");
-
-  const res = await apiFetch(`/reports/monthly-trend?${q.toString()}`);
-  if (!res.ok) throw new Error("推移データの取得に失敗しました");
-  return res.json();
-}
-
 // ── ステップ進捗（F-10 オンボーディング）──────────────────────────────
 export type OnboardingSteps = {
   hasIncomeBudget: boolean;
@@ -577,8 +536,26 @@ export type CycleStatus = {
     lagging: { kind: ActualsSource["kind"]; id: number }[];
     /** この月の未転記の明細の件数（参考） */
     unposted: number;
+    /** 確定時点の記録（口座・カードごとの最終日と「当月末まで変動なし」の印）。未確定・古い確定は null */
+    confirmedCoverage: CoverageSnapshot | null;
   };
 };
+
+/** 実績を確定したときに記録した、確定時点の明細の状況 */
+export type CoverageSnapshot = {
+  monthEnd: string;
+  coveredThrough: string | null;
+  sources: (ActualsSource & { noChange: boolean })[];
+};
+
+/** 最後に実績を確定した月（YYYY-MM）。予実差確認などの既定の月に使う（GET /cycle-status/latest） */
+export async function fetchLastActualsConfirmed(): Promise<string | null> {
+  const json = await request<{ data: { lastActualsConfirmed: string | null } }>(
+    "/cycle-status/latest",
+    "確定状況の取得に失敗しました",
+  );
+  return json.data.lastActualsConfirmed;
+}
 
 export async function fetchCycleStatus(year: number, month: number): Promise<CycleStatus> {
   const json = await request<{ data: CycleStatus }>(
@@ -629,9 +606,18 @@ export async function unconfirmBudget(year: number, month: number): Promise<void
   throw new Error(errorMessage(json, "解除に失敗しました"));
 }
 
-// 指定した月の実績を確定する（その月の予算が確定済みで、明細がそろっていること）
-export async function confirmActuals(year: number, month: number): Promise<void> {
-  await request("/actuals/confirm", "確定に失敗しました", jsonInit("POST", { year, month }));
+// 指定した月の実績を確定する（その月の予算が確定済みで、明細がそろっていること）。
+// noChange は「当月末まで変動なし」を付けた口座・カード（月末まで届いていなくても、そろったものとして扱う）
+export async function confirmActuals(
+  year: number,
+  month: number,
+  noChange: { kind: ActualsSource["kind"]; id: number }[] = [],
+): Promise<void> {
+  await request(
+    "/actuals/confirm",
+    "確定に失敗しました",
+    jsonInit("POST", { year, month, noChange }),
+  );
 }
 
 // 実績の確定の解除（管理者だけ）

@@ -2,12 +2,21 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { conflict, notFound } from "@/lib/api-error";
-import { loadActualsCoverage } from "@/lib/actuals-coverage";
+import {
+  buildCoverageSnapshot,
+  loadActualsCoverage,
+  remainingLagging,
+} from "@/lib/actuals-coverage";
 import { nextYearMonth } from "@/lib/budget-cycle";
 
-const YearMonthSchema = z.object({
+const ConfirmSchema = z.object({
   year: z.number().int(),
   month: z.number().int().min(1).max(12),
+  /** 「当月末まで変動なし」の印を付けた口座・カード（省略時は無し） */
+  noChange: z
+    .array(z.object({ kind: z.enum(["bank", "card"]), id: z.number().int() }))
+    .max(200)
+    .default([]),
 });
 
 const ym = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
@@ -16,13 +25,15 @@ const ym = (year: number, month: number) => `${year}-${String(month).padStart(2,
 //   月ごとの流れ「① 予算確定 → ② 実績確定 → ③ 翌月の予算確定」の ②。
 //   その月の予算が確定済みで、銀行・カード・電子マネーの明細が月末日までそろって
 //   「実績入力済み」になっていることが条件（lib/actuals-coverage.ts）。
+//   月末まで届いていない口座・カードは、noChange（当月末まで変動なし）で指定すれば、そろったものとして扱う。
+//   確定時点の明細の状況（最終日と変動なしの印）は actuals_confirmations.coverage に記録する。
 //   確定後は、その月の実績（financial_records）の登録・変更・削除・明細の転記を受け付けない。
 export const POST = withApi({
   role: "editor",
-  schema: YearMonthSchema,
+  schema: ConfirmSchema,
   handler: async ({ user, db, body, audit }) => {
     const { tenantId } = user;
-    const { year, month } = body;
+    const { year, month, noChange } = body;
     const label = `${year}年${month}月`;
 
     const period = await db.period.findUnique({
@@ -35,21 +46,37 @@ export const POST = withApi({
     if (period.actualsConfirmation) throw conflict(`${label}の実績はすでに確定済みです`);
 
     const coverage = await loadActualsCoverage(db, tenantId, year, month);
-    if (!coverage.entered) {
+    if (coverage.coveredThrough === null) {
       throw conflict(
-        coverage.coveredThrough
-          ? `明細が${coverage.monthEnd}までそろっていません（いちばん遅いものは${coverage.coveredThrough}まで）。明細を取り込んでから確定してください`
-          : "銀行口座・カード・電子マネーの明細がまだありません。明細を取り込んでから確定してください",
+        "銀行口座・カード・電子マネーの明細がまだありません。明細を取り込んでから確定してください",
       );
     }
+    const remaining = remainingLagging(coverage, noChange);
+    if (remaining.length > 0) {
+      const names = remaining
+        .map((r) => coverage.sources.find((s) => s.kind === r.kind && s.id === r.id))
+        .map((s) => (s ? `${s.name}は${s.lastDate}まで` : null))
+        .filter(Boolean)
+        .join("、");
+      throw conflict(
+        `明細が${coverage.monthEnd}までそろっていません（${names}）。明細を取り込むか、「当月末まで変動なし」を付けてから確定してください`,
+      );
+    }
+    const snapshot = buildCoverageSnapshot(coverage.sources, coverage, noChange);
 
     // 二重確定は periodId の unique 制約でも止まる（同時に押された場合）
     const confirmation = await db.actualsConfirmation.create({
-      data: { tenantId, periodId: period.id, confirmedById: user.id },
+      data: { tenantId, periodId: period.id, confirmedById: user.id, coverage: snapshot },
     });
 
     await audit("actuals_confirm", `actuals:${ym(year, month)}`, {
-      after: { coveredThrough: coverage.coveredThrough, unposted: coverage.unposted },
+      after: {
+        coveredThrough: coverage.coveredThrough,
+        unposted: coverage.unposted,
+        noChange: snapshot.sources
+          .filter((s) => s.noChange)
+          .map((s) => ({ kind: s.kind, id: s.id, lastDate: s.lastDate })),
+      },
     });
     return NextResponse.json(
       { data: { year, month, confirmedAt: confirmation.confirmedAt } },

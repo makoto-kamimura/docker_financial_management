@@ -7,35 +7,25 @@ test.describe("ダッシュボードと主要フロー", () => {
     await page.goto("/dashboard");
   });
 
-  test("ダッシュボードに KPI と推移グラフが表示される", async ({ page }) => {
+  test("ダッシュボードに KPI が表示される", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
     // KPI カード（F-11: 初期 viewMode は household）。
-    // 「収入」は KPI カード・構成比グラフの凡例・予算と実績のグラフにも出るため first() で先頭を見る。
+    // 「収入」は KPI カード・予算と実績のグラフにも出るため first() で先頭を見る。
     await expect(page.getByText("収入", { exact: true }).first()).toBeVisible();
     // 説明文にも「貯蓄額」が出るので、KPI カード（role=group）で見る
     await expect(page.getByRole("group", { name: "貯蓄額", exact: true })).toBeVisible();
-    // 予測手法セレクタ（構成比グラフの将来月の予測に使う）
-    await expect(page.getByText("予測手法")).toBeVisible();
+    // 構成比のグラフは置かない
+    await expect(page.getByText("カテゴリ構成比")).toHaveCount(0);
   });
 
   test("KPI の下に確定の状況と予算と実績のグラフが表示される", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "予算と実績の確定" })).toBeVisible();
-    // 状況は前月の ①②③。各段は予算管理・実績管理の確定タブへのリンク
-    const d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() - 1);
-    const month = d.getMonth() + 1;
-    await expect(
-      page.getByRole("link", { name: new RegExp(`② ${month}月の実績`) }),
-    ).toHaveAttribute("href", /\/entry\?tab=confirm&month=/);
+    // 状況は KPI の対象月の ①②③。各段は予算管理・実績管理の確定タブへのリンク
+    await expect(page.getByRole("link", { name: /② \d+月の実績/ })).toHaveAttribute(
+      "href",
+      /\/entry\?tab=confirm&month=/,
+    );
     await expect(page.getByRole("heading", { name: /^予算と実績（/ })).toBeVisible();
-  });
-
-  test("予測手法を切り替えても表示が維持される", async ({ page }) => {
-    // holt_winters オプションを持つ予測手法セレクトを直接指定
-    const select = page.locator('select:has(option[value="holt_winters"])');
-    await select.selectOption("holt_winters");
-    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
   });
 
   test("実績管理画面へ遷移できる", async ({ page }) => {

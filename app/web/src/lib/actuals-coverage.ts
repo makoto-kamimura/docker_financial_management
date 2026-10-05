@@ -60,6 +60,42 @@ export function judgeActualsCoverage(
   };
 }
 
+// 「当月末まで変動なし」（実績の確定タブで行ごとに付ける印）。明細が月末まで届いていないソースでも、
+// 最終日のあと月末まで取引が無いと利用者が申告したものは、そろったものとして扱う。
+export type SourceRef = { kind: ActualsSource["kind"]; id: number };
+
+const refKey = (r: SourceRef) => `${r.kind}:${r.id}`;
+
+/**
+ * 変動なしの印を考えても、まだ月末まで届いていないソース。空なら実績を確定できる。
+ * 月末まで届いているソースへの印は意味が無いので無視する。
+ */
+export function remainingLagging(coverage: ActualsCoverage, noChange: SourceRef[]): SourceRef[] {
+  const marked = new Set(noChange.map(refKey));
+  return coverage.lagging.filter((l) => !marked.has(refKey(l)));
+}
+
+/** 実績の確定時に記録する、確定時点の明細の状況（actuals_confirmations.coverage） */
+export type CoverageSnapshot = {
+  monthEnd: string;
+  coveredThrough: string | null;
+  sources: (ActualsSource & { noChange: boolean })[];
+};
+
+export function buildCoverageSnapshot(
+  sources: ActualsSource[],
+  coverage: ActualsCoverage,
+  noChange: SourceRef[],
+): CoverageSnapshot {
+  const lagging = new Set(coverage.lagging.map(refKey));
+  const marked = new Set(noChange.map(refKey).filter((k) => lagging.has(k)));
+  return {
+    monthEnd: coverage.monthEnd,
+    coveredThrough: coverage.coveredThrough,
+    sources: sources.map((s) => ({ ...s, noChange: marked.has(refKey(s)) })),
+  };
+}
+
 /** 銀行口座・カード台帳の全ソースと、それぞれの明細の最終日 */
 export async function loadActualsSources(
   db: Pick<TenantDbClient, "bankAccount" | "bankTransaction" | "linkedAccount" | "cardTransaction">,
