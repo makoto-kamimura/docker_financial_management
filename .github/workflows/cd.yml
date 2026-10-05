@@ -1,13 +1,15 @@
 name: CD
 
-# 本番デプロイのワークフロー。
-# - main へのマージ、または v* タグの push で起動
+# 本番デプロイのワークフロー（本番運用向けに用意したもの。今は使っていない）。
 # - Docker イメージをビルドして GitHub Container Registry (GHCR) に push
-# - 本番サーバーへ SSH して docker compose で反映（自動デプロイ）
+# - 本番サーバーへ SSH して docker compose（platform/docker-compose.prod.yml）で反映
+#
+# 停止中（2026-10-05）: 本番運用を始めておらず、デプロイ先と secrets（DEPLOY_*）が
+# 決まっていないため、main への push・タグでは起動しないようにしている。
+# GitHub 側でもワークフローを無効にしてある（gh workflow disable CD）。
+# 本番運用を始めるときは、デプロイ先と secrets を決めてから、
+# 下の push のトリガーを戻し、gh workflow enable CD で有効にする。
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 env:
