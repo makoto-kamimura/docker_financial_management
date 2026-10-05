@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, conflict, notFound } from "@/lib/api-error";
+import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 
 const UpdateSchema = z.object({
   amount: z.number().optional(),
@@ -24,6 +25,7 @@ export const PATCH = withApi({
 
     const before = await db.financialRecord.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!before) throw notFound();
+    await assertActualsPeriodsEditable(db, [before.periodId]);
 
     if (body.accountId !== undefined && before.journalEntryId !== null) {
       throw conflict("仕訳と連動した実績のため、勘定科目は仕訳側で変更してください");
@@ -88,6 +90,7 @@ export const DELETE = withApi({
   handler: async ({ user, db, id, audit }) => {
     const record = await db.financialRecord.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!record) throw notFound();
+    await assertActualsPeriodsEditable(db, [record.periodId]);
 
     await db.financialRecordHistory.create({
       data: { recordId: id, userId: user.id, action: "delete", amount: record.amount },

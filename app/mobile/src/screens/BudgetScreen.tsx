@@ -34,11 +34,14 @@ import { displayName } from "../shared/display-name";
 import { BUDGET_HELP, textFor } from "../shared/help-texts";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { digitsOnly, MONTHS, yen } from "../format";
+import { BudgetConfirmSection } from "../components/BudgetConfirmSection";
 
-type Tab = "manual" | "allocation" | "history";
+export type BudgetTab = "manual" | "allocation" | "confirm" | "history";
+type Tab = BudgetTab;
 const TABS = [
   ["manual", "明細一覧"],
   ["allocation", "予算配分"],
+  ["confirm", "予算の確定"],
   ["history", "履歴"],
 ] as const;
 
@@ -59,12 +62,20 @@ function sumBy<T extends { accountCode: string; month: number; amount: number }>
   return map;
 }
 
-type Props = { viewMode: ViewMode };
+type Props = {
+  viewMode: ViewMode;
+  /** 開いたときのタブ（ホームの状況の 1 行から「予算の確定」を開くときなど） */
+  initialTab?: Tab;
+  /** 「予算の確定」の比べる月の初期値（YYYY-MM） */
+  initialMonth?: string;
+  /** 実績の画面の「実績の確定」へ移る */
+  onOpenActuals?: (month: string) => void;
+};
 
-export function BudgetScreen({ viewMode }: Props) {
+export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals }: Props) {
   const now = new Date();
   const thisYear = now.getFullYear();
-  const [tab, setTab] = useState<Tab>("manual");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "manual");
   // 年度の既定はサーバー（GET /budgets）と同じ当年
   const [year, setYear] = useState(thisYear);
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -213,8 +224,8 @@ export function BudgetScreen({ viewMode }: Props) {
 
   return (
     <View style={s.root}>
-      {/* 年度（web 版と同じく期間のある年度＋当年から選ぶ） */}
-      <View style={s.yearRow}>
+      {/* 年度（web 版と同じく期間のある年度＋当年から選ぶ）。予算の確定は月で選ぶので出さない */}
+      <View style={[s.yearRow, tab === "confirm" && s.hidden]}>
         <TouchableOpacity
           style={s.yearBtn}
           disabled={yearIndex <= 0}
@@ -247,6 +258,15 @@ export function BudgetScreen({ viewMode }: Props) {
         >
           {error && <Text style={s.error}>{error}</Text>}
           <Lead>{textFor(BUDGET_HELP.page, viewMode)}</Lead>
+
+          {/* 予算の確定（① その月の予算・予実対比・③ 翌月の予算案と確定） */}
+          {tab === "confirm" && (
+            <BudgetConfirmSection
+              viewMode={viewMode}
+              initialMonth={initialMonth}
+              onOpenActuals={onOpenActuals}
+            />
+          )}
 
           {tab === "manual" && (
             <>
@@ -401,6 +421,7 @@ export function BudgetScreen({ viewMode }: Props) {
 }
 
 const s = StyleSheet.create({
+  hidden: { display: "none" },
   root: { flex: 1, backgroundColor: "#f8fafc" },
   yearRow: {
     flexDirection: "row",

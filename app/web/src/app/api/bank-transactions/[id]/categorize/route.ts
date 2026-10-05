@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, conflict, notFound } from "@/lib/api-error";
 import { resolvePeriodForDate } from "@/lib/period";
+import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 import { normalizeKeyword } from "@/lib/banktxn-import";
 import { serializeBankTransaction } from "@/lib/bank-transactions";
 import {
@@ -63,6 +64,8 @@ export const PATCH = withApi({
 
     // post 前提の期間解決は $transaction の外で行う（period.upsert は冪等なため安全）
     const period = body.post ? await resolvePeriodForDate(db, tenantId, txn.date) : null;
+    // 実績確定済みの月へは転記しない（科目の紐付けだけなら受け付ける）
+    if (period) await assertActualsPeriodsEditable(db, [period.id]);
 
     let updatedSiblingCount = 0;
 

@@ -73,6 +73,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<BottomTab>("home");
   const [viewMode, setVm] = useState<ViewMode>(getViewMode());
   const [moreRoute, setMoreRoute] = useState<MoreRoute | null>(null);
+  // ホームの「予算と実績の確定」から、予算・実績の画面の確定タブを対象月付きで開く。
+  // key に n を使って画面を作り直し、初期タブ・初期月を反映させる
+  const [cycleJump, setCycleJump] = useState<{
+    screen: "budget" | "entry";
+    month: string;
+    n: number;
+  } | null>(null);
 
   // S-14: 起動時に SecureStore の保存済みセッションを復元し、GET /api/auth/me で有効性を確認する
   useEffect(() => {
@@ -90,6 +97,11 @@ export default function App() {
   async function handleLogout() {
     await logout().catch(() => {});
     setUser(null);
+  }
+
+  function openCycle(screen: "budget" | "entry", month: string) {
+    setCycleJump({ screen, month, n: Date.now() });
+    setActiveTab(screen);
   }
 
   function navigateMore(route: MoreRoute) {
@@ -172,9 +184,25 @@ export default function App() {
 
       {/* コンテンツ */}
       <View style={s.body}>
-        {activeTab === "home" && <DashboardScreen viewMode={viewMode} />}
-        {activeTab === "budget" && <BudgetScreen viewMode={viewMode} />}
-        {activeTab === "entry" && <EntryScreen viewMode={viewMode} />}
+        {activeTab === "home" && <DashboardScreen viewMode={viewMode} onOpenCycle={openCycle} />}
+        {activeTab === "budget" && (
+          <BudgetScreen
+            key={cycleJump?.screen === "budget" ? cycleJump.n : "budget"}
+            viewMode={viewMode}
+            initialTab={cycleJump?.screen === "budget" ? "confirm" : undefined}
+            initialMonth={cycleJump?.screen === "budget" ? cycleJump.month : undefined}
+            onOpenActuals={(month) => openCycle("entry", month)}
+          />
+        )}
+        {activeTab === "entry" && (
+          <EntryScreen
+            key={cycleJump?.screen === "entry" ? cycleJump.n : "entry"}
+            viewMode={viewMode}
+            initialTab={cycleJump?.screen === "entry" ? "confirm" : undefined}
+            initialMonth={cycleJump?.screen === "entry" ? cycleJump.month : undefined}
+            onOpenBudget={(month) => openCycle("budget", month)}
+          />
+        )}
         {activeTab === "more" && !moreRoute && (
           <MoreScreen viewMode={viewMode} onNavigate={navigateMore} />
         )}
@@ -203,6 +231,7 @@ export default function App() {
               style={s.tabItem}
               onPress={() => {
                 setActiveTab(t.id);
+                setCycleJump(null);
                 setMoreRoute(null);
               }}
             >

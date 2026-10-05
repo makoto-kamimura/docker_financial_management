@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 import { aggregate, type Granularity, type RecordWithPeriod } from "@/lib/aggregate";
 import { resolvePeriod, requireAccountByCode } from "@/lib/period";
 
@@ -52,6 +53,7 @@ export const POST = withApi({
 
     const account = await requireAccountByCode(db, tenantId, accountCode);
     const period = await resolvePeriod(db, tenantId, fiscalYear, month);
+    await assertActualsPeriodsEditable(db, [period.id]);
 
     const record = await db.financialRecord.create({
       data: { tenantId, accountId: account.id, departmentId, periodId: period.id, amount },
