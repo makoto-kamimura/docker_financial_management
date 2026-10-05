@@ -248,6 +248,8 @@ export type AnnualOutlook = {
   /** 期首・期末の月キー（"YYYY-MM"） */
   startKey: string;
   endKey: string;
+  /** 実績として扱う最後の月（実績を確定した月）。これより後は予測で見積もる */
+  actualThroughKey: string;
   ytd: number;
   elapsedMonths: number;
   enteredMonths: number;

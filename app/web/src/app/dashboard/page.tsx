@@ -182,8 +182,8 @@ export default function DashboardPage() {
         <KpiCards mode={sysMode} onPeriodChange={setKpiPeriod} />
       </div>
 
-      {/* ── 予算と実績の確定の状況（前月。操作は予算管理・実績管理で行う）──── */}
-      <CycleStatusStrip />
+      {/* ── 予算と実績の確定の状況（KPI の対象月。操作は予算管理・実績管理で行う）──── */}
+      <CycleStatusStrip period={kpiPeriod} />
 
       {/* ── 予算と実績（KPI の対象月の差をひと目で）──── */}
       <BudgetActualChart mode={sysMode} period={kpiPeriod} />

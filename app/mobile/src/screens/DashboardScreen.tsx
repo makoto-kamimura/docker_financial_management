@@ -59,12 +59,13 @@ const CAT_COLORS: Record<string, string> = {
 const CATEGORIES = Object.keys(CAT_LABEL);
 
 // 累計カードの補助表示（web 版 KPI カードと同じ文言）。
-// 未入力の月（平均で按分）と残りの月（予測）の内訳を添える
+// 未入力の月（平均で按分）と予測で埋めた月（実績を確定した月の翌月から）の内訳を添える
 function ytdSub(annual: AnnualOutlook | null): string | undefined {
   if (!annual) return undefined;
+  const forecastFrom = (Number(annual.actualThroughKey.slice(5)) % 12) + 1;
   const notes = [
     annual.missingMonths > 0 ? `未入力${annual.missingMonths}か月は平均` : null,
-    annual.remainingMonths > 0 ? `残り${annual.remainingMonths}か月は予測` : null,
+    annual.remainingMonths > 0 ? `${forecastFrom}月以降は予測` : null,
   ].filter(Boolean);
   return `年間見込み ${yen(annual.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
 }

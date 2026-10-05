@@ -22,6 +22,7 @@ type AnnualOutlook = {
   closingMonth: number;
   startKey: string;
   endKey: string;
+  actualThroughKey: string;
   ytd: number;
   elapsedMonths: number;
   enteredMonths: number;
@@ -57,11 +58,13 @@ const periodLabel = (key: string) => {
   return `${y}年${Number(m)}月`;
 };
 
-// 年間見込みの補助表示。未入力の月（平均で按分）と残りの月（予測）の内訳を添える
+// 年間見込みの補助表示。未入力の月（平均で按分）と予測で埋めた月の内訳を添える。
+// 予測は実績として扱う最後の月（実績を確定した月）の翌月からで、対象月より前のこともある
 const outlookSub = (a: AnnualOutlook) => {
+  const forecastFrom = (Number(a.actualThroughKey.slice(5)) % 12) + 1;
   const notes = [
     a.missingMonths > 0 ? `未入力${a.missingMonths}か月は平均` : null,
-    a.remainingMonths > 0 ? `残り${a.remainingMonths}か月は予測` : null,
+    a.remainingMonths > 0 ? `${forecastFrom}月以降は予測` : null,
   ].filter(Boolean);
   return `年間見込み ${yen(a.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
 };

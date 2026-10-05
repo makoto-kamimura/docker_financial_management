@@ -258,4 +258,52 @@ describe("computeAnnualOutlook", () => {
     const zero: MonthlyByCategory[] = [{ key: "2026-01", revenue: 0, cogs: 0, expense: 0 }];
     expect(computeAnnualOutlook(zero, "2026-01", flat(0))!.progressRate).toBeNull();
   });
+
+  describe("actualThroughKey（実績を確定した最後の月）", () => {
+    // 3 月まで確定済みで、4・5 月は明細が途中までしか無い
+    const partial: MonthlyByCategory[] = [
+      ...monthly,
+      { key: "2026-04", revenue: 5, cogs: 0, expense: 0 },
+      { key: "2026-05", revenue: 1, cogs: 0, expense: 0 },
+    ];
+
+    it("対象月より前なら、その後の月は入力があっても累計にも学習にも入れず予測で埋める", () => {
+      let learned: number[] = [];
+      const outlook = computeAnnualOutlook(
+        partial,
+        "2026-05",
+        (h, n) => {
+          learned = h;
+          return Array.from({ length: n }, () => 100);
+        },
+        { actualThroughKey: "2026-03" },
+      )!;
+      expect(outlook).toMatchObject({
+        actualThroughKey: "2026-03",
+        ytd: 300,
+        elapsedMonths: 3,
+        missingMonths: 0,
+        remainingMonths: 9,
+        projected: 1200,
+      });
+      expect(learned).toEqual([100, 100, 100]);
+    });
+
+    it("前の期で区切ると、期の 12 か月すべてを予測で埋める", () => {
+      const withPrev = [{ key: "2025-12", revenue: 50, cogs: 0, expense: 0 }, ...partial];
+      const outlook = computeAnnualOutlook(withPrev, "2026-05", flat(50), {
+        actualThroughKey: "2025-12",
+      })!;
+      expect(outlook).toMatchObject({ ytd: 0, elapsedMonths: 0, remainingMonths: 12 });
+      expect(outlook.projected).toBe(600);
+    });
+
+    it("対象月以降を渡すと、指定しないときと同じ（対象月まで実績）", () => {
+      const base = computeAnnualOutlook(partial, "2026-05", flat(100))!;
+      expect(base.actualThroughKey).toBe("2026-05");
+      expect(
+        computeAnnualOutlook(partial, "2026-05", flat(100), { actualThroughKey: "2026-08" }),
+      ).toEqual(base);
+    });
+  });
 });
