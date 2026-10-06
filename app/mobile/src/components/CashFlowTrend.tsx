@@ -2,6 +2,7 @@
 // 日付つきの総残高と合計のグラフ、口座ごとの小さなグラフ。今月より先は破線。
 // 合計の先は予算と実績の収支から、口座ごとの先は毎月の入出金から見込む（GET /bank-accounts/cash-outlook）。
 // 口座には、資金繰り（同じ月から 3 か月）で入金が必要と出た期限と金額も添える。
+// 「表示する銀行」で 1 口座を選んだときは、その口座の残高と線グラフだけを出す（見込みは毎月の入出金から）。
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { fetchCashOutlook, fetchFundingPlan, type CashOutlook, type FundingPlan } from "../api";
@@ -16,9 +17,15 @@ const mmdd = (iso: string) => {
   return `${Number(m)}/${Number(d)}`;
 };
 
-type Props = { year: number; month: number; reloadKey: number };
+type Props = {
+  year: number;
+  month: number;
+  reloadKey: number;
+  /** 「表示する銀行」で選んだ口座。null / 省略はすべての口座 */
+  accountId?: number | null;
+};
 
-export function CashFlowTrend({ year, month, reloadKey }: Props) {
+export function CashFlowTrend({ year, month, reloadKey, accountId = null }: Props) {
   const [data, setData] = useState<CashOutlook | null>(null);
   const [plans, setPlans] = useState<FundingPlan[]>([]);
 
@@ -34,10 +41,12 @@ export function CashFlowTrend({ year, month, reloadKey }: Props) {
   }, [year, month, reloadKey]);
 
   if (!data || data.accounts.length === 0) return null;
+  const single = accountId === null ? null : data.accounts.find((a) => a.id === accountId);
+  if (accountId !== null && !single) return null;
 
   const currentIndex = data.months.indexOf(data.currentKey);
   const lastIndex = data.months.length - 1;
-  const todayTotal = data.accounts.reduce((sum, a) => sum + a.balance, 0);
+  const todayTotal = single ? single.balance : data.accounts.reduce((sum, a) => sum + a.balance, 0);
   const budgetMonths = data.totalBasis.filter((b, i) => i > currentIndex && b === "budget").length;
   const ruleMonths = data.totalBasis.filter((b) => b === "rule").length;
   const lastKey = data.months[lastIndex];
@@ -46,50 +55,75 @@ export function CashFlowTrend({ year, month, reloadKey }: Props) {
   return (
     <Card>
       <SectionTitle note={BANK_HELP.trend}>残高の推移</SectionTitle>
-      <Text style={s.muted}>総残高（{asOfDateLabel(new Date())}）</Text>
+      <Text style={s.muted}>
+        {single ? `${single.name}の残高` : "総残高"}（{asOfDateLabel(new Date())}）
+      </Text>
       <Text style={s.totalValue}>{yen(todayTotal)}</Text>
       <Text style={s.muted}>
-        {lastLabel}末の見込み {yen(data.total[lastIndex])} ・{" "}
-        {budgetMonths === 0
-          ? "予算がないため、先は毎月の入出金から見込み"
-          : ruleMonths === 0
-            ? `先の ${budgetMonths} か月は予算から見込み`
-            : `先の ${budgetMonths} か月は予算、予算のない ${ruleMonths} か月は毎月の入出金から見込み`}
+        {lastLabel}末の見込み{" "}
+        {yen(single ? (single.values[lastIndex] ?? 0) : data.total[lastIndex])} ・{" "}
+        {single
+          ? "予算は口座ごとに分かれていないため、先はこの口座の毎月の入出金から見込み"
+          : budgetMonths === 0
+            ? "予算がないため、先は毎月の入出金から見込み"
+            : ruleMonths === 0
+              ? `先の ${budgetMonths} か月は予算から見込み`
+              : `先の ${budgetMonths} か月は予算、予算のない ${ruleMonths} か月は毎月の入出金から見込み`}
       </Text>
       <AssetValueChart
         months={data.months}
         currentKey={data.currentKey}
-        series={[{ key: "total", label: "合計", color: SERIES_COLORS[0], values: data.total }]}
+        series={[
+          single
+            ? {
+                key: `a${single.id}`,
+                label: "残高",
+                color: SERIES_COLORS[0],
+                values: single.values,
+              }
+            : { key: "total", label: "合計", color: SERIES_COLORS[0], values: data.total },
+        ]}
         height={180}
       />
-      <Text style={s.subTitle}>口座ごとの推移</Text>
-      {data.accounts.map((a) => {
-        const short = plans.find((p) => p.accountId === a.id && p.requiredDeposit > 0);
-        return (
-          <View key={a.id} style={s.trendItem}>
-            <Text style={s.trendName} numberOfLines={1}>
-              {a.name}
+      {single &&
+        (() => {
+          const short = plans.find((p) => p.accountId === single.id && p.requiredDeposit > 0);
+          return short ? (
+            <Text style={s.short}>
+              {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
+              {yen(short.requiredDeposit)} の入金が必要
             </Text>
-            <Text style={s.muted}>
-              今の残高 {yen(a.balance)} ・ {lastLabel}末の見込み {yen(a.values[lastIndex] ?? 0)}
-            </Text>
-            {short && (
-              <Text style={s.short}>
-                {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
-                {yen(short.requiredDeposit)} の入金が必要
+          ) : null;
+        })()}
+      {!single && <Text style={s.subTitle}>口座ごとの推移</Text>}
+      {!single &&
+        data.accounts.map((a) => {
+          const short = plans.find((p) => p.accountId === a.id && p.requiredDeposit > 0);
+          return (
+            <View key={a.id} style={s.trendItem}>
+              <Text style={s.trendName} numberOfLines={1}>
+                {a.name}
               </Text>
-            )}
-            <AssetValueChart
-              months={data.months}
-              currentKey={data.currentKey}
-              series={[
-                { key: `a${a.id}`, label: "残高", color: SERIES_COLORS[0], values: a.values },
-              ]}
-              height={110}
-            />
-          </View>
-        );
-      })}
+              <Text style={s.muted}>
+                今の残高 {yen(a.balance)} ・ {lastLabel}末の見込み {yen(a.values[lastIndex] ?? 0)}
+              </Text>
+              {short && (
+                <Text style={s.short}>
+                  {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
+                  {yen(short.requiredDeposit)} の入金が必要
+                </Text>
+              )}
+              <AssetValueChart
+                months={data.months}
+                currentKey={data.currentKey}
+                series={[
+                  { key: `a${a.id}`, label: "残高", color: SERIES_COLORS[0], values: a.values },
+                ]}
+                height={110}
+              />
+            </View>
+          );
+        })}
     </Card>
   );
 }

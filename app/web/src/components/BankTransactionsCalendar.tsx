@@ -1,10 +1,11 @@
 "use client";
 
 // 銀行管理「カレンダー」タブ。実績管理のカレンダー（/entry の「カレンダー」タブ）と同じ形で、
-// 選んだ口座の明細を日ごとに並べ、日付を押すとその日の入出金の確認と手入力での登録ができる。
+// 「表示する銀行」で選んだ口座（指定なしは全口座）の明細を日ごとに並べ、日付を押すとその日の入出金の
+// 確認と手入力での登録ができる。全口座のときは、登録フォームで口座を選ぶ。
 // 明細は GET/POST/DELETE /api/bank-accounts/{id}/transactions（一覧と同じ）。
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQueryClient, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { SectionLead } from "@/components/Explain";
@@ -14,6 +15,7 @@ import { BANK_HELP } from "@/lib/help-texts";
 type BankAccount = { id: number; name: string; bankName: string };
 type Txn = {
   id: number;
+  accountId: number;
   date: string;
   description: string;
   amount: number;
@@ -26,15 +28,20 @@ const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const now = new Date();
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 const pad = (n: number) => String(n).padStart(2, "0");
-const BLANK_FORM = { type: "expense" as "income" | "expense", description: "", amount: "" };
-
-type Props = {
-  /** 表示する口座（一覧・キャッシュフロータブの口座の選択と共有する）。null なら最初の口座 */
-  accountId: number | null;
-  onAccountIdChange: (id: number) => void;
+const BLANK_FORM = {
+  type: "expense" as "income" | "expense",
+  description: "",
+  amount: "",
+  /** 全口座の表示で登録するときの口座（文字列で保持して未選択も許す） */
+  accountId: "",
 };
 
-export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountIdChange }: Props) {
+type Props = {
+  /** 銀行管理の「表示する銀行」で選んだ口座。null はすべての口座 */
+  accountId: number | null;
+};
+
+export function BankTransactionsCalendar({ accountId }: Props) {
   const qc = useQueryClient();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
@@ -48,14 +55,24 @@ export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountId
     queryFn: async (): Promise<BankAccount[]> =>
       (await (await fetch("/api/bank-accounts")).json()).data ?? [],
   });
-  const accountId = accountIdProp ?? accounts?.[0]?.id ?? null;
+  const accountName = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
 
-  const { data: txns, isLoading } = useQuery({
-    queryKey: ["bank-txns", accountId],
-    enabled: accountId !== null,
-    queryFn: async (): Promise<Txn[]> =>
-      (await (await fetch(`/api/bank-accounts/${accountId}/transactions`)).json()).data ?? [],
+  // 明細は口座ごとに取る（一覧と同じキー）。全口座のときはまとめて日付順に並べる
+  const targetIds = accountId !== null ? [accountId] : (accounts ?? []).map((a) => a.id);
+  const txnQueries = useQueries({
+    queries: targetIds.map((id) => ({
+      queryKey: ["bank-txns", id],
+      queryFn: async (): Promise<Txn[]> =>
+        (await (await fetch(`/api/bank-accounts/${id}/transactions`)).json()).data ?? [],
+    })),
   });
+  const isLoading = txnQueries.some((q) => q.isLoading);
+  const txns = useMemo(
+    () => txnQueries.flatMap((q) => q.data ?? []),
+    // 各口座の取得結果が変わったときだけまとめ直す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [txnQueries.map((q) => q.dataUpdatedAt).join(",")],
+  );
 
   // 表示中の月の明細を日ごとに（明細の日付は "YYYY-MM-DD..." の先頭で判定する）
   const monthPrefix = `${viewYear}-${pad(viewMonth)}-`;
@@ -105,8 +122,8 @@ export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountId
   }
 
   // 明細が変わると残高を使う表示（資金繰り・残高の推移・ダッシュボードのサマリ）も変わる
-  const refresh = (allAccounts: boolean) => {
-    qc.invalidateQueries({ queryKey: allAccounts ? ["bank-txns"] : ["bank-txns", accountId] });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["bank-txns"] });
     for (const key of ["bank-accounts", "funding-plan", "cash-outlook", "bank-summary"]) {
       qc.invalidateQueries({ queryKey: [key] });
     }
@@ -114,15 +131,20 @@ export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountId
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (accountId === null || selectedDay === null) return;
+    if (selectedDay === null) return;
     setError(null);
+    const target = accountId ?? (form.accountId ? Number(form.accountId) : null);
+    if (target === null) {
+      setError("登録する口座を選んでください。");
+      return;
+    }
     const raw = Number(form.amount);
     if (!form.description.trim() || !(raw > 0)) {
       setError("摘要と金額を入力してください。");
       return;
     }
     setSaving(true);
-    const res = await fetch(`/api/bank-accounts/${accountId}/transactions`, {
+    const res = await fetch(`/api/bank-accounts/${target}/transactions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -133,8 +155,8 @@ export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountId
     });
     setSaving(false);
     if (res.ok) {
-      setForm((f) => ({ ...BLANK_FORM, type: f.type }));
-      refresh(false);
+      setForm((f) => ({ ...BLANK_FORM, type: f.type, accountId: f.accountId }));
+      refresh();
     } else {
       const j = await res.json().catch(() => null);
       setError(j?.error ?? "登録に失敗しました");
@@ -146,10 +168,10 @@ export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountId
       ? `「${t.description}」を削除してよいですか？振替の相手の口座の明細も一緒に削除されます。`
       : `「${t.description}」を削除してよいですか？`;
     if (!confirm(message)) return;
-    await fetch(`/api/bank-accounts/${accountId}/transactions?txnId=${t.id}`, {
+    await fetch(`/api/bank-accounts/${t.accountId}/transactions?txnId=${t.id}`, {
       method: "DELETE",
     });
-    refresh(t.transferGroupId !== null);
+    refresh();
   }
 
   if (accounts && accounts.length === 0) {
@@ -172,23 +194,7 @@ export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountId
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <SectionLead className="mb-0">{BANK_HELP.calendar}</SectionLead>
-        <select
-          className="input-field w-60 ml-auto"
-          value={accountId ?? ""}
-          onChange={(e) => {
-            onAccountIdChange(Number(e.target.value));
-            setSelectedDay(null);
-          }}
-        >
-          {accounts?.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}（{a.bankName}）
-            </option>
-          ))}
-        </select>
-      </div>
+      <SectionLead>{BANK_HELP.calendar}</SectionLead>
 
       <div className="flex flex-col lg:flex-row gap-4 items-start">
         {/* カレンダー */}
@@ -344,6 +350,7 @@ export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountId
                             {t.description}
                           </p>
                           <p className="text-[10px] text-slate-400 mt-0.5">
+                            {accountId === null && `${accountName(t.accountId)} ・ `}
                             {t.transferGroupId
                               ? "口座間の振替"
                               : t.chargeToAccount
@@ -396,6 +403,25 @@ export function BankTransactionsCalendar({ accountId: accountIdProp, onAccountId
                       </button>
                     ))}
                   </div>
+                  {/* すべての銀行を表示しているときは、登録する口座を選ぶ */}
+                  {accountId === null && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-slate-500">口座</label>
+                      <select
+                        required
+                        value={form.accountId}
+                        onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}
+                        className="input-field text-xs"
+                      >
+                        <option value="">選択してください</option>
+                        {accounts?.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}（{a.bankName}）
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] text-slate-500">摘要</label>
                     <input

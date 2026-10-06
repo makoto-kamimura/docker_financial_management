@@ -12,9 +12,22 @@ const mmdd = (iso: string) => {
   return `${Number(m)}/${Number(d)}`;
 };
 
-type Props = { year: number; month: number; months?: number; reloadKey?: number };
+type Props = {
+  year: number;
+  month: number;
+  months?: number;
+  reloadKey?: number;
+  /** 「表示する銀行」で選んだ口座。null / 省略はすべての口座 */
+  accountId?: number | null;
+};
 
-export function FundingPlanView({ year, month, months = 3, reloadKey = 0 }: Props) {
+export function FundingPlanView({
+  year,
+  month,
+  months = 3,
+  reloadKey = 0,
+  accountId = null,
+}: Props) {
   const [data, setData] = useState<FundingResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,8 +42,10 @@ export function FundingPlanView({ year, month, months = 3, reloadKey = 0 }: Prop
   if (error) return <Text style={s.error}>{error}</Text>;
   if (!data) return <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />;
 
-  const shortPlans = data.plans.filter((p) => p.requiredDeposit > 0);
-  const activePlans = data.plans.filter((p) => p.events.length > 0);
+  const plans =
+    accountId === null ? data.plans : data.plans.filter((p) => p.accountId === accountId);
+  const shortPlans = plans.filter((p) => p.requiredDeposit > 0);
+  const activePlans = plans.filter((p) => p.events.length > 0);
 
   return (
     <>

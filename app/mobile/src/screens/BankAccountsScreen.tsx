@@ -40,6 +40,7 @@ import {
   Notice,
   Pills,
   SectionTitle,
+  SelectField,
   SheetModal,
   TabBar,
 } from "../components/ui";
@@ -94,6 +95,7 @@ export function BankAccountsScreen({ viewMode }: Props) {
   const [tab, setTab] = useState<Tab>("cashflow");
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountRefs, setAccountRefs] = useState<Account[]>([]);
+  // 「表示する銀行」で選んだ口座の id。null はすべての銀行（既定）
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -116,7 +118,8 @@ export function BankAccountsScreen({ viewMode }: Props) {
       const [accs, refs] = await Promise.all([fetchBankAccounts(), fetchAccounts()]);
       setAccounts(accs);
       setAccountRefs(refs);
-      setSelectedId((id) => id ?? accs[0]?.id ?? null);
+      // 選んでいた口座が無くなったら、すべての銀行に戻す
+      setSelectedId((id) => (id !== null && accs.some((a) => a.id === id) ? id : null));
     } catch (e) {
       setError(e instanceof Error ? e.message : "取得に失敗しました");
     } finally {
@@ -141,7 +144,9 @@ export function BankAccountsScreen({ viewMode }: Props) {
     setReloadKey((k) => k + 1);
   }, [load]);
 
-  const totalBalance = accounts.reduce((sum, a) => sum + (a.balance ?? 0), 0);
+  const shownAccounts =
+    selectedId === null ? accounts : accounts.filter((a) => a.id === selectedId);
+  const totalBalance = shownAccounts.reduce((sum, a) => sum + (a.balance ?? 0), 0);
 
   function openEdit(a: BankAccount) {
     setFormError(null);
@@ -237,6 +242,23 @@ export function BankAccountsScreen({ viewMode }: Props) {
 
   return (
     <View style={s.root}>
+      {/* 表示する銀行（全タブ共通。指定なしはすべての銀行をまとめて表示する。web 版と同じ） */}
+      <View style={s.selectorCard}>
+        <SelectField<number | "all">
+          label="表示する銀行"
+          value={selectedId ?? "all"}
+          options={[
+            { value: "all", label: "すべての銀行" },
+            ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.bankName}）` })),
+          ]}
+          onChange={(v) => setSelectedId(v === "all" ? null : v)}
+        />
+        {accounts.length > 0 && (
+          <Text style={s.muted}>
+            残高 {yen(totalBalance)} ・ {shownAccounts.length} 口座 ・ {BANK_HELP.selector}
+          </Text>
+        )}
+      </View>
       <TabBar tabs={TABS} value={tab} onChange={setTab} />
       <ScrollView
         style={{ flex: 1 }}
@@ -250,16 +272,26 @@ export function BankAccountsScreen({ viewMode }: Props) {
         {tab === "cashflow" && (
           <>
             {/* 残高の推移（web 版と同じ。合計の先は予算と実績、口座ごとの先は毎月の入出金から見込む） */}
-            <CashFlowTrend year={year} month={month} reloadKey={reloadKey} />
+            <CashFlowTrend year={year} month={month} reloadKey={reloadKey} accountId={selectedId} />
 
             <SectionTitle note={BANK_HELP.funding}>
               資金繰り（{year}年{month}月から3か月）
             </SectionTitle>
             {periodPicker}
-            <FundingPlanView year={year} month={month} months={3} reloadKey={reloadKey} />
+            <FundingPlanView
+              year={year}
+              month={month}
+              months={3}
+              reloadKey={reloadKey}
+              accountId={selectedId}
+            />
 
             {/* 明細から見つけた毎月の入出金の候補（登録で資金移動ルールになる） */}
-            <RecurringSuggestions reloadKey={reloadKey} onChanged={onBalanceChanged} />
+            <RecurringSuggestions
+              reloadKey={reloadKey}
+              onChanged={onBalanceChanged}
+              accountId={selectedId}
+            />
             <TransferTab
               accounts={accounts}
               accountId={selectedId}
@@ -294,9 +326,9 @@ export function BankAccountsScreen({ viewMode }: Props) {
               ) : (
                 <>
                   <Text style={s.muted}>
-                    残高合計 {yen(totalBalance)} ・ {accounts.length} 口座
+                    残高合計 {yen(totalBalance)} ・ {shownAccounts.length} 口座
                   </Text>
-                  {accounts.map((a) => (
+                  {shownAccounts.map((a) => (
                     <View key={a.id} style={s.accountCard}>
                       <Text style={s.muted}>
                         {a.bankName}
@@ -359,7 +391,6 @@ export function BankAccountsScreen({ viewMode }: Props) {
           <BankTransactionsList
             accounts={accounts}
             accountId={selectedId}
-            onAccountIdChange={setSelectedId}
             categoryAccounts={accountRefs}
             viewMode={viewMode}
             onBalanceChanged={onBalanceChanged}
@@ -375,7 +406,6 @@ export function BankAccountsScreen({ viewMode }: Props) {
           <BankTransactionsCalendar
             accounts={accounts}
             accountId={selectedId}
-            onAccountIdChange={setSelectedId}
             onBalanceChanged={onBalanceChanged}
           />
         )}
@@ -536,6 +566,14 @@ const s = StyleSheet.create({
   link: { fontSize: 12, color: "#4f46e5", fontWeight: "600" },
   danger: { fontSize: 12, color: "#dc2626", fontWeight: "600" },
   periodRow: { gap: 4, marginBottom: 10 },
+  selectorCard: {
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
   adjustBox: {
     borderWidth: 1,
     borderColor: "#e2e8f0",

@@ -173,8 +173,8 @@ const THIS_YEAR = now.getFullYear();
 type Tab = "manual" | "calendar" | "confirm" | "csv" | "history";
 const TABS: readonly (readonly [Tab, string])[] = [
   ["manual", "一覧"],
-  ["confirm", "実績の確定"],
   ["calendar", "カレンダー"],
+  ["confirm", "実績の確定"],
   ["csv", "CSV インポート"],
   ["history", "履歴"],
 ];

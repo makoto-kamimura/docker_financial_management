@@ -35,9 +35,15 @@ const mmdd = (iso: string) => {
   return `${Number(m)}/${Number(d)}`;
 };
 
-type Props = { year: number; month: number; months?: number };
+type Props = {
+  year: number;
+  month: number;
+  months?: number;
+  /** 銀行管理の「表示する銀行」で選んだ口座。null / 省略はすべての口座 */
+  accountId?: number | null;
+};
 
-export function FundingPlanPanel({ year, month, months = 3 }: Props) {
+export function FundingPlanPanel({ year, month, months = 3, accountId = null }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ["funding-plan", year, month, months],
     queryFn: async (): Promise<FundingResponse> => {
@@ -53,8 +59,10 @@ export function FundingPlanPanel({ year, month, months = 3 }: Props) {
     return <div className="text-center text-sm text-slate-400 py-8">資金繰りを計算中…</div>;
   }
 
-  const shortPlans = data.plans.filter((p) => p.requiredDeposit > 0);
-  const activePlans = data.plans.filter((p) => p.events.length > 0);
+  const plans =
+    accountId === null ? data.plans : data.plans.filter((p) => p.accountId === accountId);
+  const shortPlans = plans.filter((p) => p.requiredDeposit > 0);
+  const activePlans = plans.filter((p) => p.events.length > 0);
 
   return (
     <>

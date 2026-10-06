@@ -1,5 +1,6 @@
 // 銀行管理の「一覧」（web 版 BankTransactionsPanel の list ビューと同じ機能）。
 //   入出金の手動登録はカレンダータブ（components/bank/BankTransactionsCalendar）で行う。
+//   表示は画面上部の「表示する銀行」で選んだ口座。null はすべての口座の明細を日付順にまとめる。
 //   - 科目の紐付け・実績への転記（振替・チャージの明細は対象外）
 //   - チャージ先（デビット / プリペイド / 電子マネー）の指定・解除
 //   - 明細から固定入出金（毎月の資金移動ルール）を登録・書き換え
@@ -50,8 +51,8 @@ const normalizeLabel = (s: string) => s.trim().toLowerCase();
 
 type Props = {
   accounts: BankAccount[];
+  /** 「表示する銀行」で選んだ口座。null はすべての口座 */
   accountId: number | null;
-  onAccountIdChange: (id: number) => void;
   categoryAccounts: Account[];
   viewMode: ViewMode;
   /** 明細の日付を振替タブのスケジュールで開く */
@@ -63,7 +64,6 @@ type Props = {
 export function BankTransactionsList({
   accounts,
   accountId,
-  onAccountIdChange,
   categoryAccounts,
   viewMode,
   onOpenCalendar,
@@ -82,10 +82,13 @@ export function BankTransactionsList({
   } | null>(null);
 
   const load = useCallback(async () => {
-    if (accountId === null) return;
+    // すべての口座のときは、口座ごとに取って日付の新しい順にまとめる
+    const ids = accountId !== null ? [accountId] : accounts.map((a) => a.id);
     try {
       const [t, tr, c] = await Promise.all([
-        fetchBankTransactions(accountId),
+        Promise.all(ids.map((id) => fetchBankTransactions(id))).then((lists) =>
+          lists.flat().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id)),
+        ),
         fetchTransfers(),
         fetchLinkedAccounts(),
       ]);
@@ -95,7 +98,7 @@ export function BankTransactionsList({
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "明細の取得に失敗しました");
     }
-  }, [accountId]);
+  }, [accountId, accounts]);
 
   useEffect(() => {
     setPage(0);
@@ -104,13 +107,12 @@ export function BankTransactionsList({
 
   const chargeTargets = useMemo(() => cards.filter((c) => isChargeableType(c.type)), [cards]);
 
-  // この口座の固定入出金。「毎月◯日・同額・同じ摘要」の完全一致に加えて、
+  // 明細の口座の固定入出金。「毎月◯日・同額・同じ摘要」の完全一致に加えて、
   // 摘要が一致するだけでも登録済みとみなす（金額改定・日付変更されたケース。web 版と同じ）
-  const accountTransfers = useMemo(
-    () => transfers.filter((t) => t.fromAccountId === accountId || t.toAccountId === accountId),
-    [transfers, accountId],
-  );
   const matchedTransfer = (t: BankTransaction): Transfer | null => {
+    const accountTransfers = transfers.filter(
+      (tr) => tr.fromAccountId === t.accountId || tr.toAccountId === t.accountId,
+    );
     const day = new Date(t.date).getDate();
     const amount = Math.round(Math.abs(t.amount));
     const label = normalizeLabel(t.description);
@@ -187,13 +189,12 @@ export function BankTransactionsList({
   }
 
   function registerRecurring(t: BankTransaction, channel: string, cardId: number | null) {
-    if (accountId === null) return;
     const isOut = t.amount < 0;
     const day = new Date(t.date).getDate();
     run(async () => {
       await postTransfer({
-        fromAccountId: isOut ? accountId : null,
-        toAccountId: isOut ? null : accountId,
+        fromAccountId: isOut ? t.accountId : null,
+        toAccountId: isOut ? null : t.accountId,
         label: t.description,
         channel,
         day,
@@ -238,7 +239,7 @@ export function BankTransactionsList({
           style: "destructive",
           onPress: () => {
             setActions(null);
-            run(() => deleteBankTransaction(accountId!, t.id), true);
+            run(() => deleteBankTransaction(t.accountId, t.id), true);
           },
         },
       ],
@@ -253,12 +254,6 @@ export function BankTransactionsList({
 
   return (
     <View>
-      <SelectField
-        label="口座"
-        value={accountId}
-        options={accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.bankName}）` }))}
-        onChange={onAccountIdChange}
-      />
       {accounts.length === 0 && (
         <Notice tone="warn">
           口座が登録されていません。入出金を記録するには、先に「キャッシュフロー」の「銀行口座」から口座を登録してください。
@@ -289,6 +284,8 @@ export function BankTransactionsList({
               <View style={s.rowHead}>
                 <Text style={s.date}>
                   {fmtDate(t.date)} · {SOURCE_LABELS[t.source] ?? t.source}
+                  {accountId === null &&
+                    ` · ${accounts.find((a) => a.id === t.accountId)?.name ?? ""}`}
                 </Text>
                 <Text style={[s.amount, t.amount < 0 ? s.out : s.in]}>{yen(t.amount)}</Text>
               </View>
