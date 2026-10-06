@@ -14,6 +14,7 @@ import { invalidateCache } from "@/lib/redis";
 import {
   PartInputSchema,
   recordValuation,
+  ruleOfRow,
   serializeAsset,
   syncParts,
   VALUATION_INCLUDE,
@@ -130,7 +131,14 @@ export const POST = withApi({
         const totals = await syncParts(tx, tenantId, created.id, parts, []);
         await tx.personalAsset.update({ where: { id: created.id }, data: totals });
       } else {
-        await recordValuation(tx, tenantId, created.id, null, body.currentValue ?? 0);
+        await recordValuation(
+          tx,
+          tenantId,
+          created.id,
+          null,
+          body.currentValue ?? 0,
+          ruleOfRow(created),
+        );
       }
       return tx.personalAsset.findUniqueOrThrow({
         where: { id: created.id },

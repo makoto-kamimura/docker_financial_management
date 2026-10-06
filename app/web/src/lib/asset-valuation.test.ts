@@ -113,6 +113,49 @@ describe("estimateValue", () => {
   });
 });
 
+describe("評価額を入れ直しても、それより前の見積もりは変わらない", () => {
+  const building = base({
+    category: "BUILDING",
+    method: "straight_line",
+    usefulLifeYears: 20,
+    acquiredOn: d("2020-01-01"),
+    acquisitionCost: 20_000_000,
+    valuations: [{ on: d("2026-01-01"), value: 12_000_000 }],
+  });
+  // 2026-01 から 2040-01 の 14 年で 1,200 万 → 0 円。2026-07 時点の見積もり
+  const julyBefore = estimateValue(building, d("2026-07-01"))!;
+
+  it("記録した点から次の点の前日までは、その点からの見積もりのまま。次の点の日に切り替わる", () => {
+    const updated = {
+      ...building,
+      valuations: [...building.valuations, { on: d("2026-10-01"), value: 10_000_000 }],
+    };
+    expect(estimateValue(updated, d("2026-07-01"))).toBeCloseTo(julyBefore, 0);
+    expect(estimateValue(updated, d("2026-09-30"))).toBeGreaterThan(10_500_000);
+    expect(estimateValue(updated, d("2026-10-01"))).toBe(10_000_000);
+  });
+
+  it("記録ごとの価値の変わり方で見積もる（あとで設定を変えても、過ぎた区間は記録した時点の変わり方のまま）", () => {
+    const car = base({
+      category: "VEHICLE",
+      method: "fixed", // 今の設定は「変わらない」
+      valuations: [
+        { on: d("2026-01-01"), value: 3_000_000, rule: { kind: "declining", ratePercent: 20 } },
+        { on: d("2027-01-01"), value: 2_400_000, rule: { kind: "fixed" } },
+      ],
+    });
+    // 2026 年中は記録した時点の「毎年 20%」で減る
+    expect(estimateValue(car, d("2026-07-02"))).toBeCloseTo(3_000_000 * Math.sqrt(0.8), -4);
+    // 2027 年からは「変わらない」
+    expect(estimateValue(car, d("2030-01-01"))).toBe(2_400_000);
+  });
+
+  it("取得日から最初の記録までは直線（登録時の過去の推定）", () => {
+    // 2020-01（2,000 万）と 2026-01（1,200 万）の中間の 2023-01 は約 1,600 万
+    expect(estimateValue(building, d("2023-01-01"))).toBeCloseTo(16_000_000, -5);
+  });
+});
+
 describe("monthlyValues", () => {
   it("月末ごとに丸めた値を返し、取得前の月は null", () => {
     const keys = monthKeysBetween("2025-11", "2026-02");

@@ -553,7 +553,11 @@ KPI の下に、次の 2 つを置く。
 土地・建物・車・金・現金・預金・有価証券・その他。取得日・取得額・評価額を持ち、借入金を1件ひも付けられる（ひも付けた借入は、借入金管理のデータとして持つ）。
 
 - **内訳**：住宅ローン 1 本で土地と建物を買ったときなどは、1 つの資産に内訳（`personal_asset_parts`）を持たせて 1 回で登録できる。資産とローンは 1 対 1 のまま、内訳ごとに種別・取得価格・評価額・価値の変わり方を持つ。内訳があるときの資産の評価額と取得価格は内訳の合計。
-- **評価額の推移**：評価額を手で入れた点（登録時・更新時。`personal_asset_valuations`）と取得日の取得価格を通り、点と点の間は直線で結ぶ。最後の点から先は「価値の変わり方」で見積もる。評価額を入れ直すと、その値から先を見積もり直す。計算は `src/lib/asset-valuation.ts`（モバイルと共有）。
+- **評価額の推移**：計算は `src/lib/asset-valuation.ts`（モバイルと共有）。
+  - 評価額の記録（`personal_asset_valuations`）は、登録時・評価額の更新時・価値の変わり方を変えたときに残す。
+  - 記録には、その日から効く価値の変わり方（その時点の設定）も残す。記録した日から次の記録の前日までは、その値から記録の変わり方で見積もり、次の記録の日にその値へ切り替える。評価額を入れ直しても、過ぎた月の金額（ダッシュボードの総資産サマリを含む）は変わらない。
+  - 価値の変わり方（自動のときは種別も）を変えたときは、変える前の設定での今日の見積もりを、新しい変わり方とともに記録する。変更は今日から先だけに効く。
+  - 取得日の取得価格から最初の記録までは、ほかに情報が無いので直線で結ぶ。取得日・取得価格を直したときは、記録の誤りを直したものとして、この区間を描き直す。
 - **価値の変わり方**：資産（内訳があれば内訳）ごとに選ぶ。
 
   | 変わり方 | 見積もり |
@@ -1065,7 +1069,7 @@ npm run typecheck && npm run format:check
 |---|---|---|
 | `personal_assets` | name, category, acquiredOn, acquisitionCost, currentValue, countAsAsset, linkedAccountId, loanId, valuationMethod, valuationRate, usefulLifeYears, buildingStructure | 実物資産。loanId は一意。内訳があるときの currentValue / acquisitionCost は内訳の合計 |
 | `personal_asset_parts` | assetId, name, category, acquisitionCost, currentValue, valuationMethod, valuationRate, usefulLifeYears, buildingStructure, sortOrder | 実物資産の内訳（土地と建物など）。資産を消すと一緒に消える |
-| `personal_asset_valuations` | assetId, partId, valuedOn, value | 評価額を手で入れた記録。partId が null の行は資産そのもの。同じ日に入れ直すと置き換える |
+| `personal_asset_valuations` | assetId, partId, valuedOn, value, rule | 評価額の記録（手で入れた値と、価値の変わり方を変えたときの見積もり）。rule はその日から効く変わり方で、null は今の設定。partId が null の行は資産そのもの。同じ日に入れ直すと置き換える |
 | `loans` | lenderName, amount, interestRate, borrowedOn, repaymentDate, remainingAmount, status, loanType, linkedAccountId, monthlyPayment, residualValue, monthlyPaymentIsManual | |
 | `loan_interest_rate_changes` | loanId, effectiveOn, interestRate, previousRate, monthlyPayment, previousMonthlyPayment, calculatedMonthlyPayment, note | `[loanId, effectiveOn]` 一意 |
 | `loan_repayments` | loanId, repaidOn, principal, interest, totalAmount | |
