@@ -21,7 +21,7 @@ import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
 import { ASSETS_HELP } from "@/lib/help-texts";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/labels";
-import { TREND_LABEL, type ValueTrend } from "@/lib/asset-valuation";
+import { asOfDateLabel, TREND_LABEL, type ValueTrend } from "@/lib/asset-valuation";
 
 type TrendSeries = {
   id: number;
@@ -228,7 +228,11 @@ export function AssetTrendCharts() {
 
   const { months, currentKey } = data;
   const nowIndex = months.indexOf(currentKey);
-  const totalNow = data.total[nowIndex];
+  // 合計は今日の見積もり（総資産サマリの今月の実物資産と同じ数字）
+  const asOf = asOfDateLabel(new Date());
+  const counted = data.assets.filter((a) => a.countAsAsset && a.estimatedValue !== null);
+  const totalNow =
+    counted.length === 0 ? null : counted.reduce((s, a) => s + (a.estimatedValue ?? 0), 0);
 
   return (
     <section aria-labelledby="asset-trend-title" className="card mb-6">
@@ -240,9 +244,9 @@ export function AssetTrendCharts() {
       </div>
       <SectionLead className="mb-3">{ASSETS_HELP.trend}</SectionLead>
 
-      <p className="text-xs text-slate-500">合計（資産計上の資産）・今月末の見込み</p>
+      <p className="text-xs text-slate-500">合計（資産計上の資産・{asOf}）</p>
       <p className="text-2xl font-bold text-slate-800 tabular-nums mb-2">
-        {totalNow === null || totalNow === undefined ? "—" : yen(totalNow)}
+        {totalNow === null ? "—" : yen(totalNow)}
       </p>
       <ValueLineChart
         months={months}
@@ -273,7 +277,7 @@ export function AssetTrendCharts() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 mb-1">
-                今の見積もり{" "}
+                {asOf}の見積もり{" "}
                 <span className="font-medium text-slate-700 tabular-nums">
                   {a.estimatedValue === null ? "—" : yen(a.estimatedValue)}
                 </span>
