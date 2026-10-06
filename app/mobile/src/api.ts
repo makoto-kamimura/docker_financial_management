@@ -441,6 +441,37 @@ export async function fetchNetWorthSummary(year: number, month: number): Promise
   );
 }
 
+// ── 総借入サマリ（ホームの KPI の対象月の時点。GET /loans/summary）──────────────
+export type LoanSummary = {
+  year: number;
+  month: number;
+  /** 時点（YYYY-MM-DD）。月末、今月なら今日 */
+  asOf: string;
+  isCurrentMonth: boolean;
+  totalBalance: number;
+  totalMonthlyPayment: number;
+  totalBorrowed: number;
+  loans: {
+    id: number;
+    lenderName: string;
+    loanType: string;
+    assetName: string | null;
+    balance: number;
+    monthlyPayment: number;
+    /** 年利（小数。0.0131 = 1.31%） */
+    interestRate: number;
+    repaymentDate: string;
+  }[];
+};
+
+export async function fetchLoanSummary(year: number, month: number): Promise<LoanSummary> {
+  const json = await request<{ data: LoanSummary }>(
+    `/loans/summary?year=${year}&month=${month}`,
+    "総借入サマリの取得に失敗しました",
+  );
+  return json.data;
+}
+
 // ── 予算 ──────────────────────────────────────────────────────────────
 // GET /budgets の 1 行（web 版 予算管理と同じ形）
 export type BudgetRow = {
@@ -1016,32 +1047,7 @@ export async function unlinkBankTransfer(transferGroupId: string): Promise<void>
   );
 }
 
-// ── 残高推移・資金繰り・月次の実績フロー ─────────────────────────────────
-export type TrendGranularity = "month" | "day";
-export type BalanceTrendPoint = {
-  /** 月次は "YYYY-MM"、日次は "YYYY-MM-DD" */
-  month?: string;
-  date?: string;
-  balances: Record<number, number>;
-  /** 資金移動ルールからの推測値 */
-  estimated: boolean;
-};
-
-export async function fetchBalanceTrend(params: {
-  year: number;
-  month: number;
-  granularity: TrendGranularity;
-}): Promise<{ accounts: { id: number; name: string }[]; points: BalanceTrendPoint[] }> {
-  const json = await request<{
-    accounts?: { id: number; name: string }[];
-    points?: BalanceTrendPoint[];
-  }>(
-    `/bank-accounts/balance-trend?year=${params.year}&month=${params.month}&before=6&after=6&granularity=${params.granularity}`,
-    "残高推移の取得に失敗しました",
-  );
-  return { accounts: json.accounts ?? [], points: json.points ?? [] };
-}
-
+// ── 資金繰り・月次の実績フロー ─────────────────────────────────────────
 export type FundingEvent = { date: string; label: string; amount: number; balanceAfter: number };
 export type FundingPlan = {
   accountId: number;

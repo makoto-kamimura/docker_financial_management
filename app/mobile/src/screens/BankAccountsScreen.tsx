@@ -16,17 +16,13 @@ import {
 import {
   deleteBankAccount,
   fetchAccounts,
-  fetchBalanceTrend,
   fetchBankAccounts,
   patchBankAccount,
   postBankAccount,
   type Account,
-  type BalanceTrendPoint,
   type BankAccount,
-  type TrendGranularity,
   type ViewMode,
 } from "../api";
-import { BalanceTrendChart } from "../components/BalanceTrendChart";
 import { BankTransactionsList } from "../components/bank/BankTransactionsList";
 import { TransferTab, type ScheduleMode } from "../components/bank/TransferTab";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
@@ -34,7 +30,6 @@ import { FundingPlanView } from "../components/FundingPlanView";
 import {
   Button,
   Card,
-  EmptyText,
   Lead,
   Field,
   Input,
@@ -103,12 +98,7 @@ export function BankAccountsScreen({ viewMode }: Props) {
   // 年は画面上部のサブヘッダーの対象年度（全画面で共通）。ここでは月だけを選ぶ
   const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [granularity, setGranularity] = useState<TrendGranularity>("month");
-  const [trend, setTrend] = useState<{
-    accounts: { id: number; name: string }[];
-    points: BalanceTrendPoint[];
-  } | null>(null);
-  // 残高が変わったら資金繰り・残高推移を取り直すためのキー
+  // 残高が変わったら資金繰りを取り直すためのキー
   const [reloadKey, setReloadKey] = useState(0);
   const [form, setForm] = useState<AccountForm | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -133,14 +123,6 @@ export function BankAccountsScreen({ viewMode }: Props) {
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    if (tab !== "summary") return;
-    setTrend(null);
-    fetchBalanceTrend({ year, month, granularity })
-      .then(setTrend)
-      .catch(() => setTrend({ accounts: [], points: [] }));
-  }, [tab, year, month, granularity, reloadKey]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -360,35 +342,6 @@ export function BankAccountsScreen({ viewMode }: Props) {
 
             <SectionTitle note={BANK_HELP.target}>表示対象</SectionTitle>
             {periodPicker}
-
-            <Card>
-              <SectionTitle note={`${year}年${month}月の前後6か月。${BANK_HELP.trend}`}>
-                残高推移
-              </SectionTitle>
-              <Pills
-                scroll={false}
-                options={[
-                  { value: "month" as const, label: "月次" },
-                  { value: "day" as const, label: "日次" },
-                ]}
-                value={granularity}
-                onChange={setGranularity}
-              />
-              {!trend ? (
-                <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
-              ) : trend.accounts.length === 0 ? (
-                <EmptyText>
-                  口座が登録されていません。上の「銀行追加」から追加してください。
-                </EmptyText>
-              ) : (
-                <BalanceTrendChart
-                  points={trend.points}
-                  accounts={trend.accounts}
-                  targetMonth={`${year}-${String(month).padStart(2, "0")}`}
-                  granularity={granularity}
-                />
-              )}
-            </Card>
 
             <SectionTitle note={BANK_HELP.funding}>
               資金繰り（{year}年{month}月から3か月）

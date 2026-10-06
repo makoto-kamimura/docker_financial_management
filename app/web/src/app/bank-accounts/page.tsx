@@ -10,12 +10,6 @@ import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { FundingPlanPanel } from "@/components/FundingPlanPanel";
 import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
-import {
-  BalanceTrendChart,
-  type TrendAccount,
-  type TrendGranularity,
-  type TrendPoint,
-} from "@/components/BalanceTrendChart";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
 import { YearBadge } from "@/components/YearBadge";
 import { useFiscalYear } from "@/lib/use-fiscal-year";
@@ -197,21 +191,6 @@ function BankAccountsContent() {
     },
   });
 
-  // 残高推移（対象年月の前後 6 か月。将来分は資金移動ルールからの推測）。
-  // 月次は月末残高、日次は月の途中の上下（給与の入金前後・引き落とし日）まで見える
-  const [trendGranularity, setTrendGranularity] = useState<TrendGranularity>("month");
-  const { data: trend } = useQuery({
-    queryKey: ["balance-trend", flowYear, flowMonth, trendGranularity],
-    enabled: tab === "summary",
-    queryFn: async (): Promise<{ accounts: TrendAccount[]; points: TrendPoint[] }> => {
-      const res = await fetch(
-        `/api/bank-accounts/balance-trend?year=${flowYear}&month=${flowMonth}&before=6&after=6&granularity=${trendGranularity}`,
-      );
-      if (!res.ok) return { accounts: [], points: [] };
-      return res.json();
-    },
-  });
-
   const { data: monthlyFlow, isLoading: monthlyFlowLoading } = useQuery({
     queryKey: ["cashflow-monthly", flowYear, flowMonth],
     enabled: flowSource === "actual",
@@ -278,7 +257,6 @@ function BankAccountsContent() {
       setEditAccount(null);
       // 差額は残高の定義に含まれるため、残高を使う表示をまとめて取り直す
       qc.invalidateQueries({ queryKey: ["bank-accounts"] });
-      qc.invalidateQueries({ queryKey: ["balance-trend"] });
       qc.invalidateQueries({ queryKey: ["funding-plan"] });
     } else {
       const j = await r.json().catch(() => null);
@@ -444,7 +422,7 @@ function BankAccountsContent() {
 
       {/* ── 表示条件（サマリ／振替タブで共有）────────────────────────
           ベース切替はフロー図（振替タブ）にだけ効くので、サマリでは出さない。
-          年月は残高推移・資金繰り（サマリ）とフロー図（振替）の起点を兼ねるため両方で出す。 */}
+          年月は資金繰り（サマリ）とフロー図（振替）の起点を兼ねるため両方で出す。 */}
       {(tab === "summary" || tab === "flow") && (
         <div className="flex flex-wrap items-center gap-3 mb-4">
           <h2 className="section-title mb-0">{tab === "flow" ? "振替" : "表示対象"}</h2>
@@ -465,7 +443,7 @@ function BankAccountsContent() {
               ))}
             </div>
           )}
-          {/* 年月はフロー図（実績ベース）と残高推移・資金繰りの起点を兼ねる */}
+          {/* 年月はフロー図（実績ベース）と資金繰りの起点を兼ねる */}
           <span className={tab === "summary" ? "ml-auto" : ""}>
             <YearBadge />
           </span>
@@ -480,50 +458,6 @@ function BankAccountsContent() {
               </option>
             ))}
           </select>
-        </div>
-      )}
-
-      {/* ── 残高推移（サマリタブ）────────────────────────────────
-          上で選んだ対象年月の前後 6 か月。実績のある月は実線、以降は
-          資金移動ルールの月次純増減から推測した破線で表示する。 */}
-      {tab === "summary" && (
-        <div className="card mb-6">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">
-            <h3 className="section-title">残高推移</h3>
-            <p className="text-xs text-slate-400">
-              {flowYear}年{flowMonth}月の前後6か月
-            </p>
-            {/* 月末残高だけでは月の途中の上下（給与の入金前後・引き落とし日）が潰れるため日次に切り替えられる */}
-            <div className="ml-auto">
-              <SegmentedControl
-                options={
-                  [
-                    ["month", "月次"],
-                    ["day", "日次"],
-                  ] as const
-                }
-                value={trendGranularity}
-                onChange={setTrendGranularity}
-              />
-            </div>
-          </div>
-          <SectionLead>{BANK_HELP.trend}</SectionLead>
-          {!trend ? (
-            <div className="flex items-center justify-center h-48 text-sm text-slate-400">
-              読み込み中…
-            </div>
-          ) : trend.accounts.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              口座が登録されていません。上の「銀行追加」から追加してください。
-            </p>
-          ) : (
-            <BalanceTrendChart
-              points={trend.points}
-              accounts={trend.accounts}
-              targetMonth={`${flowYear}-${String(flowMonth).padStart(2, "0")}`}
-              granularity={trendGranularity}
-            />
-          )}
         </div>
       )}
 
