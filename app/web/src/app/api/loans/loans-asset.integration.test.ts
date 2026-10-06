@@ -36,6 +36,7 @@ import { emptyRouteContext } from "@/lib/api-handler";
 import { computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
 import { GET as loansGet, POST as loansPost } from "./route";
 import { PATCH as loanPatch } from "./[id]/route";
+import { GET as loanSummaryGet } from "./summary/route";
 import { POST as assetPost } from "../personal-assets/route";
 import { PATCH as assetPatch, DELETE as assetDelete } from "../personal-assets/[id]/route";
 
@@ -275,5 +276,33 @@ describe("マイグレーション（資産の借入の入力を借入金管理�
     const migrated = await prisma.loan.findUniqueOrThrow({ where: { id: loan.id } });
     expect(migrated.linkedAccountId).toBe(liabilityId);
     expect(migrated.loanType).toBe("housing");
+  });
+});
+
+describe("総借入サマリ（GET /api/loans/summary）", () => {
+  async function summary(year: number, month: number) {
+    const res = await loanSummaryGet(
+      makeReq("GET", `http://x/api/loans/summary?year=${year}&month=${month}`),
+      emptyRouteContext(),
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()).data;
+  }
+
+  it("今月は今日の時点で、合計は借入ごとの和。借りる前の月は空", async () => {
+    const current = await summary(now.getFullYear(), now.getMonth() + 1);
+    expect(current.isCurrentMonth).toBe(true);
+    expect(current.loans.length).toBeGreaterThan(0);
+    const sum = (k: string) =>
+      current.loans.reduce((s: number, l: Record<string, number>) => s + l[k], 0);
+    expect(current.totalBalance).toBe(sum("balance"));
+    expect(current.totalMonthlyPayment).toBe(sum("monthlyPayment"));
+    const home = current.loans.find((l: { lenderName: string }) => l.lenderName === "テスト銀行");
+    expect(home.balance).toBe(1_100_000);
+
+    const past = await summary(now.getFullYear() - 2, 1);
+    expect(past.isCurrentMonth).toBe(false);
+    expect(past.asOf).toBe(`${now.getFullYear() - 2}-01-31`);
+    expect(past.loans).toEqual([]);
   });
 });

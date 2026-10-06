@@ -16,6 +16,7 @@ import { BudgetActualChart } from "../components/BudgetActualChart";
 import { CycleStatusRow, type CycleScreen } from "../components/CycleStatusRow";
 import { LoadingView } from "../components/LoadingView";
 import { NetWorthSummaryCard } from "../components/NetWorthSummaryCard";
+import { LoanSummaryCard } from "../components/LoanSummaryCard";
 import { Lead, TermList } from "../components/ui";
 import { DASHBOARD_HELP, kpiTermHelp, textFor } from "../shared/help-texts";
 import { KPI_LABELS } from "../shared/mode-labels";
@@ -349,6 +350,9 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
       {!loading && !error && kpi && (
         <NetWorthSummaryCard period={kpi.period} refreshKey={refreshKey} />
       )}
+
+      {/* 総借入サマリ（KPI の対象月の時点。借入ごとの内訳は借入金の画面） */}
+      {!loading && !error && kpi && <LoanSummaryCard period={kpi.period} refreshKey={refreshKey} />}
 
       {/* 予算と実績の確定の状況（KPI の対象月）。確定の操作は予算・実績の画面で行う */}
       {!loading && !error && kpi && (

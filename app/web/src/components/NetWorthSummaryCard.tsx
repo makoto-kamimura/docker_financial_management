@@ -27,8 +27,8 @@ const yen = (v: number) =>
     ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
     : v.toLocaleString("ja-JP") + "円";
 
-/** 「2026年8月末時点」「2026年10月6日時点」 */
-function asOfLabel(s: NetWorthSummary) {
+/** 「2026年8月末時点」「2026年10月6日時点」（総資産サマリ・総借入サマリで共用） */
+export function summaryAsOfLabel(s: { asOf: string; isCurrentMonth: boolean }) {
   const [y, m, d] = s.asOf.split("-").map(Number);
   return s.isCurrentMonth ? `${y}年${m}月${d}日時点` : `${y}年${m}月末時点`;
 }
@@ -49,7 +49,7 @@ export function NetWorthSummaryCard({ period }: { period: string | null }) {
     <section aria-labelledby="net-worth-title" className="card mb-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
         <h2 id="net-worth-title" className="section-title">
-          総資産サマリ（{asOfLabel(data)}）
+          総資産サマリ（{summaryAsOfLabel(data)}）
         </h2>
         <Link href={"/assets" as never} className="text-xs text-indigo-600 underline">
           資産管理で内訳と推移を見る

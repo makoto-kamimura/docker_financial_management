@@ -344,6 +344,18 @@ export function LoansScreen({ viewMode }: Props) {
         {error && <Notice tone="error">{error}</Notice>}
         <Lead>{LOANS_HELP.page}</Lead>
 
+        {/* 改定後の返済額が未入力の借入があれば、上で 1 行だけ知らせる */}
+        {loans.some((l) => pendingRateChange(l) !== null) && (
+          <Notice tone="warn">
+            金利が改定され、改定後の返済額が未入力の借入があります（
+            {loans
+              .filter((l) => pendingRateChange(l) !== null)
+              .map((l) => l.lenderName)
+              .join("、")}
+            ）。下の一覧の「入力する」から反映してください。
+          </Notice>
+        )}
+
         {/* 借入残高の推移（web 版 LoanTrendCharts と同じ。合計とローンごとの残高・金利） */}
         {trend && trend.months.length > 0 && (
           <Card>
@@ -433,6 +445,34 @@ export function LoansScreen({ viewMode }: Props) {
             const progress = progressOf(l);
             return (
               <Card key={l.id}>
+                {/* 金利が改定されたが、改定後の実額返済額がまだ入力されていない（カードのいちばん上に出す） */}
+                {pending && (
+                  <View style={s.pendingBox}>
+                    <Text style={s.pendingTitle}>
+                      {pending.effectiveOn.slice(0, 7)} に金利が{" "}
+                      {ratePercent(pending.interestRate).toFixed(2)}%
+                      へ改定されました。改定後の返済額を入力してください
+                    </Text>
+                    <Text style={s.pendingText}>
+                      現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
+                      で計算中です。
+                      {pending.calculatedMonthlyPayment &&
+                        `計算上の目安は ${yen(Number(pending.calculatedMonthlyPayment))} です。`}
+                      5
+                      年ルールなら「据え置き」を選ぶだけで反映できます（通知額が違うときは入力してください）。
+                    </Text>
+                    <VariableRateHelp />
+                    <Button
+                      small
+                      label="入力する"
+                      onPress={() => {
+                        setSheetError(null);
+                        openPending(l, pending);
+                      }}
+                      style={{ alignSelf: "flex-start", marginTop: 6 }}
+                    />
+                  </View>
+                )}
                 {/* 資産管理の一覧と同じ並び: 左に名前と条件、右に日付つきの残高 */}
                 <View style={s.loanTop}>
                   <View style={{ flex: 1 }}>
@@ -481,35 +521,6 @@ export function LoansScreen({ viewMode }: Props) {
                     )}
                     （自動加算）
                   </Text>
-                )}
-
-                {/* 金利が改定されたが、改定後の実額返済額がまだ入力されていない */}
-                {pending && (
-                  <View style={s.pendingBox}>
-                    <Text style={s.pendingTitle}>
-                      {pending.effectiveOn.slice(0, 7)} に金利が{" "}
-                      {ratePercent(pending.interestRate).toFixed(2)}%
-                      へ改定されました。改定後の返済額を入力してください
-                    </Text>
-                    <Text style={s.pendingText}>
-                      現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
-                      で計算中です。
-                      {pending.calculatedMonthlyPayment &&
-                        `計算上の目安は ${yen(Number(pending.calculatedMonthlyPayment))} です。`}
-                      5
-                      年ルールなら「据え置き」を選ぶだけで反映できます（通知額が違うときは入力してください）。
-                    </Text>
-                    <VariableRateHelp />
-                    <Button
-                      small
-                      label="入力する"
-                      onPress={() => {
-                        setSheetError(null);
-                        openPending(l, pending);
-                      }}
-                      style={{ alignSelf: "flex-start", marginTop: 6 }}
-                    />
-                  </View>
                 )}
 
                 {Number(l.amount) > 0 && (
@@ -1281,7 +1292,7 @@ const s = StyleSheet.create({
     backgroundColor: "#fffbeb",
     borderRadius: 8,
     padding: 10,
-    marginTop: 8,
+    marginBottom: 10,
   },
   pendingTitle: { fontSize: 12, fontWeight: "700", color: "#92400e" },
   pendingText: { fontSize: 11, color: "#b45309", marginTop: 3, lineHeight: 16 },

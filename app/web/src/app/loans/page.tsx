@@ -332,6 +332,19 @@ export default function LoansPage() {
     <AppShell>
       <PageHeader title="借入金管理" lead={LOANS_HELP.page} />
 
+      {/* 改定後の返済額が未入力の借入があれば、上で 1 行だけ知らせる（カードまで下りなくても気づけるように） */}
+      {(() => {
+        const pendingLoans = loans.filter((l) => pendingRateChange(l) !== null);
+        if (pendingLoans.length === 0) return null;
+        return (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            金利が改定され、改定後の返済額が未入力の借入があります（
+            {pendingLoans.map((l) => l.lenderName).join("、")}
+            ）。下の一覧の「入力する」から反映してください。
+          </div>
+        );
+      })()}
+
       {/* 借入残高の推移（合計とローンごとの残高・金利。資産管理の評価額の推移と同じ形） */}
       {!loading && <LoanTrendCharts loans={loans} />}
 
@@ -359,6 +372,36 @@ export default function LoansPage() {
         <div className="space-y-4">
           {loans.map((l) => (
             <div key={l.id} className="card">
+              {/* 金利が改定されたが、改定後の実額返済額がまだ入力されていない（カードのいちばん上に横幅いっぱいで出す） */}
+              {(() => {
+                const pending = pendingRateChange(l);
+                if (!pending) return null;
+                const calc = pending.calculatedMonthlyPayment;
+                return (
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-xs font-semibold text-amber-800">
+                        {pending.effectiveOn.slice(0, 7)} に金利が
+                        {ratePercent(pending.interestRate).toFixed(2)}%
+                        へ改定されました。改定後の返済額を入力してください
+                      </span>
+                      <VariableRateHelp />
+                      <button
+                        onClick={() => openPending(l, pending)}
+                        className="ml-auto rounded-lg bg-amber-600 px-2.5 py-1 text-xs text-white hover:bg-amber-700"
+                      >
+                        入力する
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[11px] text-amber-700">
+                      現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
+                      で計算中です。
+                      {calc && `計算上の目安は ${yen(Number(calc))} です。`}5
+                      年ルールなら「据え置き」を選ぶだけで反映できます（通知額が違うときは入力してください）。
+                    </p>
+                  </div>
+                );
+              })()}
               {/* 資産管理の一覧と同じ並び: 左に名前と条件、右に日付つきの残高と操作 */}
               <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                 <div className="min-w-0">
@@ -408,36 +451,6 @@ export default function LoansPage() {
                       </Link>
                     </div>
                   )}
-                  {/* 金利が改定されたが、改定後の実額返済額がまだ入力されていない */}
-                  {(() => {
-                    const pending = pendingRateChange(l);
-                    if (!pending) return null;
-                    const calc = pending.calculatedMonthlyPayment;
-                    return (
-                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="text-xs font-semibold text-amber-800">
-                            {pending.effectiveOn.slice(0, 7)} に金利が
-                            {ratePercent(pending.interestRate).toFixed(2)}%
-                            へ改定されました。改定後の返済額を入力してください
-                          </span>
-                          <VariableRateHelp />
-                          <button
-                            onClick={() => openPending(l, pending)}
-                            className="ml-auto rounded-lg bg-amber-600 px-2.5 py-1 text-xs text-white hover:bg-amber-700"
-                          >
-                            入力する
-                          </button>
-                        </div>
-                        <p className="mt-1 text-[11px] text-amber-700">
-                          現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
-                          で計算中です。
-                          {calc && `計算上の目安は ${yen(Number(calc))} です。`}5
-                          年ルールなら「据え置き」を選ぶだけで反映できます（通知額が違うときは入力してください）。
-                        </p>
-                      </div>
-                    );
-                  })()}
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">

@@ -441,6 +441,37 @@ export async function fetchNetWorthSummary(year: number, month: number): Promise
   );
 }
 
+// ── 総借入サマリ（ホームの KPI の対象月の時点。GET /loans/summary）──────────────
+export type LoanSummary = {
+  year: number;
+  month: number;
+  /** 時点（YYYY-MM-DD）。月末、今月なら今日 */
+  asOf: string;
+  isCurrentMonth: boolean;
+  totalBalance: number;
+  totalMonthlyPayment: number;
+  totalBorrowed: number;
+  loans: {
+    id: number;
+    lenderName: string;
+    loanType: string;
+    assetName: string | null;
+    balance: number;
+    monthlyPayment: number;
+    /** 年利（小数。0.0131 = 1.31%） */
+    interestRate: number;
+    repaymentDate: string;
+  }[];
+};
+
+export async function fetchLoanSummary(year: number, month: number): Promise<LoanSummary> {
+  const json = await request<{ data: LoanSummary }>(
+    `/loans/summary?year=${year}&month=${month}`,
+    "総借入サマリの取得に失敗しました",
+  );
+  return json.data;
+}
+
 // ── 予算 ──────────────────────────────────────────────────────────────
 // GET /budgets の 1 行（web 版 予算管理と同じ形）
 export type BudgetRow = {
