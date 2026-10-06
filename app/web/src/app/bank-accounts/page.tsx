@@ -35,6 +35,8 @@ type BankAccount = {
   transactionSum?: number;
   /** 明細に現れない差額（期首残高相当）。編集画面で入力する */
   balanceAdjustment?: number;
+  /** 差額を確かめて保存した日時（0 円のままでも）。あれば「差額を入力」の案内を出さない */
+  balanceCheckedAt?: string | null;
   /** 明細を最後に登録した日時（CSV 取込・手入力）。明細が無ければ口座の登録日時 */
   lastUpdatedAt?: string | null;
   /** 明細上の最新の取引日 */
@@ -365,11 +367,16 @@ function BankAccountsContent() {
                       <div className="text-xs text-slate-400">
                         最終更新 {dateTimeLabel(a.lastUpdatedAt)}
                       </div>
-                      {/* 差額を入れている口座はその内訳を明示する。未入力の口座には案内を出す */}
+                      {/* 差額を入れている口座はその内訳を明示する。差額 0 円を確かめて保存した口座は
+                          「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
                       {a.balanceAdjustment ? (
                         <div className="text-xs text-slate-400 mt-0.5">
                           明細合計 ¥{(a.transactionSum ?? 0).toLocaleString()} ＋ 差額 ¥
                           {a.balanceAdjustment.toLocaleString()}
+                        </div>
+                      ) : a.balanceCheckedAt ? (
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          明細合計どおり（差額なし）
                         </div>
                       ) : (
                         a._count.transactions > 0 && (

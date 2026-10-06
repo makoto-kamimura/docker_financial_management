@@ -473,6 +473,7 @@ KPI の下に、次の順で置く。
 
 - 口座には、名前・銀行名・支店名・種別（普通 / 当座）・役割（給与 / 引き落とし / 貯蓄 / その他）・資産の科目を登録する。
 - 残高は「取り込んだ明細の合計 ＋ 差額」で出す。明細を取り込む前の残高などは、差額で合わせる。
+- 明細がある口座で差額をまだ確かめていなければ、「実際の残高と違う場合は編集から差額を入力」と案内する。編集で差額を保存すると（0 円でも）確かめ済み（`balanceCheckedAt`）になり、差額 0 円なら「明細合計どおり（差額なし）」と出す。
 - この残高を、総資産サマリ・資金繰りのすべてで使う。
 
 ### 10.2 明細
@@ -1061,7 +1062,7 @@ npm run typecheck && npm run format:check
 
 | テーブル | 主な列 | 補足 |
 |---|---|---|
-| `bank_accounts` | name, bankName, branchName, accountType, role, accountId, balanceAdjustment | 銀行口座の唯一の台帳 |
+| `bank_accounts` | name, bankName, branchName, accountType, role, accountId, balanceAdjustment, balanceCheckedAt | 銀行口座の唯一の台帳。balanceCheckedAt は差額を確かめて保存した日時（0 円でも） |
 | `bank_transactions` | accountId, date, description, amount, balance, source, externalId, categoryAccountId, postedRecordId, transferGroupId, chargeToAccountId, chargeGroupId | `[accountId, externalId]` 一意 |
 | `transfers` | fromAccountId, toAccountId, linkedAccountId, amount, kind, channel, label, day | 資金移動ルール |
 | `txn_category_rules` | keyword, categoryAccountId, priority | 科目付けの学習ルール |

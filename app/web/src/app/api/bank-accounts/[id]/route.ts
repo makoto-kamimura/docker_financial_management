@@ -38,7 +38,12 @@ export const PATCH = withApi({
 
     const account = await db.bankAccount.update({
       where: { id },
-      data: { ...fields, ...(accountId !== undefined ? { accountId } : {}) },
+      data: {
+        ...fields,
+        ...(accountId !== undefined ? { accountId } : {}),
+        // 差額を保存したら（0 円でも）確かめ済みにする
+        ...(fields.balanceAdjustment !== undefined ? { balanceCheckedAt: new Date() } : {}),
+      },
       include: { account: { select: { id: true, code: true, name: true, category: true } } },
     });
     await audit("update", `bank_account:${id}`);

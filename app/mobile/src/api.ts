@@ -881,6 +881,8 @@ export type BankAccount = {
   transactionSum: number;
   /** 明細に現れない差額（期首残高相当） */
   balanceAdjustment: number;
+  /** 差額を確かめて保存した日時（0 円のままでも）。あれば「差額を入力」の案内を出さない */
+  balanceCheckedAt?: string | null;
   /** 明細を最後に登録した日時。明細が無ければ口座の登録日時 */
   lastUpdatedAt: string | null;
   /** 明細上の最新の取引日 */
