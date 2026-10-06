@@ -7,6 +7,7 @@ import { CycleStatusStrip } from "@/components/CycleStatusStrip";
 import { KpiCards } from "@/components/KpiCards";
 import { NetWorthSummaryCard } from "@/components/NetWorthSummaryCard";
 import { LoanSummaryCard } from "@/components/LoanSummaryCard";
+import { BankSummaryCard } from "@/components/BankSummaryCard";
 import { PageHeader } from "@/components/ui";
 import { AppShell } from "@/components/AppShell";
 import { SectionLead } from "@/components/Explain";
@@ -91,6 +92,9 @@ export default function DashboardPage() {
 
       {/* ── 総借入サマリ（KPI の対象月の時点。借入ごとの内訳は借入金管理）──── */}
       <LoanSummaryCard period={kpiPeriod} />
+
+      {/* ── 口座残高サマリ（KPI の対象月の時点。口座の管理と推移は銀行管理）──── */}
+      <BankSummaryCard period={kpiPeriod} />
 
       {/* ── 予算と実績の確定の状況（KPI の対象月。操作は予算管理・実績管理で行う）──── */}
       <CycleStatusStrip period={kpiPeriod} />

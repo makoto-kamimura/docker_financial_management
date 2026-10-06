@@ -1,5 +1,5 @@
-// 銀行管理の「明細一覧」（web 版 BankTransactionsPanel の list ビューと同じ機能）。
-//   - 入出金の手動登録
+// 銀行管理の「一覧」（web 版 BankTransactionsPanel の list ビューと同じ機能）。
+//   入出金の手動登録はカレンダータブ（components/bank/BankTransactionsCalendar）で行う。
 //   - 科目の紐付け・実績への転記（振替・チャージの明細は対象外）
 //   - チャージ先（デビット / プリペイド / 電子マネー）の指定・解除
 //   - 明細から固定入出金（毎月の資金移動ルール）を登録・書き換え
@@ -14,7 +14,6 @@ import {
   fetchLinkedAccounts,
   fetchTransfers,
   patchTransfer,
-  postBankTransaction,
   postTransactionToActuals,
   postTransfer,
   setBankTransactionCharge,
@@ -27,21 +26,18 @@ import {
   type ViewMode,
 } from "../../api";
 import { displayName } from "../../shared/display-name";
-import { digitsOnly, fmtDate, yen } from "../../format";
+import { fmtDate, yen } from "../../format";
 import { TRANSFER_CHANNEL_LABELS, TXN_SOURCE_LABEL as SOURCE_LABELS } from "../../shared/labels";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "../../shared/linked-account-type";
 import { CategoryPickerModal } from "../CategoryPickerModal";
 import { ChargeLinkSheet } from "../ChargeLinkSheet";
 import {
   Button,
-  Card,
   EmptyText,
   Field,
-  Input,
   Notice,
   Pager,
   Pills,
-  SectionTitle,
   SelectField,
   SheetModal,
   TermList,
@@ -49,7 +45,6 @@ import {
 import { BANK_HELP, BANK_TERMS } from "../../shared/help-texts";
 
 const PAGE_SIZE = 30;
-const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const normalizeLabel = (s: string) => s.trim().toLowerCase();
 
@@ -79,12 +74,6 @@ export function BankTransactionsList({
   const [cards, setCards] = useState<LinkedAccount[]>([]);
   const [page, setPage] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
-  const [manual, setManual] = useState({
-    date: todayIso(),
-    description: "",
-    amount: "",
-    type: "expense" as "income" | "expense",
-  });
   const [picking, setPicking] = useState<BankTransaction | null>(null);
   const [actions, setActions] = useState<BankTransaction | null>(null);
   const [chargeLink, setChargeLink] = useState<{
@@ -153,21 +142,6 @@ export function BankTransactionsList({
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "処理に失敗しました");
     }
-  }
-
-  function submitManual() {
-    if (accountId === null) return setMsg("口座を登録してください。");
-    const raw = Number(manual.amount);
-    if (!manual.description.trim() || !(raw > 0)) return setMsg("摘要と金額を入力してください。");
-    run(async () => {
-      await postBankTransaction(accountId, {
-        date: manual.date,
-        description: manual.description.trim(),
-        amount: manual.type === "expense" ? -Math.abs(raw) : Math.abs(raw),
-      });
-      setManual((m) => ({ ...m, description: "", amount: "" }));
-      return "登録しました";
-    }, true);
   }
 
   function post(t: BankTransaction) {
@@ -287,7 +261,7 @@ export function BankTransactionsList({
       />
       {accounts.length === 0 && (
         <Notice tone="warn">
-          口座が登録されていません。入出金を記録するには、先に「サマリ」の「銀行追加」から口座を登録してください。
+          口座が登録されていません。入出金を記録するには、先に「キャッシュフロー」の「銀行口座」から口座を登録してください。
         </Notice>
       )}
       {msg && (
@@ -295,38 +269,6 @@ export function BankTransactionsList({
           <Notice>{msg}　✕</Notice>
         </TouchableOpacity>
       )}
-
-      <Card>
-        <SectionTitle>入出金を手動登録</SectionTitle>
-        <Pills
-          scroll={false}
-          options={[
-            { value: "expense" as const, label: "支出" },
-            { value: "income" as const, label: "収入" },
-          ]}
-          value={manual.type}
-          onChange={(type) => setManual((m) => ({ ...m, type }))}
-        />
-        <Field label="日付（YYYY-MM-DD）">
-          <Input value={manual.date} onChangeText={(date) => setManual((m) => ({ ...m, date }))} />
-        </Field>
-        <Field label="摘要">
-          <Input
-            value={manual.description}
-            placeholder="例: 食料品"
-            onChangeText={(description) => setManual((m) => ({ ...m, description }))}
-          />
-        </Field>
-        <Field label="金額（円）">
-          <Input
-            keyboardType="number-pad"
-            value={manual.amount}
-            placeholder="例: 5000"
-            onChangeText={(t) => setManual((m) => ({ ...m, amount: digitsOnly(t) }))}
-          />
-        </Field>
-        <Button label="登録する" onPress={submitManual} />
-      </Card>
 
       <Notice>{BANK_HELP.list}</Notice>
       <TermList terms={BANK_TERMS} label="科目・転記・チャージ・固定入出金の説明" />

@@ -472,6 +472,41 @@ export async function fetchLoanSummary(year: number, month: number): Promise<Loa
   return json.data;
 }
 
+// 口座残高サマリ（ホーム。web 版 GET /api/bank-accounts/summary）
+export type BankSummary = {
+  year: number;
+  month: number;
+  /** 時点（YYYY-MM-DD）。月末、今月なら今日 */
+  asOf: string;
+  isCurrentMonth: boolean;
+  totalBalance: number;
+  /** 明細を最後に登録した日時 */
+  lastUpdatedAt: string | null;
+  accounts: { id: number; name: string; bankName: string; balance: number }[];
+};
+
+export async function fetchBankSummary(year: number, month: number): Promise<BankSummary> {
+  const json = await request<{ data: BankSummary }>(
+    `/bank-accounts/summary?year=${year}&month=${month}`,
+    "口座残高サマリの取得に失敗しました",
+  );
+  return json.data;
+}
+
+// 銀行管理キャッシュフロータブの残高の推移（web 版 GET /api/bank-accounts/cash-outlook）。
+// 合計の先は予算と実績の収支、口座ごとの先は毎月の入出金から見込んだ月末残高
+export type CashOutlook = {
+  months: string[];
+  currentKey: string;
+  total: number[];
+  totalBasis: ("actual" | "budget" | "rule")[];
+  accounts: { id: number; name: string; balance: number; values: number[] }[];
+};
+
+export async function fetchCashOutlook(): Promise<CashOutlook> {
+  return request<CashOutlook>("/bank-accounts/cash-outlook", "残高の推移の取得に失敗しました");
+}
+
 // ── 予算 ──────────────────────────────────────────────────────────────
 // GET /budgets の 1 行（web 版 予算管理と同じ形）
 export type BudgetRow = {

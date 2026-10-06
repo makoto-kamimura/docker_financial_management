@@ -104,7 +104,7 @@ export function FundingPlanPanel({ year, month, months = 3 }: Props) {
         </p>
         {activePlans.length === 0 ? (
           <p className="text-sm text-slate-400">
-            資金移動が設定されていません。「振替」タブの資金移動スケジュールで毎月の入出金を登録すると表示されます。
+            資金移動が設定されていません。下の資金移動スケジュールで毎月の入出金を登録すると表示されます。
           </p>
         ) : (
           <div className="space-y-5">

@@ -1,0 +1,386 @@
+// 銀行管理の「カレンダー」（web 版 components/BankTransactionsCalendar.tsx と同じ。形は実績管理のカレンダー
+// components/ActualsCalendar.tsx に合わせる）。選んだ口座の明細を日ごとに並べ、選んだ日の入出金の確認と、
+// 手入力での登録・削除ができる（GET/POST/DELETE /bank-accounts/{id}/transactions）。
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  deleteBankTransaction,
+  fetchBankTransactions,
+  postBankTransaction,
+  type BankAccount,
+  type BankTransaction,
+} from "../../api";
+import { digitsOnly, isoDate, yenJa } from "../../format";
+import { BANK_HELP } from "../../shared/help-texts";
+import { Button, Card, Field, Input, Lead, Notice, Pills, SelectField } from "../ui";
+
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+type Direction = "income" | "expense";
+const BLANK_FORM = { type: "expense" as Direction, description: "", amount: "" };
+
+type Props = {
+  accounts: BankAccount[];
+  accountId: number | null;
+  onAccountIdChange: (id: number) => void;
+  /** 残高が変わったとき（口座の残高・資金繰りを取り直す） */
+  onBalanceChanged: () => void;
+};
+
+export function BankTransactionsCalendar({
+  accounts,
+  accountId,
+  onAccountIdChange,
+  onBalanceChanged,
+}: Props) {
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth() + 1);
+  const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate());
+  const [txns, setTxns] = useState<BankTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState(BLANK_FORM);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    if (accountId === null) return setLoading(false);
+    setLoading(true);
+    try {
+      setTxns(await fetchBankTransactions(accountId));
+    } catch {
+      setTxns([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [accountId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // 表示中の月の明細を日ごとに（明細の日付は "YYYY-MM-DD..." の先頭で判定する）
+  const monthPrefix = isoDate(year, month, 1).slice(0, 8);
+  const byDay = useMemo(() => {
+    const m = new Map<number, BankTransaction[]>();
+    for (const t of txns) {
+      if (!t.date.startsWith(monthPrefix)) continue;
+      const d = Number(t.date.slice(8, 10));
+      m.set(d, [...(m.get(d) ?? []), t]);
+    }
+    return m;
+  }, [txns, monthPrefix]);
+
+  const monthTotals = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    let count = 0;
+    for (const list of byDay.values()) {
+      for (const t of list) {
+        if (t.amount > 0) income += t.amount;
+        else expense += -t.amount;
+        count++;
+      }
+    }
+    return { income, expense, net: income - expense, count };
+  }, [byDay]);
+
+  function moveMonth(delta: number) {
+    const d = new Date(year, month - 1 + delta, 1);
+    setYear(d.getFullYear());
+    setMonth(d.getMonth() + 1);
+    setSelectedDay(null);
+  }
+
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  const selectedTxns = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
+
+  async function submit() {
+    if (accountId === null || !selectedDay) return;
+    const raw = Number(form.amount);
+    if (!form.description.trim() || !(raw > 0)) {
+      setError("摘要と金額を入力してください");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await postBankTransaction(accountId, {
+        date: isoDate(year, month, selectedDay),
+        description: form.description.trim(),
+        amount: form.type === "expense" ? -Math.abs(raw) : Math.abs(raw),
+      });
+      setForm((f) => ({ ...BLANK_FORM, type: f.type }));
+      await load();
+      onBalanceChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "登録に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function confirmDelete(t: BankTransaction) {
+    const message = t.transferGroupId
+      ? `「${t.description}」を削除します。振替の相手の口座の明細も一緒に削除されます。よろしいですか？`
+      : `「${t.description}」を削除します。よろしいですか？`;
+    Alert.alert("明細を削除", message, [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "削除",
+        style: "destructive",
+        onPress: async () => {
+          if (accountId === null) return;
+          try {
+            await deleteBankTransaction(accountId, t.id);
+            await load();
+            onBalanceChanged();
+          } catch (err) {
+            Alert.alert("削除エラー", err instanceof Error ? err.message : "削除に失敗しました");
+          }
+        },
+      },
+    ]);
+  }
+
+  if (accounts.length === 0) {
+    return (
+      <Notice tone="warn">
+        口座が登録されていません。「キャッシュフロー」の「銀行口座」から口座を登録してください。
+      </Notice>
+    );
+  }
+
+  return (
+    <View>
+      <Lead>{BANK_HELP.calendar}</Lead>
+      <SelectField
+        label="口座"
+        value={accountId}
+        options={accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.bankName}）` }))}
+        onChange={onAccountIdChange}
+      />
+      <Card style={{ padding: 0, overflow: "hidden" }}>
+        <View style={s.monthNav}>
+          <TouchableOpacity onPress={() => moveMonth(-1)} style={s.navBtn}>
+            <Text style={s.navTxt}>◀</Text>
+          </TouchableOpacity>
+          <Text style={s.monthLabel}>
+            {year}年{month}月
+          </Text>
+          <TouchableOpacity onPress={() => moveMonth(1)} style={s.navBtn}>
+            <Text style={s.navTxt}>▶</Text>
+          </TouchableOpacity>
+        </View>
+        {/* 表示中の月の入出金の合計 */}
+        <View style={s.totals}>
+          <Text style={s.totalItem}>
+            入金合計 <Text style={s.income}>{yenJa(monthTotals.income)}</Text>
+          </Text>
+          <Text style={s.totalItem}>
+            出金合計 <Text style={s.expense}>{yenJa(monthTotals.expense)}</Text>
+          </Text>
+          <Text style={s.totalItem}>
+            差引{" "}
+            <Text style={monthTotals.net < 0 ? s.expense : s.net}>{yenJa(monthTotals.net)}</Text>
+          </Text>
+          <Text style={s.count}>{monthTotals.count} 件の明細</Text>
+        </View>
+        <View style={s.weekRow}>
+          {WEEKDAYS.map((w, i) => (
+            <Text key={w} style={[s.weekCell, i === 0 && s.sun, i === 6 && s.sat]}>
+              {w}
+            </Text>
+          ))}
+        </View>
+        {loading ? (
+          <ActivityIndicator color="#4f46e5" style={{ marginVertical: 32 }} />
+        ) : (
+          <View style={s.grid}>
+            {Array.from({ length: totalCells }, (_, i) => {
+              const day = i - firstWeekday + 1;
+              const valid = day >= 1 && day <= daysInMonth;
+              if (!valid) return <View key={i} style={[s.dayCell, s.dayBlank]} />;
+              const dayTxns = byDay.get(day) ?? [];
+              const inc = dayTxns.reduce((sum, t) => sum + Math.max(t.amount, 0), 0);
+              const exp = dayTxns.reduce((sum, t) => sum + Math.max(-t.amount, 0), 0);
+              const isToday =
+                year === today.getFullYear() &&
+                month === today.getMonth() + 1 &&
+                day === today.getDate();
+              const weekday = i % 7;
+              return (
+                <TouchableOpacity
+                  key={i}
+                  style={[s.dayCell, day === selectedDay && s.daySelected]}
+                  onPress={() => setSelectedDay(day)}
+                >
+                  <Text
+                    style={[
+                      s.dayNum,
+                      weekday === 0 && s.sun,
+                      weekday === 6 && s.sat,
+                      isToday && s.today,
+                    ]}
+                  >
+                    {day}
+                  </Text>
+                  {inc > 0 && (
+                    <Text style={s.dayIncome} numberOfLines={1}>
+                      +{Math.round(inc).toLocaleString("ja-JP")}
+                    </Text>
+                  )}
+                  {exp > 0 && (
+                    <Text style={s.dayExpense} numberOfLines={1}>
+                      −{Math.round(exp).toLocaleString("ja-JP")}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+      </Card>
+
+      {!selectedDay ? (
+        <Text style={s.hint}>カレンダーの日付をタップして入出金を確認・追加してください</Text>
+      ) : (
+        <>
+          <Card>
+            <Text style={s.dayTitle}>
+              {year}年{month}月{selectedDay}日
+            </Text>
+            <Text style={s.count}>{selectedTxns.length} 件の明細</Text>
+            {selectedTxns.map((t) => (
+              <View key={t.id} style={s.entryRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.entryDesc} numberOfLines={1}>
+                    {t.description}
+                  </Text>
+                  <Text style={s.entryAccounts} numberOfLines={1}>
+                    {t.transferGroupId
+                      ? "口座間の振替"
+                      : t.chargeToAccount
+                        ? `チャージ: ${t.chargeToAccount.name}`
+                        : t.categoryAccount
+                          ? `${t.categoryAccount.code} ${t.categoryAccount.name}`
+                          : "科目なし"}
+                  </Text>
+                </View>
+                <Text style={t.amount > 0 ? s.income : s.expense}>
+                  {t.amount > 0 ? "+" : "−"}
+                  {yenJa(Math.abs(t.amount))}
+                </Text>
+                <TouchableOpacity onPress={() => confirmDelete(t)} hitSlop={8}>
+                  <Text style={s.remove}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </Card>
+
+          <Card>
+            <Text style={s.formTitle}>入出金を追加</Text>
+            <Pills
+              scroll={false}
+              options={[
+                { value: "expense" as Direction, label: "出金" },
+                { value: "income" as Direction, label: "入金" },
+              ]}
+              value={form.type}
+              onChange={(type) => setForm((f) => ({ ...f, type }))}
+            />
+            <Field label="摘要">
+              <Input
+                value={form.description}
+                placeholder="例: 食料品"
+                onChangeText={(t) => setForm((f) => ({ ...f, description: t }))}
+              />
+            </Field>
+            <Field label="金額（円）">
+              <Input
+                keyboardType="number-pad"
+                value={form.amount}
+                placeholder="例: 5000"
+                onChangeText={(t) => setForm((f) => ({ ...f, amount: digitsOnly(t) }))}
+              />
+            </Field>
+            {error ? <Notice tone="error">{error}</Notice> : null}
+            <Button label={saving ? "登録中..." : "登録"} onPress={submit} loading={saving} />
+          </Card>
+        </>
+      )}
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  monthNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  navBtn: { padding: 8 },
+  navTxt: { fontSize: 14, color: "#4f46e5" },
+  monthLabel: { fontSize: 15, fontWeight: "700", color: "#1e293b" },
+  totals: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#f8fafc",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  totalItem: { fontSize: 11, color: "#64748b" },
+  income: { color: "#059669", fontWeight: "700" },
+  expense: { color: "#e11d48", fontWeight: "700" },
+  net: { color: "#4f46e5", fontWeight: "700" },
+  count: { fontSize: 11, color: "#94a3b8" },
+  weekRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
+  weekCell: { flex: 1, textAlign: "center", fontSize: 11, color: "#64748b", paddingVertical: 6 },
+  sun: { color: "#ef4444" },
+  sat: { color: "#3b82f6" },
+  grid: { flexDirection: "row", flexWrap: "wrap" },
+  dayCell: {
+    width: `${100 / 7}%`,
+    minHeight: 58,
+    padding: 3,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#f1f5f9",
+  },
+  dayBlank: { backgroundColor: "#fafafa" },
+  daySelected: { backgroundColor: "#eef2ff" },
+  dayNum: { fontSize: 12, fontWeight: "600", color: "#334155" },
+  today: {
+    color: "#fff",
+    backgroundColor: "#4f46e5",
+    borderRadius: 9,
+    width: 18,
+    textAlign: "center",
+    overflow: "hidden",
+  },
+  dayIncome: { fontSize: 8, color: "#059669" },
+  dayExpense: { fontSize: 8, color: "#e11d48" },
+  hint: { textAlign: "center", color: "#94a3b8", fontSize: 13, paddingVertical: 16 },
+  dayTitle: { fontSize: 14, fontWeight: "700", color: "#1e293b" },
+  entryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#f1f5f9",
+    marginTop: 6,
+  },
+  entryDesc: { fontSize: 13, color: "#1e293b", fontWeight: "500" },
+  entryAccounts: { fontSize: 10, color: "#94a3b8", marginTop: 2 },
+  remove: { fontSize: 13, color: "#cbd5e1", paddingHorizontal: 4 },
+  formTitle: { fontSize: 13, fontWeight: "700", color: "#475569", marginBottom: 8 },
+});
