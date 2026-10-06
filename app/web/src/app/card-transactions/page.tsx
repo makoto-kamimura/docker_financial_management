@@ -92,7 +92,7 @@ type ImportResult = {
 const now = new Date();
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
-// 明細一覧のページング（実績管理の履歴・銀行管理の明細一覧と同じ 30 件単位）
+// 明細一覧のページング（実績管理の履歴・銀行管理の一覧と同じ 30 件単位）
 const TXN_PAGE_SIZE = 30;
 
 const BLANK_MANUAL = {
@@ -175,7 +175,7 @@ type CardScheduleEntry = {
   kind: "debit" | "recurring";
 };
 
-// スケジュールの表示モード（銀行管理の振替タブと同じ切替）
+// スケジュールの表示モード（銀行管理のキャッシュフロータブと同じ切替）
 const CARD_SCHEDULE_MODES: [ScheduleMode, string][] = [
   ["list", "一覧モード"],
   ["calendar", "スケジュールモード"],
@@ -331,7 +331,7 @@ export default function CardTransactionsPage() {
   const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
   const selectedEntries = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
 
-  // ── サマリのスケジュール（銀行管理の振替タブと同じ並べ方）──────────────
+  // ── サマリのスケジュール（銀行管理のキャッシュフロータブと同じ並べ方）──────────────
   // 引き落とし（銀行 → カード）と固定決済（カード → 外部）はモデルが別だが、
   // どちらも「毎月◯日に決まった額が動く」ルールなので 1 つのスケジュールにまとめる
   const scheduleEntries = useMemo<CardScheduleEntry[]>(() => {
@@ -507,7 +507,7 @@ export default function CardTransactionsPage() {
   // 銀行口座は指定しない。カード払いは利用時点で現金が動かず、実際の出金はカード全体の
   // 引き落とし 1 本にまとまるため、口座を紐付けると資金繰りに同じ支出が二重で乗る。
   const normalizeLabel = (s: string) => s.trim().toLowerCase();
-  // 摘要が一致する固定決済があれば「登録済み」として扱う（銀行管理の明細一覧と同じ判定）
+  // 摘要が一致する固定決済があれば「登録済み」として扱う（銀行管理の一覧と同じ判定）
   const recurringByLabel = useMemo(() => {
     const m = new Map<string, CardRecurring>();
     for (const r of recurringPayments ?? []) {
@@ -797,7 +797,7 @@ export default function CardTransactionsPage() {
       />
 
       {/* 表示対象のカード・電子マネー（タブ直下に置き、どのタブでも同じ位置で切り替えられる）。
-          銀行管理の明細一覧と同じく、ラベルを置かず右端に寄せた input-field のセレクタで統一する。
+          銀行管理の一覧と同じく、ラベルを置かず右端に寄せた input-field のセレクタで統一する。
           サマリのフロー図は全カードを 1 枚に描くので、そこでは表示対象を出さない（銀行管理と同じ）。 */}
       {tab !== "summary" && accounts && accounts.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -1047,7 +1047,7 @@ export default function CardTransactionsPage() {
       )}
 
       {/* ── サマリタブ ───────────────────────────────────────
-          銀行管理のサマリにある「口座間 資金フロー図」のカード版。
+          銀行管理のキャッシュフロータブにある「口座間 資金フロー図」のカード版。
           引き落とし・チャージ（銀行から / カードから）・固定決済の線を 1 枚の図にまとめる。 */}
       {tab === "summary" && (
         <>
@@ -1066,7 +1066,7 @@ export default function CardTransactionsPage() {
             ) : cardFlow.graph.links.length === 0 ? (
               <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
                 描画できる資金の流れがありません。「明細一覧」タブのチャージ先列・固定決済列、
-                銀行管理の明細一覧の「チャージ先」列、または銀行管理の「振替」タブ（引き落とし）
+                銀行管理の一覧の「チャージ先」列、または銀行管理の「キャッシュフロー」タブ（引き落とし）
                 から登録してください。
               </p>
             ) : (
@@ -1081,8 +1081,8 @@ export default function CardTransactionsPage() {
           </div>
 
           {/* ── 引き落とし・固定決済スケジュール ──────────────────────
-            銀行管理の振替タブの「資金移動スケジュール」と同じ構成（一覧モード／スケジュールモード）。
-            登録・削除は 引き落とし＝銀行管理の「振替」、固定決済＝この画面の明細一覧 で行うため、
+            銀行管理のキャッシュフロータブの「資金移動スケジュール」と同じ構成（一覧モード／スケジュールモード）。
+            登録・削除は 引き落とし＝銀行管理の「キャッシュフロー」、固定決済＝この画面の明細一覧 で行うため、
             ここは表示専用にしている（同じ操作を 2 か所に置くと登録先が分かりにくくなるため）。 */}
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
             <h2 className="section-title">引き落とし・固定決済スケジュール</h2>
@@ -1154,7 +1154,7 @@ export default function CardTransactionsPage() {
               </div>
             ) : (
               <p className="text-sm text-slate-500 mb-6">
-                引き落とし・固定決済がまだ登録されていません。引き落としは銀行管理の「振替」タブ、
+                引き落とし・固定決済がまだ登録されていません。引き落としは銀行管理の「キャッシュフロー」タブ、
                 固定決済は「明細一覧」タブの固定決済列から登録すると、この一覧と上のフロー図に表示されます。
               </p>
             ))}
@@ -1268,7 +1268,7 @@ export default function CardTransactionsPage() {
                 チャージ先を指定して記録する。両側の明細をまとめて作る導線は持たない。 */}
             <p className="text-xs text-slate-500 mb-3">
               {isEMoney
-                ? "電子マネーの利用履歴（支払い・返金）を登録します。チャージ（入金）は支出ではないため、チャージ元の明細の「チャージ先」列で指定してください（銀行から入れた場合は銀行管理の明細一覧のチャージ先列です）。"
+                ? "電子マネーの利用履歴（支払い・返金）を登録します。チャージ（入金）は支出ではないため、チャージ元の明細の「チャージ先」列で指定してください（銀行から入れた場合は銀行管理の一覧のチャージ先列です）。"
                 : "カードの利用履歴（利用・返金）を登録します。他のカード・電子マネーへのチャージは、その明細の「チャージ先」列で指定してください。"}
             </p>
             <form onSubmit={submitManual} className="flex flex-wrap gap-3 items-end">

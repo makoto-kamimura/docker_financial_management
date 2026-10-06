@@ -1,7 +1,8 @@
-// 銀行管理（web 版 /bank-accounts と同じ「サマリ / 明細一覧 / 振替」。CSV インポート・自動取得は web 版のみ）。
-//   サマリ … 口座サマリ（追加・編集・削除・差額入力）、残高推移、資金繰り
-//   明細一覧 … components/bank/BankTransactionsList
-//   振替 … components/bank/TransferTab
+// 銀行管理（web 版 /bank-accounts と同じ「キャッシュフロー / 一覧 / カレンダー」。CSV インポート・自動取得は web 版のみ）。
+//   キャッシュフロー … 残高の推移、資金繰り、毎月の入出金（components/bank/TransferTab）、
+//                      銀行口座（追加・編集・削除・差額入力）。口座残高のサマリはホームへ移した
+//   一覧 … components/bank/BankTransactionsList
+//   カレンダー … components/bank/BankTransactionsCalendar（日ごとの明細と手入力での登録）
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -23,9 +24,11 @@ import {
   type BankAccount,
   type ViewMode,
 } from "../api";
+import { BankTransactionsCalendar } from "../components/bank/BankTransactionsCalendar";
 import { BankTransactionsList } from "../components/bank/BankTransactionsList";
 import { TransferTab, type ScheduleMode } from "../components/bank/TransferTab";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
+import { CashFlowTrend } from "../components/CashFlowTrend";
 import { FundingPlanView } from "../components/FundingPlanView";
 import { RecurringSuggestions } from "../components/RecurringSuggestions";
 import {
@@ -46,11 +49,11 @@ import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
 import { BANK_ACCOUNT_TYPE_LABEL } from "../shared/labels";
 import { useFiscalYear } from "../fiscal-year";
 
-type Tab = "summary" | "list" | "flow";
+type Tab = "cashflow" | "list" | "calendar";
 const TABS = [
-  ["summary", "サマリ"],
-  ["list", "明細一覧"],
-  ["flow", "振替"],
+  ["cashflow", "キャッシュフロー"],
+  ["list", "一覧"],
+  ["calendar", "カレンダー"],
 ] as const;
 
 // 紐付き勘定科目に選べるのは資産・負債のみ（web 版と同じ）
@@ -88,14 +91,14 @@ type Props = { viewMode: ViewMode };
 
 export function BankAccountsScreen({ viewMode }: Props) {
   const now = new Date();
-  const [tab, setTab] = useState<Tab>("summary");
+  const [tab, setTab] = useState<Tab>("cashflow");
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountRefs, setAccountRefs] = useState<Account[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 残高推移・資金繰り・実績フロー図の起点年月
+  // 資金繰り・実績フロー図の起点年月
   // 年は画面上部のサブヘッダーの対象年度（全画面で共通）。ここでは月だけを選ぶ
   const year = useFiscalYear();
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -139,12 +142,6 @@ export function BankAccountsScreen({ viewMode }: Props) {
   }, [load]);
 
   const totalBalance = accounts.reduce((sum, a) => sum + (a.balance ?? 0), 0);
-  const totalTxCount = accounts.reduce((sum, a) => sum + (a._count?.transactions ?? 0), 0);
-  const lastUpdatedAt = accounts.reduce<string | null>(
-    (latest, a) =>
-      a.lastUpdatedAt && (!latest || a.lastUpdatedAt > latest) ? a.lastUpdatedAt : latest,
-    null,
-  );
 
   function openEdit(a: BankAccount) {
     setFormError(null);
@@ -219,7 +216,7 @@ export function BankAccountsScreen({ viewMode }: Props) {
     return a ? `${a.code} ${displayName(a, viewMode)}` : "なし";
   };
 
-  // 残高推移・資金繰り・実績フロー図の起点年月（web 版と同じく直近 5 年から選ぶ）
+  // 資金繰り・実績フロー図の起点の月（年は対象年度）
   const periodPicker = (
     <View style={s.periodRow}>
       <Pills
@@ -250,11 +247,34 @@ export function BankAccountsScreen({ viewMode }: Props) {
         {error && <Notice tone="error">{error}</Notice>}
         <Lead>{BANK_HELP.page}</Lead>
 
-        {tab === "summary" && (
+        {tab === "cashflow" && (
           <>
+            {/* 残高の推移（web 版と同じ。合計の先は予算と実績、口座ごとの先は毎月の入出金から見込む） */}
+            <CashFlowTrend year={year} month={month} reloadKey={reloadKey} />
+
+            <SectionTitle note={BANK_HELP.funding}>
+              資金繰り（{year}年{month}月から3か月）
+            </SectionTitle>
+            {periodPicker}
+            <FundingPlanView year={year} month={month} months={3} reloadKey={reloadKey} />
+
+            {/* 明細から見つけた毎月の入出金の候補（登録で資金移動ルールになる） */}
+            <RecurringSuggestions reloadKey={reloadKey} onChanged={onBalanceChanged} />
+            <TransferTab
+              accounts={accounts}
+              accountId={selectedId}
+              year={year}
+              month={month}
+              scheduleMode={scheduleMode}
+              onScheduleModeChange={setScheduleMode}
+              focusDay={focusDay}
+              onBalanceChanged={onBalanceChanged}
+            />
+
+            {/* 銀行口座（資産・借入金の画面と同じく 1 枚のカードにまとめる） */}
             <Card>
               <View style={s.summaryHead}>
-                <Text style={s.title}>口座サマリ</Text>
+                <Text style={s.title}>銀行口座</Text>
                 <Button
                   small
                   label="銀行追加"
@@ -273,33 +293,11 @@ export function BankAccountsScreen({ viewMode }: Props) {
                 </Text>
               ) : (
                 <>
-                  <View style={s.stats}>
-                    <View style={s.stat}>
-                      <Text style={s.statLabel}>総残高</Text>
-                      <Text style={s.statTotal}>{yen(totalBalance)}</Text>
-                    </View>
-                    <View style={s.stat}>
-                      <Text style={s.statLabel}>口座数</Text>
-                      <Text style={s.statValue}>{accounts.length}</Text>
-                    </View>
-                    <View style={s.stat}>
-                      <Text style={s.statLabel}>取引件数</Text>
-                      <Text style={s.statValue}>{totalTxCount}</Text>
-                    </View>
-                    <View style={s.stat}>
-                      <Text style={s.statLabel}>最終更新</Text>
-                      <Text style={s.statSmall}>
-                        {lastUpdatedAt ? fmtDateTime(lastUpdatedAt) : "—"}
-                      </Text>
-                      <Text style={s.muted}>明細を最後に登録した日時</Text>
-                    </View>
-                  </View>
+                  <Text style={s.muted}>
+                    残高合計 {yen(totalBalance)} ・ {accounts.length} 口座
+                  </Text>
                   {accounts.map((a) => (
-                    <TouchableOpacity
-                      key={a.id}
-                      style={[s.accountCard, selectedId === a.id && s.accountCardSelected]}
-                      onPress={() => setSelectedId(a.id)}
-                    >
+                    <View key={a.id} style={s.accountCard}>
                       <Text style={s.muted}>
                         {a.bankName}
                         {a.branchName ? ` ${a.branchName}` : ""} /{" "}
@@ -326,11 +324,22 @@ export function BankAccountsScreen({ viewMode }: Props) {
                         <Text style={s.muted}>明細合計どおり（差額なし）</Text>
                       ) : (
                         a._count.transactions > 0 && (
-                          <Text style={s.warn}>実際の残高と違う場合は編集から差額を入力</Text>
+                          <Text style={s.warn}>実際の残高と違う場合は「編集」から差額を入力</Text>
                         )
                       )}
-                      {a.account && <Text style={s.linked}>→ {linkedLabel(a.account.code)}</Text>}
+                      {a.account && (
+                        <Text style={s.linked}>紐付く科目: {linkedLabel(a.account.code)}</Text>
+                      )}
                       <View style={s.cardActions}>
+                        {/* 一覧タブで、この口座の明細を開く */}
+                        <TouchableOpacity
+                          onPress={() => {
+                            setSelectedId(a.id);
+                            setTab("list");
+                          }}
+                        >
+                          <Text style={s.link}>明細を見る</Text>
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={() => openEdit(a)}>
                           <Text style={s.link}>編集</Text>
                         </TouchableOpacity>
@@ -338,19 +347,11 @@ export function BankAccountsScreen({ viewMode }: Props) {
                           <Text style={s.danger}>削除</Text>
                         </TouchableOpacity>
                       </View>
-                    </TouchableOpacity>
+                    </View>
                   ))}
                 </>
               )}
             </Card>
-
-            <SectionTitle note={BANK_HELP.target}>表示対象</SectionTitle>
-            {periodPicker}
-
-            <SectionTitle note={BANK_HELP.funding}>
-              資金繰り（{year}年{month}月から3か月）
-            </SectionTitle>
-            <FundingPlanView year={year} month={month} months={3} reloadKey={reloadKey} />
           </>
         )}
 
@@ -365,27 +366,18 @@ export function BankAccountsScreen({ viewMode }: Props) {
             onOpenCalendar={(date) => {
               setFocusDay(new Date(date).getDate());
               setScheduleMode("calendar");
-              setTab("flow");
+              setTab("cashflow");
             }}
           />
         )}
 
-        {tab === "flow" && (
-          <>
-            {/* 明細から見つけた毎月の入出金の候補（登録で資金移動ルールになる） */}
-            <RecurringSuggestions reloadKey={reloadKey} onChanged={onBalanceChanged} />
-            {periodPicker}
-            <TransferTab
-              accounts={accounts}
-              accountId={selectedId}
-              year={year}
-              month={month}
-              scheduleMode={scheduleMode}
-              onScheduleModeChange={setScheduleMode}
-              focusDay={focusDay}
-              onBalanceChanged={onBalanceChanged}
-            />
-          </>
+        {tab === "calendar" && (
+          <BankTransactionsCalendar
+            accounts={accounts}
+            accountId={selectedId}
+            onAccountIdChange={setSelectedId}
+            onBalanceChanged={onBalanceChanged}
+          />
         )}
       </ScrollView>
 
@@ -530,20 +522,13 @@ const s = StyleSheet.create({
   help: { fontSize: 11, color: "#475569", lineHeight: 17, marginBottom: 8 },
   muted: { fontSize: 11, color: "#94a3b8", lineHeight: 16 },
   warn: { fontSize: 11, color: "#d97706" },
-  stats: { flexDirection: "row", flexWrap: "wrap", marginBottom: 10 },
-  stat: { width: "50%", paddingVertical: 6 },
-  statLabel: { fontSize: 11, color: "#64748b" },
-  statTotal: { fontSize: 20, fontWeight: "700", color: "#4f46e5" },
-  statValue: { fontSize: 20, fontWeight: "700", color: "#334155" },
-  statSmall: { fontSize: 13, fontWeight: "700", color: "#334155", marginTop: 4 },
   accountCard: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
+    borderColor: "#f1f5f9",
+    borderRadius: 8,
     padding: 12,
     marginTop: 8,
   },
-  accountCardSelected: { borderColor: "#818cf8", backgroundColor: "#eef2ff" },
   accountName: { fontSize: 14, fontWeight: "600", color: "#1e293b", marginTop: 2 },
   balance: { fontSize: 18, fontWeight: "700", color: "#4f46e5", marginVertical: 2 },
   linked: { fontSize: 11, color: "#4f46e5", fontWeight: "600" },

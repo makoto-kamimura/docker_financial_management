@@ -1,4 +1,4 @@
-// 銀行管理の「振替」タブ（web 版 /bank-accounts の振替タブと同じ構成）。
+// 銀行管理の「キャッシュフロー」タブの毎月の入出金の部分（web 版 /bank-accounts と同じ内容）。
 //   口座間 資金フロー図（設定ベース / 実績ベース（月次））→ 資金移動スケジュール（一覧 / スケジュール）
 //   → 取込済み明細の振替紐付け。都度の振替（銀行 → 銀行）はシートから登録する。
 import { useCallback, useEffect, useMemo, useState } from "react";

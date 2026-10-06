@@ -2,16 +2,14 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { FundingPlanPanel } from "@/components/FundingPlanPanel";
-import {
-  RecurringSuggestionsPanel,
-  useRecurringSuggestions,
-} from "@/components/RecurringSuggestionsPanel";
+import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPanel";
+import { CashFlowTrendCharts } from "@/components/CashFlowTrendCharts";
+import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar";
 import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
@@ -86,18 +84,18 @@ const now = new Date();
 const EMPTY_FLOW: FlowResponse = { cyclic: false, graph: { nodes: [], links: [] }, transfers: [] };
 
 // 銀行まわりの機能はこのページに集約する（入出金管理・残高シミュレーションを統合）。
-// 口座サマリ・残高推移・資金繰りは既定表示の「サマリ」タブにまとめ、
-// 口座間のお金の移動（フロー図・スケジュール・振替の登録と紐付け）は「振替」タブに集約する。
-// 残高シミュレーションはサマリの資金繰りへ作り替えた（旧 ?tab=simulation / ?tab=accounts も寄せる）。
+// 既定の「キャッシュフロー」タブは資産管理・借入金管理と同じ並びで、残高の推移 → 資金繰り →
+// 毎月の入出金（資金移動）→ 資金フロー図 → 銀行口座（登録・編集・差額）の順に置く。
+// 口座残高のサマリはダッシュボードへ移した。手入力の明細の登録は「カレンダー」タブで行う。
 const TABS = [
-  ["summary", "サマリ"],
-  ["list", "明細一覧"],
+  ["cashflow", "キャッシュフロー"],
+  ["list", "一覧"],
+  ["calendar", "カレンダー"],
   ["csv", "CSV インポート"],
-  ["flow", "振替"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
-// 振替タブの「資金移動スケジュール」の表示モード。
+// キャッシュフロータブの「資金移動スケジュール」の表示モード。
 // 一覧＝登録済みの資金移動ルールを表で見る／スケジュール＝月次カレンダーで予定日を見る。
 const SCHEDULE_MODES = [
   ["list", "一覧モード"],
@@ -150,12 +148,10 @@ function BankAccountsContent() {
   const tabParam = searchParams.get("tab") ?? "";
   const initialTab = (TABS.map(([t]) => t) as readonly string[]).includes(tabParam)
     ? (tabParam as Tab)
-    : // 旧タブ（残高シミュレーション / 口座 / 入出金 / カレンダー）へのリンクは統合先へ寄せる
-      tabParam === "simulation" || tabParam === "recurring"
-      ? "flow"
-      : tabParam === "transactions"
-        ? "list"
-        : "summary";
+    : // 旧タブ（サマリ / 振替 / 残高シミュレーション / 入出金）へのリンクは統合先へ寄せる
+      tabParam === "transactions"
+      ? "list"
+      : "cashflow";
   const [tab, setTab] = useState<Tab>(initialTab);
   const [selected, setSelected] = useState<BankAccount | null>(null);
   const [showAccountForm, setShowAccountForm] = useState(false);
@@ -169,22 +165,15 @@ function BankAccountsContent() {
       (await (await fetch("/api/bank-accounts")).json()).data ?? [],
   });
 
-  // 口座サマリ（画面上部に常時表示）の集計値
+  // 銀行口座カードの見出しに出す残高合計
   const totalBalance = accounts.reduce((s, a) => s + (a.balance ?? 0), 0);
-  const totalTxCount = accounts.reduce((s, a) => s + (a._count?.transactions ?? 0), 0);
-  // 全口座を通じて最後に明細を登録した日時（サマリの「最終更新」）
-  const lastUpdatedAt = accounts.reduce<string | null>(
-    (latest, a) =>
-      a.lastUpdatedAt && (!latest || a.lastUpdatedAt > latest) ? a.lastUpdatedAt : latest,
-    null,
-  );
 
   // 資金フロー図（入出金管理から移設）: 設定ベース（既定）/ 実績ベース（月次・F-6）
   const [flowSource, setFlowSource] = useState<"config" | "actual">("config");
   // 年は左のメニューの対象年度（全画面で共通）。ここでは月だけを選ぶ
   const flowYear = useFiscalYear();
   const [flowMonth, setFlowMonth] = useState(now.getMonth() + 1);
-  // 振替タブ: 資金移動スケジュールの表示モードと、振替登録モーダルの開閉
+  // 資金移動スケジュールの表示モードと、振替登録モーダルの開閉
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("list");
   const [showBankTransferForm, setShowBankTransferForm] = useState(false);
 
@@ -196,9 +185,6 @@ function BankAccountsContent() {
       return res.json();
     },
   });
-
-  // 明細から見つけた毎月の入出金の候補（サマリでは件数だけ知らせる）
-  const { data: suggestions } = useRecurringSuggestions();
 
   const { data: monthlyFlow, isLoading: monthlyFlowLoading } = useQuery({
     queryKey: ["cashflow-monthly", flowYear, flowMonth],
@@ -267,6 +253,7 @@ function BankAccountsContent() {
       // 差額は残高の定義に含まれるため、残高を使う表示をまとめて取り直す
       qc.invalidateQueries({ queryKey: ["bank-accounts"] });
       qc.invalidateQueries({ queryKey: ["funding-plan"] });
+      qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     } else {
       const j = await r.json().catch(() => null);
       setAccountError(j?.error ?? "口座の更新に失敗しました");
@@ -285,275 +272,62 @@ function BankAccountsContent() {
     qc.invalidateQueries({ queryKey: ["bank-accounts"] });
   };
 
+  // 資金フロー図のベース切替（設定／実績）。どちらのカードにも同じものを出す
+  const flowSourceToggle = (
+    <div className="flex rounded-lg overflow-hidden border border-slate-200 text-sm h-9">
+      {(["config", "actual"] as const).map((s) => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => setFlowSource(s)}
+          className={`px-3 font-medium transition-colors ${flowSource === s ? "bg-indigo-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+        >
+          {s === "config" ? "設定ベース" : "実績ベース（月次）"}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <AppShell>
       <PageHeader title="銀行管理" lead={BANK_HELP.page} />
 
-      {/* タブ（口座サマリと資金移動フロー図は「サマリ」タブにまとめた） */}
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
-      {/* 口座サマリ（サマリタブ） */}
-      {tab === "summary" && (
-        <div className="card mb-6">
-          <div className="flex flex-wrap items-center gap-3 mb-4">
-            <h2 className="section-title">口座サマリ</h2>
-            <button
-              onClick={() => {
-                setAccountError(null);
-                setShowAccountForm(true);
-              }}
-              className="btn-primary ml-auto"
-            >
-              銀行追加
-            </button>
-          </div>
-          {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
-          <SectionLead className="-mt-2 mb-4">{BANK_HELP.balance}</SectionLead>
-          {isLoading ? (
-            <p className="text-slate-400 text-sm">読み込み中…</p>
-          ) : accounts.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              口座が登録されていません。右上の「銀行追加」から追加してください。
-            </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">総残高</p>
-                  <p className="text-2xl font-bold text-indigo-600">
-                    ¥{totalBalance.toLocaleString()}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">口座数</p>
-                  <p className="text-2xl font-bold text-slate-700">{accounts.length}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">取引件数</p>
-                  <p className="text-2xl font-bold text-slate-700">{totalTxCount}</p>
-                </div>
-                {/* 明細を最後に登録した日時（どの口座も含めた最新）。取込の鮮度の目安 */}
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">最終更新</p>
-                  <p className="text-base font-bold text-slate-700 leading-tight pt-1.5">
-                    {dateTimeLabel(lastUpdatedAt)}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">明細を最後に登録した日時</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 border-t border-slate-100 pt-4">
-                {accounts.map((a) => (
-                  <div
-                    key={a.id}
-                    className={`group relative rounded-xl border transition-all ${selected?.id === a.id ? "border-indigo-400 bg-indigo-50" : "border-slate-200 bg-white hover:border-indigo-300"}`}
-                  >
-                    <button onClick={() => setSelected(a)} className="w-full p-4 text-left">
-                      <div className="text-xs text-slate-500 mb-1">
-                        {a.bankName}
-                        {a.branchName ? " " + a.branchName : ""} /{" "}
-                        {TYPE_LABEL[a.accountType] ?? a.accountType}
-                      </div>
-                      <div className="font-semibold text-slate-800">{a.name}</div>
-                      <div className="text-lg font-bold text-indigo-600 mt-1">
-                        ¥{(a.balance ?? 0).toLocaleString()}
-                      </div>
-                      <div className="text-xs text-slate-400 mt-1">
-                        {a._count.transactions}件の取引
-                        {a._count.transactions > 0 && (
-                          <> / 最新 {dateLabel(a.lastTransactionDate)}</>
-                        )}
-                      </div>
-                      {/* 口座ごとの最終更新日時（この口座の明細を最後に登録した日時） */}
-                      <div className="text-xs text-slate-400">
-                        最終更新 {dateTimeLabel(a.lastUpdatedAt)}
-                      </div>
-                      {/* 差額を入れている口座はその内訳を明示する。差額 0 円を確かめて保存した口座は
-                          「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
-                      {a.balanceAdjustment ? (
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          明細合計 ¥{(a.transactionSum ?? 0).toLocaleString()} ＋ 差額 ¥
-                          {a.balanceAdjustment.toLocaleString()}
-                        </div>
-                      ) : a.balanceCheckedAt ? (
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          明細合計どおり（差額なし）
-                        </div>
-                      ) : (
-                        a._count.transactions > 0 && (
-                          <div className="text-xs text-amber-600 mt-0.5">
-                            実際の残高と違う場合は編集から差額を入力
-                          </div>
-                        )
-                      )}
-                      {a.account && (
-                        <div className="text-xs text-indigo-600 mt-1">
-                          → {a.account.code} {a.account.name}
-                        </div>
-                      )}
-                    </button>
-                    {/* 編集・削除（設定「口座・カード管理」から移設） */}
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        aria-label={`${a.name} を編集`}
-                        title="編集"
-                        onClick={() => {
-                          setAccountError(null);
-                          setEditAccount({
-                            id: a.id,
-                            name: a.name,
-                            bankName: a.bankName,
-                            lastFour: a.lastFour ?? "",
-                            accountCode: a.account?.code ?? "",
-                            note: a.note ?? "",
-                            balanceAdjustment: a.balanceAdjustment
-                              ? String(a.balanceAdjustment)
-                              : "",
-                            transactionSum: a.transactionSum ?? 0,
-                          });
-                        }}
-                        className="text-slate-300 hover:text-indigo-500"
-                      >
-                        <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`${a.name} を削除`}
-                        title="削除"
-                        onClick={() => deleteAccount(a)}
-                        className="text-slate-300 hover:text-red-500"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── 表示条件（サマリ／振替タブで共有）────────────────────────
-          ベース切替はフロー図（振替タブ）にだけ効くので、サマリでは出さない。
-          年月は資金繰り（サマリ）とフロー図（振替）の起点を兼ねるため両方で出す。 */}
-      {(tab === "summary" || tab === "flow") && (
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <h2 className="section-title mb-0">{tab === "flow" ? "振替" : "表示対象"}</h2>
-          <p className="text-xs text-slate-500">
-            {tab === "flow" ? BANK_HELP.transfer : BANK_HELP.target}
-          </p>
-          {tab === "flow" && (
-            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-sm h-9 ml-auto">
-              {(["config", "actual"] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setFlowSource(s)}
-                  className={`px-3 font-medium transition-colors ${flowSource === s ? "bg-indigo-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-                >
-                  {s === "config" ? "設定ベース" : "実績ベース（月次）"}
-                </button>
-              ))}
-            </div>
-          )}
-          {/* 年月はフロー図（実績ベース）と資金繰りの起点を兼ねる */}
-          <span className={tab === "summary" ? "ml-auto" : ""}>
-            <YearBadge />
-          </span>
-          <select
-            value={flowMonth}
-            onChange={(e) => setFlowMonth(Number(e.target.value))}
-            className="select-sm"
-          >
-            {MONTHS.map((m) => (
-              <option key={m} value={m}>
-                {m}月
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* ── 資金繰り（必要残高と入金期限）──────────────────────
-          現在残高と資金移動の設定から、上で選んだ年月を起点に 3 か月分を自動で算出する。
-          口座サマリ・フロー図と並べて一目で把握できるよう「サマリ」タブへ集約した。 */}
-      {tab === "summary" && (
+      {tab === "cashflow" && (
         <>
-          <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
+          {/* ── 残高の推移（借入金管理の「借入残高の推移」と同じ形。先は予算と実績から見込む）── */}
+          <CashFlowTrendCharts year={flowYear} month={flowMonth} />
+
+          {/* ── 資金繰り（必要残高と入金期限）──────────────────────
+              現在残高と資金移動の設定から、選んだ年月を起点に 3 か月分を自動で算出する。 */}
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
             <h2 className="section-title">
               資金繰り（{flowYear}年{flowMonth}月から3か月）
             </h2>
             <p className="text-xs text-slate-500">{BANK_HELP.funding}</p>
+            {/* 年月は資金繰りと実績ベースのフロー図の起点を兼ねる */}
+            <span className="ml-auto">
+              <YearBadge />
+            </span>
+            <select
+              value={flowMonth}
+              onChange={(e) => setFlowMonth(Number(e.target.value))}
+              className="select-sm"
+              aria-label="資金繰りの起点の月"
+            >
+              {MONTHS.map((m) => (
+                <option key={m} value={m}>
+                  {m}月
+                </option>
+              ))}
+            </select>
           </div>
-          {(suggestions?.length ?? 0) > 0 && (
-            <p className="mb-2 text-xs text-indigo-600">
-              明細から、まだ登録していない毎月の入出金が {suggestions!.length} 件見つかりました。
-              <button type="button" onClick={() => setTab("flow")} className="ml-1 underline">
-                振替タブで確認する
-              </button>
-            </p>
-          )}
           <FundingPlanPanel year={flowYear} month={flowMonth} months={3} />
-        </>
-      )}
 
-      {/* ── 明細一覧 / CSV（カレンダーは「資金移動」タブへ移設した）──────────── */}
-      {(tab === "list" || tab === "csv") && (
-        <BankTransactionsPanel
-          view={tab}
-          // カレンダーは資金移動タブへ移したため、ここでの遷移先は明細一覧と CSV のみ
-          onViewChange={(v) => setTab(v === "recurring" ? "flow" : v)}
-          accountId={selected?.id ?? null}
-          onAccountIdChange={(id) => setSelected(accounts.find((a) => a.id === id) ?? null)}
-        />
-      )}
+          {/* ── 毎月の入出金の候補（明細から見つけたもの。登録で資金移動ルールになる）── */}
+          <RecurringSuggestionsPanel />
 
-      {/* ── 振替タブ ────────────────────────────────────────────
-          口座間 資金フロー図 → 資金移動スケジュール → 取込済み明細の振替紐付け の順で並べる。
-          都度の振替（銀行 → 銀行）の登録はスケジュール見出しの右端のボタンからモーダルで行う。 */}
-      {tab === "flow" &&
-        (flowSource === "config" ? (
-          <div className="card mb-6">
-            <h3 className="section-title mb-1">口座間 資金フロー図</h3>
-            <SectionLead className="mb-4">{BANK_HELP.flow}</SectionLead>
-            {!flow ? (
-              <div className="flex items-center justify-center h-48 text-sm text-slate-400">
-                読み込み中…
-              </div>
-            ) : flow.cyclic ? (
-              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                資金移動に循環があるためフロー図を描画できません。下のスケジュールで経路を見直してください。
-              </p>
-            ) : (
-              <AccountFlowDiagram data={flow.graph} />
-            )}
-          </div>
-        ) : (
-          <div className="card mb-6">
-            <h3 className="section-title mb-1">
-              {flowYear}年{flowMonth}月 実績フロー図
-            </h3>
-            <SectionLead>{BANK_HELP.monthlyFlow}</SectionLead>
-            {monthlyFlowLoading || !monthlyFlow ? (
-              <div className="flex items-center justify-center h-48 text-sm text-slate-400">
-                読み込み中…
-              </div>
-            ) : monthlyFlow.graph.links.length === 0 ? (
-              <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
-                対象月に科目紐付け済みの明細がありません。「明細一覧」タブで紐付けを行ってください。
-              </p>
-            ) : (
-              <AccountFlowDiagram data={monthlyFlow.graph} />
-            )}
-          </div>
-        ))}
-
-      {/* ── 毎月の入出金の候補（明細から見つけたもの。登録で資金移動ルールになる）── */}
-      {tab === "flow" && <RecurringSuggestionsPanel />}
-
-      {tab === "flow" && (
-        <>
           {/* ── 資金移動スケジュール ────────────────────────────
               一覧モード＝登録済みの資金移動ルールを表で見る。
               スケジュールモード＝口座ごとの予定日を月次カレンダーで見る（登録・削除もできる）。 */}
@@ -653,7 +427,202 @@ function BankAccountsContent() {
             accountId={selected?.id ?? null}
             onAccountIdChange={(id) => setSelected(accounts.find((a) => a.id === id) ?? null)}
           />
+
+          {/* ── 口座間 資金フロー図（設定ベース／実績ベース）── */}
+          {flowSource === "config" ? (
+            <div className="card mb-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+                <h3 className="section-title">口座間 資金フロー図</h3>
+                {flowSourceToggle}
+              </div>
+              <SectionLead className="mb-4">{BANK_HELP.flow}</SectionLead>
+              {!flow ? (
+                <div className="flex items-center justify-center h-48 text-sm text-slate-400">
+                  読み込み中…
+                </div>
+              ) : flow.cyclic ? (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                  資金移動に循環があるためフロー図を描画できません。下のスケジュールで経路を見直してください。
+                </p>
+              ) : (
+                <AccountFlowDiagram data={flow.graph} />
+              )}
+            </div>
+          ) : (
+            <div className="card mb-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+                <h3 className="section-title">
+                  {flowYear}年{flowMonth}月 実績フロー図（月は資金繰りの選択）
+                </h3>
+                {flowSourceToggle}
+              </div>
+              <SectionLead>{BANK_HELP.monthlyFlow}</SectionLead>
+              {monthlyFlowLoading || !monthlyFlow ? (
+                <div className="flex items-center justify-center h-48 text-sm text-slate-400">
+                  読み込み中…
+                </div>
+              ) : monthlyFlow.graph.links.length === 0 ? (
+                <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+                  対象月に科目紐付け済みの明細がありません。「一覧」タブで紐付けを行ってください。
+                </p>
+              ) : (
+                <AccountFlowDiagram data={monthlyFlow.graph} />
+              )}
+            </div>
+          )}
+
+          {/* ── 銀行口座（資産管理の「実物資産」・借入金管理の「借入金」と同じく 1 枚のカードにまとめる）──
+              「明細を見る」で、その口座の明細を一覧タブで開く。 */}
+          <div className="card mb-6">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="section-title mb-1">銀行口座</h2>
+                {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
+                <SectionLead className="mb-1">{BANK_HELP.balance}</SectionLead>
+                {accounts.length > 0 && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    残高合計: {yen(totalBalance)} ・ {accounts.length} 口座
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setAccountError(null);
+                  setShowAccountForm(true);
+                }}
+                className="btn-primary shrink-0"
+              >
+                銀行追加
+              </button>
+            </div>
+            {isLoading ? (
+              <p className="text-slate-400 text-sm">読み込み中…</p>
+            ) : accounts.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                口座が登録されていません。右上の「銀行追加」から追加してください。
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {accounts.map((a) => (
+                  <div key={a.id} className="border border-slate-100 rounded-lg px-3 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                            {TYPE_LABEL[a.accountType] ?? a.accountType}
+                          </span>
+                          <h3 className="font-medium text-slate-800 text-sm">{a.name}</h3>
+                          <span className="text-xs text-slate-500">
+                            {a.bankName}
+                            {a.branchName ? " " + a.branchName : ""}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          {a._count.transactions}件の取引
+                          {a._count.transactions > 0 && (
+                            <> ・ 最新 {dateLabel(a.lastTransactionDate)}</>
+                          )}{" "}
+                          {/* 口座ごとの最終更新日時（この口座の明細を最後に登録した日時） */}・
+                          最終更新 {dateTimeLabel(a.lastUpdatedAt)}
+                        </div>
+                        {/* 差額を入れている口座はその内訳を明示する。差額 0 円を確かめて保存した口座は
+                            「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
+                        {a.balanceAdjustment ? (
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            明細合計 {yen(a.transactionSum ?? 0)} ＋ 差額 {yen(a.balanceAdjustment)}
+                          </div>
+                        ) : a.balanceCheckedAt ? (
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            明細合計どおり（差額なし）
+                          </div>
+                        ) : (
+                          a._count.transactions > 0 && (
+                            <div className="text-xs text-amber-600 mt-0.5">
+                              実際の残高と違う場合は「編集」から差額を入力
+                            </div>
+                          )
+                        )}
+                        {a.account && (
+                          <div className="text-xs text-indigo-600 mt-0.5">
+                            紐付く科目: {a.account.code} {a.account.name}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-[10px] text-slate-400">残高</p>
+                          <p className="font-bold text-indigo-600 text-sm tabular-nums">
+                            {yen(a.balance ?? 0)}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          {/* 一覧タブで、この口座の明細を開く */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelected(a);
+                              setTab("list");
+                            }}
+                            className="text-xs text-indigo-500 hover:text-indigo-700"
+                          >
+                            明細を見る
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAccountError(null);
+                              setEditAccount({
+                                id: a.id,
+                                name: a.name,
+                                bankName: a.bankName,
+                                lastFour: a.lastFour ?? "",
+                                accountCode: a.account?.code ?? "",
+                                note: a.note ?? "",
+                                balanceAdjustment: a.balanceAdjustment
+                                  ? String(a.balanceAdjustment)
+                                  : "",
+                                transactionSum: a.transactionSum ?? 0,
+                              });
+                            }}
+                            className="text-xs text-indigo-500 hover:text-indigo-700"
+                          >
+                            編集
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteAccount(a)}
+                            className="text-xs text-red-400 hover:text-red-600"
+                          >
+                            削除
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </>
+      )}
+
+      {/* ── 一覧 / CSV ──────────── */}
+      {(tab === "list" || tab === "csv") && (
+        <BankTransactionsPanel
+          view={tab}
+          // 一覧から予定のカレンダーを開くと、キャッシュフロータブの資金移動スケジュールへ移る
+          onViewChange={(v) => setTab(v === "recurring" ? "cashflow" : v)}
+          accountId={selected?.id ?? null}
+          onAccountIdChange={(id) => setSelected(accounts.find((a) => a.id === id) ?? null)}
+        />
+      )}
+
+      {/* ── カレンダー（日ごとの明細と、手入力での登録）──────────── */}
+      {tab === "calendar" && (
+        <BankTransactionsCalendar
+          accountId={selected?.id ?? null}
+          onAccountIdChange={(id) => setSelected(accounts.find((a) => a.id === id) ?? null)}
+        />
       )}
 
       {/* 口座登録モーダル（設定「口座・カード管理」の新規登録から移設）*/}

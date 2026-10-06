@@ -93,12 +93,6 @@ const PARTNER_ACCOUNT_CHANNELS = ["AUTO_DEBIT", "BANK_TRANSFER"];
 // 明細一覧のページング（実績管理の履歴と同じ 30 件単位）
 const TXN_PAGE_SIZE = 30;
 
-const BLANK_MANUAL = {
-  date: now.toISOString().slice(0, 10),
-  description: "",
-  amount: "",
-  type: "expense" as "income" | "expense",
-};
 // 口座間振替（都度）の登録フォーム。出金元・入金先の 2 口座に明細を 1 操作で作る
 const BLANK_BANK_TRANSFER = {
   date: now.toISOString().slice(0, 10),
@@ -128,8 +122,8 @@ const BLANK_RECURRING = {
 
 type Tab = "list" | "csv" | "recurring";
 
-// view="recurring" で描画するブロック。銀行管理の「振替」タブは
-// 口座間 資金フロー図 → 資金移動スケジュール → 取込済み明細の振替紐付け の順で並べるため、
+// view="recurring" で描画するブロック。銀行管理の「キャッシュフロー」タブは
+// 資金移動スケジュール → 取込済み明細の振替紐付け → 口座間 資金フロー図 の順で並べるため、
 // ページ側が必要なブロックだけを選べるようにしている（省略時は全部）。
 type RecurringPart = "register" | "calendar" | "match";
 const ALL_RECURRING_PARTS: RecurringPart[] = ["register", "calendar", "match"];
@@ -179,7 +173,6 @@ export function BankTransactionsPanel({
   // 明細一覧のページ番号（0 始まり）
   const [txnPage, setTxnPage] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
-  const [manual, setManual] = useState(BLANK_MANUAL);
   const [recurring, setRecurring] = useState(BLANK_RECURRING);
   const [bankTransfer, setBankTransfer] = useState(BLANK_BANK_TRANSFER);
   // 振替登録モーダルの開閉。親から制御されていればそちらに従う
@@ -369,6 +362,7 @@ export function BankTransactionsPanel({
       qc.invalidateQueries({ queryKey: ["bank-txns"] });
       qc.invalidateQueries({ queryKey: ["bank-accounts"] });
       qc.invalidateQueries({ queryKey: ["funding-plan"] });
+      qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     } else {
       qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
     }
@@ -447,30 +441,6 @@ export function BankTransactionsPanel({
     qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
   }
 
-  async function submitManual(e: { preventDefault(): void }) {
-    e.preventDefault();
-    if (accountId === null) {
-      setMsg("口座を登録してください。");
-      return;
-    }
-    const rawAmt = Number(manual.amount);
-    const amount = manual.type === "expense" ? -Math.abs(rawAmt) : Math.abs(rawAmt);
-    const res = await fetch(`/api/bank-accounts/${accountId}/transactions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        date: manual.date,
-        description: manual.description,
-        amount,
-      }),
-    });
-    if (res.ok) {
-      setManual(BLANK_MANUAL);
-      setMsg("登録しました");
-      qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
-    } else setMsg("登録に失敗しました");
-  }
-
   // 都度の銀行→銀行の振替。1 回の操作で出金元・入金先の両方に明細を作る
   // （片側だけ手入力すると相手口座の残高がずれるため、必ず API 側で対にして作る）。
   async function submitBankTransfer(e: { preventDefault(): void }) {
@@ -500,7 +470,7 @@ export function BankTransactionsPanel({
       // 日付は続けて登録しやすいよう残す
       setBankTransfer((b) => ({ ...BLANK_BANK_TRANSFER, date: b.date }));
       setMsg("振替を登録しました。出金元・入金先の両方の明細に反映されます。");
-      // 両口座の明細と、残高を参照する画面（口座サマリ・残高推移・資金繰り）を更新する
+      // 両口座の明細と、残高を参照する画面（銀行口座・残高の推移・資金繰り）を更新する
       refreshAfterTransferChange();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -514,6 +484,7 @@ export function BankTransactionsPanel({
     qc.invalidateQueries({ queryKey: ["transfer-candidates"] });
     qc.invalidateQueries({ queryKey: ["bank-accounts"] });
     qc.invalidateQueries({ queryKey: ["funding-plan"] });
+    qc.invalidateQueries({ queryKey: ["cash-outlook"] });
   }
 
   // 取込済みの 2 明細を後付けで振替として対にする（案 C）。明細は消えないので残高は変わらない。
@@ -682,6 +653,7 @@ export function BankTransactionsPanel({
       qc.invalidateQueries({ queryKey: ["transfer-flow"] });
       qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
       qc.invalidateQueries({ queryKey: ["funding-plan"] });
+      qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     } else {
       const err = await res.json().catch(() => ({}));
       setMsg(`書き換えに失敗しました: ${typeof err.error === "string" ? err.error : "エラー"}`);
@@ -761,7 +733,7 @@ export function BankTransactionsPanel({
 
   const selectedAccount = accounts?.find((a) => a.id === accountId);
   const TABS: [Tab, string][] = [
-    ["list", "明細一覧"],
+    ["list", "一覧"],
     ["recurring", "カレンダー"],
     ["csv", "CSV インポート"],
   ];
@@ -834,61 +806,6 @@ export function BankTransactionsPanel({
       {/* ── 明細一覧タブ ─────────────────────────────────────── */}
       {tab === "list" && (
         <>
-          {/* 手動登録フォーム */}
-          <div className="card mb-4">
-            <h2 className="section-title mb-3">入出金を手動登録</h2>
-            <form onSubmit={submitManual} className="flex flex-wrap gap-3 items-end">
-              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-sm h-9 self-end">
-                {(["expense", "income"] as const).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setManual((m) => ({ ...m, type: d }))}
-                    className={`px-3 font-medium transition-colors ${manual.type === d ? (d === "expense" ? "bg-rose-500 text-white" : "bg-emerald-500 text-white") : "bg-white text-slate-500 hover:bg-slate-50"}`}
-                  >
-                    {d === "expense" ? "支出" : "収入"}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-500">日付</label>
-                <input
-                  type="date"
-                  required
-                  value={manual.date}
-                  onChange={(e) => setManual((m) => ({ ...m, date: e.target.value }))}
-                  className="input-field text-sm"
-                />
-              </div>
-              <div className="flex flex-col gap-1 min-w-40">
-                <label className="text-xs text-slate-500">摘要</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="例: 食料品"
-                  value={manual.description}
-                  onChange={(e) => setManual((m) => ({ ...m, description: e.target.value }))}
-                  className="input-field text-sm"
-                />
-              </div>
-              <div className="flex flex-col gap-1 w-36">
-                <label className="text-xs text-slate-500">金額（円）</label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  placeholder="例: 5000"
-                  value={manual.amount}
-                  onChange={(e) => setManual((m) => ({ ...m, amount: e.target.value }))}
-                  className="input-field text-sm"
-                />
-              </div>
-              <button type="submit" className="btn-primary self-end">
-                登録する
-              </button>
-            </form>
-          </div>
-
           {txnTotal > 0 && (
             <p className="text-xs text-slate-500 mb-3">
               全 {txnTotal} 件中 {txnOffset + 1}〜{Math.min(txnOffset + TXN_PAGE_SIZE, txnTotal)}{" "}

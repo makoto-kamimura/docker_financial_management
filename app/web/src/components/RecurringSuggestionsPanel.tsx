@@ -1,6 +1,6 @@
 "use client";
 
-// 明細から見つけた「毎月の入出金」の候補（銀行管理の振替タブ）。資金繰りを登録済みの情報から割り出すため、
+// 明細から見つけた「毎月の入出金」の候補（銀行管理のキャッシュフロータブ）。資金繰りを登録済みの情報から割り出すため、
 // 毎月同じころ・同じくらいの入出金を、資金移動ルールの候補として出す（判定は lib/recurring-suggestions.ts）。
 // 「登録」で資金移動ルールになり、資金繰り・資金フロー図に入る。「非表示」は記録して以後は出さない。
 
@@ -41,6 +41,7 @@ export function RecurringSuggestionsPanel() {
     qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
     qc.invalidateQueries({ queryKey: ["transfer-flow"] });
     qc.invalidateQueries({ queryKey: ["funding-plan"] });
+    qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     qc.invalidateQueries({ queryKey: ["transfers"] });
   };
 
