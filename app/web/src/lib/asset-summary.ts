@@ -5,7 +5,8 @@ import { isCountedAsAsset } from "@/lib/personal-asset";
 // 除外規則:
 //   1. `linkedAccountMappings`（linked_accounts.accountId）に含まれる ASSET 科目残高は除外する
 //      （銀行口座残高 bankBalances 側で同じ金額をすでに計上しているため）
-//   2. `personalAssets[].linkedAccountId` に紐付いた LIABILITY 科目残高は除外する
+//   2. `personalAssets[].linkedAccountId`（資産にひも付いたローンの予算連携先。無ければ以前の資産側の
+//      紐付け負債科目）の LIABILITY 科目残高は除外する
 //      （personalAssetDebts 側で同じ負債を月割り残高として計上しているため）
 //   3. 実物資産自体は `isCountedAsAsset()`（lib/personal-asset.ts）でフィルタ済みのものだけ計上する
 //      （countAsAsset = false はローンの諸費用等、負債だけ持ち資産価値のない項目）

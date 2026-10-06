@@ -70,21 +70,26 @@ export async function computeLoanOverlay(
 // 後方互換のためのエイリアス（旧名: 住宅ローンのみ対象だったが、現在は全ローンを対象に計算する）。
 export const computeHousingLoanOverlay = computeLoanOverlay;
 
-// 実物資産に紐付く負債（D-4 で Loan に一本化。personal_assets.loanId 経由で参照）の
-// 当初負債額を支払い開始年月〜解消予定年月で均等割りし、紐付け負債科目の予算に上乗せする額。
+// 実物資産に紐付く負債（D-4 で Loan に一本化。personal_assets.loanId 経由で参照）の月々の返済額を、
+// 支払い開始年月〜解消予定年月の予算に上乗せする額。上乗せ先はローンの予算連携先（借入金管理で選ぶ）。
+// 予算連携先が空のローンは、以前の資産側の紐付け負債科目（personal_assets.linkedAccountId）に入れる。
 export async function computePersonalAssetDebtOverlay(
   db: TenantDb,
   tenantId: number,
   year: number,
 ): Promise<PersonalAssetDebtOverlayItem[]> {
   const assets = await db.personalAsset.findMany({
-    where: { tenantId, linkedAccountId: { not: null }, loanId: { not: null } },
-    include: { linkedAccount: { select: { id: true, code: true } }, loan: true },
+    where: { tenantId, loanId: { not: null } },
+    include: {
+      linkedAccount: { select: { id: true, code: true } },
+      loan: { include: { linkedAccount: { select: { id: true, code: true } } } },
+    },
   });
 
   const overlay: PersonalAssetDebtOverlayItem[] = [];
   for (const asset of assets) {
-    if (!asset.linkedAccount || !asset.loan) continue;
+    const account = asset.loan?.linkedAccount ?? asset.linkedAccount;
+    if (!account || !asset.loan) continue;
     const schedule = computeDebtSchedule(
       Number(asset.loan.amount),
       asset.loan.borrowedOn,
@@ -102,11 +107,13 @@ export async function computePersonalAssetDebtOverlay(
       const ym = year * 12 + (month - 1);
       if (ym < startYm || ym > payoffYm) continue;
       overlay.push({
-        accountId: asset.linkedAccount.id,
-        accountCode: asset.linkedAccount.code,
+        accountId: account.id,
+        accountCode: account.code,
         assetName: asset.name,
         month,
-        amount: schedule.monthly,
+        // 借入金管理で入れた月々の返済額があればその額（ほかのローンの上乗せと同じ）
+        amount:
+          asset.loan.monthlyPayment !== null ? Number(asset.loan.monthlyPayment) : schedule.monthly,
       });
     }
   }

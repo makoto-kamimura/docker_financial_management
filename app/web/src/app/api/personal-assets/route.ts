@@ -65,7 +65,7 @@ export const GET = withApi({
     const assets = await db.personalAsset.findMany({
       where: { tenantId: user.tenantId },
       orderBy: { createdAt: "asc" },
-      include: { loan: true, ...VALUATION_INCLUDE },
+      include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
     });
     const now = new Date();
     const data = assets.map((a) => {
@@ -142,7 +142,7 @@ export const POST = withApi({
       }
       return tx.personalAsset.findUniqueOrThrow({
         where: { id: created.id },
-        include: { loan: true, ...VALUATION_INCLUDE },
+        include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
       });
     });
     await invalidateCache(`assets:summary:${tenantId}:*`);

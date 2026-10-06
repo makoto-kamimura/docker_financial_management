@@ -59,7 +59,7 @@ export const PATCH = withApi({
     const { tenantId } = user;
     const existing = await db.personalAsset.findUnique({
       where: { id, tenantId },
-      include: { loan: true, ...VALUATION_INCLUDE },
+      include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
     });
     if (!existing) throw notFound();
 
@@ -101,17 +101,27 @@ export const PATCH = withApi({
     // 実額が入力済みの返済額は資産側の編集で潰さない（5 年ルールで計算値と一致しないため）
     const manualMonthly = manualMonthlyPaymentOf(existing.loan);
 
-    const debtData = buildDebtLoanData(
-      nextName,
-      {
-        debtStartOn: nextStartOn,
-        debtPayoffDue: nextPayoffDue,
-        debtInitialAmount: nextInitialAmount,
-        debtInterestRate: nextInterestRate,
-        debtResidualValue: nextResidualValue,
-      },
-      manualMonthly,
-    );
+    // ローンの項目が 1 つも入っていなければ、ローンには触らない（借入金の入力は借入金管理に集めた。
+    // 名前を変えただけで借入先名や月額を作り直さないため）。古い画面が送ってきたときだけ従来どおり扱う
+    const debtTouched =
+      body.debtStartOn !== undefined ||
+      body.debtPayoffDue !== undefined ||
+      body.debtInitialAmount !== undefined ||
+      body.debtInterestRate !== undefined ||
+      body.debtResidualValue !== undefined;
+    const debtData =
+      debtTouched &&
+      buildDebtLoanData(
+        nextName,
+        {
+          debtStartOn: nextStartOn,
+          debtPayoffDue: nextPayoffDue,
+          debtInitialAmount: nextInitialAmount,
+          debtInterestRate: nextInterestRate,
+          debtResidualValue: nextResidualValue,
+        },
+        manualMonthly,
+      );
 
     const asset = await db.$transaction(async (tx) => {
       let loanId: number | null | undefined;
@@ -122,7 +132,7 @@ export const PATCH = withApi({
           const loan = await tx.loan.create({ data: { tenantId, ...debtData } });
           loanId = loan.id;
         }
-      } else if (existing.loanId) {
+      } else if (debtTouched && existing.loanId) {
         // 負債の 3 点セットが揃わなくなった → 紐付け負債を解消する
         loanId = null;
       }
@@ -181,7 +191,7 @@ export const PATCH = withApi({
             }),
           ...(totals ?? {}),
         },
-        include: { loan: true, ...VALUATION_INCLUDE },
+        include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
       });
       if (loanId === null && existing.loanId) {
         await tx.loan.delete({ where: { id: existing.loanId } });
@@ -205,19 +215,14 @@ export const PATCH = withApi({
 });
 
 // DELETE /api/personal-assets/[id] … 実物資産の削除（editor 以上）
-// 紐付け負債（Loan）も併せて削除する
+// ひも付いた借入（Loan）は消さない（借入そのものは残るため。借入金管理に残り、資産とのひも付けだけ外れる）
 export const DELETE = withApi({
   role: "editor",
   handler: async ({ user, db, id }) => {
     const existing = await db.personalAsset.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!existing) throw notFound();
 
-    await db.$transaction(async (tx) => {
-      await tx.personalAsset.delete({ where: { id } });
-      if (existing.loanId) {
-        await tx.loan.delete({ where: { id: existing.loanId } });
-      }
-    });
+    await db.personalAsset.delete({ where: { id } });
     await invalidateCache(`assets:summary:${user.tenantId}:*`);
     return NextResponse.json({ ok: true });
   },
