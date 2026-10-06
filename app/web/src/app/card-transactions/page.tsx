@@ -3,20 +3,19 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Pencil, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { CardUsageTrendCharts, useCardUsageTrend } from "@/components/CardUsageTrendCharts";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
-import { InfoNote, SectionLead } from "@/components/Explain";
-import { CARD_HELP, cardFlowHelp } from "@/lib/help-texts";
-import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
+import { SectionLead } from "@/components/Explain";
+import { CARD_HELP } from "@/lib/help-texts";
+import type { FlowGraph } from "@/components/AccountFlowDiagram";
 import {
   LINKED_ACCOUNT_TYPES,
   LINKED_ACCOUNT_TYPE_LABELS,
   isChargeableType,
   type LinkedAccountType,
 } from "@/lib/linked-account-type";
-import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
-import { CsvDropzone, Notice, PageHeader, SegmentedControl, Tabs } from "@/components/ui";
+import { CsvDropzone, Notice, PageHeader, Tabs } from "@/components/ui";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -61,10 +60,7 @@ type ImportResult = {
 };
 
 // ── 定数 ────────────────────────────────────────────────────────
-const now = new Date();
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
-
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 // 電子マネー・プリペイドはカード番号が無く、明細も「チャージ残高からの支払い」なので文言を切り替える
 const ACCOUNT_TYPE_LABEL = LINKED_ACCOUNT_TYPE_LABELS;
@@ -113,28 +109,6 @@ const EMPTY_CARD_FLOW: CardFlowResponse = {
   recurring: [],
 };
 
-// サマリのスケジュールに並べる 1 件。引き落とし（銀行 → カード）と固定決済（カード → 外部）を
-// 同じ形にそろえて、毎月の予定日で 1 つの表・カレンダーに混ぜて見せる
-type CardScheduleEntry = {
-  key: string;
-  day: number;
-  /** 対象のカード・電子マネー（絞り込みに使う。ルールにカードが無い場合は null） */
-  accountId: number | null;
-  from: string;
-  to: string;
-  amount: number;
-  kindLabel: string;
-  /** 引き落とし＝銀行から出る / 固定決済＝カードから出る。色分けに使う */
-  kind: "debit" | "recurring";
-};
-
-// スケジュールの表示モード（銀行管理のキャッシュフロータブと同じ切替）
-const CARD_SCHEDULE_MODES: [ScheduleMode, string][] = [
-  ["list", "一覧モード"],
-  ["calendar", "スケジュールモード"],
-];
-type ScheduleMode = "list" | "calendar";
-
 // ── ページ ──────────────────────────────────────────────────────
 // bank-transactions/page.tsx（銀行）と同構造。銀行管理のサマリタブに倣い、既定表示の
 // 「サマリ」タブでカード・電子マネー関連の資金フロー図を示す。
@@ -154,16 +128,6 @@ export default function CardTransactionsPage() {
   // カード・電子マネー台帳の登録／編集モーダル（設定「口座・カード管理」から移設）
   const [cardForm, setCardForm] = useState<CardForm | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
-  // サマリタブのスケジュール（引き落とし・固定決済）の表示モードと対象カード
-  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("list");
-  const [scheduleAccount, setScheduleAccount] = useState<number | "all">("all");
-
-  // ── カレンダー ────────────────────────────────────────────────
-  // カレンダーの年は対象年度（左のメニュー）に合わせる。月を送って年をまたいだら、対象年度も変える
-  const viewYear = useFiscalYear();
-  const setViewYear = (v: number | ((y: number) => number)) =>
-    setFiscalYear(typeof v === "function" ? v(viewYear) : v);
-  const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
 
   // ── データ取得 ──────────────────────────────────────────────
   const { data: accounts } = useQuery({
@@ -202,55 +166,15 @@ export default function CardTransactionsPage() {
   const selectedAccount = (accounts ?? []).find((a) => a.id === accountId) ?? null;
   const isEMoney = selectedAccount?.type === "E_MONEY";
 
-  const firstWeekday = new Date(viewYear, viewMonth - 1, 1).getDay();
-  const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
-  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
-
-  // ── サマリのスケジュール（銀行管理のキャッシュフロータブと同じ並べ方）──────────────
-  // 引き落とし（銀行 → カード）と固定決済（カード → 外部）はモデルが別だが、
-  // どちらも「毎月◯日に決まった額が動く」ルールなので 1 つのスケジュールにまとめる
-  const scheduleEntries = useMemo<CardScheduleEntry[]>(() => {
-    const debits: CardScheduleEntry[] = (cardFlow?.transfers ?? []).map((t) => ({
-      key: `transfer:${t.id}`,
-      day: t.day,
-      accountId: t.linkedAccountId,
-      from: t.from ?? (t.label || "外部入金"),
-      to: t.linkedAccountName ?? (t.label || "カード"),
-      amount: t.amount,
-      kindLabel: t.channelLabel,
-      kind: "debit",
-    }));
-    const recurring: CardScheduleEntry[] = (cardFlow?.recurring ?? []).map((r) => ({
-      key: `recurring:${r.id}`,
-      day: r.day,
-      accountId: r.accountId,
-      from: r.accountName,
-      to: r.label,
-      amount: r.amount,
-      kindLabel: "固定決済",
-      kind: "recurring",
-    }));
-    return [...debits, ...recurring].sort((a, b) => a.day - b.day || a.key.localeCompare(b.key));
-  }, [cardFlow]);
-
-  // 対象カードでの絞り込み（"all" は全カード・電子マネーを俯瞰する。銀行の「すべての銀行」に相当）
-  const filteredSchedule = useMemo(
-    () =>
-      scheduleAccount === "all"
-        ? scheduleEntries
-        : scheduleEntries.filter((e) => e.accountId === scheduleAccount),
-    [scheduleEntries, scheduleAccount],
-  );
-  // スケジュールモードのカレンダー。予定日は「毎月◯日」なので、その月に無い日（31 日など）は
-  // 月末に寄せる（引き落としの実務と同じ扱い）
-  const scheduleByDay = useMemo(() => {
-    const map = new Map<number, CardScheduleEntry[]>();
-    for (const e of filteredSchedule) {
-      const day = Math.min(e.day, daysInMonth);
-      (map.get(day) ?? map.set(day, []).get(day)!).push(e);
-    }
-    return map;
-  }, [filteredSchedule, daysInMonth]);
+  // 今月の利用額（利用額の推移と同じ問い合わせ。null は全カードの合計）
+  const { data: usage } = useCardUsageTrend();
+  const usageThisMonth = (id: number | null) => {
+    if (!usage) return 0;
+    const i = usage.months.indexOf(usage.currentKey);
+    return id === null
+      ? (usage.total[i] ?? 0)
+      : (usage.cards.find((c) => c.id === id)?.values[i] ?? 0);
+  };
 
   // ── ハンドラ ────────────────────────────────────────────────
 
@@ -375,24 +299,6 @@ export default function CardTransactionsPage() {
     cardForm?.id != null
       ? ((accounts ?? []).find((a) => a.id === cardForm.id)?.chargeSourceCount ?? 0)
       : 0;
-  // ── スケジュールモードのカレンダーの月送り ─────────────────────
-  function prevMonth() {
-    if (viewMonth === 1) {
-      setViewYear((y) => y - 1);
-      setViewMonth(12);
-    } else {
-      setViewMonth((m) => m - 1);
-    }
-  }
-  function nextMonth() {
-    if (viewMonth === 12) {
-      setViewYear((y) => y + 1);
-      setViewMonth(1);
-    } else {
-      setViewMonth((m) => m + 1);
-    }
-  }
-
   const TABS: [Tab, string][] = [
     ["summary", "サマリ"],
     ["csv", "CSV インポート"],
@@ -400,23 +306,8 @@ export default function CardTransactionsPage() {
 
   return (
     <AppShell>
-      {/* ヘッダ（台帳の登録は設定から移設し、借入金管理の「借入追加」と同じ要領でここに置く） */}
-      <PageHeader
-        title="カード・電子マネー管理"
-        lead={CARD_HELP.page}
-        actions={
-          <button
-            type="button"
-            onClick={() => {
-              setCardError(null);
-              setCardForm(BLANK_CARD);
-            }}
-            className="btn-primary shrink-0"
-          >
-            カード・電子マネー追加
-          </button>
-        }
-      />
+      {/* ヘッダ（カードの登録はサマリの「カード・電子マネー」の一覧の右上から行う。借入金管理と同じ） */}
+      <PageHeader title="カード・電子マネー管理" lead={CARD_HELP.page} />
 
       {accounts && accounts.length === 0 && (
         <Notice tone="warn" className="mb-4">
@@ -449,18 +340,17 @@ export default function CardTransactionsPage() {
         className="mb-4"
       />
 
-      {/* 対象のカード・電子マネー（タブ直下に置き、どのタブでも同じ位置で切り替えられる）。
-          CSV の取込先と、カードの編集・削除の対象を選ぶ。明細は実績管理の「履歴」で見る。 */}
-      {accounts && accounts.length > 0 && (
+      {/* CSV の取込先のカード・電子マネー（取り込む前に確認のモーダルも出す） */}
+      {tab === "csv" && accounts && accounts.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
+          <label htmlFor="card-account" className="text-xs font-medium text-slate-600">
+            取込先
+          </label>
           <select
             id="card-account"
-            aria-label="表示対象のカード・電子マネー"
-            className="input-field w-60 ml-auto"
+            className="input-field w-72"
             value={accountId ?? ""}
-            onChange={(e) => {
-              setAccountId(Number(e.target.value));
-            }}
+            onChange={(e) => setAccountId(Number(e.target.value))}
           >
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
@@ -469,47 +359,6 @@ export default function CardTransactionsPage() {
               </option>
             ))}
           </select>
-          {/* 選択中のカード・電子マネーの編集・削除（設定「口座・カード管理」から移設） */}
-          {selectedAccount && (
-            <>
-              <button
-                type="button"
-                aria-label={`${selectedAccount.name} を編集`}
-                title="編集"
-                onClick={() => {
-                  setCardError(null);
-                  setCardForm({
-                    id: selectedAccount.id,
-                    name: selectedAccount.name,
-                    type: selectedAccount.type,
-                    institution: selectedAccount.institution,
-                    lastFour: selectedAccount.lastFour ?? "",
-                    accountCode: selectedAccount.account?.code ?? "",
-                    note: selectedAccount.note ?? "",
-                  });
-                }}
-                className="text-slate-300 hover:text-indigo-500"
-              >
-                <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                aria-label={`${selectedAccount.name} を削除`}
-                title="削除"
-                onClick={() => deleteCard(selectedAccount)}
-                className="text-slate-300 hover:text-red-500"
-              >
-                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-              </button>
-              {/* 明細の一覧・登録は実績管理の履歴・カレンダーで行う */}
-              <Link
-                href={`/entry?tab=history&source=card&account=${selectedAccount.id}` as never}
-                className="text-xs text-indigo-600 underline"
-              >
-                明細を見る
-              </Link>
-            </>
-          )}
         </div>
       )}
 
@@ -704,215 +553,136 @@ export default function CardTransactionsPage() {
         </Notice>
       )}
 
-      {/* ── サマリタブ ───────────────────────────────────────
-          銀行管理のキャッシュフロータブにある「口座間 資金フロー図」のカード版。
-          引き落とし・チャージ（銀行から / カードから）・固定決済の線を 1 枚の図にまとめる。 */}
+      {/* ── サマリタブ（借入金管理と同じ並び: 推移 → 一覧）──────────────────── */}
       {tab === "summary" && (
         <>
+          <CardUsageTrendCharts />
+
+          {/* ── カード・電子マネー（借入金管理の「借入金」と同じく 1 枚のカードにまとめる）── */}
           <div className="card mb-6">
-            <h2 className="section-title mb-1">カード・電子マネー 資金フロー図</h2>
-            <SectionLead>{cardFlowHelp(cardFlow?.chargeMonths ?? 3)}</SectionLead>
-            {!cardFlow ? (
-              <div className="flex items-center justify-center h-48 text-sm text-slate-400">
-                読み込み中…
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="section-title mb-1">カード・電子マネー</h2>
+                <SectionLead className="mb-1">{CARD_HELP.cards}</SectionLead>
+                {(accounts ?? []).length > 0 && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    今月の利用額の合計: {yen(usageThisMonth(null))} ・ {(accounts ?? []).length} 件
+                  </p>
+                )}
               </div>
-            ) : cardFlow.cyclic ? (
-              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                チャージ先の指定が循環しているためフロー図を描画できません。実績管理の「履歴」の
-                チャージ先列で経路を見直してください。
-              </p>
-            ) : cardFlow.graph.links.length === 0 ? (
-              <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
-                描画できる資金の流れがありません。実績管理の「履歴」（カード・電子マネー／銀行）の
-                チャージ先列・固定決済列、または銀行管理の「キャッシュフロー」タブ（引き落とし）
-                から登録してください。
+              <button
+                type="button"
+                onClick={() => {
+                  setCardError(null);
+                  setCardForm(BLANK_CARD);
+                }}
+                className="btn-primary shrink-0"
+              >
+                カード・電子マネー追加
+              </button>
+            </div>
+            {!accounts ? (
+              <p className="text-slate-400 text-sm">読み込み中…</p>
+            ) : accounts.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                カード・電子マネーが登録されていません。右上の「カード・電子マネー追加」から登録してください。
               </p>
             ) : (
-              <AccountFlowDiagram data={cardFlow.graph} />
-            )}
-            {cardFlow && cardFlow.unlinked.length > 0 && (
-              <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                引き落とし・チャージ・固定決済のいずれも未登録のため図に出ていません:{" "}
-                {cardFlow.unlinked.map((a) => a.name).join(" / ")}
-              </p>
-            )}
-          </div>
-
-          {/* ── 引き落とし・固定決済スケジュール ──────────────────────
-            銀行管理のキャッシュフロータブの「資金移動スケジュール」と同じ構成（一覧モード／スケジュールモード）。
-            登録・削除は 引き落とし＝銀行管理の「キャッシュフロー」、固定決済＝実績管理の履歴 で行うため、
-            ここは表示専用にしている（同じ操作を 2 か所に置くと登録先が分かりにくくなるため）。 */}
-          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h2 className="section-title">引き落とし・固定決済スケジュール</h2>
-            <SegmentedControl
-              options={CARD_SCHEDULE_MODES}
-              value={scheduleMode}
-              onChange={setScheduleMode}
-            />
-            <select
-              value={scheduleAccount === "all" ? "all" : String(scheduleAccount)}
-              onChange={(e) =>
-                setScheduleAccount(e.target.value === "all" ? "all" : Number(e.target.value))
-              }
-              className="input-field text-sm w-auto ml-auto"
-            >
-              <option value="all">すべてのカード・電子マネー</option>
-              {(accounts ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  [{ACCOUNT_TYPE_LABEL[a.type] ?? "カード"}] {a.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <SectionLead className="mb-2">{CARD_HELP.schedule}</SectionLead>
-          <InfoNote>{CARD_HELP.recurring}</InfoNote>
-
-          {scheduleMode === "list" &&
-            (filteredSchedule.length > 0 ? (
-              <div className="card mb-6 overflow-x-auto">
-                <table className="w-full text-sm min-w-[36rem]">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="text-left px-3 py-2 font-semibold text-slate-600">毎月</th>
-                      <th className="text-left px-3 py-2 font-semibold text-slate-600">移動元</th>
-                      <th className="text-left px-3 py-2 font-semibold text-slate-600 hidden sm:table-cell">
-                        →
-                      </th>
-                      <th className="text-left px-3 py-2 font-semibold text-slate-600">移動先</th>
-                      <th className="text-right px-3 py-2 font-semibold text-slate-600">金額</th>
-                      <th className="text-left px-3 py-2 font-semibold text-slate-600 hidden md:table-cell">
-                        種別
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredSchedule.map((e) => (
-                      <tr key={e.key} className="hover:bg-slate-50">
-                        <td className="px-3 py-2 text-slate-500 tabular-nums">{e.day}日</td>
-                        <td className="px-3 py-2 text-slate-700">{e.from}</td>
-                        <td className="px-3 py-2 text-slate-400 hidden sm:table-cell">→</td>
-                        <td className="px-3 py-2 text-slate-700">
-                          {e.kind === "recurring" ? (
-                            <span className="text-rose-600 font-medium">{e.to}</span>
-                          ) : (
-                            e.to
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right font-medium tabular-nums text-slate-900">
-                          {yen(e.amount)}
-                        </td>
-                        <td className="px-3 py-2 text-slate-400 text-xs hidden md:table-cell">
-                          {e.kindLabel}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500 mb-6">
-                引き落とし・固定決済がまだ登録されていません。引き落としは銀行管理の「キャッシュフロー」タブ、
-                固定決済は実績管理の「履歴」の固定決済列から登録すると、この一覧と上のフロー図に表示されます。
-              </p>
-            ))}
-
-          {/* スケジュールモード＝毎月の予定日を月次カレンダーで俯瞰する。
-            予定日は「毎月◯日」なので、その月に無い日（31 日など）は月末に寄せて描く。 */}
-          {scheduleMode === "calendar" && (
-            <div className="card mb-6 p-0 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                <button
-                  onClick={prevMonth}
-                  className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path
-                      fillRule="evenodd"
-                      d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-                <span className="font-semibold text-slate-800">
-                  {viewYear}年{viewMonth}月
-                </span>
-                <button
-                  onClick={nextMonth}
-                  className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path
-                      fillRule="evenodd"
-                      d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-              </div>
-              <div className="grid grid-cols-7 border-b border-slate-100">
-                {WEEKDAYS.map((w, i) => (
-                  <div
-                    key={w}
-                    className={`py-2 text-center text-xs font-medium ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-slate-500"}`}
-                  >
-                    {w}
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-7">
-                {Array.from({ length: totalCells }, (_, i) => {
-                  const day = i - firstWeekday + 1;
-                  const isValid = day >= 1 && day <= daysInMonth;
-                  const isToday =
-                    isValid &&
-                    viewYear === now.getFullYear() &&
-                    viewMonth === now.getMonth() + 1 &&
-                    day === now.getDate();
-                  const dayEntries = isValid ? (scheduleByDay.get(day) ?? []) : [];
-                  const weekday = i % 7;
+              <div className="space-y-2">
+                {accounts.map((a) => {
+                  const debits = (cardFlow?.transfers ?? []).filter(
+                    (t) => t.linkedAccountId === a.id,
+                  );
+                  const recurring = (cardFlow?.recurring ?? []).filter((r) => r.accountId === a.id);
+                  const recurringTotal = recurring.reduce((sum, r) => sum + r.amount, 0);
                   return (
-                    <div
-                      key={i}
-                      className={`min-h-[4.5rem] p-1.5 border-b border-r border-slate-100 text-left ${
-                        isValid ? "" : "bg-slate-50/50"
-                      }`}
-                    >
-                      {isValid && (
-                        <>
-                          <span
-                            className={[
-                              "inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full mb-0.5",
-                              isToday
-                                ? "bg-indigo-600 text-white"
-                                : weekday === 0
-                                  ? "text-red-500"
-                                  : weekday === 6
-                                    ? "text-blue-500"
-                                    : "text-slate-700",
-                            ].join(" ")}
-                          >
-                            {day}
-                          </span>
-                          {dayEntries.map((e) => (
-                            <p
-                              key={e.key}
-                              title={`${e.from} → ${e.to}（${e.kindLabel}）`}
-                              className={`text-[10px] truncate leading-tight ${
-                                e.kind === "recurring" ? "text-rose-600" : "text-indigo-600"
-                              }`}
-                            >
-                              {e.to} {yen(e.amount)}
+                    <div key={a.id} className="border border-slate-100 rounded-lg px-3 py-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                              {ACCOUNT_TYPE_LABEL[a.type] ?? "カード"}
+                            </span>
+                            <h3 className="font-medium text-slate-800 text-sm">{a.name}</h3>
+                            <span className="text-xs text-slate-500">
+                              {a.institution}
+                              {a.lastFour ? ` ****${a.lastFour}` : ""}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            {debits.length > 0 ? (
+                              debits.map((t) => (
+                                <span key={t.id} className="mr-3">
+                                  引き落とし: {t.from ?? "口座未設定"} ・ 毎月{t.day}日 ・{" "}
+                                  {yen(t.amount)}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-slate-400">
+                                引き落としは未登録（銀行管理のキャッシュフロータブで登録します）
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            {recurring.length > 0
+                              ? `固定決済: ${recurring.length} 件 ・ 月 ${yen(recurringTotal)}`
+                              : "固定決済はありません"}
+                          </div>
+                          {a.account && (
+                            <div className="text-xs text-indigo-600 mt-0.5">
+                              紐付く科目: {a.account.code} {a.account.name}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <p className="text-[10px] text-slate-400">今月の利用額</p>
+                            <p className="font-bold text-rose-600 text-sm tabular-nums">
+                              {yen(usageThisMonth(a.id))}
                             </p>
-                          ))}
-                        </>
-                      )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1">
+                            {/* 明細の一覧・登録は実績管理の履歴・カレンダーで行う */}
+                            <Link
+                              href={`/entry?tab=history&source=card&account=${a.id}` as never}
+                              className="text-xs text-indigo-500 hover:text-indigo-700"
+                            >
+                              明細を見る
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCardError(null);
+                                setCardForm({
+                                  id: a.id,
+                                  name: a.name,
+                                  type: a.type,
+                                  institution: a.institution,
+                                  lastFour: a.lastFour ?? "",
+                                  accountCode: a.account?.code ?? "",
+                                  note: a.note ?? "",
+                                });
+                              }}
+                              className="text-xs text-indigo-500 hover:text-indigo-700"
+                            >
+                              編集
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteCard(a)}
+                              className="text-xs text-red-400 hover:text-red-600"
+                            >
+                              削除
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </>
       )}
 

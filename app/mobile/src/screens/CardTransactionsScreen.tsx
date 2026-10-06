@@ -25,16 +25,7 @@ import {
 } from "../api";
 import { CardSummary } from "../components/card/CardSummary";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
-import {
-  Button,
-  Field,
-  Input,
-  Lead,
-  Notice,
-  Pills,
-  SelectField,
-  SheetModal,
-} from "../components/ui";
+import { Button, Field, Input, Lead, Notice, Pills, SheetModal } from "../components/ui";
 import { displayName } from "../shared/display-name";
 import { CARD_HELP } from "../shared/help-texts";
 import {
@@ -80,7 +71,6 @@ type Props = {
 export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
   const [accounts, setAccounts] = useState<LinkedAccount[]>([]);
   const [categoryAccounts, setCategoryAccounts] = useState<Account[]>([]);
-  const [accountId, setAccountId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,9 +86,6 @@ export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
       const [list, cats] = await Promise.all([fetchLinkedAccounts(), fetchAccounts()]);
       setAccounts(list);
       setCategoryAccounts(cats);
-      setAccountId((id) =>
-        id !== null && list.some((a) => a.id === id) ? id : (list[0]?.id ?? null),
-      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "取得に失敗しました");
     } finally {
@@ -117,7 +104,6 @@ export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
     setRefreshing(false);
   }
 
-  const selected = accounts.find((a) => a.id === accountId) ?? null;
   const editingChargeSourceCount =
     form?.id != null ? (accounts.find((a) => a.id === form.id)?.chargeSourceCount ?? 0) : 0;
 
@@ -136,8 +122,7 @@ export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
       };
       try {
         if (form.id === null) {
-          const created = await postLinkedAccount(body);
-          setAccountId(created.id);
+          await postLinkedAccount(body);
         } else {
           await patchLinkedAccount(form.id, body);
         }
@@ -205,61 +190,28 @@ export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
       >
         {error && <Notice tone="error">{error}</Notice>}
         <Lead>{CARD_HELP.page}</Lead>
-        <Button
-          label="カード・電子マネー追加"
-          onPress={() => {
+        <CardSummary
+          accounts={accounts}
+          reloadKey={reloadKey}
+          onAdd={() => {
             setFormError(null);
             setForm(BLANK_CARD);
           }}
-          style={{ marginBottom: 10 }}
+          onEdit={(a) => {
+            setFormError(null);
+            setForm({
+              id: a.id,
+              name: a.name,
+              type: a.type,
+              institution: a.institution,
+              lastFour: a.lastFour ?? "",
+              accountCode: a.account?.code ?? "",
+              note: a.note ?? "",
+            });
+          }}
+          onDelete={confirmDeleteCard}
+          onOpenHistory={onOpenHistory}
         />
-        {accounts.length === 0 && (
-          <Notice tone="warn">
-            カード・電子マネーが登録されていません。利用明細を記録するには、先に登録してください。
-          </Notice>
-        )}
-
-        {/* 対象のカード・電子マネー（編集・削除と「明細を見る」の対象。web 版と同じ） */}
-        {selected && (
-          <View>
-            <SelectField
-              label="表示対象のカード・電子マネー"
-              value={accountId}
-              options={accounts.map((a) => ({
-                value: a.id,
-                label: `[${LINKED_ACCOUNT_TYPE_LABELS[a.type] ?? "カード"}] ${a.name}`,
-                sub: `${a.institution}${a.lastFour ? ` ****${a.lastFour}` : ""}`,
-              }))}
-              onChange={setAccountId}
-            />
-            <View style={s.cardActions}>
-              <TouchableOpacity
-                onPress={() => {
-                  setFormError(null);
-                  setForm({
-                    id: selected.id,
-                    name: selected.name,
-                    type: selected.type,
-                    institution: selected.institution,
-                    lastFour: selected.lastFour ?? "",
-                    accountCode: selected.account?.code ?? "",
-                    note: selected.note ?? "",
-                  });
-                }}
-              >
-                <Text style={s.link}>編集</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => confirmDeleteCard(selected)}>
-                <Text style={s.danger}>削除</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => onOpenHistory(selected.id)}>
-                <Text style={s.link}>明細を見る</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        <CardSummary accounts={accounts} reloadKey={reloadKey} />
       </ScrollView>
 
       {/* カード・電子マネーの登録／編集 */}

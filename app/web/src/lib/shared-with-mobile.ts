@@ -6,6 +6,7 @@ export const SHARED_WITH_MOBILE = [
   "allocation-assign.ts",
   "asset-valuation.ts",
   "budget-actual-chart.ts",
+  "budget-cell-detail.ts",
   "budget-cycle.ts",
   "cycle-month.ts",
   "debt-schedule.ts",

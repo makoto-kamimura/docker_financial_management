@@ -27,9 +27,20 @@ import {
   type ViewMode,
 } from "../api";
 import { BudgetAllocationPanel } from "../components/BudgetAllocationPanel";
+import { BudgetCalendar } from "../components/BudgetCalendar";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
 import { ChangeHistoryList, INITIAL_HISTORY_QUERY } from "../components/ChangeHistoryList";
-import { Button, EmptyText, Input, Lead, Notice, Pills, TabBar } from "../components/ui";
+import {
+  Button,
+  EmptyText,
+  Input,
+  Lead,
+  Notice,
+  Pills,
+  SheetModal,
+  TabBar,
+} from "../components/ui";
+import { BUDGET_SOURCE_LABEL, buildBudgetCellDetail } from "../shared/budget-cell-detail";
 import { displayName } from "../shared/display-name";
 import { BUDGET_HELP, textFor } from "../shared/help-texts";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
@@ -38,10 +49,11 @@ import { BudgetConfirmSection } from "../components/BudgetConfirmSection";
 import { BudgetVarianceSection } from "../components/BudgetVarianceSection";
 import { useFiscalYear } from "../fiscal-year";
 
-export type BudgetTab = "manual" | "allocation" | "variance" | "confirm" | "history";
+export type BudgetTab = "manual" | "calendar" | "allocation" | "variance" | "confirm" | "history";
 type Tab = BudgetTab;
 const TABS = [
   ["manual", "一覧"],
+  ["calendar", "カレンダー"],
   ["variance", "予実差確認"],
   ["confirm", "予算の確定"],
   ["history", "履歴"],
@@ -54,6 +66,7 @@ const EMPTY_BUDGETS: BudgetResponse = {
   loanOverlay: [],
   personalAssetDebtOverlay: [],
   confirmedMonths: [],
+  items: [],
 };
 
 const key = (code: string, month: number) => `${code}:${month}`;
@@ -237,6 +250,17 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
   // 予算を確定済みの月は編集できない（web 版の一覧の鍵の印と同じ）
   const locked = data.confirmedMonths.includes(month);
 
+  // セルの内訳（カレンダーの登録・一覧などで入れた額・自動加算。web 版と同じ lib/budget-cell-detail.ts）
+  const [detailCode, setDetailCode] = useState<string | null>(null);
+  const cellDetailOf = (code: string) =>
+    buildBudgetCellDetail({
+      budgetAmount: budgetMap.get(key(code, month))?.amount ?? 0,
+      items: data.items.filter((i) => i.accountCode === code && i.month === month),
+      loanOverlay: loanMap.get(key(code, month)) ?? 0,
+      assetDebtOverlay: debtMap.get(key(code, month)) ?? 0,
+      assetNames: debtAssetNames(code) ? debtAssetNames(code).split("・") : [],
+    });
+
   return (
     <View style={s.root}>
       <TabBar tabs={TABS} value={tab} onChange={setTab} />
@@ -323,6 +347,9 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
                   const val = edited ? edits[a.code] : budget ? String(budget.amount) : "";
                   const base = val !== "" ? Number(val) : 0;
                   const name = displayName(a, viewMode);
+                  // カレンダーの登録があるセルは合計をその場で書き換えさせない（内訳と合わなくなるため）
+                  const detail = cellDetailOf(a.code);
+                  const hasItems = detail.rows.some((r) => r.kind === "calendar");
                   const showGroup = i === 0 || rows[i - 1].category !== a.category;
                   return (
                     <View key={a.code}>
@@ -353,7 +380,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
                             <Input
                               style={s.amountInput}
                               keyboardType="number-pad"
-                              editable={!locked}
+                              editable={!locked && !hasItems}
                               value={val}
                               placeholder="—"
                               selectTextOnFocus
@@ -361,7 +388,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
                                 setEdits((prev) => ({ ...prev, [a.code]: digitsOnly(t) }))
                               }
                             />
-                            {budget && !edited && !locked && (
+                            {budget && !edited && !locked && !hasItems && (
                               <TouchableOpacity
                                 onPress={() => confirmDelete(budget.id, name)}
                                 hitSlop={8}
@@ -372,6 +399,11 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
                           </View>
                           {(loan > 0 || debt > 0) && (
                             <Text style={s.combined}>合計 {yen(base + loan + debt)}</Text>
+                          )}
+                          {(hasItems || detail.rows.length > 1) && (
+                            <TouchableOpacity onPress={() => setDetailCode(a.code)} hitSlop={6}>
+                              <Text style={s.detailLink}>内訳 {detail.rows.length}件</Text>
+                            </TouchableOpacity>
                           )}
                         </View>
                       </View>
@@ -388,6 +420,16 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
               />
               <View style={{ height: hasEdits ? 88 : 24 }} />
             </>
+          )}
+
+          {tab === "calendar" && (
+            <BudgetCalendar
+              accounts={accounts}
+              viewMode={viewMode}
+              year={year}
+              confirmedMonths={data.confirmedMonths}
+              onChanged={load}
+            />
           )}
 
           {tab === "allocation" && (
@@ -433,11 +475,58 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
         }}
         onClose={() => setPickingAccount(false)}
       />
+      {/* セルの内訳（web 版の一覧の「N件」と同じ） */}
+      <SheetModal
+        visible={detailCode !== null}
+        title={`${detailCode ? displayName(accounts.find((x) => x.code === detailCode) ?? { name: detailCode }, viewMode) : ""} ${month}月の予算の内訳`}
+        subtitle={BUDGET_HELP.cellDetail}
+        onClose={() => setDetailCode(null)}
+      >
+        {detailCode &&
+          cellDetailOf(detailCode).rows.map((r, i) => (
+            <View key={r.kind === "calendar" ? `c${r.id}` : `${r.kind}${i}`} style={s.detailRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.detailSource}>{BUDGET_SOURCE_LABEL[r.kind]}</Text>
+                {r.kind === "calendar" && (
+                  <Text style={s.detailDesc} numberOfLines={2}>
+                    {r.date.slice(5).replace("-", "/")} · {r.description}
+                  </Text>
+                )}
+                {r.kind === "assetDebt" && r.assetNames.length > 0 && (
+                  <Text style={s.detailDesc}>{r.assetNames.join("・")}</Text>
+                )}
+              </View>
+              <Text style={s.detailAmount}>{yen(r.amount)}</Text>
+            </View>
+          ))}
+        {detailCode && (
+          <Text style={s.detailTotal}>合計 {yen(cellDetailOf(detailCode).total)}</Text>
+        )}
+      </SheetModal>
     </View>
   );
 }
 
 const s = StyleSheet.create({
+  detailLink: { fontSize: 11, color: "#4f46e5", textDecorationLine: "underline", marginTop: 2 },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  detailSource: { fontSize: 11, color: "#64748b" },
+  detailDesc: { fontSize: 13, color: "#1e293b", marginTop: 2 },
+  detailAmount: { fontSize: 13, fontWeight: "600", color: "#1e293b" },
+  detailTotal: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1e293b",
+    textAlign: "right",
+    marginTop: 10,
+  },
   root: { flex: 1, backgroundColor: "#f8fafc" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   scroll: { flex: 1 },
