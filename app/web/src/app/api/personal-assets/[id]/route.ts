@@ -6,12 +6,20 @@ import { badRequest, notFound } from "@/lib/api-error";
 import { zYearMonth } from "@/lib/zod-helpers";
 import { computeDebtSchedule } from "@/lib/debt-schedule";
 import {
-  serializeAssetWithDebt,
   buildDebtLoanData,
   ratePercentOf,
   manualMonthlyPaymentOf,
 } from "@/lib/personal-asset-debt";
 import { invalidateCache } from "@/lib/redis";
+import {
+  PartInputSchema,
+  recordValuation,
+  serializeAsset,
+  syncParts,
+  VALUATION_INCLUDE,
+  valuationData,
+  valuationFields,
+} from "@/lib/personal-asset-valuation";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -30,10 +38,16 @@ const UpdateSchema = z.object({
   debtInterestRate: z.number().min(0).max(1).nullable().optional(),
   // 残価設定ローンの据置額（最終回に一括支払い）。カーローン等
   debtResidualValue: z.number().min(0).nullable().optional(),
+  // 価値の変わり方（内訳があるときは内訳ごとの設定を使う）
+  ...valuationFields,
+  // 内訳を入力どおりにそろえる（id のある内訳は直し、無い内訳は作り、無くなった内訳は消す）。
+  // 空の配列で内訳をやめる。省略すると内訳はそのまま
+  parts: z.array(PartInputSchema).max(20).optional(),
 });
 
 // PATCH /api/personal-assets/[id] … 実物資産の更新（editor 以上）
 // D-4: 負債フィールドは Loan（loanId）へ読み替えて upsert / 削除する
+// 評価額（資産そのもの・内訳）が変わったら、今日の日付で評価額の記録を残す（推移の見積もりの起点になる）
 export const PATCH = withApi({
   role: "editor",
   schema: UpdateSchema,
@@ -41,7 +55,7 @@ export const PATCH = withApi({
     const { tenantId } = user;
     const existing = await db.personalAsset.findUnique({
       where: { id, tenantId },
-      include: { loan: true },
+      include: { loan: true, parts: true },
     });
     if (!existing) throw notFound();
 
@@ -109,6 +123,25 @@ export const PATCH = withApi({
         loanId = null;
       }
 
+      // 内訳: 入力どおりにそろえ、評価額・取得価格は内訳の合計にする
+      let totals: { currentValue: number; acquisitionCost: number | null } | null = null;
+      if (body.parts !== undefined && (body.parts.length > 0 || existing.parts.length > 0)) {
+        const t = await syncParts(tx, tenantId, id, body.parts, existing.parts);
+        if (body.parts.length > 0) totals = t;
+      }
+      const hasParts = body.parts !== undefined ? body.parts.length > 0 : existing.parts.length > 0;
+      if (!hasParts) {
+        // 内訳の無い資産: 評価額が変わったとき、内訳をやめたときは、資産そのものの評価額を記録する
+        const nextValue = body.currentValue ?? Number(existing.currentValue);
+        const leftParts = existing.parts.length > 0;
+        if (
+          leftParts ||
+          (body.currentValue !== undefined && body.currentValue !== Number(existing.currentValue))
+        ) {
+          await recordValuation(tx, tenantId, id, null, nextValue);
+        }
+      }
+
       const updated = await tx.personalAsset.update({
         where: { id },
         data: {
@@ -123,8 +156,10 @@ export const PATCH = withApi({
           ...(body.note !== undefined && { note: body.note }),
           ...(body.linkedAccountId !== undefined && { linkedAccountId: body.linkedAccountId }),
           ...(loanId !== undefined && { loanId }),
+          ...valuationData(body),
+          ...(totals ?? {}),
         },
-        include: { loan: true },
+        include: { loan: true, ...VALUATION_INCLUDE },
       });
       if (loanId === null && existing.loanId) {
         await tx.loan.delete({ where: { id: existing.loanId } });
@@ -143,7 +178,7 @@ export const PATCH = withApi({
           Number(asset.loan.residualValue ?? 0),
         )
       : null;
-    return NextResponse.json({ data: serializeAssetWithDebt(asset, schedule) });
+    return NextResponse.json({ data: serializeAsset(asset, schedule) });
   },
 });
 

@@ -722,29 +722,85 @@ enum PersonalAssetCategory {
 // D-4: 紐付け負債（旧 debtStartOn/debtPayoffDue/debtInitialAmount）は Loan に一本化し、
 // loanId で参照する。API は旧フィールド名の入出力を維持し、内部で Loan へ読み替える。
 model PersonalAsset {
-  id              Int                   @id @default(autoincrement())
-  tenantId        Int
-  name            String // 資産名（例: 自宅土地）
-  category        PersonalAssetCategory @default(OTHER)
-  acquiredOn      DateTime? // 取得日
-  acquisitionCost Decimal?              @db.Decimal(18, 2) // 取得価格
-  currentValue    Decimal               @db.Decimal(18, 2) // 現在評価額
+  id                Int                   @id @default(autoincrement())
+  tenantId          Int
+  name              String // 資産名（例: 自宅土地）
+  category          PersonalAssetCategory @default(OTHER)
+  acquiredOn        DateTime? // 取得日
+  acquisitionCost   Decimal?              @db.Decimal(18, 2) // 取得価格
+  currentValue      Decimal               @db.Decimal(18, 2) // 現在評価額
   // 純資産（総資産サマリ）に評価額を計上するか。false = 負債のみ反映。
   // ローンに含まれる諸費用（登記費用・手数料等）のように、借入はあるが資産価値を持たない
   // 項目を除外するためのフラグ。以前はカテゴリ（LAND/BUILDING 以外を除外）で代用していたが、
   // 車・金など価値のある資産まで除外されてしまうため明示フラグへ移行した。
-  countAsAsset    Boolean               @default(true)
-  note            String?
-  linkedAccountId Int? // 紐付く負債科目（例: 住宅ローン）
-  linkedAccount   Account?              @relation(fields: [linkedAccountId], references: [id])
-  loanId          Int?                  @unique // 紐付け負債の実体（Loan）。null = 負債なし
-  loan            Loan?                 @relation(fields: [loanId], references: [id])
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  countAsAsset      Boolean               @default(true)
+  note              String?
+  linkedAccountId   Int? // 紐付く負債科目（例: 住宅ローン）
+  linkedAccount     Account?              @relation(fields: [linkedAccountId], references: [id])
+  loanId            Int?                  @unique // 紐付け負債の実体（Loan）。null = 負債なし
+  loan              Loan?                 @relation(fields: [loanId], references: [id])
+  // 価値の変わり方（lib/asset-valuation.ts）。内訳（parts）があるときは内訳ごとの設定を使う。
+  //   auto = 種別から自動（建物は構造の年数で定額、車は定率、土地・金・投資は年率、ほかは変わらない）
+  //   fixed = 変わらない / rate = 年率で増減 / straight_line = 耐用年数で 0 円へ定額 / declining = 定率で減る
+  valuationMethod   String                @default("auto")
+  valuationRate     Decimal?              @db.Decimal(7, 3) // 年率（%）。rate は増減率（マイナスで下落）、declining は下落率
+  usefulLifeYears   Int? // straight_line の年数
+  buildingStructure String? // 建物の構造（wood / light_steel / heavy_steel / rc）。auto の建物の年数に使う
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  // 内訳（例: 住宅ローン 1 本で買った土地と建物）。1 ローン 1 資産のまま、価値の変わり方を分けて持つ。
+  // 内訳があるときの評価額・取得価格は内訳の合計
+  parts      PersonalAssetPart[]
+  valuations PersonalAssetValuation[]
 
   @@index([tenantId])
   @@index([linkedAccountId])
   @@map("personal_assets")
+}
+
+// 実物資産の内訳。取得日は親の資産と同じ
+model PersonalAssetPart {
+  id                Int                   @id @default(autoincrement())
+  tenantId          Int
+  asset             PersonalAsset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assetId           Int
+  name              String // 内訳名（例: 土地）
+  category          PersonalAssetCategory @default(OTHER)
+  acquisitionCost   Decimal?              @db.Decimal(18, 2)
+  currentValue      Decimal               @db.Decimal(18, 2) // 最後に手で入れた評価額
+  valuationMethod   String                @default("auto")
+  valuationRate     Decimal?              @db.Decimal(7, 3)
+  usefulLifeYears   Int?
+  buildingStructure String?
+  sortOrder         Int                   @default(0)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  valuations PersonalAssetValuation[]
+
+  @@index([tenantId])
+  @@index([assetId])
+  @@map("personal_asset_parts")
+}
+
+// 評価額を手で入れた記録（登録時・評価額の更新時）。推移はこの点を通り、最後の点から先を
+// 価値の変わり方で見積もる。partId が null の行は資産そのもの（内訳の無い資産）の評価額
+model PersonalAssetValuation {
+  id        Int                @id @default(autoincrement())
+  tenantId  Int
+  asset     PersonalAsset      @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assetId   Int
+  part      PersonalAssetPart? @relation(fields: [partId], references: [id], onDelete: Cascade)
+  partId    Int?
+  valuedOn  DateTime           @db.Date
+  value     Decimal            @db.Decimal(18, 2)
+  createdAt DateTime           @default(now())
+
+  @@index([tenantId])
+  @@index([assetId])
+  @@index([partId])
+  @@map("personal_asset_valuations")
 }
 
 // F009 家事按分設定
