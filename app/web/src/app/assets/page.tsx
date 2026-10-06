@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { AssetTrendCharts, TrendBadge } from "@/components/AssetTrendCharts";
 import { SectionLead } from "@/components/Explain";
@@ -24,7 +25,6 @@ import {
 import { ASSETS_HELP, textFor } from "@/lib/help-texts";
 import { isCountedAsAsset } from "@/lib/personal-asset";
 import { useViewMode } from "@/lib/use-view-mode";
-import { displayName } from "@/lib/display-name";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/labels";
 
 type ValueTrend = "up" | "down" | "flat";
@@ -66,6 +66,9 @@ type PersonalAsset = {
   debtMonthly: number | null;
   debtRemaining: number | null;
   debtRemainingMonths: number | null;
+  /** ひも付いた借入（借入金管理で入力する）。無ければ null */
+  loanId: number | null;
+  loanLenderName: string | null;
   valuationMethod: ValuationMethod;
   valuationRate: number | string | null;
   usefulLifeYears: number | null;
@@ -80,14 +83,6 @@ type PersonalAsset = {
   parts: PersonalAssetPart[];
   createdAt: string;
   updatedAt: string;
-};
-type AccountRef = {
-  id: number;
-  code: string;
-  name: string;
-  category: string;
-  soleName?: string | null;
-  corporateName?: string | null;
 };
 
 const str = (v: number | string | null) => (v === null || v === undefined ? "" : String(v));
@@ -251,7 +246,6 @@ function PersonalAssetFormModal({
   asset?: PersonalAsset;
   onClose: () => void;
 }) {
-  const sysMode = useViewMode();
   const invalidate = useInvalidateAssets();
   const [form, setForm] = useState({
     name: asset?.name ?? "",
@@ -261,17 +255,6 @@ function PersonalAssetFormModal({
     currentValue: str(asset?.currentValue ?? null),
     countAsAsset: asset?.countAsAsset ?? true,
     note: asset?.note ?? "",
-    linkedAccountId: str(asset?.linkedAccountId ?? null),
-    debtStartOn: asset?.debtStartOn?.slice(0, 7) ?? "",
-    debtPayoffDue: asset?.debtPayoffDue?.slice(0, 7) ?? "",
-    debtInitialAmount: str(asset?.debtInitialAmount ?? null),
-    // 画面は「％」で入力し、API へは小数（0.810 → 0.0081）に直して送る
-    debtInterestPercent:
-      asset?.debtInterestRate != null
-        ? String(Number((Number(asset.debtInterestRate) * 100).toPrecision(6)))
-        : "",
-    // 残価設定ローン（カーローン等）の据置額。最終回に一括で支払う
-    debtResidualValue: str(asset?.debtResidualValue ?? null),
   });
   const [valuation, setValuation] = useState<ValuationForm>(() => valuationFormOf(asset));
   // 内訳（住宅ローン 1 本で買った土地と建物など）。null = 内訳を分けない
@@ -290,13 +273,6 @@ function PersonalAssetFormModal({
   );
   const isEdit = asset !== undefined;
 
-  const { data: liabilityAccounts } = useQuery({
-    queryKey: ["accounts", "LIABILITY"],
-    queryFn: async (): Promise<AccountRef[]> => {
-      const json = await (await fetch("/api/accounts")).json();
-      return ((json.data ?? []) as AccountRef[]).filter((a) => a.category === "LIABILITY");
-    },
-  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -339,15 +315,10 @@ function PersonalAssetFormModal({
       setError("現在評価額は必須です。");
       return;
     }
-    if (form.debtStartOn && form.debtPayoffDue && form.debtStartOn > form.debtPayoffDue) {
-      setError("支払い開始年月は解消予定年月以前にしてください。");
-      return;
-    }
     setSaving(true);
     setError(null);
     // 未入力の項目は、登録では送らず（サーバー既定値）、編集では null で送って消す
     const empty = isEdit ? null : undefined;
-    const linked = form.linkedAccountId !== "";
     const res = await fetch(isEdit ? `/api/personal-assets/${asset.id}` : "/api/personal-assets", {
       method: isEdit ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
@@ -357,16 +328,6 @@ function PersonalAssetFormModal({
         acquiredOn: form.acquiredOn || empty,
         countAsAsset: form.countAsAsset,
         note: form.note || empty,
-        linkedAccountId: linked ? Number(form.linkedAccountId) : empty,
-        // 負債の項目は紐付け負債科目があるときだけ意味を持つ
-        debtStartOn: (linked && form.debtStartOn) || empty,
-        debtPayoffDue: (linked && form.debtPayoffDue) || empty,
-        debtInitialAmount:
-          linked && form.debtInitialAmount ? Number(form.debtInitialAmount) : empty,
-        debtInterestRate:
-          linked && form.debtInterestPercent ? Number(form.debtInterestPercent) / 100 : empty,
-        debtResidualValue:
-          linked && form.debtResidualValue ? Number(form.debtResidualValue) : empty,
         // 内訳があれば評価額・取得価格は内訳の合計（サーバーで計算する）
         ...(parts
           ? {
@@ -573,82 +534,18 @@ function PersonalAssetFormModal({
             </>
           )}
           <p className="text-[10px] text-slate-400">{ASSETS_HELP.valuation}</p>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">紐付け負債科目（ローン等）</span>
-              <select
-                className="input-field mt-1 w-full"
-                value={form.linkedAccountId}
-                onChange={(e) => f("linkedAccountId", e.target.value)}
-              >
-                <option value="">なし</option>
-                {(liabilityAccounts ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} {displayName(a, sysMode)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">当初負債額（円）</span>
-              <input
-                type="number"
-                className="input-field mt-1 w-full"
-                value={form.debtInitialAmount}
-                onChange={(e) => f("debtInitialAmount", e.target.value)}
-                min={0}
-                disabled={!form.linkedAccountId}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">年利（％）</span>
-              <input
-                type="number"
-                step="0.001"
-                min={0}
-                placeholder="例: 0.810"
-                className="input-field mt-1 w-full"
-                value={form.debtInterestPercent}
-                onChange={(e) => f("debtInterestPercent", e.target.value)}
-                disabled={!form.linkedAccountId}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">支払い開始年月</span>
-              <input
-                type="month"
-                className="input-field mt-1 w-full"
-                value={form.debtStartOn}
-                onChange={(e) => f("debtStartOn", e.target.value)}
-                disabled={!form.linkedAccountId}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">残価（円）</span>
-              <input
-                type="number"
-                min={0}
-                placeholder="残価設定ローンのみ"
-                className="input-field mt-1 w-full"
-                value={form.debtResidualValue}
-                onChange={(e) => f("debtResidualValue", e.target.value)}
-                disabled={!form.linkedAccountId}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">負債解消（完済）予定年月</span>
-              <input
-                type="month"
-                className="input-field mt-1 w-full"
-                value={form.debtPayoffDue}
-                onChange={(e) => f("debtPayoffDue", e.target.value)}
-                disabled={!form.linkedAccountId}
-              />
-            </label>
-          </div>
-          <p className="text-[10px] text-slate-400">
-            当初負債額・開始年月・解消予定年月を設定すると、開始月〜解消予定月の毎月の返済額を予算に自動計上し、負債残高を算出して表示します。年利を入力すると元利均等返済で計算します（未入力は無利子＝元本の月割り）。残価設定ローン（カーローン等）は残価を入力すると、最終回に残価を一括で支払う前提で月額と残高を計算します
-          </p>
+          {/* 借入の入力は借入金管理に集めた。ひも付いた借入があれば、表示だけ出す */}
+          {isEdit && asset.loanId !== null ? (
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              借入: {asset.loanLenderName}（残高 {yen(asset.debtRemaining ?? 0)}）— 借入の条件は
+              <Link href={"/loans" as never} className="mx-0.5 underline text-indigo-600">
+                借入金管理
+              </Link>
+              で編集します。
+            </p>
+          ) : (
+            <p className="text-[10px] text-slate-400">{ASSETS_HELP.loanHint}</p>
+          )}
           <label className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2">
             <input
               type="checkbox"
@@ -875,17 +772,13 @@ function PersonalAssetsSection() {
                       <span>{lastValuedText(a.currentValue, a.lastValuedOn)}</span>
                     )}
                   </div>
-                  {a.debtRemaining !== null && (
+                  {a.loanId !== null && (
                     <div className="text-xs text-amber-600 mt-0.5">
-                      負債残高: {yen(a.debtRemaining)}（残り{a.debtRemainingMonths}回・月
-                      {yen(a.debtMonthly ?? 0)}・年利
-                      {(Number(a.debtInterestRate ?? 0) * 100).toFixed(3)}%・
-                      {a.debtPayoffDue?.slice(0, 7)}解消予定）
-                      {Number(a.debtResidualValue ?? 0) > 0 && (
-                        <span className="block">
-                          残価設定ローン: 最終回に {yen(Number(a.debtResidualValue))} を一括支払い
-                        </span>
-                      )}
+                      借入: {a.loanLenderName} ・ {asOfDateLabel(new Date())}の残高{" "}
+                      {yen(a.debtRemaining ?? 0)} ・{" "}
+                      <Link href={"/loans" as never} className="underline">
+                        借入金管理で見る
+                      </Link>
                     </div>
                   )}
                 </div>

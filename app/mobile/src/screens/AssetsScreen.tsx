@@ -16,12 +16,10 @@ import {
 } from "react-native";
 import {
   deletePersonalAsset,
-  fetchAccounts,
   fetchAssetTrend,
   fetchPersonalAssets,
   patchPersonalAsset,
   postPersonalAsset,
-  type Account,
   type AssetTrend,
   type AssetTrendSeries,
   type PersonalAsset,
@@ -35,7 +33,6 @@ import {
   SERIES_COLORS,
   type ChartSeries,
 } from "../components/AssetValueChart";
-import { AccountPickerModal } from "../components/CategoryPickerModal";
 import {
   Button,
   Card,
@@ -64,7 +61,6 @@ import {
   type ValuationMethod,
   type ValueTrend,
 } from "../shared/asset-valuation";
-import { displayName } from "../shared/display-name";
 import { ASSETS_HELP, textFor } from "../shared/help-texts";
 import { digitsOnly, yenShort } from "../format";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "../shared/labels";
@@ -147,14 +143,12 @@ type AssetForm = ValuationForm & {
   currentValue: string;
   countAsAsset: boolean;
   note: string;
-  linkedAccountId: number | null;
-  debtStartOn: string;
-  debtPayoffDue: string;
-  debtInitialAmount: string;
-  debtInterestPercent: string;
-  debtResidualValue: string;
   /** 内訳（null = 内訳を分けない） */
   parts: PartForm[] | null;
+  /** ひも付いた借入（表示だけ。借入金の画面で編集する） */
+  loanId: number | null;
+  loanLenderName: string | null;
+  debtRemaining: number | null;
 };
 
 const BLANK_FORM: AssetForm = {
@@ -167,13 +161,10 @@ const BLANK_FORM: AssetForm = {
   currentValue: "",
   countAsAsset: true,
   note: "",
-  linkedAccountId: null,
-  debtStartOn: "",
-  debtPayoffDue: "",
-  debtInitialAmount: "",
-  debtInterestPercent: "",
-  debtResidualValue: "",
   parts: null,
+  loanId: null,
+  loanLenderName: null,
+  debtRemaining: null,
   ...valuationFormOf(),
 };
 
@@ -188,17 +179,10 @@ function toForm(a: PersonalAsset): AssetForm {
     currentValue: str(a.currentValue),
     countAsAsset: a.countAsAsset,
     note: a.note ?? "",
-    linkedAccountId: a.linkedAccountId,
-    debtStartOn: a.debtStartOn?.slice(0, 7) ?? "",
-    debtPayoffDue: a.debtPayoffDue?.slice(0, 7) ?? "",
-    debtInitialAmount: str(a.debtInitialAmount),
-    // 小数（0.0081）→ ％表示（0.81）。浮動小数の端数が出ないよう有効桁で丸める
-    debtInterestPercent:
-      a.debtInterestRate === null
-        ? ""
-        : String(Number((Number(a.debtInterestRate) * 100).toPrecision(6))),
-    debtResidualValue: str(a.debtResidualValue),
     ...valuationFormOf(a),
+    loanId: a.loanId,
+    loanLenderName: a.loanLenderName,
+    debtRemaining: a.debtRemaining,
     parts:
       a.parts.length > 0
         ? a.parts.map((p) => ({
@@ -215,21 +199,12 @@ function toForm(a: PersonalAsset): AssetForm {
 }
 
 function toInput(f: AssetForm): PersonalAssetInput {
-  const linked = f.linkedAccountId !== null;
   return {
     name: f.name.trim(),
     category: f.category,
     acquiredOn: f.acquiredOn || null,
     countAsAsset: f.countAsAsset,
     note: f.note || null,
-    linkedAccountId: f.linkedAccountId,
-    // 負債の項目は紐付け負債科目があるときだけ意味を持つ
-    debtStartOn: linked ? f.debtStartOn || null : null,
-    debtPayoffDue: linked ? f.debtPayoffDue || null : null,
-    debtInitialAmount: linked ? numOrNull(f.debtInitialAmount) : null,
-    debtInterestRate:
-      linked && f.debtInterestPercent !== "" ? Number(f.debtInterestPercent) / 100 : null,
-    debtResidualValue: linked ? numOrNull(f.debtResidualValue) : null,
     // 内訳があれば評価額・取得価格は内訳の合計（サーバーで計算する）
     ...(f.parts
       ? {
@@ -371,14 +346,12 @@ type Props = { viewMode: ViewMode };
 export function AssetsScreen({ viewMode }: Props) {
   const [trend, setTrend] = useState<AssetTrend | null>(null);
   const [assets, setAssets] = useState<PersonalAsset[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<AssetForm | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [pickingDebt, setPickingDebt] = useState(false);
   // 評価額の入れ直し（資産そのもの、または内訳）
   const [editValue, setEditValue] = useState<{
     assetId: number;
@@ -389,14 +362,9 @@ export function AssetsScreen({ viewMode }: Props) {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [tr, pa, accs] = await Promise.all([
-        fetchAssetTrend(),
-        fetchPersonalAssets(),
-        fetchAccounts(),
-      ]);
+      const [tr, pa] = await Promise.all([fetchAssetTrend(), fetchPersonalAssets()]);
       setTrend(tr);
       setAssets(pa);
-      setAccounts(accs);
     } catch (e) {
       setError(e instanceof Error ? e.message : "資産データの取得に失敗しました");
     } finally {
@@ -450,8 +418,6 @@ export function AssetsScreen({ viewMode }: Props) {
       )
         return setFormError("内訳ごとに名前と現在評価額を入れてください。");
     } else if (form.currentValue === "") return setFormError("現在評価額は必須です。");
-    if (form.debtStartOn && form.debtPayoffDue && form.debtStartOn > form.debtPayoffDue)
-      return setFormError("支払い開始年月は解消予定年月以前にしてください。");
     setSaving(true);
     setFormError(null);
     try {
@@ -498,11 +464,6 @@ export function AssetsScreen({ viewMode }: Props) {
       parts: form.parts && form.parts.map((p) => (p.key === key ? { ...p, ...patch } : p)),
     });
 
-  const liabilityAccounts = accounts.filter((a) => a.category === "LIABILITY");
-  const debtLabel = (id: number | null) => {
-    const a = accounts.find((x) => x.id === id);
-    return a ? `${a.code} ${displayName(a, viewMode)}` : "なし";
-  };
   const total = assets
     .filter((a) => a.countAsAsset)
     .reduce((sum, a) => sum + (a.estimatedValue ?? Number(a.currentValue)), 0);
@@ -681,14 +642,10 @@ export function AssetsScreen({ viewMode }: Props) {
                   {a.ruleLabel ? `価値の変わり方: ${a.ruleLabel} ・ ` : ""}
                   {a.parts.length === 0 ? lastValuedText(a.currentValue, a.lastValuedOn) : ""}
                 </Text>
-                {a.debtRemaining !== null && (
+                {a.loanId !== null && (
                   <Text style={s.debt}>
-                    負債残高: {yenShort(a.debtRemaining)}（残り{a.debtRemainingMonths}回・月
-                    {yenShort(a.debtMonthly ?? 0)}・年利
-                    {(Number(a.debtInterestRate ?? 0) * 100).toFixed(3)}%・
-                    {a.debtPayoffDue?.slice(0, 7)}解消予定）
-                    {Number(a.debtResidualValue ?? 0) > 0 &&
-                      `\n残価設定ローン: 最終回に ${yenShort(Number(a.debtResidualValue))} を一括支払い`}
+                    借入: {a.loanLenderName} ・ {asOf}の残高 {yenShort(a.debtRemaining ?? 0)}
+                    （借入金の画面で編集）
                   </Text>
                 )}
                 {/* 内訳（土地と建物など）。内訳ごとに価値の変わり方と評価額の入れ直し */}
@@ -876,59 +833,15 @@ export function AssetsScreen({ viewMode }: Props) {
               </>
             )}
             <Text style={s.muted}>{ASSETS_HELP.valuation}</Text>
-            <Field label="紐付け負債科目（ローン等）">
-              <TouchableOpacity style={s.picker} onPress={() => setPickingDebt(true)}>
-                <Text style={s.pickerText}>{debtLabel(form.linkedAccountId)}</Text>
-              </TouchableOpacity>
-            </Field>
-            {form.linkedAccountId !== null && (
-              <>
-                <Field label="当初負債額（円）">
-                  <Input
-                    keyboardType="number-pad"
-                    value={form.debtInitialAmount}
-                    onChangeText={(t) => setForm({ ...form, debtInitialAmount: digitsOnly(t) })}
-                  />
-                </Field>
-                <Field label="年利（％）">
-                  <Input
-                    keyboardType="decimal-pad"
-                    value={form.debtInterestPercent}
-                    placeholder="例: 0.810"
-                    onChangeText={(debtInterestPercent) =>
-                      setForm({ ...form, debtInterestPercent })
-                    }
-                  />
-                </Field>
-                <Field label="支払い開始年月（YYYY-MM）">
-                  <Input
-                    value={form.debtStartOn}
-                    placeholder="2024-04"
-                    onChangeText={(debtStartOn) => setForm({ ...form, debtStartOn })}
-                  />
-                </Field>
-                <Field label="負債解消（完済）予定年月（YYYY-MM）">
-                  <Input
-                    value={form.debtPayoffDue}
-                    placeholder="2059-03"
-                    onChangeText={(debtPayoffDue) => setForm({ ...form, debtPayoffDue })}
-                  />
-                </Field>
-                <Field label="残価（円）">
-                  <Input
-                    keyboardType="number-pad"
-                    value={form.debtResidualValue}
-                    placeholder="残価設定ローンのみ"
-                    onChangeText={(t) => setForm({ ...form, debtResidualValue: digitsOnly(t) })}
-                  />
-                </Field>
-              </>
+            {/* 借入の入力は借入金の画面に集めた。ひも付いた借入があれば、表示だけ出す */}
+            {form.loanId !== null ? (
+              <Text style={s.loanInfo}>
+                借入: {form.loanLenderName}（残高 {yenShort(form.debtRemaining ?? 0)}）—
+                借入の条件は、借入金の画面で編集します。
+              </Text>
+            ) : (
+              <Text style={s.muted}>{ASSETS_HELP.loanHint}</Text>
             )}
-            <Text style={s.muted}>
-              当初負債額・開始年月・解消予定年月を設定すると、開始月〜解消予定月の毎月の返済額を予算に自動計上し、
-              負債残高を算出して表示します。年利を入力すると元利均等返済で計算します（未入力は無利子＝元本の月割り）。
-              残価設定ローン（カーローン等）は残価を入力すると、最終回に残価を一括で支払う前提で月額と残高を計算します。
-            </Text>
             <View style={s.switchRow}>
               <View style={{ flex: 1 }}>
                 <Text style={s.switchLabel}>純資産に評価額を計上する</Text>
@@ -949,19 +862,6 @@ export function AssetsScreen({ viewMode }: Props) {
           </>
         )}
       </SheetModal>
-
-      <AccountPickerModal
-        visible={pickingDebt}
-        accounts={liabilityAccounts}
-        title="紐付け負債科目"
-        clearLabel="なし"
-        currentId={form?.linkedAccountId ?? null}
-        onSelect={(a) => {
-          if (form) setForm({ ...form, linkedAccountId: a?.id ?? null });
-          setPickingDebt(false);
-        }}
-        onClose={() => setPickingDebt(false)}
-      />
     </View>
   );
 }
@@ -1007,6 +907,14 @@ const s = StyleSheet.create({
     marginBottom: 10,
   },
   partBoxHead: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+  loanInfo: {
+    fontSize: 12,
+    color: "#475569",
+    backgroundColor: "#f8fafc",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
   valuationBox: { backgroundColor: "#f8fafc", borderRadius: 8, padding: 10, marginBottom: 8 },
   asset: { borderWidth: 1, borderColor: "#f1f5f9", borderRadius: 10, padding: 10, marginBottom: 8 },
   assetHead: { flexDirection: "row", alignItems: "center", gap: 6 },

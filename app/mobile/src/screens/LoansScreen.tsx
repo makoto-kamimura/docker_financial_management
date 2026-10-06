@@ -15,6 +15,7 @@ import Svg, { Polyline } from "react-native-svg";
 import {
   fetchAccounts,
   fetchLoans,
+  fetchPersonalAssets,
   patchLoan,
   patchLoanRateChange,
   postLoan,
@@ -22,6 +23,7 @@ import {
   repayLoan,
   type Account,
   type Loan,
+  type PersonalAsset,
   type ViewMode,
 } from "../api";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
@@ -41,7 +43,12 @@ import {
 import { yen } from "../format";
 import { displayName } from "../shared/display-name";
 import { LOANS_HELP } from "../shared/help-texts";
-import { LOAN_TYPE_LABEL, LOAN_TYPES } from "../shared/labels";
+import {
+  LOAN_TYPE_LABEL,
+  LOAN_TYPES,
+  PERSONAL_ASSET_CATEGORY_LABEL,
+  type PersonalAssetCategory,
+} from "../shared/labels";
 import { asOfDateLabel } from "../shared/asset-valuation";
 import {
   buildRateComparison,
@@ -132,6 +139,14 @@ type NewLoanForm = {
   loanType: string;
   linkedAccountCode: string;
   monthlyPayment: string;
+  residualValue: string;
+  /** この借入で買った資産（なし・その場で作る・既存から選ぶ） */
+  assetMode: "none" | "new" | "link";
+  assetName: string;
+  assetCategory: PersonalAssetCategory;
+  assetCost: string;
+  assetValue: string;
+  assetId: number | null;
 };
 const BLANK_LOAN: NewLoanForm = {
   lenderName: "",
@@ -143,7 +158,41 @@ const BLANK_LOAN: NewLoanForm = {
   loanType: "business",
   linkedAccountCode: "",
   monthlyPayment: "",
+  residualValue: "",
+  assetMode: "none",
+  assetName: "",
+  assetCategory: "OTHER",
+  assetCost: "",
+  assetValue: "",
+  assetId: null,
 };
+const ASSET_MODES = [
+  { value: "none" as const, label: "なし" },
+  { value: "new" as const, label: "新しく作る" },
+  { value: "link" as const, label: "既存から選ぶ" },
+];
+const CATEGORY_OPTIONS = (
+  Object.keys(PERSONAL_ASSET_CATEGORY_LABEL) as PersonalAssetCategory[]
+).map((value) => ({ value, label: PERSONAL_ASSET_CATEGORY_LABEL[value] }));
+/** ローンの種別から、その場で作る資産の種別の既定を決める（住宅→建物、カー→車） */
+const assetCategoryForLoanType = (loanType: string): PersonalAssetCategory =>
+  loanType === "housing" ? "BUILDING" : loanType === "car" ? "VEHICLE" : "OTHER";
+
+/** 新しい借入の「この借入で買った資産」を API の形に直す（取得価格の既定は借入額、評価額の既定は取得価格） */
+function assetPayload(f: NewLoanForm) {
+  if (f.assetMode === "link")
+    return f.assetId !== null ? { mode: "link" as const, assetId: f.assetId } : undefined;
+  if (f.assetMode !== "new") return undefined;
+  const cost = f.assetCost ? Number(f.assetCost) : Number(f.amount);
+  return {
+    mode: "new" as const,
+    name: f.assetName || f.lenderName,
+    category: f.assetCategory,
+    acquiredOn: f.borrowedOn || undefined,
+    acquisitionCost: cost,
+    currentValue: f.assetValue ? Number(f.assetValue) : cost,
+  };
+}
 
 type Props = { viewMode: ViewMode };
 
@@ -156,8 +205,16 @@ export function LoansScreen({ viewMode }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const [newLoan, setNewLoan] = useState<NewLoanForm | null>(null);
+  // ひも付ける資産の候補（ローンの無い資産）
+  const [assets, setAssets] = useState<PersonalAsset[]>([]);
   const [editForm, setEditForm] = useState<{
     loan: Loan;
+    amount: string;
+    borrowedOn: string;
+    interestRate: string;
+    /** 金利変更の履歴があるローンは、金利は「金利変更」で直す */
+    rateEditable: boolean;
+    assetId: number | null;
     repaymentDate: string;
     monthlyPayment: string;
     residualValue: string;
@@ -207,7 +264,12 @@ export function LoansScreen({ viewMode }: Props) {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [ls, accs] = await Promise.all([fetchLoans(), fetchAccounts()]);
+      const [ls, accs, pa] = await Promise.all([
+        fetchLoans(),
+        fetchAccounts(),
+        fetchPersonalAssets().catch(() => []),
+      ]);
+      setAssets(pa);
       setLoans(ls);
       setAccounts(accs);
     } catch (e) {
@@ -245,7 +307,10 @@ export function LoansScreen({ viewMode }: Props) {
   const activeLoans = loans.filter((l) => l.status === "active");
   const totalBorrowed = loans.reduce((sum, l) => sum + Number(l.amount), 0);
   const totalRemaining = activeLoans.reduce((sum, l) => sum + Number(l.remainingAmount), 0);
-  const expenseAccounts = accounts.filter((a) => a.category === "EXPENSE");
+  // 予算連携先の候補: 費用の科目と、負債の科目（資産のローンは負債の科目に上乗せしていた）
+  const expenseAccounts = accounts.filter(
+    (a) => a.category === "EXPENSE" || a.category === "LIABILITY",
+  );
   const accountLabel = (code: string, empty: string) => {
     const a = accounts.find((x) => x.code === code);
     return a ? `${a.code} ${displayName(a, viewMode)}` : empty;
@@ -387,6 +452,11 @@ export function LoansScreen({ viewMode }: Props) {
                       {ratePercent(l.interestRate).toFixed(3)}% ・ 完済予定:{" "}
                       {l.repaymentDate.slice(0, 7)}
                     </Text>
+                    {l.personalAsset && (
+                      <Text style={s.muted}>
+                        この借入で買った資産: {l.personalAsset.name}（資産管理で見る）
+                      </Text>
+                    )}
                   </View>
                   <View style={s.balanceBox}>
                     <Text style={s.balanceLabel}>{asOf}の残高</Text>
@@ -465,6 +535,11 @@ export function LoansScreen({ viewMode }: Props) {
                       setSheetError(null);
                       setEditForm({
                         loan: l,
+                        amount: l.amount,
+                        borrowedOn: l.borrowedOn.slice(0, 10),
+                        interestRate: l.interestRate,
+                        rateEditable: l.rateChanges.length === 0,
+                        assetId: l.personalAsset?.id ?? null,
                         repaymentDate: l.repaymentDate.slice(0, 10),
                         monthlyPayment: l.monthlyPayment ?? "",
                         residualValue: l.residualValue ?? "",
@@ -659,6 +734,10 @@ export function LoansScreen({ viewMode }: Props) {
                     note: newLoan.note || undefined,
                     loanType: newLoan.loanType,
                     linkedAccountCode: newLoan.linkedAccountCode || undefined,
+                    residualValue: newLoan.residualValue
+                      ? Number(newLoan.residualValue)
+                      : undefined,
+                    asset: assetPayload(newLoan),
                     monthlyPayment: newLoan.monthlyPayment
                       ? Number(newLoan.monthlyPayment)
                       : undefined,
@@ -728,6 +807,70 @@ export function LoansScreen({ viewMode }: Props) {
                 支払い完了年月まで、連携先科目の予算に毎月自動加算されます。
               </Text>
             </Field>
+            <Field label="残価（円）">
+              <Input
+                keyboardType="number-pad"
+                value={newLoan.residualValue}
+                placeholder="残価設定ローンのみ"
+                onChangeText={(residualValue) => setNewLoan({ ...newLoan, residualValue })}
+              />
+            </Field>
+            <Field label="この借入で買った資産">
+              <Pills
+                scroll={false}
+                options={ASSET_MODES}
+                value={newLoan.assetMode}
+                onChange={(assetMode) =>
+                  setNewLoan({
+                    ...newLoan,
+                    assetMode,
+                    // 新しく作るときの既定: 名前は借入先、種別はローンの種別から
+                    ...(assetMode === "new" && {
+                      assetName: newLoan.assetName || newLoan.lenderName,
+                      assetCategory: assetCategoryForLoanType(newLoan.loanType),
+                    }),
+                  })
+                }
+              />
+              {newLoan.assetMode === "new" && (
+                <>
+                  <Input
+                    value={newLoan.assetName}
+                    placeholder={`資産名（${newLoan.lenderName || "借入先"}）`}
+                    onChangeText={(assetName) => setNewLoan({ ...newLoan, assetName })}
+                  />
+                  <Pills
+                    scroll={false}
+                    options={CATEGORY_OPTIONS}
+                    value={newLoan.assetCategory}
+                    onChange={(assetCategory) => setNewLoan({ ...newLoan, assetCategory })}
+                  />
+                  <Input
+                    keyboardType="number-pad"
+                    value={newLoan.assetCost}
+                    placeholder={`取得価格（${newLoan.amount || "借入額"}）`}
+                    onChangeText={(assetCost) => setNewLoan({ ...newLoan, assetCost })}
+                  />
+                  <Input
+                    keyboardType="number-pad"
+                    value={newLoan.assetValue}
+                    placeholder="評価額（取得価格と同じ）"
+                    onChangeText={(assetValue) => setNewLoan({ ...newLoan, assetValue })}
+                  />
+                </>
+              )}
+              {newLoan.assetMode === "link" && (
+                <Pills
+                  scroll={false}
+                  options={assets
+                    .filter((a) => a.loanId === null)
+                    .map((a) => ({ value: a.id, label: a.name }))}
+                  value={newLoan.assetId}
+                  onChange={(assetId) => setNewLoan({ ...newLoan, assetId })}
+                />
+              )}
+              <Text style={s.muted}>{LOANS_HELP.asset}</Text>
+            </Field>
             <Field label="備考">
               <Input
                 value={newLoan.note}
@@ -753,6 +896,10 @@ export function LoansScreen({ viewMode }: Props) {
               submit(
                 () =>
                   patchLoan(editForm.loan.id, {
+                    amount: Number(editForm.amount),
+                    borrowedOn: editForm.borrowedOn,
+                    ...(editForm.rateEditable && { interestRate: Number(editForm.interestRate) }),
+                    assetId: editForm.assetId,
                     repaymentDate: editForm.repaymentDate,
                     monthlyPayment: editForm.monthlyPayment
                       ? Number(editForm.monthlyPayment)
@@ -768,6 +915,32 @@ export function LoansScreen({ viewMode }: Props) {
       >
         {editForm && (
           <>
+            <Field label="借入金額（円）">
+              <Input
+                keyboardType="number-pad"
+                value={editForm.amount}
+                onChangeText={(amount) => setEditForm({ ...editForm, amount })}
+              />
+            </Field>
+            <Field label="借入日（YYYY-MM-DD）">
+              <Input
+                value={editForm.borrowedOn}
+                onChangeText={(borrowedOn) => setEditForm({ ...editForm, borrowedOn })}
+              />
+            </Field>
+            <Field label="年利率（例: 0.03）">
+              <Input
+                keyboardType="decimal-pad"
+                editable={editForm.rateEditable}
+                value={editForm.interestRate}
+                onChangeText={(interestRate) => setEditForm({ ...editForm, interestRate })}
+              />
+              {!editForm.rateEditable && (
+                <Text style={s.muted}>
+                  金利変更の履歴があるローンは、「金利変更」から登録してください。
+                </Text>
+              )}
+            </Field>
             <Field label="支払い完了年月（完済予定日）*（YYYY-MM-DD）">
               <Input
                 value={editForm.repaymentDate}
@@ -804,6 +977,20 @@ export function LoansScreen({ viewMode }: Props) {
                 残価設定ローン（カーローン等）で最終回に一括して支払う据置額。入力すると毎月はこの額を除いた分だけを償却し、
                 最終回に残価が残る計算になります。
               </Text>
+            </Field>
+            <Field label="この借入で買った資産">
+              <Pills
+                scroll={false}
+                options={[
+                  { value: 0, label: "なし" },
+                  ...assets
+                    .filter((a) => a.loanId === null || a.loanId === editForm.loan.id)
+                    .map((a) => ({ value: a.id, label: a.name })),
+                ]}
+                value={editForm.assetId ?? 0}
+                onChange={(id) => setEditForm({ ...editForm, assetId: id === 0 ? null : id })}
+              />
+              <Text style={s.muted}>{LOANS_HELP.asset}</Text>
             </Field>
             {sheetError && <Notice tone="error">{sheetError}</Notice>}
           </>

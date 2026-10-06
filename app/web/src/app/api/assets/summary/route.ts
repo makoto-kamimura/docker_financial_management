@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { ratePercentOf, manualMonthlyPaymentOf } from "@/lib/personal-asset-debt";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { withCache } from "@/lib/redis";
 import { summarizeNetWorth, type NetWorthAccountBalance } from "@/lib/asset-summary";
-import { computeDebtSchedule } from "@/lib/debt-schedule";
 import { buildBankBalanceMap } from "@/lib/bank-balance";
 import { estimateAssetValue, VALUATION_INCLUDE } from "@/lib/personal-asset-valuation";
+import { loanBalanceAt } from "@/lib/loan-balance";
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -14,8 +13,8 @@ const ymd = (d: Date) =>
 // GET /api/assets/summary?year=&month= … 総資産（純資産）サマリ（Redis キャッシュ 1 時間）
 //   指定した月の時点で出す（ダッシュボードの KPI の対象月）。時点は月末、今月なら今日（asOf で返す）。
 //   - 実物資産: 評価額の推移の見積もり（lib/asset-valuation.ts）の、その時点の値
-//   - 預貯金: その時点までの明細の合計 + 差額 / 実物資産の負債: 返済予定から出したその時点の残高
-//   - 借入金: 今の残高に、その時点より後に返した元金を足し戻す（先の月は今の残高）
+//   - 預貯金: その時点までの明細の合計 + 差額
+//   - 借入金: その時点の残高（返済の記録があれば記録から、無ければ返済予定から。lib/loan-balance.ts）
 //   - 資産・負債科目: その月以前でいちばん新しい月の残高
 export const GET = withApi({
   role: "viewer",
@@ -46,7 +45,7 @@ export const GET = withApi({
       ] = await Promise.all([
         db.personalAsset.findMany({
           where: { tenantId },
-          include: { loan: true, ...VALUATION_INCLUDE },
+          include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
         }),
         db.bankTransaction.groupBy({
           by: ["accountId"],
@@ -74,12 +73,8 @@ export const GET = withApi({
             tenantId,
             personalAsset: { is: null },
             borrowedOn: { lt: nextMonthStart },
-            OR: [{ status: "active" }, { repayments: { some: { repaidOn: { gt: asOf } } } }],
           },
-          select: {
-            remainingAmount: true,
-            repayments: { where: { repaidOn: { gt: asOf } }, select: { principal: true } },
-          },
+          include: { repayments: true },
         }),
         db.linkedAccount.findMany({
           where: { tenantId, accountId: { not: null } },
@@ -120,41 +115,25 @@ export const GET = withApi({
         ([accountId, v]) => ({ accountId, category: v.category, balance: v.amount }),
       );
 
-      // D-4: 実物資産の紐付け負債は Loan（personal_assets.loanId）から均等割りスケジュールで算出
+      // ローンの残高はどれも借入金管理と同じ計算（lib/loan-balance.ts）。まだ借りていなければ 0
       const personalAssetDebts = personalAssets
-        // 時点より後に借りたローンは、まだ負債ではない
-        .filter((a) => a.loan !== null && a.loan.borrowedOn < nextMonthStart)
-        .map((a) =>
-          computeDebtSchedule(
-            Number(a.loan!.amount),
-            a.loan!.borrowedOn,
-            a.loan!.repaymentDate,
-            asOf,
-            ratePercentOf(Number(a.loan!.interestRate)),
-            manualMonthlyPaymentOf(a.loan),
-            Number(a.loan!.residualValue ?? 0),
-          ),
-        )
-        .filter((s): s is NonNullable<typeof s> => s !== null)
-        .map((s) => ({ remaining: s.remaining }));
+        .filter((a) => a.loan !== null)
+        .map((a) => ({ remaining: loanBalanceAt(a.loan!, asOf) }));
 
       const result = summarizeNetWorth({
         personalAssets: personalAssets.map((a) => ({
           // その時点の評価額の見積もり（まだ持っていなければ 0）
           currentValue: Math.round(estimateAssetValue(a, asOf) ?? 0),
           countAsAsset: a.countAsAsset,
-          linkedAccountId: a.linkedAccountId,
+          // 二重計上の除外に使う負債科目: ローンの予算連携先（無ければ以前の資産側の紐付け負債科目）
+          linkedAccountId: a.loan?.linkedAccountId ?? a.linkedAccountId,
         })),
         bankBalances: [...bankBalanceMap.entries()].map(([accountId, balance]) => ({
           accountId,
           balance,
         })),
         accountBalances,
-        loans: loans.map((l) => ({
-          remainingAmount:
-            Number(l.remainingAmount) +
-            l.repayments.reduce((sum, r) => sum + Number(r.principal), 0),
-        })),
+        loans: loans.map((l) => ({ remainingAmount: loanBalanceAt(l, asOf) })),
         linkedAccountMappings: [...bankAccountMappings, ...linkedAccounts].map((l) => ({
           accountId: l.accountId!,
         })),

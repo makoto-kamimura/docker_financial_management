@@ -1490,18 +1490,35 @@ export async function postLoan(data: {
   loanType: string;
   linkedAccountCode?: string;
   monthlyPayment?: number;
+  residualValue?: number;
+  /** この借入で買った資産（その場で作るか、ローンの無い既存の資産にひも付ける） */
+  asset?:
+    | {
+        mode: "new";
+        name: string;
+        category: PersonalAssetCategory;
+        acquiredOn?: string;
+        acquisitionCost?: number;
+        currentValue: number;
+      }
+    | { mode: "link"; assetId: number };
 }): Promise<void> {
   await request("/loans", "借入金の登録に失敗しました", jsonInit("POST", data));
 }
 
-// 借入条件の編集（支払い完了年月・月々の返済額・残価・予算連携先）
+// 借入条件の編集（借入額・借入日・金利・支払い完了年月・月々の返済額・残価・予算連携先・資産）
 export async function patchLoan(
   id: number,
   data: {
+    amount?: number;
+    borrowedOn?: string;
+    interestRate?: number;
     repaymentDate: string;
     monthlyPayment: number | null;
     residualValue: number | null;
     linkedAccountCode: string | null;
+    /** この借入で買った資産（null で外す） */
+    assetId?: number | null;
   },
 ): Promise<void> {
   await request(`/loans/${id}`, "借入金の更新に失敗しました", jsonInit("PATCH", data));
@@ -1591,6 +1608,9 @@ export type PersonalAsset = ValuationSettingsFields &
     debtMonthly: number | null; // 月額（サーバー計算）
     debtRemaining: number | null; // 現在の負債残高（サーバー計算）
     debtRemainingMonths: number | null; // 残り支払い回数（サーバー計算）
+    /** ひも付いた借入（借入金の画面で入力する）。無ければ null */
+    loanId: number | null;
+    loanLenderName: string | null;
     /** 価値の変わり方の説明（内訳がある資産は null） */
     ruleLabel: string | null;
     /** 内訳。無ければ空 */
@@ -1656,12 +1676,13 @@ export type PersonalAssetInput = {
   currentValue?: number;
   countAsAsset: boolean;
   note: string | null;
-  linkedAccountId: number | null;
-  debtStartOn: string | null;
-  debtPayoffDue: string | null;
-  debtInitialAmount: number | null;
-  debtInterestRate: number | null;
-  debtResidualValue: number | null;
+  // 借入の項目（以前の資産の画面から送っていたもの。今の画面は借入金の画面で入力するので送らない）
+  linkedAccountId?: number | null;
+  debtStartOn?: string | null;
+  debtPayoffDue?: string | null;
+  debtInitialAmount?: number | null;
+  debtInterestRate?: number | null;
+  debtResidualValue?: number | null;
   valuationMethod?: ValuationMethod;
   valuationRate?: number | null;
   usefulLifeYears?: number | null;

@@ -1,5 +1,10 @@
 import { z } from "zod";
-import type { PersonalAsset, PersonalAssetPart, PersonalAssetValuation } from "@prisma/client";
+import type {
+  LoanRepayment,
+  PersonalAsset,
+  PersonalAssetPart,
+  PersonalAssetValuation,
+} from "@prisma/client";
 import {
   BUILDING_STRUCTURES,
   describeRule,
@@ -19,6 +24,7 @@ import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import type { TenantDbClient } from "@/lib/tenant-db";
 import type { DebtSchedule } from "@/lib/debt-schedule";
 import { serializeAssetWithDebt } from "@/lib/personal-asset-debt";
+import { loanBalanceAt } from "@/lib/loan-balance";
 
 // 実物資産の内訳と評価額の記録を、DB の行と lib/asset-valuation.ts（計算）の間でつなぐ。
 // 資産の API（/api/personal-assets）・推移（/api/personal-assets/trend）・総資産サマリが使う。
@@ -346,9 +352,19 @@ export async function syncParts(
   };
 }
 
-/** 負債（旧 API 契約の debt* フィールド）と評価の情報をまとめた資産のレスポンス */
+/**
+ * 負債（旧 API 契約の debt* フィールド）と評価の情報をまとめた資産のレスポンス。
+ * 負債残高は借入金管理と同じ計算（lib/loan-balance.ts。返済の記録があれば記録から、無ければ返済予定から）。
+ * 借入の入力は借入金管理に集めたので、画面向けに借入の id と借入先名も付ける。
+ */
 export function serializeAsset(
-  asset: AssetWithValuation & { loan: Parameters<typeof serializeAssetWithDebt>[0]["loan"] },
+  asset: AssetWithValuation & {
+    loan:
+      | (NonNullable<Parameters<typeof serializeAssetWithDebt>[0]["loan"]> & {
+          repayments?: Pick<LoanRepayment, "repaidOn" | "principal">[];
+        })
+      | null;
+  },
   schedule: DebtSchedule | null,
   now: Date = new Date(),
 ) {
@@ -356,5 +372,12 @@ export function serializeAsset(
     asset,
     schedule,
   ) as ReturnType<typeof serializeAssetWithDebt> & { valuations?: unknown };
-  return { ...debt, ...serializeValuation(asset, now) };
+  const loan = asset.loan;
+  return {
+    ...debt,
+    debtRemaining: loan ? loanBalanceAt({ ...loan, repayments: loan.repayments ?? [] }, now) : null,
+    loanId: asset.loanId,
+    loanLenderName: loan?.lenderName ?? null,
+    ...serializeValuation(asset, now),
+  };
 }

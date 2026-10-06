@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import {
   CartesianGrid,
@@ -12,7 +13,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { LOAN_TYPES, LOAN_TYPE_LABEL } from "@/lib/labels";
+import {
+  LOAN_TYPES,
+  LOAN_TYPE_LABEL,
+  PERSONAL_ASSET_CATEGORY_LABEL,
+  type PersonalAssetCategory,
+} from "@/lib/labels";
 import {
   buildRateComparison,
   pendingRateChange,
@@ -31,6 +37,16 @@ import { SectionLead } from "@/components/Explain";
 import { LOANS_HELP } from "@/lib/help-texts";
 
 type AccountRef = { id: number; code: string; name: string; category: string };
+type AssetRef = {
+  id: number;
+  name: string;
+  category: PersonalAssetCategory;
+  loanId: number | null;
+};
+
+/** ローンの種別から、その場で作る資産の種別の既定を決める（住宅→建物、カー→車） */
+const assetCategoryForLoanType = (loanType: string): PersonalAssetCategory =>
+  loanType === "housing" ? "BUILDING" : loanType === "car" ? "VEHICLE" : "OTHER";
 
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
@@ -61,15 +77,45 @@ export default function LoansPage() {
     loanType: "business",
     linkedAccountCode: "",
     monthlyPayment: "",
+    residualValue: "",
   });
+  // この借入で買った資産（任意）。その場で作るか、ローンの無い既存の資産を選ぶ
+  const [newAsset, setNewAsset] = useState<{
+    mode: "none" | "new" | "link";
+    name: string;
+    category: PersonalAssetCategory;
+    acquisitionCost: string;
+    currentValue: string;
+    assetId: string;
+  }>({
+    mode: "none",
+    name: "",
+    category: "OTHER",
+    acquisitionCost: "",
+    currentValue: "",
+    assetId: "",
+  });
+  const [assets, setAssets] = useState<AssetRef[]>([]);
   const [editForm, setEditForm] = useState<{
     loanId: number | null;
+    amount: string;
+    borrowedOn: string;
+    interestRate: string;
+    /** 金利変更の履歴があるローンは、金利は「金利変更」で直す */
+    rateEditable: boolean;
     repaymentDate: string;
     monthlyPayment: string;
     residualValue: string;
     linkedAccountCode: string;
+    /** この借入で買った資産（"" = なし） */
+    assetId: string;
   }>({
     loanId: null,
+    amount: "",
+    borrowedOn: "",
+    interestRate: "",
+    rateEditable: false,
+    assetId: "",
     repaymentDate: "",
     monthlyPayment: "",
     residualValue: "",
@@ -130,6 +176,11 @@ export default function LoansPage() {
         setLoans(j.data ?? []);
         setLoading(false);
       });
+    // ひも付ける資産の候補（ローンの無い資産）
+    fetch("/api/personal-assets")
+      .then((r) => r.json())
+      .then((j) => setAssets(j.data ?? []))
+      .catch(() => setAssets([]));
   };
 
   useEffect(() => {
@@ -140,6 +191,23 @@ export default function LoansPage() {
   }, []);
 
   const saveLoan = async () => {
+    // 資産の取得価格の既定は借入額、評価額の既定は取得価格、取得日の既定は借入日
+    const cost = newAsset.acquisitionCost
+      ? Number(newAsset.acquisitionCost)
+      : Number(newLoan.amount);
+    const asset =
+      newAsset.mode === "new"
+        ? {
+            mode: "new",
+            name: newAsset.name || newLoan.lenderName,
+            category: newAsset.category,
+            acquiredOn: newLoan.borrowedOn || undefined,
+            acquisitionCost: cost,
+            currentValue: newAsset.currentValue ? Number(newAsset.currentValue) : cost,
+          }
+        : newAsset.mode === "link" && newAsset.assetId
+          ? { mode: "link", assetId: Number(newAsset.assetId) }
+          : undefined;
     const r = await fetch("/api/loans", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -149,10 +217,20 @@ export default function LoansPage() {
         interestRate: Number(newLoan.interestRate),
         linkedAccountCode: newLoan.linkedAccountCode || undefined,
         monthlyPayment: newLoan.monthlyPayment ? Number(newLoan.monthlyPayment) : undefined,
+        residualValue: newLoan.residualValue ? Number(newLoan.residualValue) : undefined,
+        asset,
       }),
     });
     if (r.ok) {
       setShowForm(false);
+      setNewAsset({
+        mode: "none",
+        name: "",
+        category: "OTHER",
+        acquisitionCost: "",
+        currentValue: "",
+        assetId: "",
+      });
       load();
     }
   };
@@ -216,6 +294,11 @@ export default function LoansPage() {
   const openEdit = (l: Loan) => {
     setEditForm({
       loanId: l.id,
+      amount: l.amount,
+      borrowedOn: l.borrowedOn.slice(0, 10),
+      interestRate: l.interestRate,
+      rateEditable: l.rateChanges.length === 0,
+      assetId: l.personalAsset ? String(l.personalAsset.id) : "",
       repaymentDate: l.repaymentDate.slice(0, 10),
       monthlyPayment: l.monthlyPayment ?? "",
       residualValue: l.residualValue ?? "",
@@ -229,10 +312,14 @@ export default function LoansPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        amount: Number(editForm.amount),
+        borrowedOn: editForm.borrowedOn,
+        ...(editForm.rateEditable && { interestRate: Number(editForm.interestRate) }),
         repaymentDate: editForm.repaymentDate,
         monthlyPayment: editForm.monthlyPayment ? Number(editForm.monthlyPayment) : null,
         residualValue: editForm.residualValue ? Number(editForm.residualValue) : null,
         linkedAccountCode: editForm.linkedAccountCode || null,
+        assetId: editForm.assetId ? Number(editForm.assetId) : null,
       }),
     });
     if (r.ok) {
@@ -311,6 +398,14 @@ export default function LoansPage() {
                           ・ 予算連携先: {l.linkedAccount.code} {l.linkedAccount.name}（自動加算）
                         </span>
                       )}
+                    </div>
+                  )}
+                  {l.personalAsset && (
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      この借入で買った資産: {l.personalAsset.name} ・{" "}
+                      <Link href={"/assets" as never} className="underline text-indigo-600">
+                        資産管理で見る
+                      </Link>
                     </div>
                   )}
                   {/* 金利が改定されたが、改定後の実額返済額がまだ入力されていない */}
@@ -638,7 +733,7 @@ export default function LoansPage() {
                   >
                     <option value="">選択してください</option>
                     {accounts
-                      .filter((a) => a.category === "EXPENSE")
+                      .filter((a) => a.category === "EXPENSE" || a.category === "LIABILITY")
                       .map((a) => (
                         <option key={a.code} value={a.code}>
                           {a.code} {a.name}
@@ -661,6 +756,129 @@ export default function LoansPage() {
                   </p>
                 </div>
               </>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">残価（円）</label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="残価設定ローンのみ"
+                  value={newLoan.residualValue}
+                  onChange={(e) => setNewLoan((f) => ({ ...f, residualValue: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* この借入で買った資産（その場で作るか、ローンの無い既存の資産を選ぶ） */}
+              <fieldset className="rounded-lg border border-slate-200 px-3 py-2">
+                <legend className="px-1 text-sm font-medium text-slate-600">
+                  この借入で買った資産
+                </legend>
+                <div className="flex flex-wrap gap-3 text-sm text-slate-700">
+                  {(
+                    [
+                      ["none", "なし"],
+                      ["new", "新しく作る"],
+                      ["link", "既存から選ぶ"],
+                    ] as const
+                  ).map(([mode, label]) => (
+                    <label key={mode} className="flex items-center gap-1.5">
+                      <input
+                        type="radio"
+                        name="new-loan-asset"
+                        checked={newAsset.mode === mode}
+                        onChange={() =>
+                          setNewAsset((a) => ({
+                            ...a,
+                            mode,
+                            // 新しく作るときの既定: 名前は借入先、種別はローンの種別から
+                            ...(mode === "new" && {
+                              name: a.name || newLoan.lenderName,
+                              category: assetCategoryForLoanType(newLoan.loanType),
+                            }),
+                          }))
+                        }
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                {newAsset.mode === "new" && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="text-xs text-slate-600">資産名</span>
+                      <input
+                        value={newAsset.name}
+                        placeholder={newLoan.lenderName}
+                        onChange={(e) => setNewAsset((a) => ({ ...a, name: e.target.value }))}
+                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs text-slate-600">種別</span>
+                      <select
+                        value={newAsset.category}
+                        onChange={(e) =>
+                          setNewAsset((a) => ({
+                            ...a,
+                            category: e.target.value as PersonalAssetCategory,
+                          }))
+                        }
+                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                      >
+                        {Object.entries(PERSONAL_ASSET_CATEGORY_LABEL).map(([v, label]) => (
+                          <option key={v} value={v}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="text-xs text-slate-600">取得価格（円）</span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder={newLoan.amount || "借入額"}
+                        value={newAsset.acquisitionCost}
+                        onChange={(e) =>
+                          setNewAsset((a) => ({ ...a, acquisitionCost: e.target.value }))
+                        }
+                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs text-slate-600">評価額（円）</span>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="取得価格と同じ"
+                        value={newAsset.currentValue}
+                        onChange={(e) =>
+                          setNewAsset((a) => ({ ...a, currentValue: e.target.value }))
+                        }
+                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                      />
+                    </label>
+                  </div>
+                )}
+                {newAsset.mode === "link" && (
+                  <select
+                    value={newAsset.assetId}
+                    onChange={(e) => setNewAsset((a) => ({ ...a, assetId: e.target.value }))}
+                    className="mt-2 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                  >
+                    <option value="">資産を選んでください</option>
+                    {assets
+                      .filter((a) => a.loanId === null)
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}（{PERSONAL_ASSET_CATEGORY_LABEL[a.category] ?? a.category}）
+                        </option>
+                      ))}
+                  </select>
+                )}
+                <p className="mt-1 text-[11px] text-slate-400">{LOANS_HELP.asset}</p>
+              </fieldset>
+
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">備考</label>
                 <input
@@ -694,6 +912,47 @@ export default function LoansPage() {
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
             <h2 className="text-lg font-bold text-slate-800 mb-4">借入条件の編集</h2>
             <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    借入金額（円）
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editForm.amount}
+                    onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">借入日</label>
+                  <input
+                    type="date"
+                    value={editForm.borrowedOn}
+                    onChange={(e) => setEditForm((f) => ({ ...f, borrowedOn: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  年利率（例: 0.03）
+                </label>
+                <input
+                  type="number"
+                  step="0.0001"
+                  disabled={!editForm.rateEditable}
+                  value={editForm.interestRate}
+                  onChange={(e) => setEditForm((f) => ({ ...f, interestRate: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+                />
+                {!editForm.rateEditable && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    金利変更の履歴があるローンは、「金利変更」から登録してください。
+                  </p>
+                )}
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">
                   支払い完了年月（完済予定日）*
@@ -718,7 +977,7 @@ export default function LoansPage() {
                 >
                   <option value="">連携なし</option>
                   {accounts
-                    .filter((a) => a.category === "EXPENSE")
+                    .filter((a) => a.category === "EXPENSE" || a.category === "LIABILITY")
                     .map((a) => (
                       <option key={a.code} value={a.code}>
                         {a.code} {a.name}
@@ -756,6 +1015,26 @@ export default function LoansPage() {
                   残価設定ローン（カーローン等）で最終回に一括して支払う据置額。
                   入力すると毎月はこの額を除いた分だけを償却し、最終回に残価が残る計算になります。
                 </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  この借入で買った資産
+                </label>
+                <select
+                  value={editForm.assetId}
+                  onChange={(e) => setEditForm((f) => ({ ...f, assetId: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">なし</option>
+                  {assets
+                    .filter((a) => a.loanId === null || a.loanId === editForm.loanId)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}（{PERSONAL_ASSET_CATEGORY_LABEL[a.category] ?? a.category}）
+                      </option>
+                    ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">{LOANS_HELP.asset}</p>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-5">

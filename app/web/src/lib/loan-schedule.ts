@@ -51,6 +51,8 @@ export type Loan = {
   /** true = monthlyPayment は人が入力した実額。自動計算で上書きされない */
   monthlyPaymentIsManual: boolean;
   repayments: Repayment[];
+  /** この借入で買った資産（資産管理の実物資産）。無ければ null */
+  personalAsset?: { id: number; name: string; category: string } | null;
 };
 // 借入ごとの線の色（返済スケジュールのグラフと一覧の丸印で共用）
 export const LOAN_COLORS = ["#2563eb", "#f97316", "#16a34a", "#9333ea", "#dc2626", "#0891b2"];

@@ -82,6 +82,7 @@ export function LoanTrendCharts({ loans }: { loans: Loan[] }) {
                   {yen(Number(l.remainingAmount))}
                 </span>{" "}
                 ・ 完済予定 {l.repaymentDate.slice(0, 7)} ・ {repaidPercent(l)}% 返済済
+                {l.personalAsset && <> ・ 資産: {l.personalAsset.name}</>}
               </p>
               <p className="text-[11px] text-slate-500 mt-2">残高</p>
               <ValueLineChart
