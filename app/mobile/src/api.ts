@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
+import type { BudgetCellItem } from "./shared/budget-cell-detail";
 import type { VarianceRow } from "./shared/budget-cycle";
 import type { ViewMode } from "./shared/display-name";
 import type { PersonalAssetCategory } from "./shared/labels";
@@ -541,6 +542,8 @@ export type BudgetResponse = {
   personalAssetDebtOverlay: PersonalAssetDebtOverlayRow[];
   /** 予算を確定済みの月（編集できない） */
   confirmedMonths: number[];
+  /** カレンダーで登録した予算（セルの内訳に出す） */
+  items: (BudgetCellItem & { accountCode: string; month: number })[];
 };
 
 export async function fetchBudgets(year: number): Promise<BudgetResponse> {
@@ -550,6 +553,7 @@ export async function fetchBudgets(year: number): Promise<BudgetResponse> {
     loanOverlay?: LoanOverlayRow[];
     personalAssetDebtOverlay?: PersonalAssetDebtOverlayRow[];
     confirmedMonths?: number[];
+    items?: BudgetResponse["items"];
   }>(`/budgets?year=${year}`, "予算データの取得に失敗しました");
   return {
     budgets: (json.data ?? []).map((b) => ({ ...b, amount: Number(b.amount) })),
@@ -557,7 +561,38 @@ export async function fetchBudgets(year: number): Promise<BudgetResponse> {
     loanOverlay: json.loanOverlay ?? [],
     personalAssetDebtOverlay: json.personalAssetDebtOverlay ?? [],
     confirmedMonths: json.confirmedMonths ?? [],
+    items: (json.items ?? []).map((i) => ({ ...i, amount: Number(i.amount) })),
   };
+}
+
+// 予算管理のカレンダーで登録した予算（web 版 /api/budget-items）。登録・削除でその科目・月の予算が増減する
+export type BudgetItemRow = {
+  id: number;
+  date: string;
+  description: string;
+  amount: number;
+  account: { code: string; name: string; category: string };
+};
+
+export async function fetchBudgetItems(year: number, month: number): Promise<BudgetItemRow[]> {
+  const json = await request<{ data?: BudgetItemRow[] }>(
+    `/budget-items?year=${year}&month=${month}`,
+    "予算の取得に失敗しました",
+  );
+  return (json.data ?? []).map((i) => ({ ...i, amount: Number(i.amount) }));
+}
+
+export async function postBudgetItem(data: {
+  date: string;
+  accountCode: string;
+  description: string;
+  amount: number;
+}): Promise<void> {
+  await request("/budget-items", "予算の登録に失敗しました", jsonInit("POST", data));
+}
+
+export async function deleteBudgetItem(id: number): Promise<void> {
+  await request(`/budget-items/${id}`, "予算の削除に失敗しました", { method: "DELETE" });
 }
 
 // 登録・更新（同じ科目・月があれば上書き）
@@ -1371,6 +1406,21 @@ export type CardFlowResponse = {
     day: number;
   }[];
 };
+
+// カード・電子マネー管理のサマリ「利用額の推移」（web 版 GET /api/linked-accounts/usage-trend）
+export type CardUsageTrend = {
+  months: string[];
+  currentKey: string;
+  total: number[];
+  cards: { id: number; name: string; values: number[] }[];
+};
+
+export async function fetchCardUsageTrend(): Promise<CardUsageTrend> {
+  return request<CardUsageTrend>(
+    "/linked-accounts/usage-trend",
+    "利用額の推移の取得に失敗しました",
+  );
+}
 
 export async function fetchCardFlow(): Promise<CardFlowResponse> {
   const json = await request<Partial<CardFlowResponse>>(

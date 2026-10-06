@@ -7,6 +7,7 @@ import { Home, CreditCard } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
+import { BudgetCalendar } from "@/components/BudgetCalendar";
 import { BudgetConfirmPanel } from "@/components/BudgetConfirmPanel";
 import { BudgetVariancePanel } from "@/components/BudgetVariancePanel";
 import {
@@ -22,6 +23,11 @@ import { BUDGET_HELP, textFor } from "@/lib/help-texts";
 import { displayName } from "@/lib/display-name";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
 import { CHANGE_ACTION_LABEL as ACTION_LABEL } from "@/lib/labels";
+import {
+  BUDGET_SOURCE_LABEL,
+  buildBudgetCellDetail,
+  type BudgetCellItem,
+} from "@/lib/budget-cell-detail";
 
 type AccountRef = {
   id: number;
@@ -57,11 +63,14 @@ type BudgetResponse = {
   personalAssetDebtOverlay?: PersonalAssetDebtOverlayRow[];
   /** 予算を確定済みの月（この月の予算は編集できない） */
   confirmedMonths?: number[];
+  /** カレンダーで登録した予算（セルの内訳に出す） */
+  items?: (BudgetCellItem & { accountCode: string; month: number })[];
 };
 type ImportResult = { imported: number; skipped?: number; errors: string[] };
-type Tab = "manual" | "allocation" | "variance" | "confirm" | "csv" | "history";
+type Tab = "manual" | "calendar" | "allocation" | "variance" | "confirm" | "csv" | "history";
 const TABS: readonly (readonly [Tab, string])[] = [
   ["manual", "一覧"],
+  ["calendar", "カレンダー"],
   ["variance", "予実差確認"],
   ["confirm", "予算の確定"],
   ["csv", "CSV インポート"],
@@ -69,7 +78,15 @@ const TABS: readonly (readonly [Tab, string])[] = [
   ["allocation", "設定"],
 ];
 
-const TAB_IDS: Tab[] = ["manual", "allocation", "variance", "confirm", "csv", "history"];
+const TAB_IDS: Tab[] = [
+  "manual",
+  "calendar",
+  "allocation",
+  "variance",
+  "confirm",
+  "csv",
+  "history",
+];
 // 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）。
 // month は予実差確認なら比べる月、予算の確定なら予算の月
 function useInitialTab(): { tab: Tab; month: string | undefined } {
@@ -291,6 +308,19 @@ function BudgetContent() {
   const deleteBudget = async (id: number) =>
     failure(await fetch(`/api/budgets/${id}`, { method: "DELETE" }));
 
+  // セルの内訳（カレンダーの登録・一覧などで入れた額・自動加算）。lib/budget-cell-detail.ts
+  function cellDetailOf(code: string, m: number) {
+    const cell = grouped.get(code)?.byMonth.get(m);
+    return buildBudgetCellDetail({
+      budgetAmount: cell ? Number(cell.amount) : 0,
+      items: (data?.items ?? []).filter((i) => i.accountCode === code && i.month === m),
+      loanOverlay: overlayMap.get(`${code}:${m}`) ?? 0,
+      assetDebtOverlay: debtOverlayMap.get(`${code}:${m}`) ?? 0,
+      assetNames: debtOverlayAssetNames.get(code),
+    });
+  }
+  const [cellDetail, setCellDetail] = useState<{ code: string; month: number } | null>(null);
+
   // 一覧のセル。予算に自動反映（ローン返済・負債返済分）を足して出し、適正額を添える
   function budgetCell(code: string, m: number): MatrixCell | null {
     const cell = grouped.get(code)?.byMonth.get(m);
@@ -298,9 +328,24 @@ function BudgetContent() {
     const debtAuto = debtOverlayMap.get(`${code}:${m}`) ?? 0;
     const guideAmount = guideMap.get(`${code}:${m}`) ?? 0;
     if (!cell && auto === 0 && debtAuto === 0) return null;
+    // カレンダーの登録があるセル・出どころが 2 つ以上あるセルは、内訳を開いて確かめる
+    const detail = cellDetailOf(code, m);
+    const hasItems = detail.rows.some((r) => r.kind === "calendar");
+    const showDetail = hasItems || detail.rows.length > 1;
     return {
       amount: (cell ? Number(cell.amount) : 0) + auto + debtAuto,
-      editable: cell ? { id: cell.id, amount: Number(cell.amount) } : null,
+      // カレンダーの登録があるセルは合計をその場で書き換えさせない（内訳と合わなくなるため）
+      editable: cell && !hasItems ? { id: cell.id, amount: Number(cell.amount) } : null,
+      action: showDetail ? (
+        <button
+          type="button"
+          onClick={() => setCellDetail({ code, month: m })}
+          title="この月の予算の内訳を表示"
+          className="text-[10px] text-indigo-500 hover:text-indigo-700 underline underline-offset-2 whitespace-nowrap"
+        >
+          {detail.rows.length}件
+        </button>
+      ) : undefined,
       extras: (
         <>
           {auto > 0 && (
@@ -650,6 +695,120 @@ H3000,${THIS_YEAR},1,115000`}</pre>
           )}
         </>
       )}
+
+      {/* ── カレンダータブ（日付を選んで予算を登録。その科目・月の予算に足される）── */}
+      {tab === "calendar" && (
+        <BudgetCalendar
+          mode={sysMode}
+          accounts={accounts ?? []}
+          confirmedMonths={data?.confirmedMonths ?? []}
+        />
+      )}
+
+      {/* ── セルの内訳（実績管理の内訳と同じ形）── */}
+      {cellDetail &&
+        (() => {
+          const detail = cellDetailOf(cellDetail.code, cellDetail.month);
+          const account = accounts?.find((a) => a.code === cellDetail.code);
+          const locked = confirmedMonths.has(cellDetail.month);
+          return (
+            <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
+              <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-2xl my-auto">
+                <div className="flex items-start justify-between gap-4 mb-1">
+                  <h2 className="text-lg font-bold text-slate-800">
+                    {account ? displayName(account, sysMode) : "予算の内訳"}
+                    <span className="ml-2 text-sm font-normal text-slate-500">
+                      {year}年{cellDetail.month}月
+                    </span>
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setCellDetail(null)}
+                    className="text-sm text-slate-400 hover:text-slate-600"
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mb-4">
+                  {BUDGET_HELP.cellDetail} 合計 {yen(detail.total)}（{detail.rows.length} 件）
+                </p>
+                {detail.rows.length === 0 ? (
+                  <p className="text-sm text-slate-400">このセルの予算はありません。</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-slate-500 border-b border-slate-200">
+                          <th className="text-left py-2 pr-4 font-medium">登録日時</th>
+                          <th className="text-left py-2 pr-4 font-medium">出どころ</th>
+                          <th className="text-left py-2 pr-4 font-medium">内容</th>
+                          <th className="text-right py-2 pr-2 font-medium">金額</th>
+                          <th className="py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {detail.rows.map((r, i) => (
+                          <tr key={r.kind === "calendar" ? `c${r.id}` : `${r.kind}${i}`}>
+                            <td className="py-2 pr-4 text-xs font-mono text-slate-500 whitespace-nowrap">
+                              {r.kind === "calendar"
+                                ? new Date(r.createdAt).toLocaleString("ja-JP", {
+                                    year: "numeric",
+                                    month: "2-digit",
+                                    day: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })
+                                : "—"}
+                            </td>
+                            <td className="py-2 pr-4 whitespace-nowrap">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                                {BUDGET_SOURCE_LABEL[r.kind]}
+                              </span>
+                            </td>
+                            <td className="py-2 pr-4 text-xs text-slate-600">
+                              {r.kind === "calendar" ? (
+                                <>
+                                  {new Date(`${r.date}T00:00:00`).toLocaleDateString("ja-JP")} ·{" "}
+                                  {r.description}
+                                </>
+                              ) : r.kind === "assetDebt" && r.assetNames.length > 0 ? (
+                                r.assetNames.join("・")
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                            <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
+                              {yen(r.amount)}
+                            </td>
+                            <td className="py-2 text-right whitespace-nowrap">
+                              {r.kind === "calendar" && !locked && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!confirm(`「${r.description}」を削除してよいですか？`))
+                                      return;
+                                    await fetch(`/api/budget-items/${r.id}`, { method: "DELETE" });
+                                    for (const key of ["budgets", "budget-items", "budget-history"])
+                                      qc.invalidateQueries({ queryKey: [key] });
+                                  }}
+                                  className="text-xs text-slate-300 hover:text-red-500"
+                                  aria-label={`${r.description} を削除`}
+                                  title="削除"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
     </AppShell>
   );
 }

@@ -49,6 +49,10 @@ export const DELETE = withApi({
       action: "delete",
       amount: Number(existing.amount),
     });
+    // カレンダーで登録した内訳も、その科目・月の予算と一緒に消す（予算が無いのに内訳だけ残らないように）
+    await db.budgetItem.deleteMany({
+      where: { accountId: existing.accountId, periodId: existing.periodId },
+    });
     await db.budget.delete({ where: { id } });
     await audit("delete", `budget:${id}`);
     return new NextResponse(null, { status: 204 });

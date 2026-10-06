@@ -40,6 +40,15 @@ export const GET = withApi({
     const loanOverlay = await computeLoanOverlay(db, tenantId, year);
     const personalAssetDebtOverlay = await computePersonalAssetDebtOverlay(db, tenantId, year);
     const confirmed = await confirmedBudgetMonths(db, year);
+    // カレンダーで登録した予算（セルの内訳に出す）
+    const items = await db.budgetItem.findMany({
+      where: { period: { fiscalYear: year } },
+      include: {
+        account: { select: { code: true } },
+        period: { select: { month: true } },
+      },
+      orderBy: [{ date: "asc" }, { id: "asc" }],
+    });
 
     return NextResponse.json({
       data: budgets,
@@ -48,6 +57,15 @@ export const GET = withApi({
       // 旧クライアント互換のため 1 リリース併存（住宅ローンに限らず全ローンを含む点が変更点）
       housingLoanOverlay: loanOverlay,
       personalAssetDebtOverlay,
+      items: items.map((i) => ({
+        id: i.id,
+        accountCode: i.account.code,
+        month: i.period.month,
+        date: i.date.toISOString().slice(0, 10),
+        description: i.description,
+        amount: Number(i.amount),
+        createdAt: i.createdAt,
+      })),
       // 予算を確定済みの月（表の見出しに印を付け、編集を止める）
       confirmedMonths: confirmed.map((c) => c.month),
     });

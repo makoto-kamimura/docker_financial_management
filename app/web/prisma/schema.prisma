@@ -54,6 +54,7 @@ model Account {
   forecasts             Forecast[]
   budgets               Budget[]
   budgetHistories       BudgetHistory[]
+  budgetItems           BudgetItem[]
   linkedAccounts        LinkedAccount[]
   journalDetails        JournalDetail[]
   apportionments        Apportionment[]
@@ -102,6 +103,7 @@ model Period {
   forecasts           Forecast[]
   budgets             Budget[]
   budgetHistories     BudgetHistory[]
+  budgetItems         BudgetItem[]
   budgetConfirmation  BudgetConfirmation?
   actualsConfirmation ActualsConfirmation?
 
@@ -153,6 +155,27 @@ model BudgetHistory {
 // 予算の確定（月単位）。行がある月の予算は確定済みで、予実対比の基準として固定する。
 // 確定中は予算の登録・変更・削除・CSV 取込・配分の反映を受け付けない（解除は admin のみ）。
 // 確定は予算の値を変えないため、解除すると行を消すだけで予算はそのまま残る。
+// 予算管理のカレンダーで日付を選んで登録した予算の 1 件（セルの内訳）。
+// 登録すると同じ科目・月の budgets.amount に金額を足し、削除すると引く（budgets は科目×月で 1 行のまま）。
+// 一覧・CSV・予算配分で入れた額は、budgets.amount からここの合計を引いた残りとして内訳に出す。
+model BudgetItem {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  account     Account  @relation(fields: [accountId], references: [id])
+  accountId   Int
+  period      Period   @relation(fields: [periodId], references: [id])
+  periodId    Int
+  date        DateTime @db.Date
+  description String
+  amount      Decimal  @db.Decimal(18, 2)
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, periodId])
+  @@index([accountId, periodId])
+  @@map("budget_items")
+}
+
 model BudgetConfirmation {
   id            Int      @id @default(autoincrement())
   tenantId      Int

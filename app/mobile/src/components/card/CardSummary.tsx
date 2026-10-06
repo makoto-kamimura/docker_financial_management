@@ -1,266 +1,193 @@
-// カード・電子マネー管理の「サマリ」（web 版 /card-transactions のサマリタブと同じ内容）。
-// 資金フロー図（引き落とし・チャージ・固定決済）と、引き落とし・固定決済スケジュール（表示のみ）。
-// 登録は 引き落とし＝銀行管理の「振替」、固定決済＝明細一覧 で行う（同じ操作を 2 か所に置かない）。
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { fetchCardFlow, type CardFlowResponse, type LinkedAccount } from "../../api";
+// カード・電子マネー管理の「サマリ」（web 版 /card-transactions のサマリタブと同じ。借入金の画面と同じ並び）。
+// 利用額の推移（合計とカードごと。先は固定決済の合計で見込む）と、カード・電子マネーの一覧。
+// 一覧の行から編集・削除と、実績の画面の履歴でそのカードの明細を開ける。
+import { useEffect, useState } from "react";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  fetchCardFlow,
+  fetchCardUsageTrend,
+  type CardFlowResponse,
+  type CardUsageTrend,
+  type LinkedAccount,
+} from "../../api";
 import { yen } from "../../format";
+import { asOfDateLabel } from "../../shared/asset-valuation";
+import { CARD_HELP } from "../../shared/help-texts";
 import { LINKED_ACCOUNT_TYPE_LABELS } from "../../shared/linked-account-type";
-import { AccountFlowDiagram } from "../AccountFlowDiagram";
-import { Card, Notice, Pills, SectionTitle, SelectField } from "../ui";
-import { CARD_HELP, cardFlowHelp } from "../../shared/help-texts";
-
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
-
-// 引き落とし（銀行 → カード）と固定決済（カード → 外部）を同じ形にそろえた 1 件
-type ScheduleEntry = {
-  key: string;
-  day: number;
-  accountId: number | null;
-  from: string;
-  to: string;
-  amount: number;
-  kindLabel: string;
-  kind: "debit" | "recurring";
-};
+import { AssetValueChart, SERIES_COLORS } from "../AssetValueChart";
+import { Button, Card, SectionTitle } from "../ui";
 
 export function CardSummary({
   accounts,
   reloadKey,
+  onAdd,
+  onEdit,
+  onDelete,
+  onOpenHistory,
 }: {
   accounts: LinkedAccount[];
   reloadKey: number;
+  onAdd: () => void;
+  onEdit: (a: LinkedAccount) => void;
+  onDelete: (a: LinkedAccount) => void;
+  onOpenHistory: (accountId: number) => void;
 }) {
-  const now = new Date();
+  const [trend, setTrend] = useState<CardUsageTrend | null>(null);
   const [flow, setFlow] = useState<CardFlowResponse | null>(null);
-  const [mode, setMode] = useState<"list" | "calendar">("list");
-  const [scope, setScope] = useState<number | "all">("all");
-  const [viewYear, setViewYear] = useState(now.getFullYear());
-  const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
 
   useEffect(() => {
-    setFlow(null);
+    fetchCardUsageTrend()
+      .then(setTrend)
+      .catch(() => setTrend(null));
     fetchCardFlow()
       .then(setFlow)
-      .catch(() =>
-        setFlow({
-          cyclic: false,
-          graph: { nodes: [], links: [] },
-          chargeMonths: 3,
-          unlinked: [],
-          transfers: [],
-          recurring: [],
-        }),
-      );
+      .catch(() => setFlow(null));
   }, [reloadKey]);
 
-  const entries = useMemo<ScheduleEntry[]>(() => {
-    const debits: ScheduleEntry[] = (flow?.transfers ?? []).map((t) => ({
-      key: `transfer:${t.id}`,
-      day: t.day,
-      accountId: t.linkedAccountId,
-      from: t.from ?? (t.label || "外部入金"),
-      to: t.linkedAccountName ?? (t.label || "カード"),
-      amount: t.amount,
-      kindLabel: t.channelLabel,
-      kind: "debit",
-    }));
-    const recurring: ScheduleEntry[] = (flow?.recurring ?? []).map((r) => ({
-      key: `recurring:${r.id}`,
-      day: r.day,
-      accountId: r.accountId,
-      from: r.accountName,
-      to: r.label,
-      amount: r.amount,
-      kindLabel: "固定決済",
-      kind: "recurring",
-    }));
-    return [...debits, ...recurring].sort((a, b) => a.day - b.day || a.key.localeCompare(b.key));
-  }, [flow]);
-  const filtered = scope === "all" ? entries : entries.filter((e) => e.accountId === scope);
-
-  const firstWeekday = new Date(viewYear, viewMonth - 1, 1).getDay();
-  const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
-  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
-  // 予定日は「毎月◯日」なので、その月に無い日（31 日など）は月末に寄せる
-  const byDay = useMemo(() => {
-    const m = new Map<number, ScheduleEntry[]>();
-    for (const e of filtered) {
-      const day = Math.min(e.day, daysInMonth);
-      m.set(day, [...(m.get(day) ?? []), e]);
-    }
-    return m;
-  }, [filtered, daysInMonth]);
-
-  function moveMonth(delta: number) {
-    const d = new Date(viewYear, viewMonth - 1 + delta, 1);
-    setViewYear(d.getFullYear());
-    setViewMonth(d.getMonth() + 1);
-  }
+  const currentIndex = trend ? trend.months.indexOf(trend.currentKey) : -1;
+  const usageOf = (id: number | null) => {
+    if (!trend || currentIndex < 0) return 0;
+    return id === null
+      ? (trend.total[currentIndex] ?? 0)
+      : (trend.cards.find((c) => c.id === id)?.values[currentIndex] ?? 0);
+  };
 
   return (
-    <View>
-      <Card>
-        <SectionTitle note={cardFlowHelp(flow?.chargeMonths ?? 3)}>
-          カード・電子マネー 資金フロー図
-        </SectionTitle>
-        {!flow ? (
-          <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
-        ) : flow.cyclic ? (
-          <Notice tone="warn">
-            チャージ先の指定が循環しているためフロー図を描画できません。「明細一覧」タブのチャージ先で経路を見直してください。
-          </Notice>
-        ) : flow.graph.links.length === 0 ? (
-          <Notice>
-            描画できる資金の流れがありません。「明細一覧」のチャージ先・固定決済、銀行管理の明細一覧のチャージ先、
-            または銀行管理の「振替」（引き落とし）から登録してください。
-          </Notice>
-        ) : (
-          <AccountFlowDiagram graph={flow.graph} />
-        )}
-        {flow && flow.unlinked.length > 0 && (
-          <Notice tone="warn">
-            引き落とし・チャージ・固定決済のいずれも未登録のため図に出ていません:{" "}
-            {flow.unlinked.map((a) => a.name).join(" / ")}
-          </Notice>
-        )}
-      </Card>
-
-      <SectionTitle note={`${CARD_HELP.schedule} ${CARD_HELP.recurring}`}>
-        引き落とし・固定決済スケジュール
-      </SectionTitle>
-      <Pills
-        scroll={false}
-        options={[
-          { value: "list" as const, label: "一覧モード" },
-          { value: "calendar" as const, label: "スケジュールモード" },
-        ]}
-        value={mode}
-        onChange={setMode}
-      />
-      <SelectField<number | "all">
-        label="対象"
-        value={scope}
-        options={[
-          { value: "all", label: "すべてのカード・電子マネー" },
-          ...accounts.map((a) => ({
-            value: a.id,
-            label: `[${LINKED_ACCOUNT_TYPE_LABELS[a.type] ?? "カード"}] ${a.name}`,
-          })),
-        ]}
-        onChange={setScope}
-      />
-
-      {mode === "list" ? (
-        filtered.length === 0 ? (
-          <Text style={s.muted}>
-            引き落とし・固定決済がまだ登録されていません。引き落としは銀行管理の「振替」タブ、固定決済は「明細一覧」から
-            登録すると、この一覧と上のフロー図に表示されます。
-          </Text>
-        ) : (
-          <Card>
-            {filtered.map((e) => (
-              <View key={e.key} style={s.row}>
-                <Text style={s.day}>{e.day}日</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.route} numberOfLines={2}>
-                    {e.from} →{" "}
-                    <Text style={e.kind === "recurring" ? s.recurring : undefined}>{e.to}</Text>
-                  </Text>
-                  <Text style={s.muted}>{e.kindLabel}</Text>
-                </View>
-                <Text style={s.amount}>{yen(e.amount)}</Text>
-              </View>
-            ))}
-          </Card>
-        )
-      ) : (
-        <Card style={{ padding: 0, overflow: "hidden" }}>
-          <View style={s.monthNav}>
-            <TouchableOpacity onPress={() => moveMonth(-1)} style={s.navBtn}>
-              <Text style={s.navTxt}>◀</Text>
-            </TouchableOpacity>
-            <Text style={s.monthLabel}>
-              {viewYear}年{viewMonth}月
-            </Text>
-            <TouchableOpacity onPress={() => moveMonth(1)} style={s.navBtn}>
-              <Text style={s.navTxt}>▶</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={s.weekRow}>
-            {WEEKDAYS.map((w, i) => (
-              <Text key={w} style={[s.weekCell, i === 0 && s.sun, i === 6 && s.sat]}>
-                {w}
+    <>
+      {/* 利用額の推移（web 版 CardUsageTrendCharts と同じ） */}
+      {trend && trend.cards.length > 0 && (
+        <Card>
+          <SectionTitle note={CARD_HELP.usageTrend}>利用額の推移</SectionTitle>
+          <Text style={s.muted}>今月の利用額（{asOfDateLabel(new Date())}）</Text>
+          <Text style={s.totalValue}>{yen(usageOf(null))}</Text>
+          <AssetValueChart
+            months={trend.months}
+            currentKey={trend.currentKey}
+            series={[{ key: "total", label: "合計", color: SERIES_COLORS[0], values: trend.total }]}
+            height={180}
+          />
+          <Text style={s.subTitle}>カードごとの推移</Text>
+          {trend.cards.map((c) => (
+            <View key={c.id} style={s.trendItem}>
+              <Text style={s.name} numberOfLines={1}>
+                {c.name}
               </Text>
-            ))}
-          </View>
-          <View style={s.grid}>
-            {Array.from({ length: totalCells }, (_, i) => {
-              const day = i - firstWeekday + 1;
-              if (day < 1 || day > daysInMonth) return <View key={i} style={[s.cell, s.blank]} />;
-              return (
-                <View key={i} style={s.cell}>
-                  <Text style={[s.dayNum, i % 7 === 0 && s.sun, i % 7 === 6 && s.sat]}>{day}</Text>
-                  {(byDay.get(day) ?? []).map((e) => (
-                    <Text
-                      key={e.key}
-                      style={e.kind === "recurring" ? s.cellRecurring : s.cellDebit}
-                      numberOfLines={1}
-                    >
-                      {e.to} {yen(e.amount)}
-                    </Text>
-                  ))}
-                </View>
-              );
-            })}
-          </View>
+              <Text style={s.muted}>今月の利用額 {yen(usageOf(c.id))}</Text>
+              <AssetValueChart
+                months={trend.months}
+                currentKey={trend.currentKey}
+                series={[
+                  { key: `c${c.id}`, label: "利用額", color: SERIES_COLORS[0], values: c.values },
+                ]}
+                height={110}
+              />
+            </View>
+          ))}
         </Card>
       )}
-    </View>
+
+      {/* カード・電子マネーの一覧（借入金の画面の一覧と同じ形） */}
+      <Card>
+        <SectionTitle note={CARD_HELP.cards}>カード・電子マネー</SectionTitle>
+        {accounts.length > 0 && (
+          <Text style={s.muted}>
+            今月の利用額の合計 {yen(usageOf(null))} ・ {accounts.length} 件
+          </Text>
+        )}
+        <Button
+          small
+          label="カード・電子マネー追加"
+          onPress={onAdd}
+          style={{ marginVertical: 8, alignSelf: "flex-start" }}
+        />
+        {accounts.length === 0 ? (
+          <Text style={s.muted}>カード・電子マネーが登録されていません。</Text>
+        ) : (
+          accounts.map((a) => {
+            const debits = (flow?.transfers ?? []).filter((t) => t.linkedAccountId === a.id);
+            const recurring = (flow?.recurring ?? []).filter((r) => r.accountId === a.id);
+            const recurringTotal = recurring.reduce((sum, r) => sum + r.amount, 0);
+            return (
+              <View key={a.id} style={s.row}>
+                <View style={s.rowHead}>
+                  <Text style={s.badge}>{LINKED_ACCOUNT_TYPE_LABELS[a.type] ?? "カード"}</Text>
+                  <Text style={s.name} numberOfLines={1}>
+                    {a.name}
+                  </Text>
+                  <Text style={s.usage}>{yen(usageOf(a.id))}</Text>
+                </View>
+                <Text style={s.muted}>
+                  {a.institution}
+                  {a.lastFour ? ` ****${a.lastFour}` : ""} ・ 今月の利用額
+                </Text>
+                {debits.length > 0 ? (
+                  debits.map((t) => (
+                    <Text key={t.id} style={s.detail}>
+                      引き落とし: {t.from ?? "口座未設定"} ・ 毎月{t.day}日 ・ {yen(t.amount)}
+                    </Text>
+                  ))
+                ) : (
+                  <Text style={s.muted}>
+                    引き落としは未登録（銀行管理のキャッシュフローで登録します）
+                  </Text>
+                )}
+                <Text style={s.detail}>
+                  {recurring.length > 0
+                    ? `固定決済: ${recurring.length} 件 ・ 月 ${yen(recurringTotal)}`
+                    : "固定決済はありません"}
+                </Text>
+                {a.account && (
+                  <Text style={s.linked}>
+                    紐付く科目: {a.account.code} {a.account.name}
+                  </Text>
+                )}
+                <View style={s.actions}>
+                  <TouchableOpacity onPress={() => onOpenHistory(a.id)}>
+                    <Text style={s.link}>明細を見る</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => onEdit(a)}>
+                    <Text style={s.link}>編集</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => onDelete(a)}>
+                    <Text style={s.danger}>削除</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </Card>
+    </>
   );
 }
 
 const s = StyleSheet.create({
-  muted: { fontSize: 11, color: "#94a3b8", lineHeight: 16, marginBottom: 8 },
+  totalValue: { fontSize: 20, fontWeight: "700", color: "#e11d48" },
+  subTitle: { fontSize: 12, fontWeight: "600", color: "#334155", marginTop: 12, marginBottom: 6 },
+  trendItem: { borderTopWidth: 1, borderTopColor: "#f1f5f9", paddingTop: 8, marginTop: 8 },
+  muted: { fontSize: 11, color: "#94a3b8", lineHeight: 16, marginTop: 2 },
   row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-  },
-  day: { fontSize: 12, color: "#64748b", width: 32 },
-  route: { fontSize: 13, color: "#334155" },
-  recurring: { color: "#e11d48", fontWeight: "600" },
-  amount: { fontSize: 13, fontWeight: "700", color: "#1e293b" },
-  monthNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-  },
-  navBtn: { padding: 8 },
-  navTxt: { fontSize: 14, color: "#4f46e5" },
-  monthLabel: { fontSize: 15, fontWeight: "700", color: "#1e293b" },
-  weekRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
-  weekCell: { flex: 1, textAlign: "center", fontSize: 11, color: "#64748b", paddingVertical: 6 },
-  sun: { color: "#ef4444" },
-  sat: { color: "#3b82f6" },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
-  cell: {
-    width: `${100 / 7}%`,
-    minHeight: 60,
-    padding: 3,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
+    borderWidth: 1,
     borderColor: "#f1f5f9",
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
   },
-  blank: { backgroundColor: "#fafafa" },
-  dayNum: { fontSize: 12, fontWeight: "600", color: "#334155" },
-  cellDebit: { fontSize: 8, color: "#4f46e5" },
-  cellRecurring: { fontSize: 8, color: "#e11d48" },
+  rowHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  badge: {
+    fontSize: 10,
+    color: "#475569",
+    backgroundColor: "#f1f5f9",
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    overflow: "hidden",
+  },
+  name: { fontSize: 13, fontWeight: "600", color: "#1e293b", flexShrink: 1 },
+  usage: { marginLeft: "auto", fontSize: 13, fontWeight: "700", color: "#e11d48" },
+  detail: { fontSize: 11, color: "#64748b", marginTop: 2 },
+  linked: { fontSize: 11, color: "#4f46e5", fontWeight: "600", marginTop: 2 },
+  actions: { flexDirection: "row", gap: 16, marginTop: 8 },
+  link: { fontSize: 12, color: "#4f46e5", fontWeight: "600" },
+  danger: { fontSize: 12, color: "#dc2626", fontWeight: "600" },
 });
