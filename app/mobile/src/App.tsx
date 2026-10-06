@@ -82,6 +82,14 @@ export default function App() {
     month: string;
     n: number;
   } | null>(null);
+  // 銀行・カードの「明細を見る」から、実績の画面の履歴を出どころと口座を指定して開く
+  const [ledgerJump, setLedgerJump] = useState<{
+    source: "bank" | "card";
+    accountId: number;
+    n: number;
+  } | null>(null);
+  // 実績の履歴（銀行の明細）の「予定で見る」から、銀行の画面の資金移動スケジュールをその日で開く
+  const [bankJump, setBankJump] = useState<{ day: number; n: number } | null>(null);
 
   // S-14: 起動時に SecureStore の保存済みセッションを復元し、GET /api/auth/me で有効性を確認する
   useEffect(() => {
@@ -104,6 +112,18 @@ export default function App() {
   function openCycle(screen: "budget" | "entry", month: string) {
     setCycleJump({ screen, month, n: Date.now() });
     setActiveTab(screen);
+  }
+
+  function openHistory(source: "bank" | "card", accountId: number) {
+    setCycleJump(null);
+    setLedgerJump({ source, accountId, n: Date.now() });
+    setActiveTab("entry");
+  }
+
+  function openBankSchedule(day: number) {
+    setBankJump({ day, n: Date.now() });
+    setMoreRoute("bank-accounts");
+    setActiveTab("more");
   }
 
   function navigateMore(route: MoreRoute) {
@@ -215,11 +235,22 @@ export default function App() {
         )}
         {activeTab === "entry" && (
           <EntryScreen
-            key={cycleJump?.screen === "entry" ? cycleJump.n : "entry"}
+            key={
+              cycleJump?.screen === "entry"
+                ? cycleJump.n
+                : ledgerJump
+                  ? `ledger-${ledgerJump.n}`
+                  : "entry"
+            }
             viewMode={viewMode}
-            initialTab={cycleJump?.screen === "entry" ? "confirm" : undefined}
+            initialTab={
+              cycleJump?.screen === "entry" ? "confirm" : ledgerJump ? "history" : undefined
+            }
             initialMonth={cycleJump?.screen === "entry" ? cycleJump.month : undefined}
+            initialSource={ledgerJump?.source}
+            initialAccountId={ledgerJump?.accountId}
             onOpenBudget={(month) => openCycle("budget", month)}
+            onOpenBankSchedule={openBankSchedule}
           />
         )}
         {activeTab === "more" && !moreRoute && (
@@ -227,10 +258,18 @@ export default function App() {
         )}
         {activeTab === "more" && moreRoute === "assets" && <AssetsScreen viewMode={viewMode} />}
         {activeTab === "more" && moreRoute === "bank-accounts" && (
-          <BankAccountsScreen viewMode={viewMode} />
+          <BankAccountsScreen
+            key={bankJump ? bankJump.n : "bank"}
+            viewMode={viewMode}
+            initialFocusDay={bankJump?.day ?? null}
+            onOpenHistory={(id) => openHistory("bank", id)}
+          />
         )}
         {activeTab === "more" && moreRoute === "card-transactions" && (
-          <CardTransactionsScreen viewMode={viewMode} />
+          <CardTransactionsScreen
+            viewMode={viewMode}
+            onOpenHistory={(id) => openHistory("card", id)}
+          />
         )}
         {activeTab === "more" && moreRoute === "loans" && <LoansScreen viewMode={viewMode} />}
         {activeTab === "more" && moreRoute === "settings" && <SettingsScreen />}

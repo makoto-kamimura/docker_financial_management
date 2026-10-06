@@ -2,13 +2,16 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useState, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { EmptyState, LoadingSpinner } from "@/components/StateViews";
 import { AccountMonthMatrix, type MatrixCell } from "@/components/AccountMonthMatrix";
 import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
-import { CsvDropzone, Notice, PageHeader, Pager, Tabs } from "@/components/ui";
+import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar";
+import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
+import { CardTransactionsPanel } from "@/components/CardTransactionsPanel";
+import { CsvDropzone, Notice, PageHeader, Pager, SegmentedControl, Tabs } from "@/components/ui";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
 import { SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
@@ -180,14 +183,35 @@ const TABS: readonly (readonly [Tab, string])[] = [
 ];
 
 const TAB_IDS: Tab[] = ["manual", "calendar", "confirm", "csv", "history"];
-// 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）
-function useInitialTab(): { tab: Tab; month: string | undefined } {
+
+// カレンダー・履歴で見る出どころ。手動＝実績（支出・収入）、銀行＝入出金の明細、
+// カード・電子マネー＝利用・返金の明細（銀行管理・カード管理の一覧とカレンダーをここへまとめた）
+type Source = "manual" | "bank" | "card";
+const SOURCES: [Source, string][] = [
+  ["manual", "手動"],
+  ["bank", "銀行"],
+  ["card", "カード・電子マネー"],
+];
+type SourceAccount = { id: number; name: string };
+
+// 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）。
+// 銀行管理・カード管理の「明細を見る」からは ?tab=history&source=bank&account=ID で開く
+function useInitialTab(): {
+  tab: Tab;
+  month: string | undefined;
+  source: Source;
+  account: number | null;
+} {
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab");
   const month = searchParams.get("month");
+  const source = searchParams.get("source");
+  const account = Number(searchParams.get("account"));
   return {
     tab: TAB_IDS.includes(tab as Tab) ? (tab as Tab) : "manual",
     month: month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : undefined,
+    source: source === "bank" || source === "card" ? source : "manual",
+    account: Number.isInteger(account) && account > 0 ? account : null,
   };
 }
 
@@ -207,6 +231,32 @@ function EntryContent() {
   // ── タブ ──────────────────────────────────────────────────────
   const initial = useInitialTab();
   const [tab, setTab] = useState<Tab>(initial.tab);
+  const router = useRouter();
+
+  // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
+  const [source, setSource] = useState<Source>(initial.source);
+  // 銀行は null で「すべての銀行」。カードは 1 枚ずつ扱う（null なら最初のカード）
+  const [bankAccountId, setBankAccountId] = useState<number | null>(
+    initial.source === "bank" ? initial.account : null,
+  );
+  const [cardAccountId, setCardAccountId] = useState<number | null>(
+    initial.source === "card" ? initial.account : null,
+  );
+  const sourceTab = tab === "calendar" || tab === "history";
+  const { data: bankAccounts } = useQuery({
+    queryKey: ["bank-accounts"],
+    enabled: sourceTab && source === "bank",
+    queryFn: async (): Promise<SourceAccount[]> =>
+      (await (await fetch("/api/bank-accounts")).json()).data ?? [],
+  });
+  const { data: cardAccounts } = useQuery({
+    queryKey: ["linked-accounts"],
+    enabled: sourceTab && source === "card",
+    queryFn: async (): Promise<SourceAccount[]> =>
+      (await (await fetch("/api/linked-accounts")).json()).data ?? [],
+  });
+  const cardId =
+    cardAccounts?.find((a) => a.id === cardAccountId)?.id ?? cardAccounts?.[0]?.id ?? null;
 
   // ── クエリ ────────────────────────────────────────────────────
   const { data: accounts } = useQuery({
@@ -228,8 +278,8 @@ function EntryContent() {
       const json = await res.json();
       return { data: json.data ?? [], total: json.total ?? 0 };
     },
-    // 履歴タブを開いているときだけ取得・更新する
-    enabled: tab === "history",
+    // 履歴タブ（出どころが手動）を開いているときだけ取得・更新する
+    enabled: tab === "history" && source === "manual",
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -307,7 +357,7 @@ function EntryContent() {
     queryKey: ["actuals", viewYear, viewMonth],
     queryFn: async (): Promise<{ data: JournalEntry[] }> =>
       (await fetch(`/api/actuals?year=${viewYear}&month=${viewMonth}`)).json(),
-    enabled: tab === "calendar",
+    enabled: tab === "calendar" && source === "manual",
   });
 
   // 参照が毎回変わると下の useMemo が無駄に再計算されるため、ここで安定させる
@@ -568,11 +618,71 @@ function EntryContent() {
         </SectionLead>
       )}
 
+      {/* ── 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ ── */}
+      {sourceTab && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <SegmentedControl options={SOURCES} value={source} onChange={setSource} />
+          {source === "bank" && (
+            <select
+              aria-label="銀行"
+              className="input-field w-60"
+              value={bankAccountId ?? ""}
+              onChange={(e) => setBankAccountId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">すべての銀行</option>
+              {bankAccounts?.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {source === "card" &&
+            (cardAccounts && cardAccounts.length === 0 ? (
+              <span className="text-xs text-slate-500">
+                カード・電子マネーが登録されていません（カード・電子マネー管理で登録します）
+              </span>
+            ) : (
+              <select
+                aria-label="カード・電子マネー"
+                className="input-field w-60"
+                value={cardId ?? ""}
+                onChange={(e) => setCardAccountId(Number(e.target.value))}
+              >
+                {cardAccounts?.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            ))}
+        </div>
+      )}
+
+      {/* ── 銀行・カードのカレンダーと履歴（銀行管理・カード管理から移した部品）── */}
+      {tab === "calendar" && source === "bank" && (
+        <BankTransactionsCalendar accountId={bankAccountId} />
+      )}
+      {tab === "calendar" && source === "card" && cardId !== null && (
+        <CardTransactionsPanel view="calendar" accountId={cardId} />
+      )}
+      {tab === "history" && source === "bank" && (
+        <BankTransactionsPanel
+          view="list"
+          accountId={bankAccountId}
+          // 明細から「予定のカレンダーで見る」は、銀行管理のキャッシュフロータブで開く
+          onViewChange={(v) => v === "recurring" && router.push("/bank-accounts?tab=cashflow")}
+        />
+      )}
+      {tab === "history" && source === "card" && cardId !== null && (
+        <CardTransactionsPanel view="list" accountId={cardId} />
+      )}
+
       {/* ── 実績の確定タブ（② その月の実績。明細の最終日がそろったら確定する）── */}
       {tab === "confirm" && <ActualsConfirmPanel mode={sysMode} initialMonth={initial.month} />}
 
-      {/* ── カレンダータブ ────────────────────────────────────── */}
-      {tab === "calendar" && (
+      {/* ── カレンダータブ（出どころが手動）────────────────────────── */}
+      {tab === "calendar" && source === "manual" && (
         <div className="flex gap-4 items-start">
           {/* カレンダー */}
           <div className="card flex-1 min-w-0 p-0 overflow-hidden">
@@ -1005,7 +1115,7 @@ HA101,${THIS_YEAR},12,500000`}</pre>
       {/* ── 実績一覧（明細一覧タブ = 科目×月テーブル / 履歴タブ = 変更履歴）── */}
       {(tab === "manual" || tab === "history") && (
         <div>
-          {tab === "history" && histTotal > 0 && (
+          {tab === "history" && source === "manual" && histTotal > 0 && (
             <p className="text-xs text-slate-400 mb-2">
               全 {histTotal.toLocaleString()} 件中 {histOffset + 1}〜
               {Math.min(histOffset + HISTORY_PAGE_SIZE, histTotal)} 件を表示
@@ -1044,6 +1154,7 @@ HA101,${THIS_YEAR},12,500000`}</pre>
 
           {/* ── 履歴（履歴タブ）─────────────────────────── */}
           {tab === "history" &&
+            source === "manual" &&
             (histLoading ? (
               <LoadingSpinner label="履歴を読み込み中…" />
             ) : recentHistory && recentHistory.length > 0 ? (
