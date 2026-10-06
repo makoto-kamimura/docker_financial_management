@@ -1,4 +1,5 @@
 // 銀行管理の「キャッシュフロー」タブの毎月の入出金の部分（web 版 /bank-accounts と同じ内容）。
+// 表示は画面上部の「表示する銀行」で選んだ口座に絞る（null はすべての銀行）。
 //   口座間 資金フロー図（設定ベース / 実績ベース（月次））→ 資金移動スケジュール（一覧 / スケジュール）
 //   → 取込済み明細の振替紐付け。都度の振替（銀行 → 銀行）はシートから登録する。
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -24,6 +25,7 @@ import { digitsOnly, fmtDate, yen } from "../../format";
 import { BANK_HELP } from "../../shared/help-texts";
 import { TRANSFER_CHANNEL_LABELS } from "../../shared/labels";
 import { AccountFlowDiagram } from "../AccountFlowDiagram";
+import { filterFlowGraph } from "../../shared/flow-graph";
 import {
   Button,
   Card,
@@ -60,7 +62,7 @@ const BLANK_RECURRING = {
 
 type Props = {
   accounts: BankAccount[];
-  /** 明細一覧で選んでいる口座（スケジュールの既定の対象口座） */
+  /** 「表示する銀行」で選んだ口座。null はすべての銀行 */
   accountId: number | null;
   year: number;
   month: number;
@@ -117,6 +119,14 @@ export function TransferTab({
       .catch(() => setMonthly({ year, month, graph: { nodes: [], links: [] } }));
   }, [flowSource, year, month]);
 
+  // 「表示する銀行」で口座を選んだときは、その口座が関わる資金移動と線だけを出す（web 版と同じ）
+  const selectedName = accounts.find((a) => a.id === accountId)?.name ?? null;
+  const shownRows = (flow?.transfers ?? []).filter(
+    (t) => accountId === null || t.fromAccountId === accountId || t.toAccountId === accountId,
+  );
+  const shownGraph = (graph: TransferFlowResponse["graph"]) =>
+    selectedName ? filterFlowGraph(graph, selectedName) : graph;
+
   return (
     <View>
       <Text style={s.help}>{BANK_HELP.transfer}</Text>
@@ -145,10 +155,10 @@ export function TransferTab({
             <Notice tone="warn">
               資金移動に循環があるためフロー図を描画できません。下のスケジュールで経路を見直してください。
             </Notice>
-          ) : flow.graph.nodes.length === 0 ? (
+          ) : shownGraph(flow.graph).nodes.length === 0 ? (
             <EmptyText>口座間の資金移動が登録されていません。</EmptyText>
           ) : (
-            <AccountFlowDiagram graph={flow.graph} />
+            <AccountFlowDiagram graph={shownGraph(flow.graph)} />
           )}
         </Card>
       ) : (
@@ -158,12 +168,12 @@ export function TransferTab({
           </SectionTitle>
           {!monthly ? (
             <ActivityIndicator color="#4f46e5" style={{ marginVertical: 24 }} />
-          ) : monthly.graph.links.length === 0 ? (
+          ) : shownGraph(monthly.graph).links.length === 0 ? (
             <Notice>
-              対象月に科目紐付け済みの明細がありません。「明細一覧」タブで紐付けを行ってください。
+              対象月に科目紐付け済みの明細がありません。「一覧」タブで紐付けを行ってください。
             </Notice>
           ) : (
-            <AccountFlowDiagram graph={monthly.graph} />
+            <AccountFlowDiagram graph={shownGraph(monthly.graph)} />
           )}
         </Card>
       )}
@@ -194,14 +204,14 @@ export function TransferTab({
       {accounts.length < 2 && <Text style={s.muted}>振替には 2 つ以上の口座の登録が必要です</Text>}
 
       {scheduleMode === "list" ? (
-        !flow ? null : flow.transfers.length === 0 ? (
+        !flow ? null : shownRows.length === 0 ? (
           <Text style={s.muted}>
             資金移動がまだ登録されていません。スケジュールモードのカレンダーから固定の入出金を登録すると、
             この一覧と上のフロー図に表示されます。
           </Text>
         ) : (
           <Card>
-            {flow.transfers.map((t) => (
+            {shownRows.map((t) => (
               <View key={t.id} style={s.ruleRow}>
                 <Text style={s.ruleDay}>{t.day}日</Text>
                 <View style={{ flex: 1 }}>
@@ -279,13 +289,18 @@ function ScheduleCalendar({
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(focusDay);
-  const [scope, setScope] = useState<Scope | null>(null);
   const [form, setForm] = useState(BLANK_RECURRING);
-  const scopeId: Scope | null = scope ?? accountId;
+  // 対象口座は画面上部の「表示する銀行」に従う（null はすべての銀行）
+  const scopeId: Scope = accountId ?? "all";
 
   useEffect(() => {
     if (focusDay !== null) setSelectedDay(focusDay);
   }, [focusDay]);
+
+  // 表示する銀行が変わったら、追加フォームの登録先・相手先の指定を持ち越さない
+  useEffect(() => {
+    setForm((f) => ({ ...f, ownerAccountId: null, partnerAccountId: null }));
+  }, [accountId]);
 
   const transfers = useMemo(
     () =>
@@ -376,19 +391,6 @@ function ScheduleCalendar({
         毎月の引き落とし・入金の予定日を確認し、日付をタップして追加・削除できます。ここで変わるのは固定入出金
         （毎月の資金移動ルール）だけで、取り込み済みの明細や口座残高は変わりません。
       </Text>
-      <SelectField<number | "all">
-        label="対象口座"
-        value={scopeId}
-        options={[
-          { value: "all", label: "すべての銀行" },
-          ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.bankName}）` })),
-        ]}
-        onChange={(v) => {
-          setScope(v);
-          setSelectedDay(null);
-          setForm((f) => ({ ...f, ownerAccountId: null, partnerAccountId: null }));
-        }}
-      />
       <Text style={s.muted}>
         {scopeId === "all"
           ? `全 ${accounts.length} 口座の資金移動 ${transfers.length} 件を表示しています`

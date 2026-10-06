@@ -8,6 +8,7 @@ import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiag
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { FundingPlanPanel } from "@/components/FundingPlanPanel";
 import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPanel";
+import { filterFlowGraph } from "@/lib/flow-graph";
 import { CashFlowTrendCharts } from "@/components/CashFlowTrendCharts";
 import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar";
 import { SectionLead } from "@/components/Explain";
@@ -52,6 +53,8 @@ type FlowTransferRow = {
   label: string | null;
   day: number;
   note: string | null;
+  fromAccountId: number | null;
+  toAccountId: number | null;
 };
 type FlowResponse = { cyclic: boolean; graph: FlowGraph; transfers: FlowTransferRow[] };
 type MonthlyCashFlowResponse = {
@@ -153,7 +156,8 @@ function BankAccountsContent() {
       ? "list"
       : "cashflow";
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [selected, setSelected] = useState<BankAccount | null>(null);
+  // 「表示する銀行」カードで選んだ口座の id。null はすべての銀行（既定）
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [accountForm, setAccountForm] = useState<NewAccountForm>(BLANK_ACCOUNT);
   const [accountError, setAccountError] = useState<string | null>(null);
@@ -165,8 +169,11 @@ function BankAccountsContent() {
       (await (await fetch("/api/bank-accounts")).json()).data ?? [],
   });
 
-  // 銀行口座カードの見出しに出す残高合計
-  const totalBalance = accounts.reduce((s, a) => s + (a.balance ?? 0), 0);
+  // 選んだ口座（削除などで見つからなくなったら、すべての銀行として扱う）
+  const selected = accounts.find((a) => a.id === selectedId) ?? null;
+  const shownAccounts = selected ? [selected] : accounts;
+  // 「表示する銀行」カードと銀行口座カードに出す残高合計（選んだ範囲）
+  const totalBalance = shownAccounts.reduce((s, a) => s + (a.balance ?? 0), 0);
 
   // 資金フロー図（入出金管理から移設）: 設定ベース（既定）/ 実績ベース（月次・F-6）
   const [flowSource, setFlowSource] = useState<"config" | "actual">("config");
@@ -268,9 +275,16 @@ function BankAccountsContent() {
       alert(j?.error ?? `削除に失敗しました。(HTTP ${r.status})`);
       return;
     }
-    if (selected?.id === a.id) setSelected(null);
+    if (selectedId === a.id) setSelectedId(null);
     qc.invalidateQueries({ queryKey: ["bank-accounts"] });
   };
+
+  // 資金移動スケジュールの一覧と資金フロー図は、選んだ口座が関わるものだけにする
+  const shownTransfers = (flow?.transfers ?? []).filter(
+    (t) => !selected || t.fromAccountId === selected.id || t.toAccountId === selected.id,
+  );
+  const shownGraph = (graph: FlowGraph) =>
+    selected ? filterFlowGraph(graph, selected.name) : graph;
 
   // 資金フロー図のベース切替（設定／実績）。どちらのカードにも同じものを出す
   const flowSourceToggle = (
@@ -292,12 +306,41 @@ function BankAccountsContent() {
     <AppShell>
       <PageHeader title="銀行管理" lead={BANK_HELP.page} />
 
+      {/* ── 表示する銀行（全タブ共通。指定なしはすべての銀行をまとめて表示する）── */}
+      <div className="card mb-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label htmlFor="bank-selector" className="text-sm font-semibold text-slate-700">
+            表示する銀行
+          </label>
+          <select
+            id="bank-selector"
+            className="input-field w-64"
+            value={selectedId ?? ""}
+            onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">すべての銀行</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}（{a.bankName}）
+              </option>
+            ))}
+          </select>
+          {accounts.length > 0 && (
+            <span className="text-xs text-slate-500">
+              残高 <span className="font-medium text-slate-700">{yen(totalBalance)}</span> ・{" "}
+              {shownAccounts.length} 口座
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1.5">{BANK_HELP.selector}</p>
+      </div>
+
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
       {tab === "cashflow" && (
         <>
           {/* ── 残高の推移（借入金管理の「借入残高の推移」と同じ形。先は予算と実績から見込む）── */}
-          <CashFlowTrendCharts year={flowYear} month={flowMonth} />
+          <CashFlowTrendCharts year={flowYear} month={flowMonth} accountId={selectedId} />
 
           {/* ── 資金繰り（必要残高と入金期限）──────────────────────
               現在残高と資金移動の設定から、選んだ年月を起点に 3 か月分を自動で算出する。 */}
@@ -323,10 +366,10 @@ function BankAccountsContent() {
               ))}
             </select>
           </div>
-          <FundingPlanPanel year={flowYear} month={flowMonth} months={3} />
+          <FundingPlanPanel year={flowYear} month={flowMonth} months={3} accountId={selectedId} />
 
           {/* ── 毎月の入出金の候補（明細から見つけたもの。登録で資金移動ルールになる）── */}
-          <RecurringSuggestionsPanel />
+          <RecurringSuggestionsPanel accountId={selectedId} />
 
           {/* ── 資金移動スケジュール ────────────────────────────
               一覧モード＝登録済みの資金移動ルールを表で見る。
@@ -351,7 +394,7 @@ function BankAccountsContent() {
           {scheduleMode === "list" && <SectionLead>{BANK_HELP.schedule}</SectionLead>}
 
           {/* 一覧はフロー図のベース切替（設定／実績）に関係なく、登録済みのルールをそのまま並べる */}
-          {scheduleMode === "list" && flow && flow.transfers.length > 0 && (
+          {scheduleMode === "list" && shownTransfers.length > 0 && (
             <div className="card mb-6">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
@@ -369,7 +412,7 @@ function BankAccountsContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {flow.transfers.map((t) => (
+                  {shownTransfers.map((t) => (
                     <tr key={t.id} className="hover:bg-slate-50">
                       <td className="px-3 py-2 text-slate-500 tabular-nums">{t.day}日</td>
                       <td className="px-3 py-2 text-slate-700">
@@ -398,7 +441,7 @@ function BankAccountsContent() {
             </div>
           )}
 
-          {scheduleMode === "list" && flow && flow.transfers.length === 0 && (
+          {scheduleMode === "list" && flow && shownTransfers.length === 0 && (
             <p className="text-sm text-slate-500 mb-6">
               資金移動がまだ登録されていません。スケジュールモードのカレンダーから固定の入出金を登録すると、
               この一覧と上のフロー図に表示されます。
@@ -409,7 +452,7 @@ function BankAccountsContent() {
             // 実績（明細）と取り違えないよう、更新されるのは毎月のルールだけだと明示する
             <SectionLead>
               {BANK_HELP.scheduleCalendar}
-              対象口座を「すべての銀行」にすると、全口座の予定をまとめて見られます。
+              上の「表示する銀行」を「すべての銀行」にすると、全口座の予定をまとめて見られます。
             </SectionLead>
           )}
 
@@ -425,7 +468,6 @@ function BankAccountsContent() {
             bankTransferOpen={showBankTransferForm}
             onBankTransferOpenChange={setShowBankTransferForm}
             accountId={selected?.id ?? null}
-            onAccountIdChange={(id) => setSelected(accounts.find((a) => a.id === id) ?? null)}
           />
 
           {/* ── 口座間 資金フロー図（設定ベース／実績ベース）── */}
@@ -445,7 +487,7 @@ function BankAccountsContent() {
                   資金移動に循環があるためフロー図を描画できません。下のスケジュールで経路を見直してください。
                 </p>
               ) : (
-                <AccountFlowDiagram data={flow.graph} />
+                <AccountFlowDiagram data={shownGraph(flow.graph)} />
               )}
             </div>
           ) : (
@@ -461,12 +503,12 @@ function BankAccountsContent() {
                 <div className="flex items-center justify-center h-48 text-sm text-slate-400">
                   読み込み中…
                 </div>
-              ) : monthlyFlow.graph.links.length === 0 ? (
+              ) : shownGraph(monthlyFlow.graph).links.length === 0 ? (
                 <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
                   対象月に科目紐付け済みの明細がありません。「一覧」タブで紐付けを行ってください。
                 </p>
               ) : (
-                <AccountFlowDiagram data={monthlyFlow.graph} />
+                <AccountFlowDiagram data={shownGraph(monthlyFlow.graph)} />
               )}
             </div>
           )}
@@ -481,7 +523,7 @@ function BankAccountsContent() {
                 <SectionLead className="mb-1">{BANK_HELP.balance}</SectionLead>
                 {accounts.length > 0 && (
                   <p className="text-xs text-slate-400 mt-0.5">
-                    残高合計: {yen(totalBalance)} ・ {accounts.length} 口座
+                    残高合計: {yen(totalBalance)} ・ {shownAccounts.length} 口座
                   </p>
                 )}
               </div>
@@ -503,7 +545,7 @@ function BankAccountsContent() {
               </p>
             ) : (
               <div className="space-y-2">
-                {accounts.map((a) => (
+                {shownAccounts.map((a) => (
                   <div key={a.id} className="border border-slate-100 rounded-lg px-3 py-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -560,7 +602,7 @@ function BankAccountsContent() {
                           <button
                             type="button"
                             onClick={() => {
-                              setSelected(a);
+                              setSelectedId(a.id);
                               setTab("list");
                             }}
                             className="text-xs text-indigo-500 hover:text-indigo-700"
@@ -613,17 +655,11 @@ function BankAccountsContent() {
           // 一覧から予定のカレンダーを開くと、キャッシュフロータブの資金移動スケジュールへ移る
           onViewChange={(v) => setTab(v === "recurring" ? "cashflow" : v)}
           accountId={selected?.id ?? null}
-          onAccountIdChange={(id) => setSelected(accounts.find((a) => a.id === id) ?? null)}
         />
       )}
 
       {/* ── カレンダー（日ごとの明細と、手入力での登録）──────────── */}
-      {tab === "calendar" && (
-        <BankTransactionsCalendar
-          accountId={selected?.id ?? null}
-          onAccountIdChange={(id) => setSelected(accounts.find((a) => a.id === id) ?? null)}
-        />
-      )}
+      {tab === "calendar" && <BankTransactionsCalendar accountId={selected?.id ?? null} />}
 
       {/* 口座登録モーダル（設定「口座・カード管理」の新規登録から移設）*/}
       {showAccountForm && (

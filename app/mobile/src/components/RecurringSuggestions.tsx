@@ -15,12 +15,16 @@ import { Button, Card, SectionTitle } from "./ui";
 export function RecurringSuggestions({
   reloadKey,
   onChanged,
+  accountId = null,
 }: {
   reloadKey: number;
+  /** 「表示する銀行」で選んだ口座。null / 省略はすべての口座の候補を出す */
+  accountId?: number | null;
   /** 登録・非表示のあと（資金繰りなどを取り直すため） */
   onChanged: () => void;
 }) {
-  const [items, setItems] = useState<RecurringSuggestion[]>([]);
+  const [all, setItems] = useState<RecurringSuggestion[]>([]);
+  const items = accountId === null ? all : all.filter((x) => x.accountId === accountId);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {

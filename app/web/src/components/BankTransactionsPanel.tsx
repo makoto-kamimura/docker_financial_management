@@ -3,7 +3,7 @@
 // 入出金管理のパネル。ページ（/bank-transactions）から「銀行管理」のタブへ移設した。
 // AppShell とページ見出しは呼び出し側（/bank-accounts）が持つ。
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
@@ -24,6 +24,7 @@ type BankAccount = { id: number; name: string; bankName: string; role: string };
 type CategoryAccount = { id: number; code: string; name: string; category: string };
 type Txn = {
   id: number;
+  accountId: number;
   date: string;
   description: string;
   amount: number;
@@ -133,7 +134,10 @@ type Props = {
   view?: Tab;
   /** ビュー切替を親へ通知する（明細一覧からカレンダーを開く導線で使う） */
   onViewChange?: (view: Tab) => void;
-  /** 表示対象の口座を親から指定する（口座サマリのカード選択と連動させる） */
+  /**
+   * 表示対象の口座を親から指定する（銀行管理の「表示する銀行」カード）。null はすべての口座。
+   * 渡された場合はパネル内の口座セレクタを出さない。省略時はパネル内で選ぶ（最初の口座を既定にする）。
+   */
   accountId?: number | null;
   onAccountIdChange?: (id: number) => void;
   /** view="recurring" のとき描画するブロックと順序。省略時は全ブロック */
@@ -203,7 +207,8 @@ export function BankTransactionsPanel({
     queryKey: ["bank-accounts"],
     queryFn: async (): Promise<BankAccount[]> => {
       const list = ((await (await fetch("/api/bank-accounts")).json()).data ?? []) as BankAccount[];
-      if (list.length && accountId === null) setAccountId(list[0].id);
+      if (accountIdProp === undefined && list.length && accountId === null)
+        setAccountId(list[0].id);
       return list;
     },
   });
@@ -219,12 +224,31 @@ export function BankTransactionsPanel({
     },
   });
 
-  const { data: txns } = useQuery({
-    queryKey: ["bank-txns", accountId],
-    enabled: accountId !== null,
-    queryFn: async (): Promise<Txn[]> =>
-      (await (await fetch(`/api/bank-accounts/${accountId}/transactions`)).json()).data ?? [],
+  // 明細は口座ごとに取る。すべての口座のときは全口座分を日付の新しい順にまとめる
+  const allAccountsView = accountId === null;
+  const txnAccountIds = allAccountsView ? (accounts ?? []).map((a) => a.id) : [accountId];
+  const txnQueries = useQueries({
+    queries: txnAccountIds.map((id) => ({
+      queryKey: ["bank-txns", id],
+      queryFn: async (): Promise<Txn[]> =>
+        (await (await fetch(`/api/bank-accounts/${id}/transactions`)).json()).data ?? [],
+    })),
   });
+  const txnsKey = txnQueries.map((q) => q.dataUpdatedAt).join(",");
+  const txns = useMemo(
+    () =>
+      txnQueries
+        .flatMap((q) => q.data ?? [])
+        .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id)),
+    // 各口座の取得結果が変わったときだけまとめ直す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [txnsKey],
+  );
+  const accountNameById = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
+
+  // CSV 取込・自動取得の取り込み先。すべての口座を表示しているときは CSV の欄で選ぶ
+  const [importTargetId, setImportTargetId] = useState<number | null>(null);
+  const importAccountId = accountId ?? importTargetId;
 
   // 明細一覧は 30 件ずつ表示する。口座切替や再取得で件数が減った場合は末尾ページへ丸める
   const txnTotal = txns?.length ?? 0;
@@ -261,8 +285,12 @@ export function BankTransactionsPanel({
   });
 
   // カレンダーの対象口座。"all" は全銀行分をまとめて表示する（口座別スケジュールの俯瞰用）
+  // 銀行管理から口座を渡されたときは、その選択（null はすべての銀行）に従い、パネル内の切替は出さない
   const [calendarScope, setCalendarScope] = useState<number | "all" | null>(null);
-  const scopeId = calendarScope ?? accountId;
+  const scopeControlled = accountIdProp !== undefined;
+  const scopeId: number | "all" | null = scopeControlled
+    ? (accountIdProp ?? "all")
+    : (calendarScope ?? accountId);
 
   const transfers = useMemo(
     () =>
@@ -306,8 +334,12 @@ export function BankTransactionsPanel({
   // ── ハンドラ ────────────────────────────────────────────────
 
   async function importFile(file: File) {
-    if (accountId === null) {
-      setImportError("口座を登録してください。");
+    if (importAccountId === null) {
+      setImportError(
+        (accounts ?? []).length === 0
+          ? "口座を登録してください。"
+          : "取り込み先の口座を選んでください。",
+      );
       return;
     }
     if (!file.name.toLowerCase().endsWith(".csv")) {
@@ -318,14 +350,14 @@ export function BankTransactionsPanel({
     setImportResult(null);
     setImportError(null);
     try {
-      const res = await fetch(`/api/bank-accounts/${accountId}/transactions`, {
+      const res = await fetch(`/api/bank-accounts/${importAccountId}/transactions`, {
         method: "POST",
         headers: { "Content-Type": "text/csv" },
         body: file,
       });
       if (res.ok) {
         setImportResult((await res.json()) as ImportResult);
-        qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+        qc.invalidateQueries({ queryKey: ["bank-txns"] });
       } else {
         setImportError(await importErrorMessage(res));
       }
@@ -337,24 +369,28 @@ export function BankTransactionsPanel({
   }
 
   async function sync() {
-    if (accountId === null) {
-      setImportError("口座を登録してください。");
+    if (importAccountId === null) {
+      setImportError(
+        (accounts ?? []).length === 0
+          ? "口座を登録してください。"
+          : "取り込み先の口座を選んでください。",
+      );
       return;
     }
     setImportResult(null);
     setImportError(null);
-    const res = await fetch(`/api/bank-accounts/${accountId}/sync`, { method: "POST" });
+    const res = await fetch(`/api/bank-accounts/${importAccountId}/sync`, { method: "POST" });
     const json = await res.json();
     if (res.ok) {
       setImportResult({ inserted: json.fetched ?? 0, errors: [] });
-      qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+      qc.invalidateQueries({ queryKey: ["bank-txns"] });
     } else {
       setImportError("自動取得に失敗しました。");
     }
   }
 
   async function deleteTxn(t: Txn) {
-    await fetch(`/api/bank-accounts/${accountId}/transactions?txnId=${t.id}`, {
+    await fetch(`/api/bank-accounts/${t.accountId}/transactions?txnId=${t.id}`, {
       method: "DELETE",
     });
     if (t.transferGroupId) {
@@ -364,7 +400,7 @@ export function BankTransactionsPanel({
       qc.invalidateQueries({ queryKey: ["funding-plan"] });
       qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     } else {
-      qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+      qc.invalidateQueries({ queryKey: ["bank-txns"] });
     }
   }
 
@@ -374,7 +410,7 @@ export function BankTransactionsPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ categoryAccountId }),
     });
-    qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+    qc.invalidateQueries({ queryKey: ["bank-txns"] });
   }
 
   // ── 明細をチャージ（銀行 → デビット / プリペイド / 電子マネー）に指定する ───────
@@ -412,7 +448,7 @@ export function BankTransactionsPanel({
       const err = await res.json().catch(() => ({}));
       setMsg(`変更に失敗しました: ${typeof err.error === "string" ? err.error : "エラー"}`);
     }
-    qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+    qc.invalidateQueries({ queryKey: ["bank-txns"] });
     // 紐付けた入金明細はカード側の明細なので、そちらも取り直す
     qc.invalidateQueries({ queryKey: ["card-txns"] });
     qc.invalidateQueries({ queryKey: ["charge-candidates"] });
@@ -438,7 +474,7 @@ export function BankTransactionsPanel({
       const err = await res.json().catch(() => ({}));
       setMsg(`転記に失敗しました: ${err.error ?? "エラー"}`);
     }
-    qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
+    qc.invalidateQueries({ queryKey: ["bank-txns"] });
   }
 
   // 都度の銀行→銀行の振替。1 回の操作で出金元・入金先の両方に明細を作る
@@ -665,7 +701,6 @@ export function BankTransactionsPanel({
   }
 
   async function registerRecurringFromTxn(t: Txn) {
-    if (accountId === null) return;
     const channel = defaultChannel(t);
     const isOut = t.amount < 0;
     const cardId = txnCard[t.id];
@@ -673,8 +708,8 @@ export function BankTransactionsPanel({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        fromAccountId: isOut ? accountId : null,
-        toAccountId: isOut ? null : accountId,
+        fromAccountId: isOut ? t.accountId : null,
+        toAccountId: isOut ? null : t.accountId,
         label: t.description,
         channel,
         day: new Date(t.date).getDate(),
@@ -731,7 +766,7 @@ export function BankTransactionsPanel({
     setRecurring((r) => ({ ...r, day }));
   }
 
-  const selectedAccount = accounts?.find((a) => a.id === accountId);
+  const selectedAccount = accounts?.find((a) => a.id === scopeId);
   const TABS: [Tab, string][] = [
     ["list", "一覧"],
     ["recurring", "カレンダー"],
@@ -740,20 +775,22 @@ export function BankTransactionsPanel({
 
   return (
     <>
-      {/* ヘッダ */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <select
-          className="input-field w-60 ml-auto"
-          value={accountId ?? ""}
-          onChange={(e) => setAccountId(Number(e.target.value))}
-        >
-          {accounts?.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}（{a.bankName}）
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* ヘッダ（銀行管理から口座を渡されたときは、ページの「表示する銀行」カードで選ぶので出さない） */}
+      {accountIdProp === undefined && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <select
+            className="input-field w-60 ml-auto"
+            value={accountId ?? ""}
+            onChange={(e) => setAccountId(Number(e.target.value))}
+          >
+            {accounts?.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}（{a.bankName}）
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {accounts && accounts.length === 0 && (
         <Notice tone="warn" className="mb-4">
@@ -824,6 +861,8 @@ export function BankTransactionsPanel({
                   <tr className="bg-slate-50 border-b border-slate-200">
                     {[
                       "日付",
+                      // すべての口座をまとめて表示しているときは、どの口座の明細かを出す
+                      ...(allAccountsView ? ["口座"] : []),
                       "摘要",
                       "金額",
                       "科目",
@@ -851,6 +890,11 @@ export function BankTransactionsPanel({
                         <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">
                           {new Date(t.date).toLocaleDateString("ja-JP")}
                         </td>
+                        {allAccountsView && (
+                          <td className="px-4 py-2.5 whitespace-nowrap text-slate-600">
+                            {accountNameById(t.accountId)}
+                          </td>
+                        )}
                         <td className="px-4 py-2.5">{t.description}</td>
                         <td
                           className={`px-4 py-2.5 text-right tabular-nums ${t.amount < 0 ? "text-red-600" : "text-emerald-600"}`}
@@ -1104,6 +1148,27 @@ export function BankTransactionsPanel({
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
           <SectionLead className="-mb-3">{BANK_HELP.csv}</SectionLead>
+          {/* すべての口座を表示しているときは、取り込み先の口座をここで選ぶ */}
+          {accountId === null && (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-xs font-medium text-slate-600" htmlFor="import-target">
+                取り込み先の口座
+              </label>
+              <select
+                id="import-target"
+                className="input-field w-60"
+                value={importTargetId ?? ""}
+                onChange={(e) => setImportTargetId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">選択してください</option>
+                {accounts?.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}（{a.bankName}）
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <CsvDropzone busy={importing} onFile={importFile} />
 
           <div className="card flex items-center justify-between">
@@ -1327,26 +1392,31 @@ export function BankTransactionsPanel({
           {/* ── 資金移動カレンダー（スケジュールモード）─────────────── */}
           {recurringParts.includes("calendar") && (
             <>
-              {/* 対象口座の切替。「すべての銀行」で全口座の移動スケジュールを俯瞰できる */}
+              {/* 対象口座の切替。「すべての銀行」で全口座の移動スケジュールを俯瞰できる。
+                  銀行管理から口座を渡されたときは、ページの「表示する銀行」カードに従う */}
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <label className="text-xs font-medium text-slate-600">対象口座</label>
-                <select
-                  value={scopeId === "all" ? "all" : (scopeId ?? "")}
-                  onChange={(e) => {
-                    setCalendarScope(e.target.value === "all" ? "all" : Number(e.target.value));
-                    setSelectedDay(null);
-                    // 追加フォームの登録先・相手先は対象口座に追従させる（前の口座の指定を持ち越さない）
-                    setRecurring((r) => ({ ...r, ownerAccountId: "", partnerAccountId: "" }));
-                  }}
-                  className="select-sm"
-                >
-                  <option value="all">すべての銀行</option>
-                  {(accounts ?? []).map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}（{a.bankName}）
-                    </option>
-                  ))}
-                </select>
+                {!scopeControlled && (
+                  <>
+                    <label className="text-xs font-medium text-slate-600">対象口座</label>
+                    <select
+                      value={scopeId === "all" ? "all" : (scopeId ?? "")}
+                      onChange={(e) => {
+                        setCalendarScope(e.target.value === "all" ? "all" : Number(e.target.value));
+                        setSelectedDay(null);
+                        // 追加フォームの登録先・相手先は対象口座に追従させる（前の口座の指定を持ち越さない）
+                        setRecurring((r) => ({ ...r, ownerAccountId: "", partnerAccountId: "" }));
+                      }}
+                      className="select-sm"
+                    >
+                      <option value="all">すべての銀行</option>
+                      {(accounts ?? []).map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}（{a.bankName}）
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
                 <span className="text-xs text-slate-400">
                   {scopeId === "all"
                     ? `全 ${(accounts ?? []).length} 口座の資金移動 ${transfers.length} 件を表示しています`
@@ -1473,7 +1543,10 @@ export function BankTransactionsPanel({
                       {/* 日付ヘッダー */}
                       <div className="card py-2 px-4">
                         <p className="text-sm font-semibold text-slate-800">
-                          毎月{selectedDay}日 — {selectedAccount?.name ?? "この口座"}
+                          毎月{selectedDay}日 —{" "}
+                          {scopeId === "all"
+                            ? "すべての銀行"
+                            : (selectedAccount?.name ?? "この口座")}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
                           {selectedDayTransfers.length} 件の固定入出金

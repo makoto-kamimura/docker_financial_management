@@ -5,6 +5,7 @@
 // 合計の先は予算と実績の収支から、口座ごとの先は毎月の入出金（資金移動ルールと借入の返済）から見込む
 // （GET /api/bank-accounts/cash-outlook。計算は lib/cash-outlook.ts）。
 // 口座の枠には、資金繰り（同じ月から 3 か月）で入金が必要と出た期限と金額も添える。
+// 「表示する銀行」で 1 口座を選んだときは、その口座の残高と線グラフだけを出す（見込みは毎月の入出金から）。
 
 import { useQuery } from "@tanstack/react-query";
 import { SectionLead } from "@/components/Explain";
@@ -30,7 +31,16 @@ const mmdd = (iso: string) => {
   return `${Number(m)}/${Number(d)}`;
 };
 
-export function CashFlowTrendCharts({ year, month }: { year: number; month: number }) {
+export function CashFlowTrendCharts({
+  year,
+  month,
+  accountId = null,
+}: {
+  year: number;
+  month: number;
+  /** 銀行管理の「表示する銀行」で選んだ口座。null / 省略はすべての口座 */
+  accountId?: number | null;
+}) {
   const { data } = useQuery({
     queryKey: ["cash-outlook"],
     queryFn: async (): Promise<CashOutlookResponse> => {
@@ -50,9 +60,11 @@ export function CashFlowTrendCharts({ year, month }: { year: number; month: numb
   });
 
   if (!data || data.accounts.length === 0) return null;
+  const single = accountId === null ? null : data.accounts.find((a) => a.id === accountId);
+  if (accountId !== null && !single) return null;
 
   const currentIndex = data.months.indexOf(data.currentKey);
-  const todayTotal = data.accounts.reduce((s, a) => s + a.balance, 0);
+  const todayTotal = single ? single.balance : data.accounts.reduce((s, a) => s + a.balance, 0);
   const lastIndex = data.months.length - 1;
   const budgetMonths = data.totalBasis.filter((b, i) => i > currentIndex && b === "budget").length;
   const ruleMonths = data.totalBasis.filter((b) => b === "rule").length;
@@ -67,59 +79,94 @@ export function CashFlowTrendCharts({ year, month }: { year: number; month: numb
 
       <div className="flex flex-wrap items-end gap-x-8 gap-y-1 mb-2">
         <div>
-          <p className="text-xs text-slate-500">総残高（{asOfDateLabel(new Date())}）</p>
+          <p className="text-xs text-slate-500">
+            {single ? `${single.name}の残高` : "総残高"}（{asOfDateLabel(new Date())}）
+          </p>
           <p className="text-2xl font-bold text-indigo-600 tabular-nums">{yen(todayTotal)}</p>
         </div>
         <p className="text-xs text-slate-500">
           {lastLabel}末の見込み{" "}
-          <span className="font-medium text-slate-700">{yen(data.total[lastIndex])}</span>
+          <span className="font-medium text-slate-700">
+            {yen(single ? (single.values[lastIndex] ?? 0) : data.total[lastIndex])}
+          </span>
         </p>
         <p className="text-xs text-slate-400">
-          {budgetMonths === 0
-            ? "予算がないため、先は毎月の入出金から見込み"
-            : ruleMonths === 0
-              ? `先の ${budgetMonths} か月は予算から見込み`
-              : `先の ${budgetMonths} か月は予算、予算のない ${ruleMonths} か月は毎月の入出金から見込み`}
+          {single
+            ? "予算は口座ごとに分かれていないため、先はこの口座の毎月の入出金から見込み"
+            : budgetMonths === 0
+              ? "予算がないため、先は毎月の入出金から見込み"
+              : ruleMonths === 0
+                ? `先の ${budgetMonths} か月は予算から見込み`
+                : `先の ${budgetMonths} か月は予算、予算のない ${ruleMonths} か月は毎月の入出金から見込み`}
         </p>
       </div>
       <ValueLineChart
         months={data.months}
         currentKey={data.currentKey}
-        series={[{ key: "total", label: "合計", color: SERIES_COLORS[0], values: data.total }]}
+        series={[
+          single
+            ? {
+                key: `a${single.id}`,
+                label: "残高",
+                color: SERIES_COLORS[0],
+                values: single.values,
+              }
+            : { key: "total", label: "合計", color: SERIES_COLORS[0], values: data.total },
+        ]}
         height={240}
       />
-
-      <h3 className="text-sm font-semibold text-slate-700 mt-6 mb-2">口座ごとの推移</h3>
-      <div className="grid gap-4 md:grid-cols-2">
-        {data.accounts.map((a) => {
-          const short = funding?.plans.find((p) => p.accountId === a.id && p.requiredDeposit > 0);
-          return (
-            <div key={a.id} className="rounded-lg border border-slate-100 p-3">
-              <p className="text-sm font-medium text-slate-800 mb-1">{a.name}</p>
-              <p className="text-xs text-slate-500 mb-1">
-                今の残高{" "}
-                <span className="font-medium text-slate-700 tabular-nums">{yen(a.balance)}</span> ・{" "}
-                {lastLabel}末の見込み {yen(a.values[lastIndex] ?? 0)}
-              </p>
-              {short && (
-                <p className="text-xs font-medium text-red-600 mb-1">
-                  {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
-                  {yen(short.requiredDeposit)} の入金が必要
-                </p>
-              )}
-              <ValueLineChart
-                months={data.months}
-                currentKey={data.currentKey}
-                series={[
-                  { key: `a${a.id}`, label: "残高", color: SERIES_COLORS[0], values: a.values },
-                ]}
-                height={130}
-                compact
-              />
-            </div>
+      {single &&
+        (() => {
+          const short = funding?.plans.find(
+            (p) => p.accountId === single.id && p.requiredDeposit > 0,
           );
-        })}
-      </div>
+          return short ? (
+            <p className="text-xs font-medium text-red-600 mt-2">
+              {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
+              {yen(short.requiredDeposit)} の入金が必要
+            </p>
+          ) : null;
+        })()}
+
+      {!single && (
+        <>
+          <h3 className="text-sm font-semibold text-slate-700 mt-6 mb-2">口座ごとの推移</h3>
+          <div className="grid gap-4 md:grid-cols-2">
+            {data.accounts.map((a) => {
+              const short = funding?.plans.find(
+                (p) => p.accountId === a.id && p.requiredDeposit > 0,
+              );
+              return (
+                <div key={a.id} className="rounded-lg border border-slate-100 p-3">
+                  <p className="text-sm font-medium text-slate-800 mb-1">{a.name}</p>
+                  <p className="text-xs text-slate-500 mb-1">
+                    今の残高{" "}
+                    <span className="font-medium text-slate-700 tabular-nums">
+                      {yen(a.balance)}
+                    </span>{" "}
+                    ・ {lastLabel}末の見込み {yen(a.values[lastIndex] ?? 0)}
+                  </p>
+                  {short && (
+                    <p className="text-xs font-medium text-red-600 mb-1">
+                      {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
+                      {yen(short.requiredDeposit)} の入金が必要
+                    </p>
+                  )}
+                  <ValueLineChart
+                    months={data.months}
+                    currentKey={data.currentKey}
+                    series={[
+                      { key: `a${a.id}`, label: "残高", color: SERIES_COLORS[0], values: a.values },
+                    ]}
+                    height={130}
+                    compact
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </section>
   );
 }

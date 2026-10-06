@@ -63,6 +63,9 @@ export const GET = withApi({
         id: t.id,
         from: t.fromAccount?.name ?? null,
         to: t.toAccount?.name ?? null,
+        // 銀行管理の「表示する銀行」で絞るための口座 id（外部は null）
+        fromAccountId: t.fromAccountId,
+        toAccountId: t.toAccountId,
         amount: Number(t.amount),
         kind: t.kind,
         channel: t.channel,

@@ -1526,6 +1526,9 @@ export type TransferFlowRow = {
   label: string | null;
   day: number;
   note: string | null;
+  /** 銀行管理の「表示する銀行」で絞るための口座 id（外部は null） */
+  fromAccountId: number | null;
+  toAccountId: number | null;
 };
 
 export type TransferFlowResponse = {

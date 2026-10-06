@@ -32,9 +32,13 @@ export function useRecurringSuggestions() {
   });
 }
 
-export function RecurringSuggestionsPanel() {
+/** accountId: 銀行管理の「表示する銀行」で選んだ口座。null / 省略はすべての口座の候補を出す */
+export function RecurringSuggestionsPanel({
+  accountId = null,
+}: { accountId?: number | null } = {}) {
   const qc = useQueryClient();
-  const { data } = useRecurringSuggestions();
+  const { data: all } = useRecurringSuggestions();
+  const data = accountId === null ? all : all?.filter((s) => s.accountId === accountId);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = () => {

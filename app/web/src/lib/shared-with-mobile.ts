@@ -11,6 +11,7 @@ export const SHARED_WITH_MOBILE = [
   "debt-schedule.ts",
   "display-name.ts",
   "financial-matrix.ts",
+  "flow-graph.ts",
   "forecast-methods.ts",
   "help-texts.ts",
   "labels.ts",

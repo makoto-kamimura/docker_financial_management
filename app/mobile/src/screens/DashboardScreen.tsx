@@ -199,6 +199,9 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
         <>
           <Lead>{textFor(DASHBOARD_HELP.page, viewMode)}</Lead>
 
+          {/* 予算と実績の確定の状況（いちばん上。KPI の対象月）。確定の操作は予算・実績の画面で行う */}
+          <CycleStatusRow period={kpi.period} refreshKey={refreshKey} onOpen={onOpenCycle} />
+
           {/* ステップ進捗（web 版ダッシュボードと同じ 6 ステップ。全達成後は非表示） */}
           {showSteps && (
             <View style={[s.card, s.cardGap]}>
@@ -357,11 +360,6 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
 
       {/* 口座残高サマリ（KPI の対象月の時点。口座の管理と推移は銀行管理） */}
       {!loading && !error && kpi && <BankSummaryCard period={kpi.period} refreshKey={refreshKey} />}
-
-      {/* 予算と実績の確定の状況（KPI の対象月）。確定の操作は予算・実績の画面で行う */}
-      {!loading && !error && kpi && (
-        <CycleStatusRow period={kpi.period} refreshKey={refreshKey} onOpen={onOpenCycle} />
-      )}
 
       {/* 予算と実績（KPI の対象月の差をひと目で） */}
       {!loading && !error && kpi && (
