@@ -368,7 +368,6 @@ export function BankTransactionsPanel({
       // 振替は相手口座の明細も一緒に消えるため、全口座の明細と残高を取り直す
       qc.invalidateQueries({ queryKey: ["bank-txns"] });
       qc.invalidateQueries({ queryKey: ["bank-accounts"] });
-      qc.invalidateQueries({ queryKey: ["balance-trend"] });
       qc.invalidateQueries({ queryKey: ["funding-plan"] });
     } else {
       qc.invalidateQueries({ queryKey: ["bank-txns", accountId] });
@@ -514,7 +513,6 @@ export function BankTransactionsPanel({
     qc.invalidateQueries({ queryKey: ["bank-txns"] });
     qc.invalidateQueries({ queryKey: ["transfer-candidates"] });
     qc.invalidateQueries({ queryKey: ["bank-accounts"] });
-    qc.invalidateQueries({ queryKey: ["balance-trend"] });
     qc.invalidateQueries({ queryKey: ["funding-plan"] });
   }
 

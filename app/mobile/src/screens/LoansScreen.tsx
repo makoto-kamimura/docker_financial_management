@@ -426,296 +426,315 @@ export function LoansScreen({ viewMode }: Props) {
           </Card>
         )}
 
-        <Button
-          label="借入追加"
-          onPress={() => {
-            setSheetError(null);
-            setNewLoan(BLANK_LOAN);
-          }}
-          style={{ marginBottom: 12 }}
-        />
-        {loans.length > 0 && <Lead>{LOANS_HELP.list}</Lead>}
+        {/* 借入金（資産管理の「実物資産」と同じく 1 枚のカードにまとめ、ローンは枠線つきのブロックで並べる） */}
+        <Card>
+          <SectionTitle
+            note={
+              LOANS_HELP.list +
+              (loans.length > 0
+                ? `\n${asOf}の残高合計: ${yen(totalRemaining)} ・ ${loans.length} 件`
+                : "")
+            }
+          >
+            借入金（住宅ローン・カーローンなど）
+          </SectionTitle>
+          <Button
+            small
+            label="借入追加"
+            onPress={() => {
+              setSheetError(null);
+              setNewLoan(BLANK_LOAN);
+            }}
+            style={{ alignSelf: "flex-start", marginBottom: 8 }}
+          />
 
-        {loans.length === 0 ? (
-          <EmptyText>🏦 {LOANS_HELP.empty}</EmptyText>
-        ) : (
-          loans.map((l, i) => {
-            const pending = pendingRateChange(l);
-            const cmp = expanded[`rate-${l.id}`] ? buildRateComparison(l) : null;
-            const progress = progressOf(l);
-            return (
-              <Card key={l.id}>
-                {/* 金利が改定されたが、改定後の実額返済額がまだ入力されていない（カードのいちばん上に出す） */}
-                {pending && (
-                  <View style={s.pendingBox}>
-                    <Text style={s.pendingTitle}>
-                      {pending.effectiveOn.slice(0, 7)} に金利が{" "}
-                      {ratePercent(pending.interestRate).toFixed(2)}%
-                      へ改定されました。改定後の返済額を入力してください
-                    </Text>
-                    <Text style={s.pendingText}>
-                      現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
-                      で計算中です。
-                      {pending.calculatedMonthlyPayment &&
-                        `計算上の目安は ${yen(Number(pending.calculatedMonthlyPayment))} です。`}
-                      5
-                      年ルールなら「据え置き」を選ぶだけで反映できます（通知額が違うときは入力してください）。
-                    </Text>
-                    <VariableRateHelp />
-                    <Button
-                      small
-                      label="入力する"
-                      onPress={() => {
-                        setSheetError(null);
-                        openPending(l, pending);
-                      }}
-                      style={{ alignSelf: "flex-start", marginTop: 6 }}
-                    />
-                  </View>
-                )}
-                {/* 資産管理の一覧と同じ並び: 左に名前と条件、右に日付つきの残高 */}
-                <View style={s.loanTop}>
-                  <View style={{ flex: 1 }}>
-                    <View style={s.loanHead}>
-                      <Text style={[s.badge, s.badgeType]}>
-                        {LOAN_TYPE_LABEL[l.loanType] ?? l.loanType}
+          {loans.length === 0 ? (
+            <EmptyText>🏦 {LOANS_HELP.empty}</EmptyText>
+          ) : (
+            loans.map((l, i) => {
+              const pending = pendingRateChange(l);
+              const cmp = expanded[`rate-${l.id}`] ? buildRateComparison(l) : null;
+              const progress = progressOf(l);
+              return (
+                <View key={l.id} style={s.loanBlock}>
+                  {/* 金利が改定されたが、改定後の実額返済額がまだ入力されていない（カードのいちばん上に出す） */}
+                  {pending && (
+                    <View style={s.pendingBox}>
+                      <Text style={s.pendingTitle}>
+                        {pending.effectiveOn.slice(0, 7)} に金利が{" "}
+                        {ratePercent(pending.interestRate).toFixed(2)}%
+                        へ改定されました。改定後の返済額を入力してください
                       </Text>
-                      <Text style={s.loanName} numberOfLines={1}>
-                        {l.lenderName}
+                      <Text style={s.pendingText}>
+                        現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
+                        で計算中です。
+                        {pending.calculatedMonthlyPayment &&
+                          `計算上の目安は ${yen(Number(pending.calculatedMonthlyPayment))} です。`}
+                        5
+                        年ルールなら「据え置き」を選ぶだけで反映できます（通知額が違うときは入力してください）。
                       </Text>
-                      <Text style={[s.badge, l.status === "active" ? s.badgeActive : s.badgeDone]}>
-                        {l.status === "active" ? "返済中" : "完済"}
-                      </Text>
-                    </View>
-                    <Text style={s.detail}>
-                      借入額: {yen(Number(l.amount))} ・ 金利:{" "}
-                      {ratePercent(l.interestRate).toFixed(3)}% ・ 完済予定:{" "}
-                      {l.repaymentDate.slice(0, 7)}
-                    </Text>
-                    {l.personalAsset && (
-                      <Text style={s.muted}>
-                        この借入で買った資産: {l.personalAsset.name}（資産管理で見る）
-                      </Text>
-                    )}
-                  </View>
-                  <View style={s.balanceBox}>
-                    <Text style={s.balanceLabel}>{asOf}の残高</Text>
-                    <Text style={s.remaining}>{yen(Number(l.remainingAmount))}</Text>
-                  </View>
-                </View>
-                {l.monthlyPayment && (
-                  <Text style={s.linked}>
-                    月々の返済額: {yen(Number(l.monthlyPayment))}
-                    {l.monthlyPaymentIsManual ? "（実額）" : "（計算値）"}
-                  </Text>
-                )}
-                {Number(l.residualValue ?? 0) > 0 && (
-                  <Text style={s.linked}>残価: {yen(Number(l.residualValue))}（最終回に一括）</Text>
-                )}
-                {l.linkedAccount && (
-                  <Text style={s.linked}>
-                    予算連携先:{" "}
-                    {accountLabel(
-                      l.linkedAccount.code,
-                      `${l.linkedAccount.code} ${l.linkedAccount.name}`,
-                    )}
-                    （自動加算）
-                  </Text>
-                )}
-
-                {Number(l.amount) > 0 && (
-                  <View style={s.progressWrap}>
-                    <View style={s.progressTrack}>
-                      <View
-                        style={[
-                          s.progressFill,
-                          { width: `${progress}%`, backgroundColor: SERIES_COLORS[0] },
-                        ]}
+                      <VariableRateHelp />
+                      <Button
+                        small
+                        label="入力する"
+                        onPress={() => {
+                          setSheetError(null);
+                          openPending(l, pending);
+                        }}
+                        style={{ alignSelf: "flex-start", marginTop: 6 }}
                       />
                     </View>
-                    <Text style={s.muted}>{progress}% 返済済</Text>
+                  )}
+                  {/* 資産管理の一覧と同じ並び: 左に名前と条件、右に日付つきの残高 */}
+                  <View style={s.loanTop}>
+                    <View style={{ flex: 1 }}>
+                      <View style={s.loanHead}>
+                        <Text style={[s.badge, s.badgeType]}>
+                          {LOAN_TYPE_LABEL[l.loanType] ?? l.loanType}
+                        </Text>
+                        <Text style={s.loanName} numberOfLines={1}>
+                          {l.lenderName}
+                        </Text>
+                        <Text
+                          style={[s.badge, l.status === "active" ? s.badgeActive : s.badgeDone]}
+                        >
+                          {l.status === "active" ? "返済中" : "完済"}
+                        </Text>
+                      </View>
+                      <Text style={s.detail}>
+                        借入額: {yen(Number(l.amount))} ・ 金利:{" "}
+                        {ratePercent(l.interestRate).toFixed(3)}% ・ 完済予定:{" "}
+                        {l.repaymentDate.slice(0, 7)}
+                      </Text>
+                      {l.personalAsset && (
+                        <Text style={s.muted}>
+                          この借入で買った資産: {l.personalAsset.name}（資産管理で見る）
+                        </Text>
+                      )}
+                    </View>
+                    <View style={s.balanceBox}>
+                      <Text style={s.balanceLabel}>{asOf}の残高</Text>
+                      <Text style={s.remaining}>{yen(Number(l.remainingAmount))}</Text>
+                    </View>
                   </View>
-                )}
+                  {l.monthlyPayment && (
+                    <Text style={s.linked}>
+                      月々の返済額: {yen(Number(l.monthlyPayment))}
+                      {l.monthlyPaymentIsManual ? "（実額）" : "（計算値）"}
+                    </Text>
+                  )}
+                  {Number(l.residualValue ?? 0) > 0 && (
+                    <Text style={s.linked}>
+                      残価: {yen(Number(l.residualValue))}（最終回に一括）
+                    </Text>
+                  )}
+                  {l.linkedAccount && (
+                    <Text style={s.linked}>
+                      予算連携先:{" "}
+                      {accountLabel(
+                        l.linkedAccount.code,
+                        `${l.linkedAccount.code} ${l.linkedAccount.name}`,
+                      )}
+                      （自動加算）
+                    </Text>
+                  )}
 
-                <View style={s.actions}>
-                  <Button
-                    small
-                    variant="secondary"
-                    label="編集"
-                    onPress={() => {
-                      setSheetError(null);
-                      setEditForm({
-                        loan: l,
-                        amount: l.amount,
-                        borrowedOn: l.borrowedOn.slice(0, 10),
-                        interestRate: l.interestRate,
-                        rateEditable: l.rateChanges.length === 0,
-                        assetId: l.personalAsset?.id ?? null,
-                        repaymentDate: l.repaymentDate.slice(0, 10),
-                        monthlyPayment: l.monthlyPayment ?? "",
-                        residualValue: l.residualValue ?? "",
-                        linkedAccountCode: l.linkedAccount?.code ?? "",
-                      });
-                    }}
-                  />
-                  <Button
-                    small
-                    variant="secondary"
-                    label="金利変更"
-                    onPress={() => {
-                      setSheetError(null);
-                      setRateForm({
-                        loan: l,
-                        effectiveOn: today(),
-                        interestRate: l.interestRate,
-                        monthlyPayment: "",
-                        note: "",
-                      });
-                    }}
-                  />
-                  {l.status === "active" && (
+                  {Number(l.amount) > 0 && (
+                    <View style={s.progressWrap}>
+                      <View style={s.progressTrack}>
+                        <View
+                          style={[
+                            s.progressFill,
+                            { width: `${progress}%`, backgroundColor: SERIES_COLORS[0] },
+                          ]}
+                        />
+                      </View>
+                      <Text style={s.muted}>{progress}% 返済済</Text>
+                    </View>
+                  )}
+
+                  <View style={s.actions}>
                     <Button
                       small
-                      label="返済登録"
+                      variant="secondary"
+                      label="編集"
                       onPress={() => {
                         setSheetError(null);
-                        setPayForm({ loan: l, principal: "", interest: "0", repaidOn: today() });
+                        setEditForm({
+                          loan: l,
+                          amount: l.amount,
+                          borrowedOn: l.borrowedOn.slice(0, 10),
+                          interestRate: l.interestRate,
+                          rateEditable: l.rateChanges.length === 0,
+                          assetId: l.personalAsset?.id ?? null,
+                          repaymentDate: l.repaymentDate.slice(0, 10),
+                          monthlyPayment: l.monthlyPayment ?? "",
+                          residualValue: l.residualValue ?? "",
+                          linkedAccountCode: l.linkedAccount?.code ?? "",
+                        });
                       }}
                     />
-                  )}
-                </View>
+                    <Button
+                      small
+                      variant="secondary"
+                      label="金利変更"
+                      onPress={() => {
+                        setSheetError(null);
+                        setRateForm({
+                          loan: l,
+                          effectiveOn: today(),
+                          interestRate: l.interestRate,
+                          monthlyPayment: "",
+                          note: "",
+                        });
+                      }}
+                    />
+                    {l.status === "active" && (
+                      <Button
+                        small
+                        label="返済登録"
+                        onPress={() => {
+                          setSheetError(null);
+                          setPayForm({ loan: l, principal: "", interest: "0", repaidOn: today() });
+                        }}
+                      />
+                    )}
+                  </View>
 
-                {l.repayments.length > 0 && (
-                  <>
-                    <TouchableOpacity onPress={() => toggle(`pay-${l.id}`)}>
-                      <Text style={s.expand}>
-                        {expanded[`pay-${l.id}`] ? "▼" : "▶"} 返済履歴 ({l.repayments.length}件)
-                      </Text>
-                    </TouchableOpacity>
-                    {expanded[`pay-${l.id}`] &&
-                      l.repayments.map((r) => (
-                        <Text key={r.id} style={s.historyRow}>
-                          {r.repaidOn.slice(0, 10)} 元金 {yen(Number(r.principal))} ・ 利息{" "}
-                          {yen(Number(r.interest))} ・ 合計 {yen(Number(r.totalAmount))}
+                  {l.repayments.length > 0 && (
+                    <>
+                      <TouchableOpacity onPress={() => toggle(`pay-${l.id}`)}>
+                        <Text style={s.expand}>
+                          {expanded[`pay-${l.id}`] ? "▼" : "▶"} 返済履歴 ({l.repayments.length}件)
                         </Text>
-                      ))}
-                  </>
-                )}
+                      </TouchableOpacity>
+                      {expanded[`pay-${l.id}`] &&
+                        l.repayments.map((r) => (
+                          <Text key={r.id} style={s.historyRow}>
+                            {r.repaidOn.slice(0, 10)} 元金 {yen(Number(r.principal))} ・ 利息{" "}
+                            {yen(Number(r.interest))} ・ 合計 {yen(Number(r.totalAmount))}
+                          </Text>
+                        ))}
+                    </>
+                  )}
 
-                {l.rateChanges.length > 0 && (
-                  <>
-                    <TouchableOpacity onPress={() => toggle(`rate-${l.id}`)}>
-                      <Text style={[s.expand, { color: "#b45309" }]}>
-                        {expanded[`rate-${l.id}`] ? "▼" : "▶"} 金利変更履歴 ({l.rateChanges.length}
-                        件) と 変動前後の比較
-                      </Text>
-                    </TouchableOpacity>
-                    {expanded[`rate-${l.id}`] && (
-                      <View>
-                        {l.rateChanges.map((c) => {
-                          const diff = ratePercent(c.interestRate) - ratePercent(c.previousRate);
-                          return (
-                            <View key={c.id} style={s.rateRow}>
-                              <Text style={s.historyRow}>
-                                {c.effectiveOn.slice(0, 10)} ・{" "}
-                                {ratePercent(c.previousRate).toFixed(2)}% →{" "}
-                                <Text style={s.bold}>
-                                  {ratePercent(c.interestRate).toFixed(2)}%
-                                </Text>{" "}
-                                <Text
-                                  style={{
-                                    color: diff > 0 ? "#dc2626" : diff < 0 ? "#16a34a" : "#94a3b8",
-                                  }}
-                                >
-                                  ({diff > 0 ? "+" : ""}
-                                  {diff.toFixed(2)}pt)
-                                </Text>
-                              </Text>
-                              <Text style={s.historyRow}>
-                                返済額{" "}
-                                {c.previousMonthlyPayment
-                                  ? yen(Number(c.previousMonthlyPayment))
-                                  : "—"}{" "}
-                                → {c.monthlyPayment ? yen(Number(c.monthlyPayment)) : "未入力"}
-                                {c.calculatedMonthlyPayment
-                                  ? `（計算上の目安 ${yen(Number(c.calculatedMonthlyPayment))}）`
-                                  : ""}
-                                {c.note ? ` ・ ${c.note}` : ""}
-                              </Text>
-                              {!c.monthlyPayment && (
-                                <Button
-                                  small
-                                  variant="secondary"
-                                  label="改定後の返済額を入力"
-                                  onPress={() => {
-                                    setSheetError(null);
-                                    openPending(l, c);
-                                  }}
-                                  style={{ alignSelf: "flex-start" }}
-                                />
-                              )}
-                            </View>
-                          );
-                        })}
-                        {cmp && (
-                          <View style={{ marginTop: 8 }}>
-                            <View style={s.cmpGrid}>
-                              <View style={s.cmpCell}>
-                                <Text style={s.cmpLabel}>総支払額（変動前）</Text>
-                                <Text style={s.cmpValue}>{yen(cmp.beforeTotal)}</Text>
-                              </View>
-                              <View style={s.cmpCell}>
-                                <Text style={s.cmpLabel}>総支払額（変動後）</Text>
-                                <Text style={s.cmpValue}>{yen(cmp.afterTotal)}</Text>
-                              </View>
-                              <View style={s.cmpCell}>
-                                <Text style={s.cmpLabel}>総利息（変動前 → 後）</Text>
-                                <Text style={s.cmpValue}>
-                                  {yen(cmp.beforeInterest)} → {yen(cmp.afterInterest)}
-                                </Text>
-                              </View>
-                              <View
-                                style={[
-                                  s.cmpCell,
-                                  {
-                                    backgroundColor:
-                                      cmp.afterTotal > cmp.beforeTotal ? "#fef2f2" : "#f0fdf4",
-                                  },
-                                ]}
-                              >
-                                <Text style={s.cmpLabel}>総支払額の差</Text>
-                                <Text
-                                  style={[
-                                    s.cmpValue,
-                                    {
+                  {l.rateChanges.length > 0 && (
+                    <>
+                      <TouchableOpacity onPress={() => toggle(`rate-${l.id}`)}>
+                        <Text style={[s.expand, { color: "#b45309" }]}>
+                          {expanded[`rate-${l.id}`] ? "▼" : "▶"} 金利変更履歴 (
+                          {l.rateChanges.length}
+                          件) と 変動前後の比較
+                        </Text>
+                      </TouchableOpacity>
+                      {expanded[`rate-${l.id}`] && (
+                        <View>
+                          {l.rateChanges.map((c) => {
+                            const diff = ratePercent(c.interestRate) - ratePercent(c.previousRate);
+                            return (
+                              <View key={c.id} style={s.rateRow}>
+                                <Text style={s.historyRow}>
+                                  {c.effectiveOn.slice(0, 10)} ・{" "}
+                                  {ratePercent(c.previousRate).toFixed(2)}% →{" "}
+                                  <Text style={s.bold}>
+                                    {ratePercent(c.interestRate).toFixed(2)}%
+                                  </Text>{" "}
+                                  <Text
+                                    style={{
                                       color:
-                                        cmp.afterTotal > cmp.beforeTotal ? "#dc2626" : "#16a34a",
+                                        diff > 0 ? "#dc2626" : diff < 0 ? "#16a34a" : "#94a3b8",
+                                    }}
+                                  >
+                                    ({diff > 0 ? "+" : ""}
+                                    {diff.toFixed(2)}pt)
+                                  </Text>
+                                </Text>
+                                <Text style={s.historyRow}>
+                                  返済額{" "}
+                                  {c.previousMonthlyPayment
+                                    ? yen(Number(c.previousMonthlyPayment))
+                                    : "—"}{" "}
+                                  → {c.monthlyPayment ? yen(Number(c.monthlyPayment)) : "未入力"}
+                                  {c.calculatedMonthlyPayment
+                                    ? `（計算上の目安 ${yen(Number(c.calculatedMonthlyPayment))}）`
+                                    : ""}
+                                  {c.note ? ` ・ ${c.note}` : ""}
+                                </Text>
+                                {!c.monthlyPayment && (
+                                  <Button
+                                    small
+                                    variant="secondary"
+                                    label="改定後の返済額を入力"
+                                    onPress={() => {
+                                      setSheetError(null);
+                                      openPending(l, c);
+                                    }}
+                                    style={{ alignSelf: "flex-start" }}
+                                  />
+                                )}
+                              </View>
+                            );
+                          })}
+                          {cmp && (
+                            <View style={{ marginTop: 8 }}>
+                              <View style={s.cmpGrid}>
+                                <View style={s.cmpCell}>
+                                  <Text style={s.cmpLabel}>総支払額（変動前）</Text>
+                                  <Text style={s.cmpValue}>{yen(cmp.beforeTotal)}</Text>
+                                </View>
+                                <View style={s.cmpCell}>
+                                  <Text style={s.cmpLabel}>総支払額（変動後）</Text>
+                                  <Text style={s.cmpValue}>{yen(cmp.afterTotal)}</Text>
+                                </View>
+                                <View style={s.cmpCell}>
+                                  <Text style={s.cmpLabel}>総利息（変動前 → 後）</Text>
+                                  <Text style={s.cmpValue}>
+                                    {yen(cmp.beforeInterest)} → {yen(cmp.afterInterest)}
+                                  </Text>
+                                </View>
+                                <View
+                                  style={[
+                                    s.cmpCell,
+                                    {
+                                      backgroundColor:
+                                        cmp.afterTotal > cmp.beforeTotal ? "#fef2f2" : "#f0fdf4",
                                     },
                                   ]}
                                 >
-                                  {cmp.afterTotal > cmp.beforeTotal ? "+" : ""}
-                                  {yen(cmp.afterTotal - cmp.beforeTotal)}
-                                </Text>
+                                  <Text style={s.cmpLabel}>総支払額の差</Text>
+                                  <Text
+                                    style={[
+                                      s.cmpValue,
+                                      {
+                                        color:
+                                          cmp.afterTotal > cmp.beforeTotal ? "#dc2626" : "#16a34a",
+                                      },
+                                    ]}
+                                  >
+                                    {cmp.afterTotal > cmp.beforeTotal ? "+" : ""}
+                                    {yen(cmp.afterTotal - cmp.beforeTotal)}
+                                  </Text>
+                                </View>
                               </View>
+                              <ComparisonChart points={cmp.points} />
+                              <Text style={s.muted}>
+                                借入額 {yen(Number(l.amount))}{" "}
+                                を借入日〜支払い完了年月で償還した場合の残高推移。
+                                {l.monthlyPayment
+                                  ? `月々の返済額は${l.monthlyPaymentIsManual ? "入力された実額" : "登録済みの金額"}で据え置き（金利上昇分は元本充当が減ります）。`
+                                  : "金利変更月に残高と残回数から月額を再計算しています。"}
+                              </Text>
                             </View>
-                            <ComparisonChart points={cmp.points} />
-                            <Text style={s.muted}>
-                              借入額 {yen(Number(l.amount))}{" "}
-                              を借入日〜支払い完了年月で償還した場合の残高推移。
-                              {l.monthlyPayment
-                                ? `月々の返済額は${l.monthlyPaymentIsManual ? "入力された実額" : "登録済みの金額"}で据え置き（金利上昇分は元本充当が減ります）。`
-                                : "金利変更月に残高と残回数から月額を再計算しています。"}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                  </>
-                )}
-              </Card>
-            );
-          })
-        )}
+                          )}
+                        </View>
+                      )}
+                    </>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </Card>
       </ScrollView>
 
       {/* ── 借入追加 ── */}
@@ -1267,6 +1286,13 @@ const s = StyleSheet.create({
   trendItem: { borderTopWidth: 1, borderTopColor: "#f1f5f9", paddingTop: 8, marginTop: 8 },
   trendName: { fontSize: 13, fontWeight: "600", color: "#1e293b", flexShrink: 1 },
   chartLabel: { fontSize: 10, color: "#64748b", marginTop: 6 },
+  loanBlock: {
+    borderWidth: 1,
+    borderColor: "#f1f5f9",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+  },
   loanTop: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   balanceBox: { alignItems: "flex-end" },
   balanceLabel: { fontSize: 10, color: "#94a3b8" },

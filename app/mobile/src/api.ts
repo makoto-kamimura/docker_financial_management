@@ -1047,32 +1047,7 @@ export async function unlinkBankTransfer(transferGroupId: string): Promise<void>
   );
 }
 
-// ── 残高推移・資金繰り・月次の実績フロー ─────────────────────────────────
-export type TrendGranularity = "month" | "day";
-export type BalanceTrendPoint = {
-  /** 月次は "YYYY-MM"、日次は "YYYY-MM-DD" */
-  month?: string;
-  date?: string;
-  balances: Record<number, number>;
-  /** 資金移動ルールからの推測値 */
-  estimated: boolean;
-};
-
-export async function fetchBalanceTrend(params: {
-  year: number;
-  month: number;
-  granularity: TrendGranularity;
-}): Promise<{ accounts: { id: number; name: string }[]; points: BalanceTrendPoint[] }> {
-  const json = await request<{
-    accounts?: { id: number; name: string }[];
-    points?: BalanceTrendPoint[];
-  }>(
-    `/bank-accounts/balance-trend?year=${params.year}&month=${params.month}&before=6&after=6&granularity=${params.granularity}`,
-    "残高推移の取得に失敗しました",
-  );
-  return { accounts: json.accounts ?? [], points: json.points ?? [] };
-}
-
+// ── 資金繰り・月次の実績フロー ─────────────────────────────────────────
 export type FundingEvent = { date: string; label: string; amount: number; balanceAfter: number };
 export type FundingPlan = {
   accountId: number;
