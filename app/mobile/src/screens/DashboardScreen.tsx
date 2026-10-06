@@ -345,6 +345,11 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
         </>
       )}
 
+      {/* 総資産サマリ（KPI の対象月の時点。内訳と推移は資産管理） */}
+      {!loading && !error && kpi && (
+        <NetWorthSummaryCard period={kpi.period} refreshKey={refreshKey} />
+      )}
+
       {/* 予算と実績の確定の状況（KPI の対象月）。確定の操作は予算・実績の画面で行う */}
       {!loading && !error && kpi && (
         <CycleStatusRow period={kpi.period} refreshKey={refreshKey} onOpen={onOpenCycle} />
@@ -353,11 +358,6 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
       {/* 予算と実績（KPI の対象月の差をひと目で） */}
       {!loading && !error && kpi && (
         <BudgetActualChart viewMode={viewMode} period={kpi.period} data={variance} />
-      )}
-
-      {/* 総資産サマリ（KPI の対象月の時点。内訳と推移は資産管理） */}
-      {!loading && !error && kpi && (
-        <NetWorthSummaryCard period={kpi.period} refreshKey={refreshKey} />
       )}
     </ScrollView>
   );
