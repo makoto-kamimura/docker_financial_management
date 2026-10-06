@@ -340,3 +340,48 @@ export function loanTrendSeries(
   );
   return { months, currentKey, total, loans: rows };
 }
+
+/** 金利改定後の返済額の選び方（借入金管理の「改定後の返済額を入力」） */
+export type PaymentChoice = {
+  key: "keep" | "recalc" | "custom";
+  label: string;
+  /** 選んだときの月額。custom は入力するので null */
+  amount: number | null;
+  note: string;
+};
+
+/**
+ * 金利改定後の返済額の選択肢。5 年ルール（据え置き）を先頭（既定）にし、計算上の目安と、通知額の入力を並べる。
+ * 据え置きの額は改定直前の返済額（無ければローンの今の返済額）。どちらも無ければ据え置きは出さない。
+ */
+export function pendingPaymentChoices(
+  loan: Pick<Loan, "monthlyPayment">,
+  change: Pick<LoanRateChange, "previousMonthlyPayment" | "calculatedMonthlyPayment">,
+): PaymentChoice[] {
+  const keep = Number(change.previousMonthlyPayment ?? loan.monthlyPayment ?? 0);
+  const recalc = Number(change.calculatedMonthlyPayment ?? 0);
+  const choices: PaymentChoice[] = [];
+  if (keep > 0) {
+    choices.push({
+      key: "keep",
+      label: "据え置き（5 年ルール）",
+      amount: keep,
+      note: "多くの銀行の方式。金利が変わっても 5 年間は返済額が変わらない",
+    });
+  }
+  if (recalc > 0) {
+    choices.push({
+      key: "recalc",
+      label: "再計算された額（都度見直し型）",
+      amount: recalc,
+      note: "金利改定のたびに返済額を計算し直す方式の目安",
+    });
+  }
+  choices.push({
+    key: "custom",
+    label: "通知額を入力",
+    amount: null,
+    note: "125% ルールなど、通知された額がほかのとき",
+  });
+  return choices;
+}
