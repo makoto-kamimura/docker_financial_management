@@ -53,6 +53,12 @@ export type Loan = {
   repayments: Repayment[];
   /** この借入で買った資産（資産管理の実物資産）。無ければ null */
   personalAsset?: { id: number; name: string; category: string } | null;
+  /** 返済の引き落とし口座と日（入っていれば資金繰りに自動で並ぶ） */
+  debitBankAccountId?: number | null;
+  debitDay?: number | null;
+  debitBankAccount?: { id: number; name: string } | null;
+  /** 同じ返済の資金移動ルールがあるため、資金繰りにはルールの方を使っている */
+  debitCoveredByRule?: boolean;
 };
 // 借入ごとの線の色（返済スケジュールのグラフと一覧の丸印で共用）
 export const LOAN_COLORS = ["#2563eb", "#f97316", "#16a34a", "#9333ea", "#dc2626", "#0891b2"];

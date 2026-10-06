@@ -15,6 +15,10 @@ export type FundingTransfer = {
   day: number;
   /** 表示用のラベル（未設定なら種別名などを呼び出し側で入れる） */
   label: string | null;
+  /** この月（"YYYY-MM"）から有効。無ければ期限なし（借入の返済は借入日の月から） */
+  activeFrom?: string;
+  /** この月（"YYYY-MM"）まで有効。無ければ期限なし（借入の返済は完済予定の月まで） */
+  activeUntil?: string;
 };
 
 export type FundingEvent = {
@@ -71,8 +75,14 @@ export function computeFundingPlans(
       const m = base.getMonth() + 1;
       const dim = daysInMonth(y, m);
 
+      const key = `${y}-${String(m).padStart(2, "0")}`;
       const monthly = transfers
         .filter((t) => t.fromId === a.id || t.toId === a.id)
+        .filter(
+          (t) =>
+            (t.activeFrom === undefined || key >= t.activeFrom) &&
+            (t.activeUntil === undefined || key <= t.activeUntil),
+        )
         .map((t) => {
           const isOut = t.fromId === a.id;
           return {

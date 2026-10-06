@@ -5,6 +5,7 @@ import { badRequest } from "@/lib/api-error";
 import { findAccountByCode } from "@/lib/period";
 import { invalidateCache } from "@/lib/redis";
 import { LOAN_INCLUDE, loanBalanceAt } from "@/lib/loan-balance";
+import { loanFundingTransfers } from "@/lib/loan-funding";
 import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
 import { recordValuation, ruleOfRow } from "@/lib/personal-asset-valuation";
 
@@ -34,6 +35,9 @@ const LoanSchema = z.object({
   // 残価設定ローンの据置額（最終回に一括支払い）。カーローン等
   residualValue: z.number().min(0).nullable().optional(),
   asset: LoanAssetSchema.optional(),
+  // 返済の引き落とし口座と日（入れると資金繰りに自動で並ぶ）
+  debitBankAccountId: z.number().int().nullable().optional(),
+  debitDay: z.number().int().min(1).max(31).nullable().optional(),
 });
 
 // GET /api/loans?status=active … 借入金一覧
@@ -42,13 +46,25 @@ export const GET = withApi({
   role: "viewer",
   querySchema: z.object({ status: z.string().optional() }),
   handler: async ({ user, db, query }) => {
-    const loans = await db.loan.findMany({
-      where: { tenantId: user.tenantId, ...(query.status ? { status: query.status } : {}) },
-      include: LOAN_INCLUDE,
-      orderBy: { borrowedOn: "desc" },
-    });
+    const [loans, transfers] = await Promise.all([
+      db.loan.findMany({
+        where: { tenantId: user.tenantId, ...(query.status ? { status: query.status } : {}) },
+        include: LOAN_INCLUDE,
+        orderBy: { borrowedOn: "desc" },
+      }),
+      db.transfer.findMany({ where: { tenantId: user.tenantId } }),
+    ]);
     const now = new Date();
-    const data = loans.map((l) => ({ ...l, remainingAmount: String(loanBalanceAt(l, now)) }));
+    // 同じ返済の資金移動ルールがあるため、資金繰りにはルールの方を使っている借入
+    const { coveredByRule } = loanFundingTransfers(
+      loans,
+      transfers.map((t) => ({ fromId: t.fromAccountId, day: t.day, amount: Number(t.amount) })),
+    );
+    const data = loans.map((l) => ({
+      ...l,
+      remainingAmount: String(loanBalanceAt(l, now)),
+      debitCoveredByRule: coveredByRule.includes(l.id),
+    }));
     return NextResponse.json({ data });
   },
 });
@@ -67,6 +83,12 @@ export const POST = withApi({
       linkedAccountId = account.id;
     }
 
+    if (body.debitBankAccountId != null) {
+      const bank = await db.bankAccount.findFirst({
+        where: { id: body.debitBankAccountId, tenantId },
+      });
+      if (!bank) throw badRequest(`invalid debitBankAccountId: ${body.debitBankAccountId}`);
+    }
     if (body.asset?.mode === "link") {
       const target = await db.personalAsset.findFirst({
         where: { id: body.asset.assetId, tenantId },
@@ -90,6 +112,8 @@ export const POST = withApi({
           linkedAccountId,
           monthlyPayment: body.monthlyPayment ?? null,
           residualValue: body.residualValue ?? null,
+          debitBankAccountId: body.debitBankAccountId ?? null,
+          debitDay: body.debitDay ?? null,
         },
       });
       // この借入で買った資産: その場で作る（評価額の記録も残す）か、既存の資産にひも付ける

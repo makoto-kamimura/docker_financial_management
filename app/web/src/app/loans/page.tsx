@@ -78,6 +78,9 @@ export default function LoansPage() {
     linkedAccountCode: "",
     monthlyPayment: "",
     residualValue: "",
+    // 返済の引き落とし口座と日（入れると資金繰りに自動で並ぶ）
+    debitBankAccountId: "",
+    debitDay: "",
   });
   // この借入で買った資産（任意）。その場で作るか、ローンの無い既存の資産を選ぶ
   const [newAsset, setNewAsset] = useState<{
@@ -96,6 +99,7 @@ export default function LoansPage() {
     assetId: "",
   });
   const [assets, setAssets] = useState<AssetRef[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<{ id: number; name: string }[]>([]);
   const [editForm, setEditForm] = useState<{
     loanId: number | null;
     amount: string;
@@ -109,6 +113,8 @@ export default function LoansPage() {
     linkedAccountCode: string;
     /** この借入で買った資産（"" = なし） */
     assetId: string;
+    debitBankAccountId: string;
+    debitDay: string;
   }>({
     loanId: null,
     amount: "",
@@ -116,6 +122,8 @@ export default function LoansPage() {
     interestRate: "",
     rateEditable: false,
     assetId: "",
+    debitBankAccountId: "",
+    debitDay: "",
     repaymentDate: "",
     monthlyPayment: "",
     residualValue: "",
@@ -176,6 +184,11 @@ export default function LoansPage() {
         setLoans(j.data ?? []);
         setLoading(false);
       });
+    // 引き落とし口座の候補
+    fetch("/api/bank-accounts")
+      .then((r) => r.json())
+      .then((j) => setBankAccounts(j.data ?? []))
+      .catch(() => setBankAccounts([]));
     // ひも付ける資産の候補（ローンの無い資産）
     fetch("/api/personal-assets")
       .then((r) => r.json())
@@ -218,6 +231,8 @@ export default function LoansPage() {
         linkedAccountCode: newLoan.linkedAccountCode || undefined,
         monthlyPayment: newLoan.monthlyPayment ? Number(newLoan.monthlyPayment) : undefined,
         residualValue: newLoan.residualValue ? Number(newLoan.residualValue) : undefined,
+        debitBankAccountId: newLoan.debitBankAccountId ? Number(newLoan.debitBankAccountId) : null,
+        debitDay: newLoan.debitDay ? Number(newLoan.debitDay) : null,
         asset,
       }),
     });
@@ -299,6 +314,8 @@ export default function LoansPage() {
       interestRate: l.interestRate,
       rateEditable: l.rateChanges.length === 0,
       assetId: l.personalAsset ? String(l.personalAsset.id) : "",
+      debitBankAccountId: l.debitBankAccountId ? String(l.debitBankAccountId) : "",
+      debitDay: l.debitDay ? String(l.debitDay) : "",
       repaymentDate: l.repaymentDate.slice(0, 10),
       monthlyPayment: l.monthlyPayment ?? "",
       residualValue: l.residualValue ?? "",
@@ -320,6 +337,10 @@ export default function LoansPage() {
         residualValue: editForm.residualValue ? Number(editForm.residualValue) : null,
         linkedAccountCode: editForm.linkedAccountCode || null,
         assetId: editForm.assetId ? Number(editForm.assetId) : null,
+        debitBankAccountId: editForm.debitBankAccountId
+          ? Number(editForm.debitBankAccountId)
+          : null,
+        debitDay: editForm.debitDay ? Number(editForm.debitDay) : null,
       }),
     });
     if (r.ok) {
@@ -454,6 +475,20 @@ export default function LoansPage() {
                         )}
                       </div>
                     )}
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {l.debitBankAccount && l.debitDay ? (
+                        <>
+                          引き落とし: {l.debitBankAccount.name} ・ 毎月{l.debitDay}日
+                          {l.debitCoveredByRule
+                            ? "（同じ返済の資金移動ルールがあるため、資金繰りにはそちらを使っています）"
+                            : "（資金繰りに自動で入ります）"}
+                        </>
+                      ) : (
+                        <span className="text-slate-400">
+                          引き落とし口座と日を入れると、返済が資金繰りに自動で入ります（「編集」から）
+                        </span>
+                      )}
+                    </div>
                     {l.personalAsset && (
                       <div className="text-xs text-slate-500 mt-0.5">
                         この借入で買った資産: {l.personalAsset.name} ・{" "}
@@ -785,6 +820,42 @@ export default function LoansPage() {
                   </p>
                 </div>
               </>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    引き落とし口座
+                  </label>
+                  <select
+                    value={newLoan.debitBankAccountId}
+                    onChange={(e) =>
+                      setNewLoan((f) => ({ ...f, debitBankAccountId: e.target.value }))
+                    }
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">指定しない</option>
+                    {bankAccounts.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    引き落とし日（毎月）
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    placeholder="27"
+                    value={newLoan.debitDay}
+                    onChange={(e) => setNewLoan((f) => ({ ...f, debitDay: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 -mt-2">{LOANS_HELP.debit}</p>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">残価（円）</label>
                 <input
@@ -1045,6 +1116,42 @@ export default function LoansPage() {
                   入力すると毎月はこの額を除いた分だけを償却し、最終回に残価が残る計算になります。
                 </p>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    引き落とし口座
+                  </label>
+                  <select
+                    value={editForm.debitBankAccountId}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, debitBankAccountId: e.target.value }))
+                    }
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">指定しない</option>
+                    {bankAccounts.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    引き落とし日（毎月）
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    placeholder="27"
+                    value={editForm.debitDay}
+                    onChange={(e) => setEditForm((f) => ({ ...f, debitDay: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 -mt-2">{LOANS_HELP.debit}</p>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">
                   この借入で買った資産

@@ -45,4 +45,5 @@ export const LOAN_INCLUDE = {
   rateChanges: { orderBy: { effectiveOn: "asc" as const } },
   linkedAccount: { select: { id: true, code: true, name: true } },
   personalAsset: { select: { id: true, name: true, category: true } },
+  debitBankAccount: { select: { id: true, name: true } },
 };

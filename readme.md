@@ -494,10 +494,13 @@ KPI の下に、次の順で置く。
 - **資金移動ルール**：毎月の決まった日のお金の動きを、種類（給与・収入 / 支出 / 銀行振込 / 銀行引き落とし / カード引き落とし）・日・金額・出金元・入金先で登録する。出金元・入金先は「外部」にできる（給与は外部から入金、支出は外部へ出金）。
 - 一覧モードと、月のカレンダーで見るスケジュールモードがある。
 - **振替の登録**：一度きりの口座間の振替を登録する。取り込んだ明細の中から、振替らしい組の候補を出して組にすることもできる。
+- **毎月の入出金の候補**：直近 6 か月の明細から、毎月同じころ（前後 3 日）に同じくらい（±10%）の金額で 3 か月以上ある入出金を見つけ、振替タブに資金移動ルールの候補として出す（`src/lib/recurring-suggestions.ts`、`GET /api/transfers/suggestions`）。「登録」で資金移動ルールになり、「非表示」は `recurring_suggestion_dismissals` に記録して以後は出さない。近いルールがあるもの、振替・チャージにした明細は出さない。サマリにも件数を知らせる。
 
 ### 10.4 資金繰り
 
 今の残高と資金移動ルールから、3か月先までの日ごとの残高を計算し、口座ごとに、残高が初めてマイナスになる日（入金の期限）と、必要な入金額を出す。自動で計算し、利用者の操作は要らない。
+
+借入金管理で引き落とし口座と日を入れた借入の返済も、借入日の月から完済予定の月まで、月々の返済額をその口座からの引き落としとして自動で並べる（資金フロー図にも描く。`src/lib/loan-funding.ts`）。同じ口座・日・金額（±1%）の資金移動ルールがあれば、そちらを使い借入からは入れない（二重に数えない）。
 
 ### 10.5 資金フロー図
 
@@ -577,6 +580,7 @@ KPI の下に、次の順で置く。
 - 予算に反映する科目を指定すると、月々の返済額が予算に自動反映される（[8.3節](#83-自動反映)）。実物資産にひも付いた借入も、この予算連携先に上乗せする。
 - **この借入で買った資産**：「借入追加」で、資産をその場で作る（名前・種別・取得価格・評価額。取得価格の既定は借入額、取得日は借入日）か、ローンの無い既存の資産を選んでひも付ける。「借入条件の編集」で付け替え・外しができる。1 つの借入にひも付く資産は 1 つ。内訳や価値の変わり方は資産管理で直す。
 - 金利が改定され、改定後の返済額が未入力の借入は、カードのいちばん上と画面の上にお知らせを出す。
+- **引き落とし口座と日**：入れると、月々の返済額を銀行管理の資金繰りと資金フロー図に自動で並べる（[10.4節](#104-資金繰り)）。同じ返済の資金移動ルールがあるときは、一覧にその旨を出し、ルールの方を使う。
 - 「借入条件の編集」では、借入額・借入日・金利（金利変更の履歴が無いときだけ。あるときは「金利変更」で登録）・完済予定・月々の返済額・残価・予算連携先も直せる。借入額を直すと、残高も「借入額 − 返した元金の合計」に合わせる。
 - **残高の計算**：返済の記録がある借入は「借入額 − その時点までに返した元金」、記録が無い借入は返済予定から計算したその時点の残高（`src/lib/loan-balance.ts`）。借入金管理・ダッシュボードの総資産サマリ・資産管理の表示で同じ計算を使う。
 
@@ -1073,7 +1077,8 @@ npm run typecheck && npm run format:check
 | `personal_assets` | name, category, acquiredOn, acquisitionCost, currentValue, countAsAsset, linkedAccountId, loanId, valuationMethod, valuationRate, usefulLifeYears, buildingStructure | 実物資産。loanId は一意。内訳があるときの currentValue / acquisitionCost は内訳の合計 |
 | `personal_asset_parts` | assetId, name, category, acquisitionCost, currentValue, valuationMethod, valuationRate, usefulLifeYears, buildingStructure, sortOrder | 実物資産の内訳（土地と建物など）。資産を消すと一緒に消える |
 | `personal_asset_valuations` | assetId, partId, valuedOn, value, rule | 評価額の記録（手で入れた値と、価値の変わり方を変えたときの見積もり）。rule はその日から効く変わり方で、null は今の設定。partId が null の行は資産そのもの。同じ日に入れ直すと置き換える |
-| `loans` | lenderName, amount, interestRate, borrowedOn, repaymentDate, remainingAmount, status, loanType, linkedAccountId, monthlyPayment, residualValue, monthlyPaymentIsManual | |
+| `loans` | lenderName, amount, interestRate, borrowedOn, repaymentDate, remainingAmount, status, loanType, linkedAccountId, monthlyPayment, residualValue, monthlyPaymentIsManual, debitBankAccountId, debitDay | debit* は返済の引き落とし口座と日（資金繰りに自動で並べる） |
+| `recurring_suggestion_dismissals` | bankAccountId, signature | 明細からの「毎月の入出金」の候補で非表示にしたもの。`[tenantId, bankAccountId, signature]` 一意 |
 | `loan_interest_rate_changes` | loanId, effectiveOn, interestRate, previousRate, monthlyPayment, previousMonthlyPayment, calculatedMonthlyPayment, note | `[loanId, effectiveOn]` 一意 |
 | `loan_repayments` | loanId, repaidOn, principal, interest, totalAmount | |
 
@@ -1245,6 +1250,8 @@ npm run typecheck && npm run format:check
 | PATCH / DELETE | `/personal-assets/[id]` | E |
 | GET / POST | `/loans` | V / E（POST は `asset` で資産をその場で作る・既存にひも付ける） |
 | GET | `/loans/summary` | V |
+| GET | `/transfers/suggestions` | V |
+| POST | `/transfers/suggestions/dismiss` | E |
 | PATCH | `/loans/[id]` | E |
 | POST | `/loans/[id]/repay` | E |
 | GET / POST | `/loans/[id]/interest-rates` | V / E |
