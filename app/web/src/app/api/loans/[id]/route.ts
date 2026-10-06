@@ -21,6 +21,9 @@ const UpdateSchema = z.object({
   residualValue: z.number().min(0).nullable().optional(),
   // この借入で買った資産の付け替え（null で外す）。資産はローンの無いものだけ選べる
   assetId: z.number().int().nullable().optional(),
+  // 返済の引き落とし口座と日（入れると資金繰りに自動で並ぶ。null で外す）
+  debitBankAccountId: z.number().int().nullable().optional(),
+  debitDay: z.number().int().min(1).max(31).nullable().optional(),
 });
 
 // PATCH /api/loans/[id] … 借入条件の編集（借入額・借入日・金利・支払い完了年月・月々の返済額・連携科目・資産 等）
@@ -41,6 +44,12 @@ export const PATCH = withApi({
       if (target.loanId !== null && target.loanId !== id) {
         throw badRequest("この資産には、ほかの借入がひも付いています");
       }
+    }
+    if (body.debitBankAccountId != null) {
+      const bank = await db.bankAccount.findFirst({
+        where: { id: body.debitBankAccountId, tenantId },
+      });
+      if (!bank) throw badRequest(`invalid debitBankAccountId: ${body.debitBankAccountId}`);
     }
     // 借入額を直したら、残高も「借入額 − 返した元金の合計」に合わせる
     const repaid = existing.repayments.reduce((sum, r) => sum + Number(r.principal), 0);
@@ -76,6 +85,10 @@ export const PATCH = withApi({
             remainingAmount: Math.max(0, body.amount - repaid),
           }),
           ...(body.borrowedOn !== undefined && { borrowedOn: new Date(body.borrowedOn) }),
+          ...(body.debitBankAccountId !== undefined && {
+            debitBankAccountId: body.debitBankAccountId,
+          }),
+          ...(body.debitDay !== undefined && { debitDay: body.debitDay }),
           ...(body.interestRate !== undefined && { interestRate: body.interestRate }),
           ...(body.repaymentDate !== undefined && { repaymentDate: new Date(body.repaymentDate) }),
           ...(body.note !== undefined && { note: body.note }),

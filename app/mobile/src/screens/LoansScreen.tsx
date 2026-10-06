@@ -14,6 +14,7 @@ import {
 import Svg, { Polyline } from "react-native-svg";
 import {
   fetchAccounts,
+  fetchBankAccounts,
   fetchLoans,
   fetchPersonalAssets,
   patchLoan,
@@ -22,6 +23,7 @@ import {
   postLoanRateChange,
   repayLoan,
   type Account,
+  type BankAccount,
   type Loan,
   type PersonalAsset,
   type ViewMode,
@@ -140,6 +142,9 @@ type NewLoanForm = {
   linkedAccountCode: string;
   monthlyPayment: string;
   residualValue: string;
+  /** 返済の引き落とし口座と日（入れると資金繰りに自動で並ぶ） */
+  debitBankAccountId: number | null;
+  debitDay: string;
   /** この借入で買った資産（なし・その場で作る・既存から選ぶ） */
   assetMode: "none" | "new" | "link";
   assetName: string;
@@ -159,6 +164,8 @@ const BLANK_LOAN: NewLoanForm = {
   linkedAccountCode: "",
   monthlyPayment: "",
   residualValue: "",
+  debitBankAccountId: null,
+  debitDay: "",
   assetMode: "none",
   assetName: "",
   assetCategory: "OTHER",
@@ -207,6 +214,8 @@ export function LoansScreen({ viewMode }: Props) {
   const [newLoan, setNewLoan] = useState<NewLoanForm | null>(null);
   // ひも付ける資産の候補（ローンの無い資産）
   const [assets, setAssets] = useState<PersonalAsset[]>([]);
+  // 引き落とし口座の候補
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [editForm, setEditForm] = useState<{
     loan: Loan;
     amount: string;
@@ -215,6 +224,8 @@ export function LoansScreen({ viewMode }: Props) {
     /** 金利変更の履歴があるローンは、金利は「金利変更」で直す */
     rateEditable: boolean;
     assetId: number | null;
+    debitBankAccountId: number | null;
+    debitDay: string;
     repaymentDate: string;
     monthlyPayment: string;
     residualValue: string;
@@ -270,6 +281,9 @@ export function LoansScreen({ viewMode }: Props) {
         fetchPersonalAssets().catch(() => []),
       ]);
       setAssets(pa);
+      fetchBankAccounts()
+        .then(setBankAccounts)
+        .catch(() => setBankAccounts([]));
       setLoans(ls);
       setAccounts(accs);
     } catch (e) {
@@ -511,6 +525,14 @@ export function LoansScreen({ viewMode }: Props) {
                           この借入で買った資産: {l.personalAsset.name}（資産管理で見る）
                         </Text>
                       )}
+                      <Text style={s.muted}>
+                        {l.debitBankAccount && l.debitDay
+                          ? `引き落とし: ${l.debitBankAccount.name} ・ 毎月${l.debitDay}日` +
+                            (l.debitCoveredByRule
+                              ? "（同じ返済の資金移動ルールがあるため、資金繰りにはそちらを使っています）"
+                              : "（資金繰りに自動で入ります）")
+                          : "引き落とし口座と日を入れると、返済が資金繰りに自動で入ります（「編集」から）"}
+                      </Text>
                     </View>
                     <View style={s.balanceBox}>
                       <Text style={s.balanceLabel}>{asOf}の残高</Text>
@@ -567,6 +589,8 @@ export function LoansScreen({ viewMode }: Props) {
                           interestRate: l.interestRate,
                           rateEditable: l.rateChanges.length === 0,
                           assetId: l.personalAsset?.id ?? null,
+                          debitBankAccountId: l.debitBankAccountId ?? null,
+                          debitDay: l.debitDay ? String(l.debitDay) : "",
                           repaymentDate: l.repaymentDate.slice(0, 10),
                           monthlyPayment: l.monthlyPayment ?? "",
                           residualValue: l.residualValue ?? "",
@@ -768,6 +792,8 @@ export function LoansScreen({ viewMode }: Props) {
                       ? Number(newLoan.residualValue)
                       : undefined,
                     asset: assetPayload(newLoan),
+                    debitBankAccountId: newLoan.debitBankAccountId,
+                    debitDay: newLoan.debitDay ? Number(newLoan.debitDay) : null,
                     monthlyPayment: newLoan.monthlyPayment
                       ? Number(newLoan.monthlyPayment)
                       : undefined,
@@ -836,6 +862,28 @@ export function LoansScreen({ viewMode }: Props) {
               <Text style={s.muted}>
                 支払い完了年月まで、連携先科目の予算に毎月自動加算されます。
               </Text>
+            </Field>
+            <Field label="引き落とし口座">
+              <Pills
+                scroll={false}
+                options={[
+                  { value: 0, label: "指定しない" },
+                  ...bankAccounts.map((b) => ({ value: b.id, label: b.name })),
+                ]}
+                value={newLoan.debitBankAccountId ?? 0}
+                onChange={(id) =>
+                  setNewLoan({ ...newLoan, debitBankAccountId: id === 0 ? null : id })
+                }
+              />
+            </Field>
+            <Field label="引き落とし日（毎月）">
+              <Input
+                keyboardType="number-pad"
+                value={newLoan.debitDay}
+                placeholder="27"
+                onChangeText={(debitDay) => setNewLoan({ ...newLoan, debitDay })}
+              />
+              <Text style={s.muted}>{LOANS_HELP.debit}</Text>
             </Field>
             <Field label="残価（円）">
               <Input
@@ -930,6 +978,8 @@ export function LoansScreen({ viewMode }: Props) {
                     borrowedOn: editForm.borrowedOn,
                     ...(editForm.rateEditable && { interestRate: Number(editForm.interestRate) }),
                     assetId: editForm.assetId,
+                    debitBankAccountId: editForm.debitBankAccountId,
+                    debitDay: editForm.debitDay ? Number(editForm.debitDay) : null,
                     repaymentDate: editForm.repaymentDate,
                     monthlyPayment: editForm.monthlyPayment
                       ? Number(editForm.monthlyPayment)
@@ -1007,6 +1057,28 @@ export function LoansScreen({ viewMode }: Props) {
                 残価設定ローン（カーローン等）で最終回に一括して支払う据置額。入力すると毎月はこの額を除いた分だけを償却し、
                 最終回に残価が残る計算になります。
               </Text>
+            </Field>
+            <Field label="引き落とし口座">
+              <Pills
+                scroll={false}
+                options={[
+                  { value: 0, label: "指定しない" },
+                  ...bankAccounts.map((b) => ({ value: b.id, label: b.name })),
+                ]}
+                value={editForm.debitBankAccountId ?? 0}
+                onChange={(id) =>
+                  setEditForm({ ...editForm, debitBankAccountId: id === 0 ? null : id })
+                }
+              />
+            </Field>
+            <Field label="引き落とし日（毎月）">
+              <Input
+                keyboardType="number-pad"
+                value={editForm.debitDay}
+                placeholder="27"
+                onChangeText={(debitDay) => setEditForm({ ...editForm, debitDay })}
+              />
+              <Text style={s.muted}>{LOANS_HELP.debit}</Text>
             </Field>
             <Field label="この借入で買った資産">
               <Pills

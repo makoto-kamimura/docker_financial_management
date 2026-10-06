@@ -1428,6 +1428,39 @@ export async function postTransfer(data: TransferInput): Promise<void> {
   await request("/transfers", "追加に失敗しました", jsonInit("POST", { kind: "AUTO", ...data }));
 }
 
+/** 明細から見つけた「毎月の入出金」の候補（GET /transfers/suggestions。資金移動ルールの候補） */
+export type RecurringSuggestion = {
+  accountId: number;
+  accountName: string;
+  signature: string;
+  direction: "in" | "out";
+  label: string;
+  amount: number;
+  day: number;
+  months: number;
+  lastDate: string;
+};
+
+export async function fetchTransferSuggestions(): Promise<RecurringSuggestion[]> {
+  const json = await request<{ data?: RecurringSuggestion[] }>(
+    "/transfers/suggestions",
+    "候補の取得に失敗しました",
+  );
+  return json.data ?? [];
+}
+
+/** 候補を非表示にする（記録して、以後はどの端末でも出さない） */
+export async function dismissTransferSuggestion(
+  bankAccountId: number,
+  signature: string,
+): Promise<void> {
+  await request(
+    "/transfers/suggestions/dismiss",
+    "非表示にできませんでした",
+    jsonInit("POST", { bankAccountId, signature }),
+  );
+}
+
 export async function patchTransfer(
   id: number,
   data: Partial<Pick<TransferInput, "day" | "amount" | "label">>,
@@ -1497,6 +1530,9 @@ export async function postLoan(data: {
   linkedAccountCode?: string;
   monthlyPayment?: number;
   residualValue?: number;
+  /** 返済の引き落とし口座と日（入れると資金繰りに自動で並ぶ） */
+  debitBankAccountId?: number | null;
+  debitDay?: number | null;
   /** この借入で買った資産（その場で作るか、ローンの無い既存の資産にひも付ける） */
   asset?:
     | {
@@ -1525,6 +1561,9 @@ export async function patchLoan(
     linkedAccountCode: string | null;
     /** この借入で買った資産（null で外す） */
     assetId?: number | null;
+    /** 返済の引き落とし口座と日（null で外す） */
+    debitBankAccountId?: number | null;
+    debitDay?: number | null;
   },
 ): Promise<void> {
   await request(`/loans/${id}`, "借入金の更新に失敗しました", jsonInit("PATCH", data));

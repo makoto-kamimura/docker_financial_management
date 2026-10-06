@@ -614,6 +614,7 @@ export function BankTransactionsPanel({
       setMsg("追加しました");
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["transfer-flow"] });
+      qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
     } else {
       const err = await res.json().catch(() => ({}));
       setMsg(`追加に失敗しました: ${err.error ?? "エラー"}`);
@@ -679,6 +680,7 @@ export function BankTransactionsPanel({
       );
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["transfer-flow"] });
+      qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
       qc.invalidateQueries({ queryKey: ["funding-plan"] });
     } else {
       const err = await res.json().catch(() => ({}));
@@ -715,6 +717,7 @@ export function BankTransactionsPanel({
       );
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["transfer-flow"] });
+      qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
     } else {
       const err = await res.json().catch(() => ({}));
       setMsg(`登録に失敗しました: ${err.error ?? "エラー"}`);
@@ -735,6 +738,7 @@ export function BankTransactionsPanel({
     await fetch(`/api/transfers/${id}`, { method: "DELETE" });
     qc.invalidateQueries({ queryKey: ["transfers"] });
     qc.invalidateQueries({ queryKey: ["transfer-flow"] });
+    qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
   }
 
   function prevCalMonth() {

@@ -47,6 +47,10 @@ vi.mock("@/lib/prisma", () => ({
       create: vi.fn(),
       findUnique: vi.fn().mockResolvedValue(null),
     },
+    // 借入一覧は、同じ返済の資金移動ルールがあるかも見る
+    transfer: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     loanRepayment: {
       create: vi.fn(),
     },

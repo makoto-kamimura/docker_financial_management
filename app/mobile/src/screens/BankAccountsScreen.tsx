@@ -27,6 +27,7 @@ import { BankTransactionsList } from "../components/bank/BankTransactionsList";
 import { TransferTab, type ScheduleMode } from "../components/bank/TransferTab";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
 import { FundingPlanView } from "../components/FundingPlanView";
+import { RecurringSuggestions } from "../components/RecurringSuggestions";
 import {
   Button,
   Card,
@@ -131,7 +132,7 @@ export function BankAccountsScreen({ viewMode }: Props) {
     setRefreshing(false);
   }
 
-  // 残高が変わる操作の後に、口座サマリ・残高推移・資金繰りをまとめて取り直す
+  // 残高が変わる操作の後に、口座サマリ・資金繰り・候補をまとめて取り直す
   const onBalanceChanged = useCallback(() => {
     load();
     setReloadKey((k) => k + 1);
@@ -368,6 +369,8 @@ export function BankAccountsScreen({ viewMode }: Props) {
 
         {tab === "flow" && (
           <>
+            {/* 明細から見つけた毎月の入出金の候補（登録で資金移動ルールになる） */}
+            <RecurringSuggestions reloadKey={reloadKey} onChanged={onBalanceChanged} />
             {periodPicker}
             <TransferTab
               accounts={accounts}

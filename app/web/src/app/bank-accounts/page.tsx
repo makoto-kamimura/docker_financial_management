@@ -8,6 +8,10 @@ import { AppShell } from "@/components/AppShell";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { FundingPlanPanel } from "@/components/FundingPlanPanel";
+import {
+  RecurringSuggestionsPanel,
+  useRecurringSuggestions,
+} from "@/components/RecurringSuggestionsPanel";
 import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
@@ -190,6 +194,9 @@ function BankAccountsContent() {
       return res.json();
     },
   });
+
+  // 明細から見つけた毎月の入出金の候補（サマリでは件数だけ知らせる）
+  const { data: suggestions } = useRecurringSuggestions();
 
   const { data: monthlyFlow, isLoading: monthlyFlowLoading } = useQuery({
     queryKey: ["cashflow-monthly", flowYear, flowMonth],
@@ -472,6 +479,14 @@ function BankAccountsContent() {
             </h2>
             <p className="text-xs text-slate-500">{BANK_HELP.funding}</p>
           </div>
+          {(suggestions?.length ?? 0) > 0 && (
+            <p className="mb-2 text-xs text-indigo-600">
+              明細から、まだ登録していない毎月の入出金が {suggestions!.length} 件見つかりました。
+              <button type="button" onClick={() => setTab("flow")} className="ml-1 underline">
+                振替タブで確認する
+              </button>
+            </p>
+          )}
           <FundingPlanPanel year={flowYear} month={flowMonth} months={3} />
         </>
       )}
@@ -526,6 +541,9 @@ function BankAccountsContent() {
             )}
           </div>
         ))}
+
+      {/* ── 毎月の入出金の候補（明細から見つけたもの。登録で資金移動ルールになる）── */}
+      {tab === "flow" && <RecurringSuggestionsPanel />}
 
       {tab === "flow" && (
         <>
