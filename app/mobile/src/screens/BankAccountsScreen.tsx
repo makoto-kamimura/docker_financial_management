@@ -316,11 +316,14 @@ export function BankAccountsScreen({ viewMode }: Props) {
                       <Text style={s.muted}>
                         最終更新 {a.lastUpdatedAt ? fmtDateTime(a.lastUpdatedAt) : "—"}
                       </Text>
-                      {/* 差額を入れている口座はその内訳を明示する。未入力の口座には案内を出す */}
+                      {/* 差額を入れている口座はその内訳を明示する。差額 0 円を確かめて保存した口座は
+                          「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
                       {a.balanceAdjustment ? (
                         <Text style={s.muted}>
                           明細合計 {yen(a.transactionSum ?? 0)} ＋ 差額 {yen(a.balanceAdjustment)}
                         </Text>
+                      ) : a.balanceCheckedAt ? (
+                        <Text style={s.muted}>明細合計どおり（差額なし）</Text>
                       ) : (
                         a._count.transactions > 0 && (
                           <Text style={s.warn}>実際の残高と違う場合は編集から差額を入力</Text>

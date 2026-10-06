@@ -969,6 +969,8 @@ model BankAccount {
   // 明細の合計と実際の残高との差額（円）。取込開始前から口座にあった残高（期首残高）や
   // 取り込めなかった明細を吸収する。残高＝SUM(bank_transactions.amount) + balanceAdjustment。
   balanceAdjustment Decimal         @default(0) @db.Decimal(18, 2)
+  // 差額を確かめて保存した日時（0 円のままでも）。差額 0 円の口座で「差額を入力」の案内を出すかに使う
+  balanceCheckedAt  DateTime?
   createdAt         DateTime        @default(now())
 
   outgoing                      Transfer[]                     @relation("from")
