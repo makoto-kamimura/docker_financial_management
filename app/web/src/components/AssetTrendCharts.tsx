@@ -6,18 +6,14 @@
 // 内訳のある資産（土地と建物など）は、内訳ごとの線を重ねる（色は内訳の順に固定。4 つ目からは「その他」）。
 
 import { useQuery } from "@tanstack/react-query";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
+import {
+  OTHER_COLOR,
+  SERIES_COLORS,
+  ValueLineChart,
+  type ChartSeries,
+} from "@/components/ValueLineChart";
 import { SectionLead } from "@/components/Explain";
 import { ASSETS_HELP } from "@/lib/help-texts";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/labels";
@@ -41,17 +37,10 @@ type TrendResponse = {
   assets: TrendAsset[];
 };
 
-// 系列の色（内訳の順に固定。3 色は色覚の違いでも見分けられる組み合わせ）
-const SERIES_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"];
-const OTHER_COLOR = "#94a3b8";
-
 const yen = (v: number) =>
   Math.abs(v) >= 1_0000
     ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
     : `${Math.round(v).toLocaleString("ja-JP")}円`;
-const monthLabel = (key: string) => `${key.slice(0, 4)}年${Number(key.slice(5))}月`;
-
-type ChartSeries = { key: string; label: string; color: string; values: (number | null)[] };
 
 /** 1 年後の見積もりと今を比べた向き（グラフの右肩の印） */
 function trendOfSeries(
@@ -73,122 +62,6 @@ export function TrendBadge({ trend }: { trend: ValueTrend }) {
       <Icon className="w-3 h-3" aria-hidden="true" />
       {TREND_LABEL[trend]}
     </span>
-  );
-}
-
-/**
- * 月ごとの線グラフ。今月までは実線、今月から先は破線（見積もり）。今月に縦の線を引く。
- * 系列が 2 つ以上なら、名前と今の値を下に並べる（色だけで見分けさせない）。
- */
-function ValueLineChart({
-  months,
-  currentKey,
-  series,
-  height,
-  compact = false,
-}: {
-  months: string[];
-  currentKey: string;
-  series: ChartSeries[];
-  height: number;
-  compact?: boolean;
-}) {
-  const data = months.map((key, i) => {
-    const row: Record<string, string | number | null> = { key };
-    for (const s of series) {
-      const v = s.values[i];
-      row[`${s.key}_a`] = key <= currentKey ? v : null;
-      row[`${s.key}_e`] = key >= currentKey ? v : null;
-    }
-    return row;
-  });
-  const yearTicks = months.filter((k) => k.endsWith("-01"));
-
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-        <CartesianGrid stroke="#eef2f7" vertical={false} />
-        <XAxis
-          dataKey="key"
-          ticks={yearTicks}
-          tickFormatter={(k: string) => `${k.slice(0, 4)}`}
-          tick={{ fontSize: compact ? 10 : 11, fill: "#64748b" }}
-          axisLine={{ stroke: "#e2e8f0" }}
-          tickLine={false}
-        />
-        <YAxis
-          tickFormatter={(v: number) => `${Math.round(v / 10000).toLocaleString()}万`}
-          tick={{ fontSize: compact ? 10 : 11, fill: "#64748b" }}
-          axisLine={false}
-          tickLine={false}
-          width={compact ? 48 : 60}
-        />
-        <Tooltip
-          cursor={{ stroke: "#94a3b8", strokeWidth: 1 }}
-          content={({ active, label, payload }) => {
-            if (!active || !payload?.length) return null;
-            const key = String(label);
-            const i = months.indexOf(key);
-            return (
-              <div className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-sm">
-                <p className="text-slate-500 mb-0.5">
-                  {monthLabel(key)}末{key > currentKey ? "（見込み）" : ""}
-                </p>
-                {series.map((s) =>
-                  s.values[i] === null ? null : (
-                    <p key={s.key} className="flex items-center gap-1.5 text-slate-700">
-                      {series.length > 1 && (
-                        <span
-                          className="inline-block w-2 h-2 rounded-full"
-                          style={{ background: s.color }}
-                          aria-hidden="true"
-                        />
-                      )}
-                      {series.length > 1 && <span className="text-slate-500">{s.label}</span>}
-                      <span className="font-medium tabular-nums">{yen(s.values[i]!)}</span>
-                    </p>
-                  ),
-                )}
-              </div>
-            );
-          }}
-        />
-        <ReferenceLine
-          x={currentKey}
-          stroke="#94a3b8"
-          label={
-            compact ? undefined : { value: "今月", fontSize: 10, fill: "#64748b", position: "top" }
-          }
-        />
-        {series.map((s) => (
-          <Line
-            key={`${s.key}_a`}
-            type="linear"
-            dataKey={`${s.key}_a`}
-            stroke={s.color}
-            strokeWidth={2}
-            dot={false}
-            activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff" }}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
-        ))}
-        {series.map((s) => (
-          <Line
-            key={`${s.key}_e`}
-            type="linear"
-            dataKey={`${s.key}_e`}
-            stroke={s.color}
-            strokeWidth={2}
-            strokeDasharray="5 4"
-            dot={false}
-            activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff" }}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
   );
 }
 

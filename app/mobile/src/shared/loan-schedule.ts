@@ -295,3 +295,48 @@ export function todayLabel(): string {
   const d = new Date();
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+
+/** 借入残高の推移（借入金管理の合計とローンごとのグラフ用）。月キーは "YYYY-MM" */
+export type LoanTrend = {
+  months: string[];
+  /** 今月（"YYYY-MM"）。これより先は見込み */
+  currentKey: string;
+  /** 全ローンの残高の合計。どのローンもまだ始まっていない月は null */
+  total: (number | null)[];
+  loans: {
+    id: number;
+    /** 残高。借りる前の月は null */
+    balance: (number | null)[];
+    /** 適用金利（%）。今月までは履歴どおり、先は登録済みの改定と予測。借りる前の月は null */
+    rate: (number | null)[];
+  }[];
+};
+
+/**
+ * buildScheduleData の月ごとの点を、合計とローンごとの列に直す。
+ * 金利は今月までを実績（rateKey）、先を予測（rateForecastKey）から取る。
+ */
+export function loanTrendSeries(
+  loans: Loan[],
+  points: ChartPoint[] = buildScheduleData(loans),
+  today: Date = new Date(),
+): LoanTrend {
+  const months = points.map((p) => String(p.date).replace("/", "-"));
+  const currentKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const num = (v: number | string | undefined) => (typeof v === "number" ? v : null);
+  const rows = loans.map((l) => ({
+    id: l.id,
+    balance: points.map((p) => num(p[balanceKey(l.id)])),
+    rate: points.map((p, i) =>
+      months[i] <= currentKey
+        ? (num(p[rateKey(l.id)]) ?? num(p[rateForecastKey(l.id)]))
+        : (num(p[rateForecastKey(l.id)]) ?? num(p[rateKey(l.id)])),
+    ),
+  }));
+  const total = months.map((_, i) =>
+    rows.every((r) => r.balance[i] === null)
+      ? null
+      : rows.reduce((s, r) => s + (r.balance[i] ?? 0), 0),
+  );
+  return { months, currentKey, total, loans: rows };
+}

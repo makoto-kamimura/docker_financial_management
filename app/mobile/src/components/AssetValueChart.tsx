@@ -1,5 +1,6 @@
-// 実物資産の評価額の推移（web 版 components/AssetTrendCharts.tsx と同じ描き方を react-native-svg で）。
-// 今月までは実線、今月から先は見積もりなので破線。今月に縦の線を引く。
+// 月ごとの値の推移の線グラフ（web 版 components/ValueLineChart.tsx と同じ描き方を react-native-svg で）。
+// 資産管理の評価額、借入金の残高・金利で使う。今月までは実線、今月から先は見積もり・予測なので破線。
+// 今月に縦の線を引く。軸は 1 本だけ（単位の違う値は別のグラフに分ける）。
 // 系列が 2 つ以上なら、名前と今月の値を下に並べる（色だけで見分けさせない）。
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -18,16 +19,27 @@ const PAD_R = 8;
 const PAD_T = 8;
 const PAD_B = 18;
 
+const manAxis = (v: number) => `${Math.round(v / 10000).toLocaleString()}万`;
+
 export function AssetValueChart({
   months,
   currentKey,
   series,
   height,
+  formatValue = yenShort,
+  formatAxis = manAxis,
+  stepped = false,
 }: {
   months: string[];
   currentKey: string;
   series: ChartSeries[];
   height: number;
+  /** 系列の名前の横に出す今月の値（既定は円） */
+  formatValue?: (v: number) => string;
+  /** 縦軸の目盛（既定は万円） */
+  formatAxis?: (v: number) => string;
+  /** 階段線にする（金利など、ある日から切り替わる値） */
+  stepped?: boolean;
 }) {
   const [width, setWidth] = useState(0);
   const nowIndex = months.indexOf(currentKey);
@@ -45,7 +57,14 @@ export function AssetValueChart({
       if (v === null || v === undefined) {
         if (cur.length > 1) out.push(cur.join(" "));
         cur = [];
-      } else cur.push(`${x(i)},${y(v)}`);
+      } else {
+        // 階段線: 前の点の高さのまま横に進んでから縦に変わる
+        if (stepped && cur.length > 0) {
+          const prev = values[i - 1] as number;
+          cur.push(`${x(i)},${y(prev)}`);
+        }
+        cur.push(`${x(i)},${y(v)}`);
+      }
     }
     if (cur.length > 1) out.push(cur.join(" "));
     return out;
@@ -77,7 +96,7 @@ export function AssetValueChart({
                 fill="#64748b"
                 textAnchor="end"
               >
-                {`${Math.round((max * r) / 10000).toLocaleString()}万`}
+                {formatAxis(max * r)}
               </SvgText>
             ))}
             {yearTicks.map(({ k, i }) => (
@@ -136,7 +155,7 @@ export function AssetValueChart({
               <View key={s.key} style={st.legendItem}>
                 <View style={[st.swatch, { backgroundColor: s.color }]} />
                 <Text style={st.legendText}>
-                  {s.label} {v === null || v === undefined ? "—" : yenShort(v)}
+                  {s.label} {v === null || v === undefined ? "—" : formatValue(v)}
                 </Text>
               </View>
             );

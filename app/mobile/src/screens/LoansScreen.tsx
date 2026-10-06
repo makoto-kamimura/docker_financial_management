@@ -1,4 +1,5 @@
-// 借入金管理（web 版 /loans と同じ内容）。返済スケジュール・金利予測・変動前後の比較・金利改定時の参考月額は
+// 借入金管理（web 版 /loans と同じ内容・同じ並び。資産管理と同じく、日付つきの合計 → 合計のグラフ →
+// ローンごとの残高と金利のグラフ → 一覧）。残高の推移・金利予測・変動前後の比較・金利改定時の参考月額は
 // web と共有する shared/loan-schedule.ts で計算する（同じ入力なら同じ数字になる）。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -6,7 +7,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -25,7 +25,7 @@ import {
   type ViewMode,
 } from "../api";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
-import { LoanScheduleChart } from "../components/LoanScheduleChart";
+import { AssetValueChart, SERIES_COLORS } from "../components/AssetValueChart";
 import {
   Button,
   Card,
@@ -42,10 +42,10 @@ import { yen } from "../format";
 import { displayName } from "../shared/display-name";
 import { LOANS_HELP } from "../shared/help-texts";
 import { LOAN_TYPE_LABEL, LOAN_TYPES } from "../shared/labels";
+import { asOfDateLabel } from "../shared/asset-valuation";
 import {
   buildRateComparison,
-  buildScheduleData,
-  LOAN_COLORS,
+  loanTrendSeries,
   pendingRateChange,
   ratePercent,
   referenceMonthly,
@@ -150,7 +150,6 @@ export function LoansScreen({ viewMode }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showRates, setShowRates] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const [newLoan, setNewLoan] = useState<NewLoanForm | null>(null);
@@ -218,7 +217,9 @@ export function LoansScreen({ viewMode }: Props) {
     }
   }
 
-  const scheduleData = useMemo(() => buildScheduleData(loans), [loans]);
+  const trend = useMemo(() => (loans.length > 0 ? loanTrendSeries(loans) : null), [loans]);
+  // いつ時点の残高か（資産管理と同じ書き方）
+  const asOf = asOfDateLabel(new Date());
   const activeLoans = loans.filter((l) => l.status === "active");
   const totalBorrowed = loans.reduce((sum, l) => sum + Number(l.amount), 0);
   const totalRemaining = activeLoans.reduce((sum, l) => sum + Number(l.remainingAmount), 0);
@@ -256,42 +257,70 @@ export function LoansScreen({ viewMode }: Props) {
         {error && <Notice tone="error">{error}</Notice>}
         <Lead>{LOANS_HELP.page}</Lead>
 
-        <View style={s.kpiRow}>
-          <Card style={s.kpi}>
-            <Text style={s.kpiLabel}>借入残高合計</Text>
-            <Text style={[s.kpiValue, { color: "#dc2626" }]}>{yen(totalRemaining)}</Text>
-          </Card>
-          <Card style={s.kpi}>
-            <Text style={s.kpiLabel}>借入総額</Text>
-            <Text style={s.kpiValue}>{yen(totalBorrowed)}</Text>
-          </Card>
-        </View>
-
-        {scheduleData.length > 0 && (
+        {/* 借入残高の推移（web 版 LoanTrendCharts と同じ。合計とローンごとの残高・金利） */}
+        {trend && trend.months.length > 0 && (
           <Card>
-            <SectionTitle note={LOANS_HELP.schedule}>返済スケジュール</SectionTitle>
-            <View style={s.switchRow}>
-              <Text style={s.switchLabel}>金利を重ねて表示</Text>
-              <Switch value={showRates} onValueChange={setShowRates} />
-            </View>
-            <LoanScheduleChart loans={loans} points={scheduleData} showRates={showRates} />
-            {showRates && (
-              <Text style={s.muted}>
-                金利は右軸。今日以降の破線は、登録済みの将来の改定と「これまでと同じ間隔・同じ幅で改定が続いたら」
-                という前提で履歴から外挿した予測です（金利変更履歴が 2
-                件以上あるローンのみ予測します）。
-              </Text>
-            )}
-            {activeLoans.map((l) => {
-              const i = loans.indexOf(l);
+            <SectionTitle note={LOANS_HELP.schedule}>借入残高の推移</SectionTitle>
+            <Text style={s.muted}>借入残高合計（{asOf}）</Text>
+            <Text style={s.totalValue}>{yen(totalRemaining)}</Text>
+            <Text style={s.muted}>借入総額 {yen(totalBorrowed)}</Text>
+            <AssetValueChart
+              months={trend.months}
+              currentKey={trend.currentKey}
+              series={[
+                { key: "total", label: "合計", color: SERIES_COLORS[0], values: trend.total },
+              ]}
+              height={180}
+            />
+            <Text style={s.subTitle}>ローンごとの推移</Text>
+            {loans.map((l) => {
+              const row = trend.loans.find((r) => r.id === l.id);
+              if (!row) return null;
               return (
-                <View key={l.id} style={s.progressRow}>
-                  <View style={[s.dot, { backgroundColor: LOAN_COLORS[i % LOAN_COLORS.length] }]} />
-                  <Text style={s.progressName} numberOfLines={1}>
-                    {l.lenderName}
+                <View key={l.id} style={s.trendItem}>
+                  <View style={s.loanHead}>
+                    <Text style={[s.badge, s.badgeType]}>
+                      {LOAN_TYPE_LABEL[l.loanType] ?? l.loanType}
+                    </Text>
+                    <Text style={s.trendName} numberOfLines={1}>
+                      {l.lenderName}
+                    </Text>
+                    <Text style={[s.badge, l.status === "active" ? s.badgeActive : s.badgeDone]}>
+                      {l.status === "active" ? "返済中" : "完済"}
+                    </Text>
+                  </View>
+                  <Text style={s.muted}>
+                    {asOf}の残高 {yen(Number(l.remainingAmount))} ・ 完済予定{" "}
+                    {l.repaymentDate.slice(0, 7)} ・ {progressOf(l)}% 返済済
                   </Text>
-                  <Text style={s.muted}>返済期限 {l.repaymentDate.slice(0, 7)}</Text>
-                  <Text style={s.muted}>{progressOf(l)}%</Text>
+                  <Text style={s.chartLabel}>残高</Text>
+                  <AssetValueChart
+                    months={trend.months}
+                    currentKey={trend.currentKey}
+                    series={[
+                      {
+                        key: `b${l.id}`,
+                        label: "残高",
+                        color: SERIES_COLORS[0],
+                        values: row.balance,
+                      },
+                    ]}
+                    height={110}
+                  />
+                  <Text style={s.chartLabel}>
+                    金利（今の金利 {ratePercent(l.interestRate).toFixed(3)}%）
+                  </Text>
+                  <AssetValueChart
+                    months={trend.months}
+                    currentKey={trend.currentKey}
+                    series={[
+                      { key: `r${l.id}`, label: "金利", color: SERIES_COLORS[1], values: row.rate },
+                    ]}
+                    height={80}
+                    stepped
+                    formatValue={(v) => `${v.toFixed(3)}%`}
+                    formatAxis={(v) => `${v.toFixed(2)}%`}
+                  />
                 </View>
               );
             })}
@@ -315,28 +344,33 @@ export function LoansScreen({ viewMode }: Props) {
             const pending = pendingRateChange(l);
             const cmp = expanded[`rate-${l.id}`] ? buildRateComparison(l) : null;
             const progress = progressOf(l);
-            const color = LOAN_COLORS[i % LOAN_COLORS.length];
             return (
               <Card key={l.id}>
-                <View style={s.loanHead}>
-                  <View style={[s.dot, { backgroundColor: color }]} />
-                  <Text style={s.loanName} numberOfLines={1}>
-                    {l.lenderName}
-                  </Text>
-                  <Text style={[s.badge, l.status === "active" ? s.badgeActive : s.badgeDone]}>
-                    {l.status === "active" ? "返済中" : "完済"}
-                  </Text>
-                  <Text style={[s.badge, s.badgeType]}>
-                    {LOAN_TYPE_LABEL[l.loanType] ?? l.loanType}
-                  </Text>
+                {/* 資産管理の一覧と同じ並び: 左に名前と条件、右に日付つきの残高 */}
+                <View style={s.loanTop}>
+                  <View style={{ flex: 1 }}>
+                    <View style={s.loanHead}>
+                      <Text style={[s.badge, s.badgeType]}>
+                        {LOAN_TYPE_LABEL[l.loanType] ?? l.loanType}
+                      </Text>
+                      <Text style={s.loanName} numberOfLines={1}>
+                        {l.lenderName}
+                      </Text>
+                      <Text style={[s.badge, l.status === "active" ? s.badgeActive : s.badgeDone]}>
+                        {l.status === "active" ? "返済中" : "完済"}
+                      </Text>
+                    </View>
+                    <Text style={s.detail}>
+                      借入額: {yen(Number(l.amount))} ・ 金利:{" "}
+                      {ratePercent(l.interestRate).toFixed(3)}% ・ 完済予定:{" "}
+                      {l.repaymentDate.slice(0, 7)}
+                    </Text>
+                  </View>
+                  <View style={s.balanceBox}>
+                    <Text style={s.balanceLabel}>{asOf}の残高</Text>
+                    <Text style={s.remaining}>{yen(Number(l.remainingAmount))}</Text>
+                  </View>
                 </View>
-                <Text style={s.detail}>
-                  借入額: {yen(Number(l.amount))} ・ 金利: {ratePercent(l.interestRate).toFixed(2)}%
-                </Text>
-                <Text style={s.detail}>
-                  残高: <Text style={s.remaining}>{yen(Number(l.remainingAmount))}</Text> ・
-                  支払い完了年月: {l.repaymentDate.slice(0, 7)}
-                </Text>
                 {l.monthlyPayment && (
                   <Text style={s.linked}>
                     月々の返済額: {yen(Number(l.monthlyPayment))}
@@ -394,7 +428,10 @@ export function LoansScreen({ viewMode }: Props) {
                   <View style={s.progressWrap}>
                     <View style={s.progressTrack}>
                       <View
-                        style={[s.progressFill, { width: `${progress}%`, backgroundColor: color }]}
+                        style={[
+                          s.progressFill,
+                          { width: `${progress}%`, backgroundColor: SERIES_COLORS[0] },
+                        ]}
                       />
                     </View>
                     <Text style={s.muted}>{progress}% 返済済</Text>
@@ -963,21 +1000,15 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#f8fafc" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: 14, paddingBottom: 32 },
-  kpiRow: { flexDirection: "row", gap: 10 },
-  kpi: { flex: 1 },
-  kpiLabel: { fontSize: 11, color: "#64748b", marginBottom: 4 },
-  kpiValue: { fontSize: 17, fontWeight: "700", color: "#1e293b" },
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 6,
-  },
-  switchLabel: { fontSize: 12, color: "#475569" },
+  totalValue: { fontSize: 20, fontWeight: "700", color: "#dc2626" },
+  subTitle: { fontSize: 12, fontWeight: "600", color: "#334155", marginTop: 12, marginBottom: 6 },
+  trendItem: { borderTopWidth: 1, borderTopColor: "#f1f5f9", paddingTop: 8, marginTop: 8 },
+  trendName: { fontSize: 13, fontWeight: "600", color: "#1e293b", flexShrink: 1 },
+  chartLabel: { fontSize: 10, color: "#64748b", marginTop: 6 },
+  loanTop: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  balanceBox: { alignItems: "flex-end" },
+  balanceLabel: { fontSize: 10, color: "#94a3b8" },
   muted: { fontSize: 11, color: "#94a3b8", lineHeight: 16, marginTop: 3 },
-  progressRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
-  progressName: { fontSize: 12, color: "#475569", flex: 1 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
   loanHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
   loanName: { fontSize: 15, fontWeight: "700", color: "#1e293b", flexShrink: 1 },
   badge: {
