@@ -46,9 +46,12 @@ import { asOfDateLabel } from "../shared/asset-valuation";
 import {
   buildRateComparison,
   loanTrendSeries,
+  pendingPaymentChoices,
   pendingRateChange,
   ratePercent,
   referenceMonthly,
+  type LoanRateChange,
+  type PaymentChoice,
 } from "../shared/loan-schedule";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -167,11 +170,30 @@ export function LoansScreen({ viewMode }: Props) {
     monthlyPayment: string;
     note: string;
   } | null>(null);
+  // 改定後の実額を後から入力するフォーム。据え置き（5 年ルール）・再計算された額・通知額の入力から選ぶ
   const [pendingForm, setPendingForm] = useState<{
     loan: Loan;
     changeId: number;
     monthlyPayment: string;
+    choices: PaymentChoice[];
+    choice: PaymentChoice["key"];
   } | null>(null);
+  // 既定は先頭の選択肢（据え置きがあれば据え置き）
+  const openPending = (
+    loan: Loan,
+    change: Pick<LoanRateChange, "id" | "previousMonthlyPayment" | "calculatedMonthlyPayment">,
+  ) => {
+    const choices = pendingPaymentChoices(loan, change);
+    const first = choices[0];
+    setSheetError(null);
+    setPendingForm({
+      loan,
+      changeId: change.id,
+      monthlyPayment: first.amount !== null ? String(first.amount) : "",
+      choices,
+      choice: first.key,
+    });
+  };
   const [payForm, setPayForm] = useState<{
     loan: Loan;
     principal: string;
@@ -403,9 +425,9 @@ export function LoansScreen({ viewMode }: Props) {
                       現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
                       で計算中です。
                       {pending.calculatedMonthlyPayment &&
-                        `計算上の目安は ${yen(Number(pending.calculatedMonthlyPayment))} ですが、`}
+                        `計算上の目安は ${yen(Number(pending.calculatedMonthlyPayment))} です。`}
                       5
-                      年ルールのローンでは返済額が据え置かれるため、金融機関の通知額を入力してください。
+                      年ルールなら「据え置き」を選ぶだけで反映できます（通知額が違うときは入力してください）。
                     </Text>
                     <VariableRateHelp />
                     <Button
@@ -413,11 +435,7 @@ export function LoansScreen({ viewMode }: Props) {
                       label="入力する"
                       onPress={() => {
                         setSheetError(null);
-                        setPendingForm({
-                          loan: l,
-                          changeId: pending.id,
-                          monthlyPayment: pending.calculatedMonthlyPayment ?? "",
-                        });
+                        openPending(l, pending);
                       }}
                       style={{ alignSelf: "flex-start", marginTop: 6 }}
                     />
@@ -545,11 +563,7 @@ export function LoansScreen({ viewMode }: Props) {
                                   label="改定後の返済額を入力"
                                   onPress={() => {
                                     setSheetError(null);
-                                    setPendingForm({
-                                      loan: l,
-                                      changeId: c.id,
-                                      monthlyPayment: c.calculatedMonthlyPayment ?? "",
-                                    });
+                                    openPending(l, c);
                                   }}
                                   style={{ alignSelf: "flex-start" }}
                                 />
@@ -849,6 +863,17 @@ export function LoansScreen({ viewMode }: Props) {
                 placeholder={rateRef ? `参考: ${rateRef.monthly}` : "金融機関の通知額"}
                 onChangeText={(monthlyPayment) => setRateForm({ ...rateForm, monthlyPayment })}
               />
+              {currentMonthly !== null && (
+                <Button
+                  small
+                  variant="secondary"
+                  label={`据え置き（${yen(currentMonthly)}）`}
+                  onPress={() =>
+                    setRateForm({ ...rateForm, monthlyPayment: String(currentMonthly) })
+                  }
+                  style={{ alignSelf: "flex-start", marginTop: 6 }}
+                />
+              )}
               <Text style={s.muted}>
                 金融機関から通知された金額を入力してください。入力するとこの額で残高・予算が再計算されます。
               </Text>
@@ -885,7 +910,7 @@ export function LoansScreen({ viewMode }: Props) {
       <SheetModal
         visible={pendingForm !== null}
         title="改定後の返済額を入力"
-        subtitle="金融機関から通知された、改定後の月々の返済額を入力してください。以降の残高・予算がこの額で計算されます。"
+        subtitle="金融機関の通知どおりの返済額を選んでください。5 年ルールなら「据え置き」のまま反映します。以降の残高・予算がこの額で計算されます。"
         onClose={() => setPendingForm(null)}
         footer={
           <Button
@@ -908,12 +933,42 @@ export function LoansScreen({ viewMode }: Props) {
       >
         {pendingForm && (
           <>
-            <Input
-              autoFocus
-              keyboardType="number-pad"
-              value={pendingForm.monthlyPayment}
-              onChangeText={(monthlyPayment) => setPendingForm({ ...pendingForm, monthlyPayment })}
-            />
+            {pendingForm.choices.map((c) => {
+              const selected = pendingForm.choice === c.key;
+              return (
+                <TouchableOpacity
+                  key={c.key}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  style={[s.choice, selected && s.choiceOn]}
+                  onPress={() =>
+                    setPendingForm({
+                      ...pendingForm,
+                      choice: c.key,
+                      monthlyPayment: c.amount !== null ? String(c.amount) : "",
+                    })
+                  }
+                >
+                  <Text style={s.choiceLabel}>
+                    {selected ? "● " : "○ "}
+                    {c.label}
+                    {c.amount !== null ? `  ${yen(c.amount)}` : ""}
+                  </Text>
+                  <Text style={s.muted}>{c.note}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {pendingForm.choice === "custom" && (
+              <Input
+                autoFocus
+                keyboardType="number-pad"
+                placeholder="金融機関の通知額"
+                value={pendingForm.monthlyPayment}
+                onChangeText={(monthlyPayment) =>
+                  setPendingForm({ ...pendingForm, monthlyPayment })
+                }
+              />
+            )}
             <VariableRateHelp />
             {sheetError && <Notice tone="error">{sheetError}</Notice>}
           </>
@@ -1000,6 +1055,15 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#f8fafc" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: 14, paddingBottom: 32 },
+  choice: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
+  choiceOn: { borderColor: "#fbbf24", backgroundColor: "#fffbeb" },
+  choiceLabel: { fontSize: 13, color: "#1e293b", fontWeight: "600" },
   totalValue: { fontSize: 20, fontWeight: "700", color: "#dc2626" },
   subTitle: { fontSize: 12, fontWeight: "600", color: "#334155", marginTop: 12, marginBottom: 6 },
   trendItem: { borderTopWidth: 1, borderTopColor: "#f1f5f9", paddingTop: 8, marginTop: 8 },

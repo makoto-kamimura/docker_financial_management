@@ -18,7 +18,10 @@ import {
   pendingRateChange,
   ratePercent,
   referenceMonthly,
+  pendingPaymentChoices,
   type Loan,
+  type LoanRateChange,
+  type PaymentChoice,
 } from "@/lib/loan-schedule";
 import { LoanTrendCharts, repaidPercent } from "@/components/LoanTrendCharts";
 import { PageHeader } from "@/components/ui";
@@ -86,12 +89,38 @@ export default function LoansPage() {
     note: "",
   });
   const [rateError, setRateError] = useState<string | null>(null);
-  // 改定後の実額を後から入力するフォーム（改定登録時に通知が届いていなかった場合）
+  // 改定後の実額を後から入力するフォーム（改定登録時に通知が届いていなかった場合）。
+  // 据え置き（5 年ルール）・再計算された額・通知額の入力から選ぶ（lib/loan-schedule.ts の pendingPaymentChoices）
   const [pendingForm, setPendingForm] = useState<{
     loanId: number | null;
     changeId: number | null;
     monthlyPayment: string;
-  }>({ loanId: null, changeId: null, monthlyPayment: "" });
+    choices: PaymentChoice[];
+    choice: PaymentChoice["key"];
+  }>({ loanId: null, changeId: null, monthlyPayment: "", choices: [], choice: "custom" });
+  const closePending = () =>
+    setPendingForm({
+      loanId: null,
+      changeId: null,
+      monthlyPayment: "",
+      choices: [],
+      choice: "custom",
+    });
+  // 既定は先頭の選択肢（据え置きがあれば据え置き）
+  const openPending = (
+    loan: Loan,
+    change: Pick<LoanRateChange, "id" | "previousMonthlyPayment" | "calculatedMonthlyPayment">,
+  ) => {
+    const choices = pendingPaymentChoices(loan, change);
+    const first = choices[0];
+    setPendingForm({
+      loanId: loan.id,
+      changeId: change.id,
+      monthlyPayment: first.amount !== null ? String(first.amount) : "",
+      choices,
+      choice: first.key,
+    });
+  };
 
   const load = () => {
     setLoading(true);
@@ -179,7 +208,7 @@ export default function LoansPage() {
       body: JSON.stringify({ monthlyPayment: Number(monthlyPayment) }),
     });
     if (r.ok) {
-      setPendingForm({ loanId: null, changeId: null, monthlyPayment: "" });
+      closePending();
       load();
     }
   };
@@ -299,13 +328,7 @@ export default function LoansPage() {
                           </span>
                           <VariableRateHelp />
                           <button
-                            onClick={() =>
-                              setPendingForm({
-                                loanId: l.id,
-                                changeId: pending.id,
-                                monthlyPayment: calc ?? "",
-                              })
-                            }
+                            onClick={() => openPending(l, pending)}
                             className="ml-auto rounded-lg bg-amber-600 px-2.5 py-1 text-xs text-white hover:bg-amber-700"
                           >
                             入力する
@@ -314,9 +337,8 @@ export default function LoansPage() {
                         <p className="mt-1 text-[11px] text-amber-700">
                           現在は改定前の{l.monthlyPayment ? yen(Number(l.monthlyPayment)) : "—"}
                           で計算中です。
-                          {calc && `計算上の目安は ${yen(Number(calc))} ですが、`}5
-                          年ルールのローンでは返済額が据え置かれるため、
-                          金融機関の通知額を入力してください。
+                          {calc && `計算上の目安は ${yen(Number(calc))} です。`}5
+                          年ルールなら「据え置き」を選ぶだけで反映できます（通知額が違うときは入力してください）。
                         </p>
                       </div>
                     );
@@ -451,13 +473,7 @@ export default function LoansPage() {
                                     </span>
                                   ) : (
                                     <button
-                                      onClick={() =>
-                                        setPendingForm({
-                                          loanId: l.id,
-                                          changeId: c.id,
-                                          monthlyPayment: calc ?? "",
-                                        })
-                                      }
+                                      onClick={() => openPending(l, c)}
                                       className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 hover:bg-amber-200"
                                     >
                                       未入力
@@ -808,15 +824,29 @@ export default function LoansPage() {
                       改定後の月々の返済額（実額）
                       <VariableRateHelp />
                     </label>
-                    <input
-                      type="number"
-                      placeholder={ref ? `参考: ${ref.monthly}` : "金融機関の通知額"}
-                      value={rateForm.monthlyPayment}
-                      onChange={(e) =>
-                        setRateForm((f) => ({ ...f, monthlyPayment: e.target.value }))
-                      }
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        placeholder={ref ? `参考: ${ref.monthly}` : "金融機関の通知額"}
+                        value={rateForm.monthlyPayment}
+                        onChange={(e) =>
+                          setRateForm((f) => ({ ...f, monthlyPayment: e.target.value }))
+                        }
+                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      />
+                      {current !== null && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRateForm((f) => ({ ...f, monthlyPayment: String(current) }))
+                          }
+                          className="shrink-0 rounded-lg border border-slate-300 px-2 py-2 text-xs text-slate-600 hover:bg-slate-50"
+                          title="5 年ルールで返済額が変わらないときに押します"
+                        >
+                          据え置き（{yen(current)}）
+                        </button>
+                      )}
+                    </div>
                     <div className="mt-1.5 space-y-1 text-xs">
                       <p className="text-slate-500">
                         金融機関から通知された金額を入力してください。入力するとこの額で残高・
@@ -881,19 +911,53 @@ export default function LoansPage() {
               <VariableRateHelp />
             </h2>
             <p className="text-xs text-slate-500 mb-4">
-              金融機関から通知された、改定後の月々の返済額を入力してください。以降の残高・
-              予算がこの額で計算されます。
+              金融機関の通知どおりの返済額を選んでください。5
+              年ルールなら「据え置き」のまま反映します。 以降の残高・予算がこの額で計算されます。
             </p>
-            <input
-              type="number"
-              autoFocus
-              value={pendingForm.monthlyPayment}
-              onChange={(e) => setPendingForm((f) => ({ ...f, monthlyPayment: e.target.value }))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-            />
+            <fieldset className="space-y-2">
+              <legend className="sr-only">改定後の返済額</legend>
+              {pendingForm.choices.map((c) => (
+                <label
+                  key={c.key}
+                  className={`flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer ${pendingForm.choice === c.key ? "border-amber-400 bg-amber-50" : "border-slate-200"}`}
+                >
+                  <input
+                    type="radio"
+                    name="pending-payment"
+                    className="mt-1"
+                    checked={pendingForm.choice === c.key}
+                    onChange={() =>
+                      setPendingForm((f) => ({
+                        ...f,
+                        choice: c.key,
+                        monthlyPayment: c.amount !== null ? String(c.amount) : "",
+                      }))
+                    }
+                  />
+                  <span className="text-sm text-slate-700">
+                    {c.label}
+                    {c.amount !== null && (
+                      <span className="ml-1 font-semibold tabular-nums">{yen(c.amount)}</span>
+                    )}
+                    <span className="block text-[11px] text-slate-400">{c.note}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            {pendingForm.choice === "custom" && (
+              <input
+                type="number"
+                autoFocus
+                aria-label="通知された返済額"
+                placeholder="金融機関の通知額"
+                value={pendingForm.monthlyPayment}
+                onChange={(e) => setPendingForm((f) => ({ ...f, monthlyPayment: e.target.value }))}
+                className="mt-2 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            )}
             <div className="flex justify-end gap-2 mt-5">
               <button
-                onClick={() => setPendingForm({ loanId: null, changeId: null, monthlyPayment: "" })}
+                onClick={closePending}
                 className="px-4 py-2 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
               >
                 キャンセル

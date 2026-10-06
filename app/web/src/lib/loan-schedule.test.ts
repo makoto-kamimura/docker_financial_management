@@ -5,6 +5,7 @@ import {
   buildScheduleData,
   loanTrendSeries,
   originalRatePercent,
+  pendingPaymentChoices,
   pendingRateChange,
   referenceMonthly,
   type Loan,
@@ -182,5 +183,30 @@ describe("loanTrendSeries", () => {
     // 合計は両方の残高の和
     expect(trend.total[3]).toBe((ra.balance[3] ?? 0) + (rb.balance[3] ?? 0));
     expect(trend.total[0]).toBe(ra.balance[0]);
+  });
+});
+
+describe("pendingPaymentChoices", () => {
+  it("据え置き（改定前の額）を先頭に、目安と通知額の入力を並べる", () => {
+    const choices = pendingPaymentChoices(loan({ monthlyPayment: "109407" }), {
+      previousMonthlyPayment: "109407",
+      calculatedMonthlyPayment: "118705",
+    });
+    expect(choices.map((c) => [c.key, c.amount])).toEqual([
+      ["keep", 109407],
+      ["recalc", 118705],
+      ["custom", null],
+    ]);
+  });
+
+  it("改定前の額が無ければローンの今の額で据え置き。目安が無ければ出さない", () => {
+    const choices = pendingPaymentChoices(loan({ monthlyPayment: "50000" }), {
+      previousMonthlyPayment: null,
+      calculatedMonthlyPayment: null,
+    });
+    expect(choices.map((c) => [c.key, c.amount])).toEqual([
+      ["keep", 50000],
+      ["custom", null],
+    ]);
   });
 });
