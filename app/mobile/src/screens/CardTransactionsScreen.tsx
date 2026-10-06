@@ -1,7 +1,8 @@
-// カード・電子マネー管理（web 版 /card-transactions と同じ「サマリ / 明細一覧 / カレンダー」。CSV 取込は web 版のみ）。
+// カード・電子マネー管理（web 版 /card-transactions のサマリと同じ。CSV 取込は web 版のみ）。
+// 明細の一覧・カレンダーは、実績の画面の「履歴」「カレンダー」（出どころにカード・電子マネー）へ移した。
 // クレジット・デビット・プリペイド・電子マネーは明細の構造が同じなので同じ画面で扱う。
 // 銀行口座を起点にする引き落としの登録は銀行管理側の役割で、ここではチャージ先の指定と固定決済の登録を行う。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,26 +14,19 @@ import {
   View,
 } from "react-native";
 import {
-  deleteCardTransaction,
   deleteLinkedAccount,
   fetchAccounts,
-  fetchCardTransactions,
   fetchLinkedAccounts,
   patchLinkedAccount,
-  postCardTransaction,
   postLinkedAccount,
   type Account,
-  type CardTransaction,
   type LinkedAccount,
   type ViewMode,
 } from "../api";
 import { CardSummary } from "../components/card/CardSummary";
-import { CardTransactionsList } from "../components/card/CardTransactionsList";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
 import {
   Button,
-  Card,
-  EmptyText,
   Field,
   Input,
   Lead,
@@ -40,24 +34,15 @@ import {
   Pills,
   SelectField,
   SheetModal,
-  TabBar,
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
 import { CARD_HELP } from "../shared/help-texts";
-import { digitsOnly, isoDate, yen } from "../format";
 import {
   isChargeableType,
   LINKED_ACCOUNT_TYPE_LABELS,
   LINKED_ACCOUNT_TYPES,
 } from "../shared/linked-account-type";
 
-type Tab = "summary" | "list" | "calendar";
-const TABS = [
-  ["summary", "サマリ"],
-  ["list", "明細一覧"],
-  ["calendar", "カレンダー"],
-] as const;
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const LEDGER_CATEGORIES = ["ASSET", "LIABILITY"] as const;
 
 type CardForm = {
@@ -86,10 +71,13 @@ const NAME_PLACEHOLDER: Record<string, string> = {
   CREDIT_CARD: "例: 楽天カード",
 };
 
-type Props = { viewMode: ViewMode };
+type Props = {
+  viewMode: ViewMode;
+  /** 「明細を見る」から、実績の画面の履歴でこのカードの明細を開く */
+  onOpenHistory: (accountId: number) => void;
+};
 
-export function CardTransactionsScreen({ viewMode }: Props) {
-  const [tab, setTab] = useState<Tab>("summary");
+export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
   const [accounts, setAccounts] = useState<LinkedAccount[]>([]);
   const [categoryAccounts, setCategoryAccounts] = useState<Account[]>([]);
   const [accountId, setAccountId] = useState<number | null>(null);
@@ -209,7 +197,6 @@ export function CardTransactionsScreen({ viewMode }: Props) {
 
   return (
     <View style={s.root}>
-      <TabBar tabs={TABS} value={tab} onChange={setTab} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={s.content}
@@ -232,8 +219,8 @@ export function CardTransactionsScreen({ viewMode }: Props) {
           </Notice>
         )}
 
-        {/* 表示対象（サマリは全カードを 1 枚に描くので出さない。web 版と同じ） */}
-        {tab !== "summary" && selected && (
+        {/* 対象のカード・電子マネー（編集・削除と「明細を見る」の対象。web 版と同じ） */}
+        {selected && (
           <View>
             <SelectField
               label="表示対象のカード・電子マネー"
@@ -265,30 +252,14 @@ export function CardTransactionsScreen({ viewMode }: Props) {
               <TouchableOpacity onPress={() => confirmDeleteCard(selected)}>
                 <Text style={s.danger}>削除</Text>
               </TouchableOpacity>
+              <TouchableOpacity onPress={() => onOpenHistory(selected.id)}>
+                <Text style={s.link}>明細を見る</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
 
-        {tab === "summary" && <CardSummary accounts={accounts} reloadKey={reloadKey} />}
-        {tab === "list" && selected && (
-          <CardTransactionsList
-            key={`${selected.id}:${reloadKey}`}
-            account={selected}
-            accounts={accounts}
-            categoryAccounts={categoryAccounts}
-            viewMode={viewMode}
-            onFlowChanged={() => load()}
-          />
-        )}
-        {tab === "calendar" && <Lead>{CARD_HELP.calendar}</Lead>}
-        {tab === "calendar" && selected && (
-          <CardCalendar
-            key={`${selected.id}:${reloadKey}`}
-            account={selected}
-            viewMode={viewMode}
-            categoryAccounts={categoryAccounts}
-          />
-        )}
+        <CardSummary accounts={accounts} reloadKey={reloadKey} />
       </ScrollView>
 
       {/* カード・電子マネーの登録／編集 */}
@@ -384,219 +355,6 @@ export function CardTransactionsScreen({ viewMode }: Props) {
         }}
         onClose={() => setPickingLedger(false)}
       />
-    </View>
-  );
-}
-
-// ── カレンダー（日ごとの利用・返金の合計と、その日の明細・支払いの追加）───────────
-function CardCalendar({
-  account,
-  viewMode,
-  categoryAccounts,
-}: {
-  account: LinkedAccount;
-  viewMode: ViewMode;
-  categoryAccounts: Account[];
-}) {
-  const now = new Date();
-  const isEMoney = account.type === "E_MONEY";
-  const [txns, setTxns] = useState<CardTransaction[] | null>(null);
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
-  const [form, setForm] = useState({
-    description: "",
-    amount: "",
-    type: "charge" as "charge" | "refund",
-  });
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setTxns(await fetchCardTransactions(account.id));
-    } catch {
-      setTxns([]);
-    }
-  }, [account.id]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const byDay = useMemo(() => {
-    const m = new Map<number, CardTransaction[]>();
-    for (const t of txns ?? []) {
-      const d = new Date(t.date);
-      if (d.getFullYear() !== year || d.getMonth() + 1 !== month) continue;
-      m.set(d.getDate(), [...(m.get(d.getDate()) ?? []), t]);
-    }
-    return m;
-  }, [txns, year, month]);
-
-  const firstWeekday = new Date(year, month - 1, 1).getDay();
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
-  const entries = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
-
-  function moveMonth(delta: number) {
-    const d = new Date(year, month - 1 + delta, 1);
-    setYear(d.getFullYear());
-    setMonth(d.getMonth() + 1);
-    setSelectedDay(null);
-  }
-
-  async function submit() {
-    if (!selectedDay) return;
-    const raw = Number(form.amount);
-    if (!form.description.trim() || !(raw > 0)) return setMsg("摘要と金額を入力してください");
-    setSaving(true);
-    try {
-      await postCardTransaction(account.id, {
-        date: isoDate(year, month, selectedDay),
-        description: form.description.trim(),
-        amount: form.type === "charge" ? Math.abs(raw) : -Math.abs(raw),
-      });
-      setForm({ description: "", amount: "", type: "charge" });
-      setMsg(null);
-      await load();
-    } catch {
-      setMsg("登録に失敗しました");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function remove(t: CardTransaction) {
-    Alert.alert("明細を削除", `「${t.description}」を削除します。よろしいですか？`, [
-      { text: "キャンセル", style: "cancel" },
-      {
-        text: "削除",
-        style: "destructive",
-        onPress: async () => {
-          await deleteCardTransaction(account.id, t.id).catch(() => setMsg("削除に失敗しました"));
-          await load();
-        },
-      },
-    ]);
-  }
-
-  const categoryName = (t: CardTransaction) => {
-    if (!t.categoryAccount) return null;
-    const a = categoryAccounts.find((x) => x.id === t.categoryAccount!.id);
-    return `${t.categoryAccount.code} ${a ? displayName(a, viewMode) : t.categoryAccount.name}`;
-  };
-
-  return (
-    <View>
-      {msg && <Notice tone="error">{msg}</Notice>}
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        <View style={s.monthNav}>
-          <TouchableOpacity onPress={() => moveMonth(-1)} style={s.navBtn}>
-            <Text style={s.navTxt}>◀</Text>
-          </TouchableOpacity>
-          <Text style={s.monthLabel}>
-            {year}年{month}月
-          </Text>
-          <TouchableOpacity onPress={() => moveMonth(1)} style={s.navBtn}>
-            <Text style={s.navTxt}>▶</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={s.weekRow}>
-          {WEEKDAYS.map((w, i) => (
-            <Text key={w} style={[s.weekCell, i === 0 && s.sun, i === 6 && s.sat]}>
-              {w}
-            </Text>
-          ))}
-        </View>
-        {txns === null ? (
-          <ActivityIndicator color="#4f46e5" style={{ marginVertical: 32 }} />
-        ) : (
-          <View style={s.grid}>
-            {Array.from({ length: totalCells }, (_, i) => {
-              const day = i - firstWeekday + 1;
-              if (day < 1 || day > daysInMonth) return <View key={i} style={[s.cell, s.blank]} />;
-              const list = byDay.get(day) ?? [];
-              const charge = list.filter((t) => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
-              const refund = list.filter((t) => t.amount < 0).reduce((sum, t) => sum - t.amount, 0);
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={[s.cell, day === selectedDay && s.cellSelected]}
-                  onPress={() => setSelectedDay(day)}
-                >
-                  <Text style={[s.dayNum, i % 7 === 0 && s.sun, i % 7 === 6 && s.sat]}>{day}</Text>
-                  {charge > 0 && (
-                    <Text style={s.charge} numberOfLines={1}>
-                      {Math.round(charge).toLocaleString("ja-JP")}
-                    </Text>
-                  )}
-                  {refund > 0 && (
-                    <Text style={s.refund} numberOfLines={1}>
-                      −{Math.round(refund).toLocaleString("ja-JP")}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-      </Card>
-
-      {selectedDay === null ? (
-        <EmptyText>カレンダーの日付をタップして支払いを入力してください</EmptyText>
-      ) : (
-        <>
-          <Card>
-            <Text style={s.dayTitle}>
-              {year}年{month}月{selectedDay}日
-            </Text>
-            <Text style={s.muted}>{entries.length} 件の明細</Text>
-            {entries.map((t) => (
-              <View key={t.id} style={s.entryRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.entryDesc} numberOfLines={1}>
-                    {t.description}
-                  </Text>
-                  {categoryName(t) && <Text style={s.muted}>{categoryName(t)}</Text>}
-                </View>
-                <Text style={t.amount > 0 ? s.charge : s.refund}>{yen(t.amount)}</Text>
-                <TouchableOpacity onPress={() => remove(t)} hitSlop={8}>
-                  <Text style={s.remove}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </Card>
-          <Card>
-            <Text style={s.formTitle}>支払いを追加</Text>
-            <Pills
-              scroll={false}
-              options={[
-                { value: "charge" as const, label: "利用" },
-                { value: "refund" as const, label: "返金" },
-              ]}
-              value={form.type}
-              onChange={(type) => setForm((f) => ({ ...f, type }))}
-            />
-            <Field label="摘要（利用先）">
-              <Input
-                value={form.description}
-                placeholder={isEMoney ? "例: セブン-イレブン（Suica）" : "例: AMAZON.CO.JP"}
-                onChangeText={(description) => setForm((f) => ({ ...f, description }))}
-              />
-            </Field>
-            <Field label="金額（円）">
-              <Input
-                keyboardType="number-pad"
-                value={form.amount}
-                placeholder="例: 5000"
-                onChangeText={(t) => setForm((f) => ({ ...f, amount: digitsOnly(t) }))}
-              />
-            </Field>
-            <Button label={saving ? "登録中..." : "登録"} onPress={submit} loading={saving} />
-          </Card>
-        </>
-      )}
     </View>
   );
 }

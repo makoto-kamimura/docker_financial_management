@@ -15,18 +15,26 @@ import {
 import {
   deleteFinancialRecord,
   fetchAccounts,
+  fetchBankAccounts,
   fetchFinancialMatrix,
+  fetchLinkedAccounts,
   fetchRecordHistory,
   patchFinancialRecord,
   postFinancialRecord,
   type Account,
+  type BankAccount,
   type FinancialRecordRow,
   type HistoryPage,
   type HistoryQuery,
+  type LinkedAccount,
   type RecordSource,
   type ViewMode,
 } from "../api";
 import { ActualsCalendar } from "../components/ActualsCalendar";
+import { BankTransactionsCalendar } from "../components/bank/BankTransactionsCalendar";
+import { BankTransactionsList } from "../components/bank/BankTransactionsList";
+import { CardCalendar } from "../components/card/CardCalendar";
+import { CardTransactionsList } from "../components/card/CardTransactionsList";
 import { ChangeHistoryList, INITIAL_HISTORY_QUERY } from "../components/ChangeHistoryList";
 import {
   Button,
@@ -35,6 +43,7 @@ import {
   Lead,
   Notice,
   Pills,
+  SelectField,
   SheetModal,
   TabBar,
 } from "../components/ui";
@@ -55,6 +64,15 @@ const TABS = [
   ["history", "履歴"],
 ] as const;
 
+// カレンダー・履歴で見る出どころ（web 版と同じ）。手動＝実績（支出・収入）、銀行＝入出金の明細、
+// カード・電子マネー＝利用・返金の明細（銀行・カードの画面の一覧とカレンダーをここへまとめた）
+type Source = "manual" | "bank" | "card";
+const SOURCES: { value: Source; label: string }[] = [
+  { value: "manual", label: "手動" },
+  { value: "bank", label: "銀行" },
+  { value: "card", label: "カード・電子マネー" },
+];
+
 // セル内訳に出す「どこから入った実績か」（web 版と同じ文言）
 const SOURCE_LABEL: Record<RecordSource["kind"], string> = {
   bank: "銀行明細から転記",
@@ -74,12 +92,50 @@ type Props = {
   initialMonth?: string;
   /** 予算の画面の「予算の確定」へ移る */
   onOpenBudget?: (month: string) => void;
+  /** 開いたときの出どころと口座（銀行・カードの「明細を見る」から開くとき） */
+  initialSource?: "bank" | "card";
+  initialAccountId?: number;
+  /** 銀行の明細の「予定で見る」から、銀行の画面の資金移動スケジュールをその日で開く */
+  onOpenBankSchedule?: (day: number) => void;
 };
 
-export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }: Props) {
+export function EntryScreen({
+  viewMode,
+  initialTab,
+  initialMonth,
+  onOpenBudget,
+  initialSource,
+  initialAccountId,
+  onOpenBankSchedule,
+}: Props) {
   const now = new Date();
   const [tab, setTab] = useState<Tab>(initialTab ?? "manual");
   const [accounts, setAccounts] = useState<Account[]>([]);
+
+  // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
+  const [source, setSource] = useState<Source>(initialSource ?? "manual");
+  // 銀行は null で「すべての銀行」。カードは 1 枚ずつ扱う（null なら最初のカード）
+  const [bankAccountId, setBankAccountId] = useState<number | null>(
+    initialSource === "bank" ? (initialAccountId ?? null) : null,
+  );
+  const [cardAccountId, setCardAccountId] = useState<number | null>(
+    initialSource === "card" ? (initialAccountId ?? null) : null,
+  );
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [cardAccounts, setCardAccounts] = useState<LinkedAccount[]>([]);
+  const sourceTab = tab === "calendar" || tab === "history";
+  const loadSourceAccounts = useCallback(async () => {
+    try {
+      if (source === "bank") setBankAccounts(await fetchBankAccounts());
+      if (source === "card") setCardAccounts(await fetchLinkedAccounts());
+    } catch {
+      // 取得に失敗したときは選択肢が空のまま（各部品の中で案内する）
+    }
+  }, [source]);
+  useEffect(() => {
+    if (sourceTab) loadSourceAccounts();
+  }, [sourceTab, loadSourceAccounts]);
+  const selectedCard = cardAccounts.find((a) => a.id === cardAccountId) ?? cardAccounts[0] ?? null;
 
   // ── 明細一覧 ────────────────────────────────────────────────
   // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
@@ -139,8 +195,8 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
   }, [loadMatrix]);
 
   useEffect(() => {
-    if (tab === "history") loadHistory();
-  }, [tab, loadHistory]);
+    if (tab === "history" && source === "manual") loadHistory();
+  }, [tab, source, loadHistory]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -231,6 +287,74 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
         <Lead>{textFor(ENTRY_HELP.page, viewMode)}</Lead>
         {tab === "calendar" && <Lead>{ENTRY_HELP.calendar}</Lead>}
         {tab === "history" && <Lead>{ENTRY_HELP.history}</Lead>}
+
+        {/* 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ */}
+        {sourceTab && (
+          <View style={s.sourceBox}>
+            <Pills scroll={false} options={SOURCES} value={source} onChange={setSource} />
+            {source === "bank" && (
+              <SelectField<number | "all">
+                label="銀行"
+                value={bankAccountId ?? "all"}
+                options={[
+                  { value: "all", label: "すべての銀行" },
+                  ...bankAccounts.map((a) => ({ value: a.id, label: a.name })),
+                ]}
+                onChange={(v) => setBankAccountId(v === "all" ? null : v)}
+              />
+            )}
+            {source === "card" &&
+              (cardAccounts.length === 0 ? (
+                <Text style={s.sourceNote}>
+                  カード・電子マネーが登録されていません（カード・電子マネー管理で登録します）
+                </Text>
+              ) : (
+                <SelectField
+                  label="カード・電子マネー"
+                  value={selectedCard?.id ?? null}
+                  options={cardAccounts.map((a) => ({ value: a.id, label: a.name }))}
+                  onChange={setCardAccountId}
+                />
+              ))}
+          </View>
+        )}
+
+        {/* 銀行・カードのカレンダーと履歴（銀行・カードの画面から移した部品） */}
+        {tab === "calendar" && source === "bank" && (
+          <BankTransactionsCalendar
+            accounts={bankAccounts}
+            accountId={bankAccountId}
+            onBalanceChanged={loadSourceAccounts}
+          />
+        )}
+        {tab === "calendar" && source === "card" && selectedCard && (
+          <CardCalendar
+            key={selectedCard.id}
+            account={selectedCard}
+            viewMode={viewMode}
+            categoryAccounts={accounts}
+          />
+        )}
+        {tab === "history" && source === "bank" && (
+          <BankTransactionsList
+            accounts={bankAccounts}
+            accountId={bankAccountId}
+            categoryAccounts={accounts}
+            viewMode={viewMode}
+            onBalanceChanged={loadSourceAccounts}
+            onOpenCalendar={(date) => onOpenBankSchedule?.(new Date(date).getDate())}
+          />
+        )}
+        {tab === "history" && source === "card" && selectedCard && (
+          <CardTransactionsList
+            key={selectedCard.id}
+            account={selectedCard}
+            accounts={cardAccounts}
+            categoryAccounts={accounts}
+            viewMode={viewMode}
+            onFlowChanged={loadSourceAccounts}
+          />
+        )}
 
         {/* 実績の確定（② 明細の最終日がそろったら確定する） */}
         {tab === "confirm" && (
@@ -356,9 +480,11 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
             </>
           ))}
 
-        {tab === "calendar" && <ActualsCalendar accounts={accounts} viewMode={viewMode} />}
+        {tab === "calendar" && source === "manual" && (
+          <ActualsCalendar accounts={accounts} viewMode={viewMode} />
+        )}
 
-        {tab === "history" && (
+        {tab === "history" && source === "manual" && (
           <ChangeHistoryList
             rows={history.data}
             total={history.total}
@@ -446,6 +572,8 @@ export function EntryScreen({ viewMode, initialTab, initialMonth, onOpenBudget }
 }
 
 const s = StyleSheet.create({
+  sourceBox: { marginBottom: 10, gap: 6 },
+  sourceNote: { fontSize: 11, color: "#64748b" },
   root: { flex: 1, backgroundColor: "#f8fafc" },
   scroll: { flex: 1 },
   content: { padding: 14, paddingBottom: 32 },

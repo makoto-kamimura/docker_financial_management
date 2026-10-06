@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
@@ -10,7 +11,6 @@ import { FundingPlanPanel } from "@/components/FundingPlanPanel";
 import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPanel";
 import { filterFlowGraph } from "@/lib/flow-graph";
 import { CashFlowTrendCharts } from "@/components/CashFlowTrendCharts";
-import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar";
 import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
@@ -89,11 +89,10 @@ const EMPTY_FLOW: FlowResponse = { cyclic: false, graph: { nodes: [], links: [] 
 // 銀行まわりの機能はこのページに集約する（入出金管理・残高シミュレーションを統合）。
 // 既定の「キャッシュフロー」タブは資産管理・借入金管理と同じ並びで、残高の推移 → 資金繰り →
 // 毎月の入出金（資金移動）→ 資金フロー図 → 銀行口座（登録・編集・差額）の順に置く。
-// 口座残高のサマリはダッシュボードへ移した。手入力の明細の登録は「カレンダー」タブで行う。
+// 口座残高のサマリはダッシュボードへ移した。明細の一覧と手入力の登録は、実績管理の「履歴」「カレンダー」
+// （出どころに銀行を選ぶ）へまとめた。
 const TABS = [
   ["cashflow", "キャッシュフロー"],
-  ["list", "一覧"],
-  ["calendar", "カレンダー"],
   ["csv", "CSV インポート"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
@@ -151,10 +150,9 @@ function BankAccountsContent() {
   const tabParam = searchParams.get("tab") ?? "";
   const initialTab = (TABS.map(([t]) => t) as readonly string[]).includes(tabParam)
     ? (tabParam as Tab)
-    : // 旧タブ（サマリ / 振替 / 残高シミュレーション / 入出金）へのリンクは統合先へ寄せる
-      tabParam === "transactions"
-      ? "list"
-      : "cashflow";
+    : // 旧タブ（サマリ / 振替 / 一覧 / カレンダー / 残高シミュレーション / 入出金）へのリンクは
+      // キャッシュフローへ寄せる（明細は実績管理の履歴で見る）
+      "cashflow";
   const [tab, setTab] = useState<Tab>(initialTab);
   // 「表示する銀行」カードで選んだ口座の id。null はすべての銀行（既定）
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -514,7 +512,7 @@ function BankAccountsContent() {
           )}
 
           {/* ── 銀行口座（資産管理の「実物資産」・借入金管理の「借入金」と同じく 1 枚のカードにまとめる）──
-              「明細を見る」で、その口座の明細を一覧タブで開く。 */}
+              「明細を見る」で、その口座の明細を実績管理の履歴で開く。 */}
           <div className="card mb-6">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
               <div>
@@ -598,17 +596,13 @@ function BankAccountsContent() {
                           </p>
                         </div>
                         <div className="flex flex-col items-end gap-1">
-                          {/* 一覧タブで、この口座の明細を開く */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedId(a.id);
-                              setTab("list");
-                            }}
+                          {/* 実績管理の履歴で、この口座の明細を開く */}
+                          <Link
+                            href={`/entry?tab=history&source=bank&account=${a.id}` as never}
                             className="text-xs text-indigo-500 hover:text-indigo-700"
                           >
                             明細を見る
-                          </button>
+                          </Link>
                           <button
                             type="button"
                             onClick={() => {
@@ -648,18 +642,8 @@ function BankAccountsContent() {
         </>
       )}
 
-      {/* ── 一覧 / CSV ──────────── */}
-      {(tab === "list" || tab === "csv") && (
-        <BankTransactionsPanel
-          view={tab}
-          // 一覧から予定のカレンダーを開くと、キャッシュフロータブの資金移動スケジュールへ移る
-          onViewChange={(v) => setTab(v === "recurring" ? "cashflow" : v)}
-          accountId={selected?.id ?? null}
-        />
-      )}
-
-      {/* ── カレンダー（日ごとの明細と、手入力での登録）──────────── */}
-      {tab === "calendar" && <BankTransactionsCalendar accountId={selected?.id ?? null} />}
+      {/* ── CSV インポート（取り込み先は「表示する銀行」。すべてのときは中で選ぶ）──────────── */}
+      {tab === "csv" && <BankTransactionsPanel view="csv" accountId={selected?.id ?? null} />}
 
       {/* 口座登録モーダル（設定「口座・カード管理」の新規登録から移設）*/}
       {showAccountForm && (

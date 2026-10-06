@@ -1,8 +1,7 @@
 // 銀行管理（web 版 /bank-accounts と同じ「キャッシュフロー / 一覧 / カレンダー」。CSV インポート・自動取得は web 版のみ）。
 //   キャッシュフロー … 残高の推移、資金繰り、毎月の入出金（components/bank/TransferTab）、
 //                      銀行口座（追加・編集・削除・差額入力）。口座残高のサマリはホームへ移した
-//   一覧 … components/bank/BankTransactionsList
-//   カレンダー … components/bank/BankTransactionsCalendar（日ごとの明細と手入力での登録）
+//   明細の一覧と手入力の登録は、実績の画面の「履歴」「カレンダー」（出どころに銀行）へ移した
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -24,8 +23,6 @@ import {
   type BankAccount,
   type ViewMode,
 } from "../api";
-import { BankTransactionsCalendar } from "../components/bank/BankTransactionsCalendar";
-import { BankTransactionsList } from "../components/bank/BankTransactionsList";
 import { TransferTab, type ScheduleMode } from "../components/bank/TransferTab";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
 import { CashFlowTrend } from "../components/CashFlowTrend";
@@ -42,20 +39,12 @@ import {
   SectionTitle,
   SelectField,
   SheetModal,
-  TabBar,
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
 import { BANK_HELP } from "../shared/help-texts";
 import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
 import { BANK_ACCOUNT_TYPE_LABEL } from "../shared/labels";
 import { useFiscalYear } from "../fiscal-year";
-
-type Tab = "cashflow" | "list" | "calendar";
-const TABS = [
-  ["cashflow", "キャッシュフロー"],
-  ["list", "一覧"],
-  ["calendar", "カレンダー"],
-] as const;
 
 // 紐付き勘定科目に選べるのは資産・負債のみ（web 版と同じ）
 const LINKABLE = ["ASSET", "LIABILITY"] as const;
@@ -88,11 +77,16 @@ const BLANK_FORM: AccountForm = {
   transactionSum: 0,
 };
 
-type Props = { viewMode: ViewMode };
+type Props = {
+  viewMode: ViewMode;
+  /** 「明細を見る」から、実績の画面の履歴でこの口座の明細を開く */
+  onOpenHistory: (accountId: number) => void;
+  /** 実績の履歴の「予定で見る」から開いたときの日（資金移動スケジュールのカレンダーで選ぶ） */
+  initialFocusDay?: number | null;
+};
 
-export function BankAccountsScreen({ viewMode }: Props) {
+export function BankAccountsScreen({ viewMode, onOpenHistory, initialFocusDay = null }: Props) {
   const now = new Date();
-  const [tab, setTab] = useState<Tab>("cashflow");
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountRefs, setAccountRefs] = useState<Account[]>([]);
   // 「表示する銀行」で選んだ口座の id。null はすべての銀行（既定）
@@ -109,8 +103,10 @@ export function BankAccountsScreen({ viewMode }: Props) {
   const [form, setForm] = useState<AccountForm | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pickingAccount, setPickingAccount] = useState(false);
-  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("list");
-  const [focusDay, setFocusDay] = useState<number | null>(null);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(
+    initialFocusDay !== null ? "calendar" : "list",
+  );
+  const focusDay = initialFocusDay;
 
   const load = useCallback(async () => {
     setError(null);
@@ -259,7 +255,6 @@ export function BankAccountsScreen({ viewMode }: Props) {
           </Text>
         )}
       </View>
-      <TabBar tabs={TABS} value={tab} onChange={setTab} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={s.content}
@@ -269,146 +264,116 @@ export function BankAccountsScreen({ viewMode }: Props) {
         {error && <Notice tone="error">{error}</Notice>}
         <Lead>{BANK_HELP.page}</Lead>
 
-        {tab === "cashflow" && (
-          <>
-            {/* 残高の推移（web 版と同じ。合計の先は予算と実績、口座ごとの先は毎月の入出金から見込む） */}
-            <CashFlowTrend year={year} month={month} reloadKey={reloadKey} accountId={selectedId} />
+        <>
+          {/* 残高の推移（web 版と同じ。合計の先は予算と実績、口座ごとの先は毎月の入出金から見込む） */}
+          <CashFlowTrend year={year} month={month} reloadKey={reloadKey} accountId={selectedId} />
 
-            <SectionTitle note={BANK_HELP.funding}>
-              資金繰り（{year}年{month}月から3か月）
-            </SectionTitle>
-            {periodPicker}
-            <FundingPlanView
-              year={year}
-              month={month}
-              months={3}
-              reloadKey={reloadKey}
-              accountId={selectedId}
-            />
+          <SectionTitle note={BANK_HELP.funding}>
+            資金繰り（{year}年{month}月から3か月）
+          </SectionTitle>
+          {periodPicker}
+          <FundingPlanView
+            year={year}
+            month={month}
+            months={3}
+            reloadKey={reloadKey}
+            accountId={selectedId}
+          />
 
-            {/* 明細から見つけた毎月の入出金の候補（登録で資金移動ルールになる） */}
-            <RecurringSuggestions
-              reloadKey={reloadKey}
-              onChanged={onBalanceChanged}
-              accountId={selectedId}
-            />
-            <TransferTab
-              accounts={accounts}
-              accountId={selectedId}
-              year={year}
-              month={month}
-              scheduleMode={scheduleMode}
-              onScheduleModeChange={setScheduleMode}
-              focusDay={focusDay}
-              onBalanceChanged={onBalanceChanged}
-            />
+          {/* 明細から見つけた毎月の入出金の候補（登録で資金移動ルールになる） */}
+          <RecurringSuggestions
+            reloadKey={reloadKey}
+            onChanged={onBalanceChanged}
+            accountId={selectedId}
+          />
+          <TransferTab
+            accounts={accounts}
+            accountId={selectedId}
+            year={year}
+            month={month}
+            scheduleMode={scheduleMode}
+            onScheduleModeChange={setScheduleMode}
+            focusDay={focusDay}
+            onBalanceChanged={onBalanceChanged}
+          />
 
-            {/* 銀行口座（資産・借入金の画面と同じく 1 枚のカードにまとめる） */}
-            <Card>
-              <View style={s.summaryHead}>
-                <Text style={s.title}>銀行口座</Text>
-                <Button
-                  small
-                  label="銀行追加"
-                  onPress={() => {
-                    setFormError(null);
-                    setForm(BLANK_FORM);
-                  }}
-                  style={{ marginLeft: "auto" }}
-                />
-              </View>
-              {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
-              <Text style={s.help}>{BANK_HELP.balance}</Text>
-              {accounts.length === 0 ? (
+          {/* 銀行口座（資産・借入金の画面と同じく 1 枚のカードにまとめる） */}
+          <Card>
+            <View style={s.summaryHead}>
+              <Text style={s.title}>銀行口座</Text>
+              <Button
+                small
+                label="銀行追加"
+                onPress={() => {
+                  setFormError(null);
+                  setForm(BLANK_FORM);
+                }}
+                style={{ marginLeft: "auto" }}
+              />
+            </View>
+            {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
+            <Text style={s.help}>{BANK_HELP.balance}</Text>
+            {accounts.length === 0 ? (
+              <Text style={s.muted}>
+                口座が登録されていません。「銀行追加」から追加してください。
+              </Text>
+            ) : (
+              <>
                 <Text style={s.muted}>
-                  口座が登録されていません。「銀行追加」から追加してください。
+                  残高合計 {yen(totalBalance)} ・ {shownAccounts.length} 口座
                 </Text>
-              ) : (
-                <>
-                  <Text style={s.muted}>
-                    残高合計 {yen(totalBalance)} ・ {shownAccounts.length} 口座
-                  </Text>
-                  {shownAccounts.map((a) => (
-                    <View key={a.id} style={s.accountCard}>
-                      <Text style={s.muted}>
-                        {a.bankName}
-                        {a.branchName ? ` ${a.branchName}` : ""} /{" "}
-                        {BANK_ACCOUNT_TYPE_LABEL[a.accountType] ?? a.accountType}
-                      </Text>
-                      <Text style={s.accountName}>{a.name}</Text>
-                      <Text style={s.balance}>{yen(a.balance ?? 0)}</Text>
-                      <Text style={s.muted}>
-                        {a._count.transactions}件の取引
-                        {a._count.transactions > 0 && a.lastTransactionDate
-                          ? ` / 最新 ${fmtDate(a.lastTransactionDate)}`
-                          : ""}
-                      </Text>
-                      <Text style={s.muted}>
-                        最終更新 {a.lastUpdatedAt ? fmtDateTime(a.lastUpdatedAt) : "—"}
-                      </Text>
-                      {/* 差額を入れている口座はその内訳を明示する。差額 0 円を確かめて保存した口座は
+                {shownAccounts.map((a) => (
+                  <View key={a.id} style={s.accountCard}>
+                    <Text style={s.muted}>
+                      {a.bankName}
+                      {a.branchName ? ` ${a.branchName}` : ""} /{" "}
+                      {BANK_ACCOUNT_TYPE_LABEL[a.accountType] ?? a.accountType}
+                    </Text>
+                    <Text style={s.accountName}>{a.name}</Text>
+                    <Text style={s.balance}>{yen(a.balance ?? 0)}</Text>
+                    <Text style={s.muted}>
+                      {a._count.transactions}件の取引
+                      {a._count.transactions > 0 && a.lastTransactionDate
+                        ? ` / 最新 ${fmtDate(a.lastTransactionDate)}`
+                        : ""}
+                    </Text>
+                    <Text style={s.muted}>
+                      最終更新 {a.lastUpdatedAt ? fmtDateTime(a.lastUpdatedAt) : "—"}
+                    </Text>
+                    {/* 差額を入れている口座はその内訳を明示する。差額 0 円を確かめて保存した口座は
                           「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
-                      {a.balanceAdjustment ? (
-                        <Text style={s.muted}>
-                          明細合計 {yen(a.transactionSum ?? 0)} ＋ 差額 {yen(a.balanceAdjustment)}
-                        </Text>
-                      ) : a.balanceCheckedAt ? (
-                        <Text style={s.muted}>明細合計どおり（差額なし）</Text>
-                      ) : (
-                        a._count.transactions > 0 && (
-                          <Text style={s.warn}>実際の残高と違う場合は「編集」から差額を入力</Text>
-                        )
-                      )}
-                      {a.account && (
-                        <Text style={s.linked}>紐付く科目: {linkedLabel(a.account.code)}</Text>
-                      )}
-                      <View style={s.cardActions}>
-                        {/* 一覧タブで、この口座の明細を開く */}
-                        <TouchableOpacity
-                          onPress={() => {
-                            setSelectedId(a.id);
-                            setTab("list");
-                          }}
-                        >
-                          <Text style={s.link}>明細を見る</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => openEdit(a)}>
-                          <Text style={s.link}>編集</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => confirmDelete(a)}>
-                          <Text style={s.danger}>削除</Text>
-                        </TouchableOpacity>
-                      </View>
+                    {a.balanceAdjustment ? (
+                      <Text style={s.muted}>
+                        明細合計 {yen(a.transactionSum ?? 0)} ＋ 差額 {yen(a.balanceAdjustment)}
+                      </Text>
+                    ) : a.balanceCheckedAt ? (
+                      <Text style={s.muted}>明細合計どおり（差額なし）</Text>
+                    ) : (
+                      a._count.transactions > 0 && (
+                        <Text style={s.warn}>実際の残高と違う場合は「編集」から差額を入力</Text>
+                      )
+                    )}
+                    {a.account && (
+                      <Text style={s.linked}>紐付く科目: {linkedLabel(a.account.code)}</Text>
+                    )}
+                    <View style={s.cardActions}>
+                      {/* 実績の画面の履歴で、この口座の明細を開く */}
+                      <TouchableOpacity onPress={() => onOpenHistory(a.id)}>
+                        <Text style={s.link}>明細を見る</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => openEdit(a)}>
+                        <Text style={s.link}>編集</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => confirmDelete(a)}>
+                        <Text style={s.danger}>削除</Text>
+                      </TouchableOpacity>
                     </View>
-                  ))}
-                </>
-              )}
-            </Card>
-          </>
-        )}
-
-        {tab === "list" && (
-          <BankTransactionsList
-            accounts={accounts}
-            accountId={selectedId}
-            categoryAccounts={accountRefs}
-            viewMode={viewMode}
-            onBalanceChanged={onBalanceChanged}
-            onOpenCalendar={(date) => {
-              setFocusDay(new Date(date).getDate());
-              setScheduleMode("calendar");
-              setTab("cashflow");
-            }}
-          />
-        )}
-
-        {tab === "calendar" && (
-          <BankTransactionsCalendar
-            accounts={accounts}
-            accountId={selectedId}
-            onBalanceChanged={onBalanceChanged}
-          />
-        )}
+                  </View>
+                ))}
+              </>
+            )}
+          </Card>
+        </>
       </ScrollView>
 
       {/* 口座の登録・編集 */}
