@@ -49,6 +49,7 @@ import {
   SheetModal,
 } from "../components/ui";
 import {
+  asOfDateLabel,
   BUILDING_LIFE_YEARS,
   BUILDING_STRUCTURE_LABEL,
   BUILDING_STRUCTURES,
@@ -507,7 +508,14 @@ export function AssetsScreen({ viewMode }: Props) {
     .reduce((sum, a) => sum + (a.estimatedValue ?? Number(a.currentValue)), 0);
   const totalDebt = assets.reduce((sum, a) => sum + (a.debtRemaining ?? 0), 0);
   const hasExcluded = assets.some((a) => !a.countAsAsset);
-  const nowIndex = trend ? trend.months.indexOf(trend.currentKey) : -1;
+  // いつ時点の金額か（資産管理の数字はどれも今日の見積もり）
+  const asOf = asOfDateLabel(new Date());
+  // 合計は今日の見積もり（総資産サマリの今月の実物資産と同じ数字）
+  const trendTotalNow = trend
+    ? trend.assets
+        .filter((a) => a.countAsAsset && a.estimatedValue !== null)
+        .reduce<number | null>((sum, a) => (sum ?? 0) + (a.estimatedValue ?? 0), null)
+    : null;
 
   if (loading) {
     return (
@@ -565,9 +573,9 @@ export function AssetsScreen({ viewMode }: Props) {
             <SectionTitle note={ASSETS_HELP.trend}>実物資産の評価額の推移</SectionTitle>
             <View style={s.trendHead}>
               <View>
-                <Text style={s.muted}>合計（資産計上の資産）・今月末の見込み</Text>
+                <Text style={s.muted}>合計（資産計上の資産・{asOf}）</Text>
                 <Text style={s.totalValue}>
-                  {trend.total[nowIndex] == null ? "—" : yenShort(trend.total[nowIndex]!)}
+                  {trendTotalNow === null ? "—" : yenShort(trendTotalNow)}
                 </Text>
               </View>
               <TrendBadge trend={trendOfSeries(trend, trend.total)} />
@@ -593,7 +601,7 @@ export function AssetsScreen({ viewMode }: Props) {
                   <TrendBadge trend={trendOfSeries(trend, a.series)} />
                 </View>
                 <Text style={s.muted}>
-                  今の見積もり {a.estimatedValue === null ? "—" : yenShort(a.estimatedValue)}
+                  {asOf}の見積もり {a.estimatedValue === null ? "—" : yenShort(a.estimatedValue)}
                   {a.countAsAsset ? "" : " ・ 資産計上外（合計に含めない）"}
                 </Text>
                 <AssetValueChart
@@ -622,7 +630,7 @@ export function AssetsScreen({ viewMode }: Props) {
         <Card>
           <SectionTitle
             note={
-              `${ASSETS_HELP.personal}\n今の見積もりの合計: ${yenShort(total)}` +
+              `${ASSETS_HELP.personal}\n${asOf}の見積もりの合計: ${yenShort(total)}` +
               (totalDebt > 0 ? ` ・ 負債残高合計: ${yenShort(totalDebt)}` : "") +
               (hasExcluded ? " ・ 「資産計上外」の項目は負債のみ反映" : "")
             }
@@ -707,7 +715,7 @@ export function AssetsScreen({ viewMode }: Props) {
                 ))}
                 <View style={s.assetFoot}>
                   <View>
-                    <Text style={s.muted}>今の見積もり</Text>
+                    <Text style={s.muted}>{asOf}の見積もり</Text>
                     <Text style={s.value}>
                       {yenShort(a.estimatedValue ?? Number(a.currentValue))}
                     </Text>

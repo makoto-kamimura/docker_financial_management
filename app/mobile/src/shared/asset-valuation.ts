@@ -252,6 +252,11 @@ export function estimateValue(input: ValuationInput, date: Date): number | null 
   return Math.max(0, project(base.rule ?? rule, base, date, lifeStart));
 }
 
+/** 「2026年10月6日時点」（いつ時点の金額かの見出し。総資産サマリの「2026年8月末時点」とそろえる） */
+export function asOfDateLabel(date: Date): string {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日時点`;
+}
+
 /** "YYYY-MM" の月末日 */
 export function monthEndOf(key: string): Date {
   const [y, m] = key.split("-").map(Number);

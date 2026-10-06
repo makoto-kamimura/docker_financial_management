@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  asOfDateLabel,
   describeRule,
   estimateValue,
   monthKeysBetween,
@@ -153,6 +154,12 @@ describe("評価額を入れ直しても、それより前の見積もりは変�
   it("取得日から最初の記録までは直線（登録時の過去の推定）", () => {
     // 2020-01（2,000 万）と 2026-01（1,200 万）の中間の 2023-01 は約 1,600 万
     expect(estimateValue(building, d("2023-01-01"))).toBeCloseTo(16_000_000, -5);
+  });
+});
+
+describe("asOfDateLabel", () => {
+  it("年月日で時点を出す", () => {
+    expect(asOfDateLabel(d("2026-10-06"))).toBe("2026年10月6日時点");
   });
 });
 

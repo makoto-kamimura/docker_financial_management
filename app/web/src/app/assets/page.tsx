@@ -7,6 +7,7 @@ import { AssetTrendCharts, TrendBadge } from "@/components/AssetTrendCharts";
 import { SectionLead } from "@/components/Explain";
 import { PageHeader } from "@/components/ui";
 import {
+  asOfDateLabel,
   BUILDING_LIFE_YEARS,
   BUILDING_STRUCTURE_LABEL,
   BUILDING_STRUCTURES,
@@ -818,7 +819,7 @@ function PersonalAssetsSection() {
           <h2 className="section-title mb-1">実物資産（土地・建物・車・金など）</h2>
           <SectionLead className="mb-1">{ASSETS_HELP.personal}</SectionLead>
           <p className="text-xs text-slate-400 mt-0.5">
-            今の見積もりの合計: {yen(total)}
+            {asOfDateLabel(new Date())}の見積もりの合計: {yen(total)}
             {totalDebt > 0 && (
               <span className="text-amber-600"> ・ 負債残高合計: {yen(totalDebt)}</span>
             )}
@@ -890,7 +891,9 @@ function PersonalAssetsSection() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <p className="text-[10px] text-slate-400">今の見積もり</p>
+                    <p className="text-[10px] text-slate-400">
+                      {asOfDateLabel(new Date())}の見積もり
+                    </p>
                     <p className="font-bold text-slate-800 text-sm tabular-nums">
                       {yen(a.estimatedValue ?? Number(a.currentValue))}
                     </p>
