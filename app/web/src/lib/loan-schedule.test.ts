@@ -3,6 +3,7 @@ import {
   balanceKey,
   buildRateComparison,
   buildScheduleData,
+  loanTrendSeries,
   originalRatePercent,
   pendingRateChange,
   referenceMonthly,
@@ -149,5 +150,37 @@ describe("buildScheduleData", () => {
     const after = points.find((p) => p.date === "2020/04")!;
     expect(before[balanceKey(1)]).toBe(1200000);
     expect(after[balanceKey(1)]).toBe(1000000);
+  });
+});
+
+describe("loanTrendSeries", () => {
+  it("月キーを YYYY-MM にし、合計とローンごとの残高・金利の列を返す", () => {
+    const a = loan({ id: 1, borrowedOn: "2025-01-15", repaymentDate: "2025-06-15" });
+    const b = loan({
+      id: 2,
+      amount: "600000",
+      remainingAmount: "600000",
+      interestRate: "0.02",
+      borrowedOn: "2025-03-15",
+      repaymentDate: "2025-06-15",
+    });
+    const trend = loanTrendSeries([a, b], undefined, new Date(2030, 0, 1));
+    expect(trend.months).toEqual([
+      "2025-01",
+      "2025-02",
+      "2025-03",
+      "2025-04",
+      "2025-05",
+      "2025-06",
+    ]);
+    expect(trend.currentKey).toBe("2030-01");
+    const [ra, rb] = trend.loans;
+    // b は 3 月から。それより前は null
+    expect(rb.balance.slice(0, 2)).toEqual([null, null]);
+    expect(rb.rate[2]).toBe(2);
+    expect(ra.rate[0]).toBe(1);
+    // 合計は両方の残高の和
+    expect(trend.total[3]).toBe((ra.balance[3] ?? 0) + (rb.balance[3] ?? 0));
+    expect(trend.total[0]).toBe(ra.balance[0]);
   });
 });

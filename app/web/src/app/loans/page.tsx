@@ -7,7 +7,6 @@ import {
   Legend,
   Line,
   LineChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,20 +14,17 @@ import {
 } from "recharts";
 import { LOAN_TYPES, LOAN_TYPE_LABEL } from "@/lib/labels";
 import {
-  balanceKey,
   buildRateComparison,
-  buildScheduleData,
-  LOAN_COLORS as COLORS,
   pendingRateChange,
   ratePercent,
-  rateForecastKey,
-  rateKey,
   referenceMonthly,
-  todayLabel,
   type Loan,
 } from "@/lib/loan-schedule";
+import { LoanTrendCharts, repaidPercent } from "@/components/LoanTrendCharts";
+import { PageHeader } from "@/components/ui";
+import { asOfDateLabel } from "@/lib/asset-valuation";
 import { VariableRateHelp } from "@/components/HelpTip";
-import { PageLead, SectionLead } from "@/components/Explain";
+import { SectionLead } from "@/components/Explain";
 import { LOANS_HELP } from "@/lib/help-texts";
 
 type AccountRef = { id: number; code: string; name: string; category: string };
@@ -41,8 +37,6 @@ export default function LoansPage() {
   const [accounts, setAccounts] = useState<AccountRef[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  // 返済スケジュールグラフに適用金利（右軸）を重ねるか
-  const [showRates, setShowRates] = useState(true);
   const [payForm, setPayForm] = useState<{
     loanId: number | null;
     principal: string;
@@ -218,179 +212,14 @@ export default function LoansPage() {
     }
   };
 
-  const totalBorrowed = loans.reduce((s, l) => s + Number(l.amount), 0);
-  const totalRemaining = loans
-    .filter((l) => l.status === "active")
-    .reduce((s, l) => s + Number(l.remainingAmount), 0);
-  const scheduleData = buildScheduleData(loans);
-  const activeLoans = loans.filter((l) => l.status === "active");
-
   return (
     <AppShell>
-      <div className="mb-6">
-        <h1 className="page-title">借入金管理</h1>
-        <PageLead>{LOANS_HELP.page}</PageLead>
-      </div>
+      <PageHeader title="借入金管理" lead={LOANS_HELP.page} />
 
-      {/* KPI カード */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="card p-5">
-          <p className="text-xs text-slate-500 mb-1">借入残高合計</p>
-          <p className="text-2xl font-bold text-red-600">{yen(totalRemaining)}</p>
-        </div>
-        <div className="card p-5">
-          <p className="text-xs text-slate-500 mb-1">借入総額</p>
-          <p className="text-2xl font-bold text-slate-800">{yen(totalBorrowed)}</p>
-        </div>
-      </div>
+      {/* 借入残高の推移（合計とローンごとの残高・金利。資産管理の評価額の推移と同じ形） */}
+      {!loading && <LoanTrendCharts loans={loans} />}
 
-      {/* 返済スケジュールグラフ */}
-      {!loading && scheduleData.length > 0 && (
-        <div className="card mb-6">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <h2 className="section-title mb-0">返済スケジュール</h2>
-            <div className="flex items-center gap-3">
-              {/* 金利は右軸に重ねる。ローンが多いと線が増えるため切り替えられるようにする */}
-              <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showRates}
-                  onChange={(e) => setShowRates(e.target.checked)}
-                  className="accent-indigo-600"
-                />
-                金利を重ねて表示
-              </label>
-            </div>
-          </div>
-          <SectionLead>{LOANS_HELP.schedule}</SectionLead>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={scheduleData} margin={{ top: 8, right: 24, bottom: 8, left: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={28} />
-              <YAxis
-                yAxisId="balance"
-                tickFormatter={(v) => `${Math.round(v / 10000)}万`}
-                tick={{ fontSize: 10 }}
-                width={48}
-              />
-              {/* 右軸: 適用金利（%）。残高（万円）と桁が違うため別軸にする */}
-              {showRates && (
-                <YAxis
-                  yAxisId="rate"
-                  orientation="right"
-                  tickFormatter={(v) => `${Number(v).toFixed(2)}%`}
-                  tick={{ fontSize: 10 }}
-                  width={52}
-                  domain={[0, "auto"]}
-                />
-              )}
-              <Tooltip
-                formatter={(v: number, name: string, item: { dataKey?: string | number }) =>
-                  String(item?.dataKey ?? "").startsWith("l")
-                    ? [yen(v), name]
-                    : [`${Number(v).toFixed(3)}%`, name]
-                }
-                labelStyle={{ fontSize: 11 }}
-                contentStyle={{ fontSize: 12 }}
-              />
-              <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
-              {/* 今日の基準線 */}
-              <ReferenceLine
-                x={todayLabel()}
-                stroke="#94a3b8"
-                strokeDasharray="4 4"
-                label={{ value: "今日", fontSize: 10, fill: "#94a3b8" }}
-                yAxisId="balance"
-              />
-              {/* ゼロライン */}
-              <ReferenceLine y={0} stroke="#dc2626" strokeDasharray="4 4" yAxisId="balance" />
-              {loans.map((loan, i) => (
-                <Line
-                  key={loan.id}
-                  yAxisId="balance"
-                  type="monotone"
-                  dataKey={balanceKey(loan.id)}
-                  name={loan.lenderName}
-                  stroke={COLORS[i % COLORS.length]}
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                />
-              ))}
-              {/* 適用金利。今日までは履歴どおりの実績、今日以降は将来の改定と
-                  履歴の傾向からの予測（破線）。残高と同じ色の細線で対応付ける。 */}
-              {showRates &&
-                loans.flatMap((loan, i) => [
-                  <Line
-                    key={`rate-${loan.id}`}
-                    yAxisId="rate"
-                    type="stepAfter"
-                    dataKey={rateKey(loan.id)}
-                    name={`${loan.lenderName} 金利`}
-                    stroke={COLORS[i % COLORS.length]}
-                    strokeWidth={1}
-                    strokeOpacity={0.7}
-                    dot={false}
-                    connectNulls
-                  />,
-                  <Line
-                    key={`rate-forecast-${loan.id}`}
-                    yAxisId="rate"
-                    type="stepAfter"
-                    dataKey={rateForecastKey(loan.id)}
-                    name={`${loan.lenderName} 金利（予測）`}
-                    stroke={COLORS[i % COLORS.length]}
-                    strokeWidth={1}
-                    strokeOpacity={0.7}
-                    strokeDasharray="4 3"
-                    dot={false}
-                    connectNulls
-                    legendType="none"
-                  />,
-                ])}
-            </LineChart>
-          </ResponsiveContainer>
-
-          {showRates && (
-            <p className="mt-2 text-xs text-slate-400">
-              金利は右軸。今日以降の破線は、登録済みの将来の改定と
-              「これまでと同じ間隔・同じ幅で改定が続いたら」という前提で履歴から外挿した予測です
-              （金利変更履歴が 2 件以上あるローンのみ予測します）。
-            </p>
-          )}
-
-          {/* 各ローンの返済期限サマリ */}
-          {activeLoans.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-3">
-              {activeLoans.map((l, i) => {
-                const progress = 1 - Number(l.remainingAmount) / Number(l.amount);
-                return (
-                  <div key={l.id} className="flex items-center gap-2 text-xs text-slate-600">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: COLORS[i % COLORS.length] }}
-                    />
-                    <span>{l.lenderName}</span>
-                    <span className="text-slate-400">返済期限 {l.repaymentDate.slice(0, 7)}</span>
-                    <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-current rounded-full transition-all"
-                        style={{
-                          width: `${Math.round(progress * 100)}%`,
-                          color: COLORS[i % COLORS.length],
-                        }}
-                      />
-                    </div>
-                    <span className="text-slate-400">{Math.round(progress * 100)}%</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 借入追加。返済スケジュールの下・ローン一覧の直前に置く */}
+      {/* 借入追加。借入残高の推移の下・ローン一覧の直前に置く */}
       <div className="flex items-end justify-between gap-3 mb-3">
         {loans.length > 0 ? (
           <SectionLead className="mb-0">{LOANS_HELP.list}</SectionLead>
@@ -412,36 +241,30 @@ export default function LoansPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {loans.map((l, i) => (
+          {loans.map((l) => (
             <div key={l.id} className="card">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-2">
+              {/* 資産管理の一覧と同じ並び: 左に名前と条件、右に日付つきの残高と操作 */}
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                      {LOAN_TYPE_LABEL[l.loanType] ?? l.loanType}
+                    </span>
+                    <h2 className="font-medium text-slate-800 text-sm">{l.lenderName}</h2>
                     <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: COLORS[i % COLORS.length] }}
-                    />
-                    <h2 className="font-semibold text-slate-800">{l.lenderName}</h2>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${l.status === "active" ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-700"}`}
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full ${l.status === "active" ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-700"}`}
                     >
                       {l.status === "active" ? "返済中" : "完済"}
                     </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                      {LOAN_TYPE_LABEL[l.loanType] ?? l.loanType}
-                    </span>
                   </div>
-                  <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-sm text-slate-600 mt-1 pl-4">
-                    <span>借入額: {yen(Number(l.amount))}</span>
-                    <span>金利: {(Number(l.interestRate) * 100).toFixed(2)}%</span>
-                    <span>
-                      残高:{" "}
-                      <strong className="text-red-600">{yen(Number(l.remainingAmount))}</strong>
-                    </span>
-                    <span>支払い完了年月: {l.repaymentDate.slice(0, 7)}</span>
+                  <div className="text-xs text-slate-400 mt-1">
+                    借入額: {yen(Number(l.amount))} ・ 金利:{" "}
+                    {(Number(l.interestRate) * 100).toFixed(3)}% ・ 借入日:{" "}
+                    {l.borrowedOn.slice(0, 7)} ・ 完済予定: {l.repaymentDate.slice(0, 7)} ・{" "}
+                    {repaidPercent(l)}% 返済済
                   </div>
-                  {(l.monthlyPayment || l.linkedAccount) && (
-                    <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-xs text-indigo-600 mt-1 pl-4">
+                  {(l.monthlyPayment || l.linkedAccount || Number(l.residualValue ?? 0) > 0) && (
+                    <div className="text-xs text-indigo-600 mt-0.5">
                       {l.monthlyPayment && (
                         <span>
                           月々の返済額: {yen(Number(l.monthlyPayment))}
@@ -451,11 +274,12 @@ export default function LoansPage() {
                         </span>
                       )}
                       {Number(l.residualValue ?? 0) > 0 && (
-                        <span>残価: {yen(Number(l.residualValue))}（最終回に一括）</span>
+                        <span> ・ 残価: {yen(Number(l.residualValue))}（最終回に一括）</span>
                       )}
                       {l.linkedAccount && (
                         <span>
-                          予算連携先: {l.linkedAccount.code} {l.linkedAccount.name}（自動加算）
+                          {" "}
+                          ・ 予算連携先: {l.linkedAccount.code} {l.linkedAccount.name}（自動加算）
                         </span>
                       )}
                     </div>
@@ -466,7 +290,7 @@ export default function LoansPage() {
                     if (!pending) return null;
                     const calc = pending.calculatedMonthlyPayment;
                     return (
-                      <div className="mt-2 ml-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className="text-xs font-semibold text-amber-800">
                             {pending.effectiveOn.slice(0, 7)} に金利が
@@ -497,62 +321,52 @@ export default function LoansPage() {
                       </div>
                     );
                   })()}
-                  {/* 返済進捗バー */}
-                  {Number(l.amount) > 0 && (
-                    <div className="mt-2 ml-4 flex items-center gap-2">
-                      <div className="w-40 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${Math.round((1 - Number(l.remainingAmount) / Number(l.amount)) * 100)}%`,
-                            backgroundColor: COLORS[i % COLORS.length],
-                          }}
-                        />
-                      </div>
-                      <span className="text-xs text-slate-400">
-                        {Math.round((1 - Number(l.remainingAmount) / Number(l.amount)) * 100)}%
-                        返済済
-                      </span>
-                    </div>
-                  )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => openEdit(l)}
-                    className="px-3 py-1.5 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
-                  >
-                    編集
-                  </button>
-                  <button
-                    onClick={() => {
-                      setRateError(null);
-                      setRateForm({
-                        loanId: l.id,
-                        effectiveOn: new Date().toISOString().slice(0, 10),
-                        interestRate: l.interestRate,
-                        monthlyPayment: "",
-                        note: "",
-                      });
-                    }}
-                    className="px-3 py-1.5 text-sm bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200"
-                  >
-                    金利変更
-                  </button>
-                  {l.status === "active" && (
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-[10px] text-slate-400">{asOfDateLabel(new Date())}の残高</p>
+                    <p className="font-bold text-rose-600 text-sm tabular-nums">
+                      {yen(Number(l.remainingAmount))}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
                     <button
-                      onClick={() =>
-                        setPayForm({
-                          loanId: l.id,
-                          principal: "",
-                          interest: "0",
-                          repaidOn: new Date().toISOString().slice(0, 10),
-                        })
-                      }
-                      className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+                      onClick={() => openEdit(l)}
+                      className="text-xs text-indigo-500 hover:text-indigo-700"
                     >
-                      返済登録
+                      編集
                     </button>
-                  )}
+                    <button
+                      onClick={() => {
+                        setRateError(null);
+                        setRateForm({
+                          loanId: l.id,
+                          effectiveOn: new Date().toISOString().slice(0, 10),
+                          interestRate: l.interestRate,
+                          monthlyPayment: "",
+                          note: "",
+                        });
+                      }}
+                      className="text-xs text-amber-600 hover:text-amber-800"
+                    >
+                      金利変更
+                    </button>
+                    {l.status === "active" && (
+                      <button
+                        onClick={() =>
+                          setPayForm({
+                            loanId: l.id,
+                            principal: "",
+                            interest: "0",
+                            repaidOn: new Date().toISOString().slice(0, 10),
+                          })
+                        }
+                        className="text-xs text-emerald-600 hover:text-emerald-800"
+                      >
+                        返済登録
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
