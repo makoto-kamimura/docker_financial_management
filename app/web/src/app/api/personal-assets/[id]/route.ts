@@ -12,8 +12,12 @@ import {
 } from "@/lib/personal-asset-debt";
 import { invalidateCache } from "@/lib/redis";
 import {
+  anchorBeforeRuleChange,
+  assetInput,
   PartInputSchema,
   recordValuation,
+  ruleAfter,
+  ruleChanged,
   serializeAsset,
   syncParts,
   VALUATION_INCLUDE,
@@ -55,7 +59,7 @@ export const PATCH = withApi({
     const { tenantId } = user;
     const existing = await db.personalAsset.findUnique({
       where: { id, tenantId },
-      include: { loan: true, parts: true },
+      include: { loan: true, ...VALUATION_INCLUDE },
     });
     if (!existing) throw notFound();
 
@@ -126,19 +130,33 @@ export const PATCH = withApi({
       // 内訳: 入力どおりにそろえ、評価額・取得価格は内訳の合計にする
       let totals: { currentValue: number; acquisitionCost: number | null } | null = null;
       if (body.parts !== undefined && (body.parts.length > 0 || existing.parts.length > 0)) {
-        const t = await syncParts(tx, tenantId, id, body.parts, existing.parts);
+        const t = await syncParts(tx, tenantId, id, body.parts, existing.parts, existing);
         if (body.parts.length > 0) totals = t;
       }
       const hasParts = body.parts !== undefined ? body.parts.length > 0 : existing.parts.length > 0;
+      // 内訳の無い資産で価値の変わり方（自動のときは種別も）を変えたら、変える前の今日の見積もりを
+      // 記録して、過ぎた月の見積もりを動かさない。評価額も同時に入れたときは、その値が優先される
+      // 編集画面は評価額を毎回送るので、今と同じ値なら入れ直していないものとして扱う
+      const valueEntered =
+        body.currentValue !== undefined && body.currentValue !== Number(existing.currentValue);
+      let anchoredValue: number | null = null;
+      const nextRule = ruleAfter(existing, body);
+      if (!hasParts && existing.parts.length === 0 && ruleChanged(existing, body)) {
+        anchoredValue = await anchorBeforeRuleChange(
+          tx,
+          tenantId,
+          id,
+          null,
+          assetInput(existing),
+          nextRule,
+        );
+      }
       if (!hasParts) {
         // 内訳の無い資産: 評価額が変わったとき、内訳をやめたときは、資産そのものの評価額を記録する
         const nextValue = body.currentValue ?? Number(existing.currentValue);
         const leftParts = existing.parts.length > 0;
-        if (
-          leftParts ||
-          (body.currentValue !== undefined && body.currentValue !== Number(existing.currentValue))
-        ) {
-          await recordValuation(tx, tenantId, id, null, nextValue);
+        if (leftParts || valueEntered) {
+          await recordValuation(tx, tenantId, id, null, nextValue, nextRule);
         }
       }
 
@@ -157,6 +175,10 @@ export const PATCH = withApi({
           ...(body.linkedAccountId !== undefined && { linkedAccountId: body.linkedAccountId }),
           ...(loanId !== undefined && { loanId }),
           ...valuationData(body),
+          ...(anchoredValue !== null &&
+            !valueEntered && {
+              currentValue: anchoredValue,
+            }),
           ...(totals ?? {}),
         },
         include: { loan: true, ...VALUATION_INCLUDE },

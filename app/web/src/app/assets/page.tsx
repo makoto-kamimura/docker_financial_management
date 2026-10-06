@@ -751,9 +751,9 @@ function ValueEditor({
   );
 }
 
-/** 最後に入れた評価額の説明（「2026-10-06 に 1,500万円」） */
+/** 最後の評価額の記録（手で入れた値、または価値の変わり方を変えたときの見積もり） */
 const lastValuedText = (value: number | string, on: string | null) =>
-  on ? `${on} に ${yen(Number(value))} と入力` : `評価額 ${yen(Number(value))}`;
+  on ? `${on} 時点の評価額 ${yen(Number(value))}` : `評価額 ${yen(Number(value))}`;
 
 function PersonalAssetsSection() {
   const invalidateAssets = useInvalidateAssets();

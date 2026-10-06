@@ -232,6 +232,65 @@ describe("実物資産の内訳", () => {
   });
 });
 
+describe("過ぎた月の見積もりは変わらない", () => {
+  let carId: number;
+  async function carSeries() {
+    const res = await trendGet(
+      makeReq("GET", "http://x/api/personal-assets/trend?back=12&forward=0"),
+      emptyRouteContext(),
+    );
+    const data = (await res.json()).data;
+    const car = data.assets.find((a: { id: number }) => a.id === carId);
+    // 今月は月末（まだ先）の見積もりなので、比べるのは先月まで
+    return (car.series as (number | null)[]).slice(0, data.months.indexOf(data.currentKey));
+  }
+
+  it("価値の変わり方を変えても、評価額を入れ直しても、先月までの金額は同じ", async () => {
+    const now = new Date();
+    const eight = new Date(now.getFullYear(), now.getMonth() - 8, 1);
+    const ym8 = `${eight.getFullYear()}-${String(eight.getMonth() + 1).padStart(2, "0")}-01`;
+    const res = await assetPost(
+      makeReq("POST", "http://x/api/personal-assets", {
+        name: "車",
+        category: "VEHICLE",
+        acquiredOn: ym8,
+        currentValue: 3_000_000,
+      }),
+      emptyRouteContext(),
+    );
+    carId = (await res.json()).data.id;
+    // 登録時の記録を 8 か月前（取得日）に移し、それから今日まで「毎年 20% 減る」で見積もられた過去を作る
+    await prisma.personalAssetValuation.updateMany({
+      where: { assetId: carId },
+      data: { valuedOn: new Date(Date.UTC(now.getFullYear(), now.getMonth() - 8, 1)) },
+    });
+    const before = await carSeries();
+    expect(before.filter((v) => v !== null).length).toBeGreaterThan(5);
+
+    // 価値の変わり方を「変わらない」に（編集画面と同じく、評価額も今と同じ値で送る）
+    const changed = await assetPatch(
+      makeReq("PATCH", `http://x/api/personal-assets/${carId}`, {
+        valuationMethod: "fixed",
+        currentValue: 3_000_000,
+      }),
+      params(carId),
+    );
+    const afterRule = (await changed.json()).data;
+    expect(await carSeries()).toEqual(before);
+    // 変える前の今日の見積もり（8 か月分減った値）を記録し、それを評価額にする
+    expect(Number(afterRule.currentValue)).toBeLessThan(3_000_000);
+    expect(afterRule.estimatedValue).toBe(Number(afterRule.currentValue));
+    expect(await prisma.personalAssetValuation.count({ where: { assetId: carId } })).toBe(2);
+
+    // 評価額を入れ直す
+    await assetPatch(
+      makeReq("PATCH", `http://x/api/personal-assets/${carId}`, { currentValue: 2_000_000 }),
+      params(carId),
+    );
+    expect(await carSeries()).toEqual(before);
+  });
+});
+
 describe("総資産サマリの時点", () => {
   it("指定した月の時点で出す: 取得前の実物資産は 0、口座はその月までの明細の合計", async () => {
     const past = await summary(2015, 1);
@@ -246,7 +305,8 @@ describe("総資産サマリの時点", () => {
     const current = await summary(now.getFullYear(), now.getMonth() + 1);
     expect(current.isCurrentMonth).toBe(true);
     expect(amountOf(current, "bankBalances")).toBe(1_500_000);
-    expect(amountOf(current, "personalAssets")).toBe(29_000_000);
+    // 自宅 2,900 万 ＋ 車 200 万
+    expect(amountOf(current, "personalAssets")).toBe(31_000_000);
     expect(amountOf(current, "personalAssetDebts")).toBeLessThan(30_000_000);
   });
 });
