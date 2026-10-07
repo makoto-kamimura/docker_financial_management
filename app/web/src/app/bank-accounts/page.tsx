@@ -5,18 +5,12 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { AccountFlowDiagram, type FlowGraph } from "@/components/AccountFlowDiagram";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
-import { FundingPlanPanel } from "@/components/FundingPlanPanel";
-import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPanel";
-import { filterFlowGraph } from "@/lib/flow-graph";
 import { CashFlowTrendCharts } from "@/components/CashFlowTrendCharts";
 import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
-import { YearBadge } from "@/components/YearBadge";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
-import { PageHeader, SegmentedControl, Tabs } from "@/components/ui";
+import { PageHeader, Tabs } from "@/components/ui";
 
 type BankAccount = {
   id: number;
@@ -42,29 +36,6 @@ type BankAccount = {
   lastTransactionDate?: string | null;
   _count: { transactions: number };
 };
-type FlowTransferRow = {
-  id: number;
-  from: string | null;
-  to: string | null;
-  amount: number;
-  kind: string;
-  channel: string;
-  channelLabel: string;
-  label: string | null;
-  day: number;
-  note: string | null;
-  fromAccountId: number | null;
-  toAccountId: number | null;
-};
-type FlowResponse = { cyclic: boolean; graph: FlowGraph; transfers: FlowTransferRow[] };
-type MonthlyCashFlowResponse = {
-  year: number;
-  month: number;
-  graph: FlowGraph;
-  /** 推測で補ったフローの本数と、推測に使った過去の月数 */
-  estimatedCount?: number;
-  historyMonths?: number;
-};
 
 const yen = (v: number) => (v ?? 0).toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 // 最終更新日時（明細を最後に登録した日時）の表示。分まで出す
@@ -82,9 +53,6 @@ const dateLabel = (v?: string | null) =>
   v
     ? new Date(v).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })
     : "—";
-const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const now = new Date();
-const EMPTY_FLOW: FlowResponse = { cyclic: false, graph: { nodes: [], links: [] }, transfers: [] };
 
 // 銀行まわりの機能はこのページに集約する（入出金管理・残高シミュレーションを統合）。
 // 既定の「キャッシュフロー」タブは資産管理・借入金管理と同じ並びで、残高の推移 → 資金繰り →
@@ -96,14 +64,6 @@ const TABS = [
   ["csv", "CSV インポート"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
-
-// キャッシュフロータブの「資金移動スケジュール」の表示モード。
-// 一覧＝登録済みの資金移動ルールを表で見る／スケジュール＝月次カレンダーで予定日を見る。
-const SCHEDULE_MODES = [
-  ["list", "一覧モード"],
-  ["calendar", "スケジュールモード"],
-] as const;
-type ScheduleMode = (typeof SCHEDULE_MODES)[number][0];
 
 // 口座の新規登録フォーム（設定「口座・カード管理」から移設）
 type NewAccountForm = {
@@ -172,34 +132,6 @@ function BankAccountsContent() {
   const shownAccounts = selected ? [selected] : accounts;
   // 「表示する銀行」カードと銀行口座カードに出す残高合計（選んだ範囲）
   const totalBalance = shownAccounts.reduce((s, a) => s + (a.balance ?? 0), 0);
-
-  // 資金フロー図（入出金管理から移設）: 設定ベース（既定）/ 実績ベース（月次・F-6）
-  const [flowSource, setFlowSource] = useState<"config" | "actual">("config");
-  // 年は左のメニューの対象年度（全画面で共通）。ここでは月だけを選ぶ
-  const flowYear = useFiscalYear();
-  const [flowMonth, setFlowMonth] = useState(now.getMonth() + 1);
-  // 資金移動スケジュールの表示モードと、振替登録モーダルの開閉
-  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("list");
-  const [showBankTransferForm, setShowBankTransferForm] = useState(false);
-
-  const { data: flow } = useQuery({
-    queryKey: ["transfer-flow"],
-    queryFn: async (): Promise<FlowResponse> => {
-      const res = await fetch("/api/transfers/flow");
-      if (!res.ok) return EMPTY_FLOW;
-      return res.json();
-    },
-  });
-
-  const { data: monthlyFlow, isLoading: monthlyFlowLoading } = useQuery({
-    queryKey: ["cashflow-monthly", flowYear, flowMonth],
-    enabled: flowSource === "actual",
-    queryFn: async (): Promise<MonthlyCashFlowResponse> => {
-      const res = await fetch(`/api/cashflow/monthly?year=${flowYear}&month=${flowMonth}`);
-      if (!res.ok) throw new Error("failed");
-      return res.json();
-    },
-  });
 
   // 紐付き勘定科目の選択肢（設定の登録フォームと同じく資産・負債のみ）
   const { data: accountRefs = [] } = useQuery({
@@ -277,29 +209,6 @@ function BankAccountsContent() {
     qc.invalidateQueries({ queryKey: ["bank-accounts"] });
   };
 
-  // 資金移動スケジュールの一覧と資金フロー図は、選んだ口座が関わるものだけにする
-  const shownTransfers = (flow?.transfers ?? []).filter(
-    (t) => !selected || t.fromAccountId === selected.id || t.toAccountId === selected.id,
-  );
-  const shownGraph = (graph: FlowGraph) =>
-    selected ? filterFlowGraph(graph, selected.name) : graph;
-
-  // 資金フロー図のベース切替（設定／実績）。どちらのカードにも同じものを出す
-  const flowSourceToggle = (
-    <div className="flex rounded-lg overflow-hidden border border-slate-200 text-sm h-9">
-      {(["config", "actual"] as const).map((s) => (
-        <button
-          key={s}
-          type="button"
-          onClick={() => setFlowSource(s)}
-          className={`px-3 font-medium transition-colors ${flowSource === s ? "bg-indigo-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-        >
-          {s === "config" ? "設定ベース" : "実績ベース（月次）"}
-        </button>
-      ))}
-    </div>
-  );
-
   return (
     <AppShell>
       <PageHeader title="銀行管理" lead={BANK_HELP.page} />
@@ -338,178 +247,7 @@ function BankAccountsContent() {
       {tab === "cashflow" && (
         <>
           {/* ── 残高の推移（借入金管理の「借入残高の推移」と同じ形。先は予算と実績から見込む）── */}
-          <CashFlowTrendCharts year={flowYear} month={flowMonth} accountId={selectedId} />
-
-          {/* ── 資金繰り（必要残高と入金期限）──────────────────────
-              現在残高と資金移動の設定から、選んだ年月を起点に 3 か月分を自動で算出する。 */}
-          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h2 className="section-title">
-              資金繰り（{flowYear}年{flowMonth}月から3か月）
-            </h2>
-            <p className="text-xs text-slate-500">{BANK_HELP.funding}</p>
-            {/* 年月は資金繰りと実績ベースのフロー図の起点を兼ねる */}
-            <span className="ml-auto">
-              <YearBadge />
-            </span>
-            <select
-              value={flowMonth}
-              onChange={(e) => setFlowMonth(Number(e.target.value))}
-              className="select-sm"
-              aria-label="資金繰りの起点の月"
-            >
-              {MONTHS.map((m) => (
-                <option key={m} value={m}>
-                  {m}月
-                </option>
-              ))}
-            </select>
-          </div>
-          <FundingPlanPanel year={flowYear} month={flowMonth} months={3} accountId={selectedId} />
-
-          {/* ── 毎月の入出金の候補（明細から見つけたもの。登録で資金移動ルールになる）── */}
-          <RecurringSuggestionsPanel accountId={selectedId} />
-
-          {/* ── 資金移動スケジュール ────────────────────────────
-              一覧モード＝登録済みの資金移動ルールを表で見る。
-              スケジュールモード＝口座ごとの予定日を月次カレンダーで見る（登録・削除もできる）。 */}
-          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h2 className="section-title">資金移動スケジュール</h2>
-            <SegmentedControl
-              options={SCHEDULE_MODES}
-              value={scheduleMode}
-              onChange={setScheduleMode}
-            />
-            <button
-              type="button"
-              onClick={() => setShowBankTransferForm(true)}
-              disabled={accounts.length < 2}
-              className="btn-primary ml-auto"
-              title={accounts.length < 2 ? "振替には 2 つ以上の口座の登録が必要です" : undefined}
-            >
-              振替を登録（銀行 → 銀行）
-            </button>
-          </div>
-          {scheduleMode === "list" && <SectionLead>{BANK_HELP.schedule}</SectionLead>}
-
-          {/* 一覧はフロー図のベース切替（設定／実績）に関係なく、登録済みのルールをそのまま並べる */}
-          {scheduleMode === "list" && shownTransfers.length > 0 && (
-            <div className="card mb-6">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-600">毎月</th>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-600">移動元</th>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-600 hidden sm:table-cell">
-                      →
-                    </th>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-600">移動先</th>
-                    <th className="text-right px-3 py-2 font-semibold text-slate-600">金額</th>
-                    <th className="text-left px-3 py-2 font-semibold text-slate-600 hidden md:table-cell">
-                      方式
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {shownTransfers.map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-50">
-                      <td className="px-3 py-2 text-slate-500 tabular-nums">{t.day}日</td>
-                      <td className="px-3 py-2 text-slate-700">
-                        {t.from ?? (
-                          <span className="text-emerald-600 font-medium">
-                            {t.label ?? "外部入金"}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-slate-400 hidden sm:table-cell">→</td>
-                      <td className="px-3 py-2 text-slate-700">
-                        {t.to ?? (
-                          <span className="text-rose-600 font-medium">{t.label ?? "外部支出"}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium tabular-nums text-slate-900">
-                        {yen(t.amount)}
-                      </td>
-                      <td className="px-3 py-2 text-slate-400 text-xs hidden md:table-cell">
-                        {t.channelLabel}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {scheduleMode === "list" && flow && shownTransfers.length === 0 && (
-            <p className="text-sm text-slate-500 mb-6">
-              資金移動がまだ登録されていません。スケジュールモードのカレンダーから固定の入出金を登録すると、
-              この一覧と上のフロー図に表示されます。
-            </p>
-          )}
-
-          {scheduleMode === "calendar" && (
-            // 実績（明細）と取り違えないよう、更新されるのは毎月のルールだけだと明示する
-            <SectionLead>
-              {BANK_HELP.scheduleCalendar}
-              上の「表示する銀行」を「すべての銀行」にすると、全口座の予定をまとめて見られます。
-            </SectionLead>
-          )}
-
-          {/* カレンダー（スケジュールモードのみ）と、取込済み明細の振替紐付け。
-              振替を登録するモーダルは上のボタンから開く（パネル側が中身を持つ）。 */}
-          <BankTransactionsPanel
-            view="recurring"
-            recurringParts={
-              scheduleMode === "calendar"
-                ? ["register", "calendar", "match"]
-                : ["register", "match"]
-            }
-            bankTransferOpen={showBankTransferForm}
-            onBankTransferOpenChange={setShowBankTransferForm}
-            accountId={selected?.id ?? null}
-          />
-
-          {/* ── 口座間 資金フロー図（設定ベース／実績ベース）── */}
-          {flowSource === "config" ? (
-            <div className="card mb-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
-                <h3 className="section-title">口座間 資金フロー図</h3>
-                {flowSourceToggle}
-              </div>
-              <SectionLead className="mb-4">{BANK_HELP.flow}</SectionLead>
-              {!flow ? (
-                <div className="flex items-center justify-center h-48 text-sm text-slate-400">
-                  読み込み中…
-                </div>
-              ) : flow.cyclic ? (
-                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                  資金移動に循環があるためフロー図を描画できません。下のスケジュールで経路を見直してください。
-                </p>
-              ) : (
-                <AccountFlowDiagram data={shownGraph(flow.graph)} />
-              )}
-            </div>
-          ) : (
-            <div className="card mb-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
-                <h3 className="section-title">
-                  {flowYear}年{flowMonth}月 実績フロー図（月は資金繰りの選択）
-                </h3>
-                {flowSourceToggle}
-              </div>
-              <SectionLead>{BANK_HELP.monthlyFlow}</SectionLead>
-              {monthlyFlowLoading || !monthlyFlow ? (
-                <div className="flex items-center justify-center h-48 text-sm text-slate-400">
-                  読み込み中…
-                </div>
-              ) : shownGraph(monthlyFlow.graph).links.length === 0 ? (
-                <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
-                  対象月に科目紐付け済みの明細がありません。「一覧」タブで紐付けを行ってください。
-                </p>
-              ) : (
-                <AccountFlowDiagram data={shownGraph(monthlyFlow.graph)} />
-              )}
-            </div>
-          )}
+          <CashFlowTrendCharts accountId={selectedId} />
 
           {/* ── 銀行口座（資産管理の「実物資産」・借入金管理の「借入金」と同じく 1 枚のカードにまとめる）──
               「明細を見る」で、その口座の明細を実績管理の履歴で開く。 */}

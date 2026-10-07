@@ -88,8 +88,6 @@ export default function App() {
     accountId: number;
     n: number;
   } | null>(null);
-  // 実績の履歴（銀行の明細）の「予定で見る」から、銀行の画面の資金移動スケジュールをその日で開く
-  const [bankJump, setBankJump] = useState<{ day: number; n: number } | null>(null);
 
   // S-14: 起動時に SecureStore の保存済みセッションを復元し、GET /api/auth/me で有効性を確認する
   useEffect(() => {
@@ -118,12 +116,6 @@ export default function App() {
     setCycleJump(null);
     setLedgerJump({ source, accountId, n: Date.now() });
     setActiveTab("entry");
-  }
-
-  function openBankSchedule(day: number) {
-    setBankJump({ day, n: Date.now() });
-    setMoreRoute("bank-accounts");
-    setActiveTab("more");
   }
 
   function navigateMore(route: MoreRoute) {
@@ -250,7 +242,6 @@ export default function App() {
             initialSource={ledgerJump?.source}
             initialAccountId={ledgerJump?.accountId}
             onOpenBudget={(month) => openCycle("budget", month)}
-            onOpenBankSchedule={openBankSchedule}
           />
         )}
         {activeTab === "more" && !moreRoute && (
@@ -258,12 +249,7 @@ export default function App() {
         )}
         {activeTab === "more" && moreRoute === "assets" && <AssetsScreen viewMode={viewMode} />}
         {activeTab === "more" && moreRoute === "bank-accounts" && (
-          <BankAccountsScreen
-            key={bankJump ? bankJump.n : "bank"}
-            viewMode={viewMode}
-            initialFocusDay={bankJump?.day ?? null}
-            onOpenHistory={(id) => openHistory("bank", id)}
-          />
+          <BankAccountsScreen viewMode={viewMode} onOpenHistory={(id) => openHistory("bank", id)} />
         )}
         {activeTab === "more" && moreRoute === "card-transactions" && (
           <CardTransactionsScreen

@@ -1,11 +1,10 @@
 // 銀行管理キャッシュフロータブの「残高の推移」（web 版 components/CashFlowTrendCharts.tsx と同じ）。
 // 日付つきの総残高と合計のグラフ、口座ごとの小さなグラフ。今月より先は破線。
 // 合計の先は予算と実績の収支から、口座ごとの先は毎月の入出金から見込む（GET /bank-accounts/cash-outlook）。
-// 口座には、資金繰り（同じ月から 3 か月）で入金が必要と出た期限と金額も添える。
 // 「表示する銀行」で 1 口座を選んだときは、その口座の残高と線グラフだけを出す（見込みは毎月の入出金から）。
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { fetchCashOutlook, fetchFundingPlan, type CashOutlook, type FundingPlan } from "../api";
+import { fetchCashOutlook, type CashOutlook } from "../api";
 import { yen } from "../format";
 import { asOfDateLabel } from "../shared/asset-valuation";
 import { BANK_HELP } from "../shared/help-texts";
@@ -18,27 +17,19 @@ const mmdd = (iso: string) => {
 };
 
 type Props = {
-  year: number;
-  month: number;
   reloadKey: number;
   /** 「表示する銀行」で選んだ口座。null / 省略はすべての口座 */
   accountId?: number | null;
 };
 
-export function CashFlowTrend({ year, month, reloadKey, accountId = null }: Props) {
+export function CashFlowTrend({ reloadKey, accountId = null }: Props) {
   const [data, setData] = useState<CashOutlook | null>(null);
-  const [plans, setPlans] = useState<FundingPlan[]>([]);
 
   useEffect(() => {
     fetchCashOutlook()
       .then(setData)
       .catch(() => setData(null));
   }, [reloadKey]);
-  useEffect(() => {
-    fetchFundingPlan(year, month, 3)
-      .then((r) => setPlans(r.plans))
-      .catch(() => setPlans([]));
-  }, [year, month, reloadKey]);
 
   if (!data || data.accounts.length === 0) return null;
   const single = accountId === null ? null : data.accounts.find((a) => a.id === accountId);
@@ -85,20 +76,9 @@ export function CashFlowTrend({ year, month, reloadKey, accountId = null }: Prop
         ]}
         height={180}
       />
-      {single &&
-        (() => {
-          const short = plans.find((p) => p.accountId === single.id && p.requiredDeposit > 0);
-          return short ? (
-            <Text style={s.short}>
-              {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
-              {yen(short.requiredDeposit)} の入金が必要
-            </Text>
-          ) : null;
-        })()}
       {!single && <Text style={s.subTitle}>口座ごとの推移</Text>}
       {!single &&
         data.accounts.map((a) => {
-          const short = plans.find((p) => p.accountId === a.id && p.requiredDeposit > 0);
           return (
             <View key={a.id} style={s.trendItem}>
               <Text style={s.trendName} numberOfLines={1}>
@@ -107,12 +87,6 @@ export function CashFlowTrend({ year, month, reloadKey, accountId = null }: Prop
               <Text style={s.muted}>
                 今の残高 {yen(a.balance)} ・ {lastLabel}末の見込み {yen(a.values[lastIndex] ?? 0)}
               </Text>
-              {short && (
-                <Text style={s.short}>
-                  {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
-                  {yen(short.requiredDeposit)} の入金が必要
-                </Text>
-              )}
               <AssetValueChart
                 months={data.months}
                 currentKey={data.currentKey}

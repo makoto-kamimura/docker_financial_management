@@ -33,6 +33,8 @@ import {
 import { ActualsCalendar } from "../components/ActualsCalendar";
 import { BankTransactionsCalendar } from "../components/bank/BankTransactionsCalendar";
 import { BankTransactionsList } from "../components/bank/BankTransactionsList";
+import { TransferRules } from "../components/bank/TransferRules";
+import { RecurringSuggestions } from "../components/RecurringSuggestions";
 import { CardCalendar } from "../components/card/CardCalendar";
 import { CardTransactionsList } from "../components/card/CardTransactionsList";
 import { ChangeHistoryList, INITIAL_HISTORY_QUERY } from "../components/ChangeHistoryList";
@@ -95,8 +97,6 @@ type Props = {
   /** 開いたときの出どころと口座（銀行・カードの「明細を見る」から開くとき） */
   initialSource?: "bank" | "card";
   initialAccountId?: number;
-  /** 銀行の明細の「予定で見る」から、銀行の画面の資金移動スケジュールをその日で開く */
-  onOpenBankSchedule?: (day: number) => void;
 };
 
 export function EntryScreen({
@@ -106,7 +106,6 @@ export function EntryScreen({
   onOpenBudget,
   initialSource,
   initialAccountId,
-  onOpenBankSchedule,
 }: Props) {
   const now = new Date();
   const [tab, setTab] = useState<Tab>(initialTab ?? "manual");
@@ -135,6 +134,12 @@ export function EntryScreen({
   useEffect(() => {
     if (sourceTab) loadSourceAccounts();
   }, [sourceTab, loadSourceAccounts]);
+  // 候補の登録・ルールの解除・振替のあとに、銀行の履歴の各ブロックを取り直す
+  const [sourceReloadKey, setSourceReloadKey] = useState(0);
+  const reloadSource = useCallback(() => {
+    setSourceReloadKey((k) => k + 1);
+    loadSourceAccounts();
+  }, [loadSourceAccounts]);
   const selectedCard = cardAccounts.find((a) => a.id === cardAccountId) ?? cardAccounts[0] ?? null;
 
   // ── 明細一覧 ────────────────────────────────────────────────
@@ -335,14 +340,30 @@ export function EntryScreen({
             categoryAccounts={accounts}
           />
         )}
+        {/* 銀行の履歴: 毎月の入出金の候補 → 毎月の入出金（ルール・振替・振替紐付け）→ 明細の一覧 */}
+        {tab === "history" && source === "bank" && (
+          <>
+            <RecurringSuggestions
+              reloadKey={sourceReloadKey}
+              onChanged={reloadSource}
+              accountId={bankAccountId}
+            />
+            <TransferRules
+              key={`rules-${sourceReloadKey}`}
+              accounts={bankAccounts}
+              accountId={bankAccountId}
+              onBalanceChanged={reloadSource}
+            />
+          </>
+        )}
         {tab === "history" && source === "bank" && (
           <BankTransactionsList
+            key={`list-${sourceReloadKey}`}
             accounts={bankAccounts}
             accountId={bankAccountId}
             categoryAccounts={accounts}
             viewMode={viewMode}
             onBalanceChanged={loadSourceAccounts}
-            onOpenCalendar={(date) => onOpenBankSchedule?.(new Date(date).getDate())}
           />
         )}
         {tab === "history" && source === "card" && selectedCard && (

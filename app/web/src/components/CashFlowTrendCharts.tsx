@@ -4,7 +4,6 @@
 // 上に日付つきの総残高と合計のグラフ、下に口座ごとの小さなグラフを並べる。今月より先は破線。
 // 合計の先は予算と実績の収支から、口座ごとの先は毎月の入出金（資金移動ルールと借入の返済）から見込む
 // （GET /api/bank-accounts/cash-outlook。計算は lib/cash-outlook.ts）。
-// 口座の枠には、資金繰り（同じ月から 3 か月）で入金が必要と出た期限と金額も添える。
 // 「表示する銀行」で 1 口座を選んだときは、その口座の残高と線グラフだけを出す（見込みは毎月の入出金から）。
 
 import { useQuery } from "@tanstack/react-query";
@@ -20,24 +19,15 @@ type CashOutlookResponse = {
   totalBasis: ("actual" | "budget" | "rule")[];
   accounts: { id: number; name: string; balance: number; values: number[] }[];
 };
-type FundingShort = { accountId: number; requiredDeposit: number; deadline: string | null };
 
 const yen = (v: number) =>
   Math.abs(v) >= 1_0000
     ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
     : `${Math.round(v).toLocaleString("ja-JP")}円`;
-const mmdd = (iso: string) => {
-  const [, m, d] = iso.split("-");
-  return `${Number(m)}/${Number(d)}`;
-};
 
 export function CashFlowTrendCharts({
-  year,
-  month,
   accountId = null,
 }: {
-  year: number;
-  month: number;
   /** 銀行管理の「表示する銀行」で選んだ口座。null / 省略はすべての口座 */
   accountId?: number | null;
 }) {
@@ -49,16 +39,6 @@ export function CashFlowTrendCharts({
       return res.json();
     },
   });
-  // 資金繰りの表示と同じ問い合わせ（キャッシュを共有する）。入金が必要な口座の期限と金額に使う
-  const { data: funding } = useQuery({
-    queryKey: ["funding-plan", year, month, 3],
-    queryFn: async (): Promise<{ plans: FundingShort[] }> => {
-      const res = await fetch(`/api/transfers/funding?year=${year}&month=${month}&months=3`);
-      if (!res.ok) throw new Error("failed");
-      return res.json();
-    },
-  });
-
   if (!data || data.accounts.length === 0) return null;
   const single = accountId === null ? null : data.accounts.find((a) => a.id === accountId);
   if (accountId !== null && !single) return null;
@@ -115,27 +95,11 @@ export function CashFlowTrendCharts({
         ]}
         height={240}
       />
-      {single &&
-        (() => {
-          const short = funding?.plans.find(
-            (p) => p.accountId === single.id && p.requiredDeposit > 0,
-          );
-          return short ? (
-            <p className="text-xs font-medium text-red-600 mt-2">
-              {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
-              {yen(short.requiredDeposit)} の入金が必要
-            </p>
-          ) : null;
-        })()}
-
       {!single && (
         <>
           <h3 className="text-sm font-semibold text-slate-700 mt-6 mb-2">口座ごとの推移</h3>
           <div className="grid gap-4 md:grid-cols-2">
             {data.accounts.map((a) => {
-              const short = funding?.plans.find(
-                (p) => p.accountId === a.id && p.requiredDeposit > 0,
-              );
               return (
                 <div key={a.id} className="rounded-lg border border-slate-100 p-3">
                   <p className="text-sm font-medium text-slate-800 mb-1">{a.name}</p>
@@ -146,12 +110,6 @@ export function CashFlowTrendCharts({
                     </span>{" "}
                     ・ {lastLabel}末の見込み {yen(a.values[lastIndex] ?? 0)}
                   </p>
-                  {short && (
-                    <p className="text-xs font-medium text-red-600 mb-1">
-                      {short.deadline ? `${mmdd(short.deadline)} までに` : ""}
-                      {yen(short.requiredDeposit)} の入金が必要
-                    </p>
-                  )}
                   <ValueLineChart
                     months={data.months}
                     currentKey={data.currentKey}

@@ -128,7 +128,7 @@ export function CardSummary({
                   ))
                 ) : (
                   <Text style={s.muted}>
-                    引き落としは未登録（銀行管理のキャッシュフローで登録します）
+                    引き落としは未登録（実績の履歴で、銀行の引き落としの明細から登録します）
                   </Text>
                 )}
                 <Text style={s.detail}>
