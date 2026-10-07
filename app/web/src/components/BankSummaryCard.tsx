@@ -2,7 +2,7 @@
 
 // 口座残高サマリ（ダッシュボード）。総資産サマリ・総借入サマリと同じく、KPI の対象月の時点（月末、今月なら今日）で出す。
 // データは GET /api/bank-accounts/summary?year=&month=。残高は銀行管理と同じ定義（明細の合計 + 差額）。
-// 口座の管理と残高の推移は銀行管理のキャッシュフロータブで見る。
+// 口座の管理と残高の推移は銀行管理で見る。
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";

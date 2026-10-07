@@ -32,6 +32,7 @@ import { fmtDate, yen } from "../../format";
 import { TRANSFER_CHANNEL_LABELS, TXN_SOURCE_LABEL as SOURCE_LABELS } from "../../shared/labels";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "../../shared/linked-account-type";
 import { CategoryPickerModal } from "../CategoryPickerModal";
+import { LedgerBadge, LedgerCount, LedgerRow } from "../LedgerRow";
 import { ChargeLinkSheet } from "../ChargeLinkSheet";
 import {
   Button,
@@ -46,6 +47,12 @@ import {
 } from "../ui";
 import { BANK_HELP, BANK_TERMS } from "../../shared/help-texts";
 
+type PostFilter = "all" | "unposted" | "posted";
+const POST_FILTERS: { value: PostFilter; label: string }[] = [
+  { value: "all", label: "全件" },
+  { value: "unposted", label: "実績未転記" },
+  { value: "posted", label: "実績転記済" },
+];
 const PAGE_SIZE = 30;
 
 const normalizeLabel = (s: string) => s.trim().toLowerCase();
@@ -71,6 +78,7 @@ export function BankTransactionsList({
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [cards, setCards] = useState<LinkedAccount[]>([]);
   const [page, setPage] = useState(0);
+  const [filter, setFilter] = useState<PostFilter>("all");
   const [msg, setMsg] = useState<string | null>(null);
   const [picking, setPicking] = useState<BankTransaction | null>(null);
   const [actions, setActions] = useState<BankTransaction | null>(null);
@@ -129,9 +137,21 @@ export function BankTransactionsList({
     tr.day !== new Date(t.date).getDate() ||
     Math.round(tr.amount) !== Math.round(Math.abs(t.amount));
 
-  const pageCount = Math.max(1, Math.ceil(txns.length / PAGE_SIZE));
+  // 「全件 / 実績未転記 / 実績転記済」（カード・web 版と同じ）。振替・チャージは転記の対象外なので未転記から除く
+  const filtered =
+    filter === "posted"
+      ? txns.filter((t) => t.postedRecordId !== null)
+      : filter === "unposted"
+        ? txns.filter(
+            (t) =>
+              t.postedRecordId === null &&
+              t.transferGroupId === null &&
+              t.chargeToAccountId === null,
+          )
+        : txns;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pageCount - 1);
-  const paged = txns.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
+  const paged = filtered.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
 
   async function run(action: () => Promise<string | void>, balanceChanged = false) {
     try {
@@ -262,7 +282,7 @@ export function BankTransactionsList({
     <View>
       {accounts.length === 0 && (
         <Notice tone="warn">
-          口座が登録されていません。入出金を記録するには、先に「キャッシュフロー」の「銀行口座」から口座を登録してください。
+          口座が登録されていません。入出金を記録するには、先に銀行の画面の「銀行口座」から口座を登録してください。
         </Notice>
       )}
       {msg && (
@@ -274,77 +294,94 @@ export function BankTransactionsList({
       <Notice>{BANK_HELP.list}</Notice>
       <TermList terms={BANK_TERMS} label="科目・転記・チャージ・固定入出金の説明" />
 
-      {txns.length > 0 && (
-        <Text style={s.count}>
-          全 {txns.length} 件中 {current * PAGE_SIZE + 1}〜
-          {Math.min((current + 1) * PAGE_SIZE, txns.length)} 件を表示
-        </Text>
-      )}
-      {txns.length === 0 ? (
-        <EmptyText>明細がありません</EmptyText>
+      {/* 件数と絞り込み（実績の履歴の共通の形。カード・手動と同じ位置） */}
+      <Pills
+        scroll={false}
+        options={POST_FILTERS}
+        value={filter}
+        onChange={(f) => {
+          setFilter(f);
+          setPage(0);
+        }}
+      />
+      <LedgerCount total={filtered.length} offset={current * PAGE_SIZE} pageSize={PAGE_SIZE} />
+      {filtered.length === 0 ? (
+        <EmptyText>
+          {txns.length === 0 ? "明細がありません" : "この条件に一致する明細はありません"}
+        </EmptyText>
       ) : (
         paged.map((t) => {
           const excluded = t.transferGroupId !== null || t.chargeToAccountId !== null;
           return (
-            <View key={t.id} style={s.row}>
-              <View style={s.rowHead}>
-                <Text style={s.date}>
-                  {fmtDate(t.date)} · {SOURCE_LABELS[t.source] ?? t.source}
-                  {accountId === null &&
-                    ` · ${accounts.find((a) => a.id === t.accountId)?.name ?? ""}`}
-                </Text>
-                <Text style={[s.amount, t.amount < 0 ? s.out : s.in]}>{yen(t.amount)}</Text>
-              </View>
-              <Text style={s.desc} numberOfLines={2}>
-                {t.description}
-              </Text>
-              <View style={s.rowActions}>
-                {t.transferGroupId ? (
-                  <>
-                    <Text style={s.badge}>振替</Text>
-                    <TouchableOpacity onPress={() => unlink(t)}>
-                      <Text style={s.subLink}>解除</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : t.chargeToAccountId ? (
-                  <Text style={s.badge}>チャージ（{t.chargeToAccount?.name ?? "指定済み"}）</Text>
-                ) : (
-                  <TouchableOpacity
-                    style={[s.chip, t.categoryAccount && s.chipSet]}
-                    disabled={t.postedRecordId !== null}
-                    onPress={() => setPicking(t)}
-                  >
-                    <Text
-                      style={[s.chipText, t.categoryAccount && s.chipTextSet]}
-                      numberOfLines={1}
+            <LedgerRow
+              key={t.id}
+              date={fmtDate(t.date)}
+              account={accounts.find((a) => a.id === t.accountId)?.name ?? ""}
+              description={t.description}
+              amount={yen(t.amount)}
+              tone={t.amount < 0 ? "out" : "in"}
+              category={
+                <>
+                  {t.transferGroupId ? (
+                    <>
+                      <Text style={s.badge}>振替</Text>
+                      <TouchableOpacity onPress={() => unlink(t)}>
+                        <Text style={s.subLink}>解除</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : t.chargeToAccountId ? (
+                    <Text style={s.badge}>チャージ（{t.chargeToAccount?.name ?? "指定済み"}）</Text>
+                  ) : (
+                    <TouchableOpacity
+                      style={[s.chip, t.categoryAccount && s.chipSet]}
+                      disabled={t.postedRecordId !== null}
+                      onPress={() => setPicking(t)}
                     >
-                      {categoryLabel(t)}
-                    </Text>
+                      <Text
+                        style={[s.chipText, t.categoryAccount && s.chipTextSet]}
+                        numberOfLines={1}
+                      >
+                        {categoryLabel(t)}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              }
+              status={
+                <>
+                  <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
+                  {excluded ? (
+                    <LedgerBadge>実績対象外</LedgerBadge>
+                  ) : t.postedRecordId !== null ? (
+                    <LedgerBadge tone="emerald">転記済み</LedgerBadge>
+                  ) : null}
+                </>
+              }
+              actions={
+                <>
+                  {!excluded && t.postedRecordId === null && (
+                    <TouchableOpacity
+                      disabled={t.categoryAccountId === null}
+                      onPress={() => post(t)}
+                    >
+                      <Text style={[s.link, t.categoryAccountId === null && s.disabled]}>
+                        転記する
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={() => setActions(t)}>
+                    <Text style={s.link}>操作 ▾</Text>
                   </TouchableOpacity>
-                )}
-                {excluded ? (
-                  <Text style={s.muted}>実績対象外</Text>
-                ) : t.postedRecordId !== null ? (
-                  <Text style={s.posted}>転記済み</Text>
-                ) : (
-                  <TouchableOpacity disabled={t.categoryAccountId === null} onPress={() => post(t)}>
-                    <Text style={[s.link, t.categoryAccountId === null && s.disabled]}>
-                      転記する
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity style={s.more} onPress={() => setActions(t)}>
-                  <Text style={s.link}>操作 ▾</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+                </>
+              }
+            />
           );
         })
       )}
-      {txns.length > PAGE_SIZE && (
+      {filtered.length > PAGE_SIZE && (
         <Pager
           offset={current * PAGE_SIZE}
-          total={txns.length}
+          total={filtered.length}
           pageSize={PAGE_SIZE}
           onChange={(o) => setPage(o / PAGE_SIZE)}
         />

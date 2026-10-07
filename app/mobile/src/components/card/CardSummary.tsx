@@ -89,17 +89,18 @@ export function CardSummary({
       {/* カード・電子マネーの一覧（借入金の画面の一覧と同じ形） */}
       <Card>
         <SectionTitle note={CARD_HELP.cards}>カード・電子マネー</SectionTitle>
+        {/* 借入金の画面の「借入追加」と同じ位置 */}
+        <Button
+          small
+          label="カード・電子マネー追加"
+          onPress={onAdd}
+          style={{ alignSelf: "flex-start", marginBottom: 8 }}
+        />
         {accounts.length > 0 && (
           <Text style={s.muted}>
             今月の利用額の合計 {yen(usageOf(null))} ・ {accounts.length} 件
           </Text>
         )}
-        <Button
-          small
-          label="カード・電子マネー追加"
-          onPress={onAdd}
-          style={{ marginVertical: 8, alignSelf: "flex-start" }}
-        />
         {accounts.length === 0 ? (
           <Text style={s.muted}>カード・電子マネーが登録されていません。</Text>
         ) : (

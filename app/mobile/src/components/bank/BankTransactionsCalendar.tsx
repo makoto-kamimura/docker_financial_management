@@ -153,7 +153,7 @@ export function BankTransactionsCalendar({ accounts, accountId, onBalanceChanged
   if (accounts.length === 0) {
     return (
       <Notice tone="warn">
-        口座が登録されていません。「キャッシュフロー」の「銀行口座」から口座を登録してください。
+        口座が登録されていません。銀行の画面の「銀行口座」から口座を登録してください。
       </Notice>
     );
   }

@@ -11,9 +11,10 @@ import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
 import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { CardTransactionsPanel } from "@/components/CardTransactionsPanel";
+import { LedgerTable } from "@/components/LedgerTable";
 import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPanel";
 import { TransferRulesCard } from "@/components/TransferRulesCard";
-import { CsvDropzone, Notice, PageHeader, Pager, SegmentedControl, Tabs } from "@/components/ui";
+import { CsvDropzone, Notice, PageHeader, SegmentedControl, Tabs } from "@/components/ui";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
 import { SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
@@ -39,10 +40,14 @@ type Account = {
   soleName?: string | null;
   corporateName?: string | null;
 };
+// CSV インポートの結果（POST /api/imports）。登録先ごとの登録件数と、重複で飛ばした件数
+type ImportCount = { inserted: number; skipped: number };
 type ImportResult = {
-  inserted: number;
-  /** すでに同じ内容が登録済みでスキップした行数 */
-  skipped?: number;
+  results: {
+    actual: ImportCount | null;
+    bank: (ImportCount & { id: number; name: string })[];
+    card: (ImportCount & { id: number; name: string })[];
+  } | null;
   errors: { row: number; message: string }[];
 };
 
@@ -243,7 +248,8 @@ function EntryContent() {
   const [cardAccountId, setCardAccountId] = useState<number | null>(
     initial.source === "card" ? initial.account : null,
   );
-  const sourceTab = tab === "calendar" || tab === "history";
+  // 出どころ（取り込み先）を選ぶタブ。CSV インポートでは、登録先の列が無い CSV の取り込み先になる
+  const sourceTab = tab === "calendar" || tab === "history" || tab === "csv";
   // 銀行の履歴の「振替を登録（銀行 → 銀行）」のモーダル
   const [bankTransferOpen, setBankTransferOpen] = useState(false);
   const { data: bankAccounts } = useQuery({
@@ -521,29 +527,102 @@ function EntryContent() {
   }
 
   // ── CSV ハンドラ ─────────────────────────────────────────────
+  // 取り込みの前の確認（銀行・カードへ、登録先の列が無い CSV を入れるとき。取り違えを防ぐ）
+  const [pendingImport, setPendingImport] = useState<{ file: File; label: string } | null>(null);
+
   async function importFile(file: File) {
     if (!file.name.toLowerCase().endsWith(".csv")) {
       setImportError("CSV ファイル (.csv) のみ対応しています。");
       return;
     }
-    setImporting(true);
     setImportResult(null);
     setImportError(null);
+    // ヘッダに target 列があれば行ごとに振り分ける（画面の取り込み先は使わない）
+    const header = (await file.text()).split(/\r?\n/, 1)[0] ?? "";
+    const routed = header
+      .split(",")
+      .map((h) => h.trim().replace(/^"|"$/g, ""))
+      .includes("target");
+    if (!routed && source !== "manual") {
+      const list = source === "bank" ? bankAccounts : cardAccounts;
+      const id = source === "bank" ? bankAccountId : cardId;
+      const account = list?.find((a) => a.id === id);
+      if (!account) {
+        setImportError(
+          "取り込み先の口座を選んでください（CSV に target・account の列があれば、行ごとに振り分けます）。",
+        );
+        return;
+      }
+      setPendingImport({
+        file,
+        label: `${source === "bank" ? "銀行" : "カード・電子マネー"}: ${account.name}`,
+      });
+      return;
+    }
+    await runImport(file);
+  }
+
+  async function runImport(file: File) {
+    setPendingImport(null);
+    setImporting(true);
     try {
-      const res = await fetch("/api/financials/import", {
+      const params = new URLSearchParams({ target: source === "manual" ? "actual" : source });
+      const id = source === "bank" ? bankAccountId : source === "card" ? cardId : null;
+      if (id !== null) params.set("accountId", String(id));
+      const res = await fetch(`/api/imports?${params}`, {
         method: "POST",
         headers: { "Content-Type": "text/csv; charset=utf-8" },
         body: file,
       });
-      if (!res.ok) {
+      const json = await res
+        .clone()
+        .json()
+        .catch(() => null);
+      if (json && Array.isArray(json.errors)) {
+        setImportResult(json as ImportResult);
+      } else if (!res.ok) {
         setImportError(await importErrorMessage(res));
-        return;
       }
-      setImportResult((await res.json()) as ImportResult);
+      // 実績・銀行・カードのどれに入っても表示が変わるので、まとめて取り直す
+      for (const key of [
+        "financials-matrix",
+        "recent-history",
+        "bank-txns",
+        "card-txns",
+        "bank-accounts",
+        "cash-outlook",
+        "card-usage-trend",
+      ]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
     } catch {
       setImportError(importNetworkErrorMessage);
     } finally {
       setImporting(false);
+    }
+  }
+
+  // 銀行の自動取得（同期）。銀行管理の CSV インポートから移した
+  async function syncBank() {
+    if (bankAccountId === null) return;
+    setImportResult(null);
+    setImportError(null);
+    const res = await fetch(`/api/bank-accounts/${bankAccountId}/sync`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const name = bankAccounts?.find((a) => a.id === bankAccountId)?.name ?? "";
+      setImportResult({
+        results: {
+          actual: null,
+          bank: [{ id: bankAccountId, name, inserted: json.fetched ?? 0, skipped: 0 }],
+          card: [],
+        },
+        errors: [],
+      });
+      queryClient.invalidateQueries({ queryKey: ["bank-txns"] });
+      queryClient.invalidateQueries({ queryKey: ["bank-accounts"] });
+    } else {
+      setImportError("自動取得に失敗しました。");
     }
   }
 
@@ -624,7 +703,13 @@ function EntryContent() {
       {/* ── 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ ── */}
       {sourceTab && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <SegmentedControl options={SOURCES} value={source} onChange={setSource} />
+          <SegmentedControl
+            options={SOURCES.map(([v, l]) =>
+              tab === "csv" && v === "manual" ? ([v, "実績"] as [Source, string]) : [v, l],
+            )}
+            value={source}
+            onChange={setSource}
+          />
           {source === "bank" && (
             <select
               aria-label="銀行"
@@ -632,7 +717,7 @@ function EntryContent() {
               value={bankAccountId ?? ""}
               onChange={(e) => setBankAccountId(e.target.value ? Number(e.target.value) : null)}
             >
-              <option value="">すべての銀行</option>
+              <option value="">{tab === "csv" ? "口座を選んでください" : "すべての銀行"}</option>
               {bankAccounts?.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -1023,29 +1108,57 @@ function EntryContent() {
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6">
           <CsvDropzone busy={importing} onFile={importFile} />
+          {/* 銀行の自動取得（同期）。銀行管理の CSV インポートから移した */}
+          {source === "bank" && bankAccountId !== null && (
+            <div className="card flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-slate-700">自動取得（同期）</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  口座と連携して最新の明細を取得します
+                </p>
+              </div>
+              <button onClick={syncBank} className="btn-secondary whitespace-nowrap">
+                同期する
+              </button>
+            </div>
+          )}
           {importResult && (
             <div
               className={`card border ${importResult.errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}
             >
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-2xl">{importResult.errors.length === 0 ? "✅" : "⚠️"}</span>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {importResult.inserted.toLocaleString()} 件を登録しました
-                  </p>
-                  {(importResult.skipped ?? 0) > 0 && (
-                    <p className="text-xs text-slate-600">
-                      {importResult.skipped!.toLocaleString()}{" "}
-                      件は既に同じ内容（科目・年月・金額）が登録済みのためスキップしました
-                    </p>
-                  )}
-                  {importResult.errors.length > 0 && (
-                    <p className="text-xs text-amber-700">
-                      {importResult.errors.length} 件のエラーがあります
-                    </p>
-                  )}
+              {importResult.results ? (
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">✅</span>
+                  <ul className="text-sm text-slate-800 space-y-0.5">
+                    {importResult.results.actual && (
+                      <li>
+                        実績: {importResult.results.actual.inserted.toLocaleString()} 件を登録
+                        {importResult.results.actual.skipped > 0 &&
+                          `（${importResult.results.actual.skipped.toLocaleString()} 件は同じ内容が登録済み）`}
+                      </li>
+                    )}
+                    {importResult.results.bank.map((r) => (
+                      <li key={`b${r.id}`}>
+                        銀行 {r.name}: {r.inserted.toLocaleString()} 件を登録
+                        {r.skipped > 0 && `（${r.skipped.toLocaleString()} 件は取り込み済み）`}
+                      </li>
+                    ))}
+                    {importResult.results.card.map((r) => (
+                      <li key={`c${r.id}`}>
+                        カード・電子マネー {r.name}: {r.inserted.toLocaleString()} 件を登録
+                        {r.skipped > 0 && `（${r.skipped.toLocaleString()} 件は取り込み済み）`}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl">⚠️</span>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {importResult.errors.length} 件のエラーがあるため、取り込みませんでした
+                  </p>
+                </div>
+              )}
               {importResult.errors.length > 0 && (
                 <div className="mt-3 max-h-48 overflow-y-auto">
                   <table className="w-full text-xs">
@@ -1069,27 +1182,44 @@ function EntryContent() {
             </div>
           )}
           {importError && <Notice tone="error">{importError}</Notice>}
-          <div className="card bg-slate-50">
-            <h3 className="text-xs font-semibold text-slate-700 mb-2">CSV フォーマット</h3>
-            <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`accountCode,fiscalYear,month,amount
+
+          {/* 書式の説明（実績 / 銀行・カード / 登録先の列つき） */}
+          <div className="card bg-slate-50 space-y-4">
+            <div>
+              <h3 className="text-xs font-semibold text-slate-700 mb-2">
+                実績（取り込み先で「実績」を選んだとき）
+              </h3>
+              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`accountCode,fiscalYear,month,amount
 H1000,${THIS_YEAR},1,350000
-H2000,${THIS_YEAR},1,45000
-HA101,${THIS_YEAR},12,500000`}</pre>
-            <ul className="mt-3 space-y-1 text-xs text-slate-500">
-              <li>
-                <span className="font-medium">accountCode</span>
-                ：勘定科目コード（マスタに登録済みのもの）
-              </li>
-              <li>
-                <span className="font-medium">fiscalYear</span>：会計年度（例: {THIS_YEAR}）
-              </li>
-              <li>
-                <span className="font-medium">month</span>：月（1〜12）
-              </li>
-              <li>
-                <span className="font-medium">amount</span>：金額（円）
-              </li>
-            </ul>
+H2000,${THIS_YEAR},1,45000`}</pre>
+              <p className="mt-1 text-xs text-slate-500">
+                accountCode は勘定科目コード、fiscalYear は年度、month は月（1〜12）、amount
+                は金額（円）です。
+              </p>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-700 mb-2">
+                銀行・カード・電子マネー（取り込み先で口座を選んだとき）
+              </h3>
+              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`date,description,amount,balance
+${THIS_YEAR}-06-25,給与,300000,512000
+${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
+              <p className="mt-1 text-xs text-slate-500">
+                銀行・カード会社のサイトの明細そのままの形式です（入金は正、支出は負。balance
+                は銀行だけで、無くてもかまいません）。
+                カード・電子マネーは取り込み時に符号を反転し、利用＝正、返金＝負として記録します。
+              </p>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-700 mb-2">
+                登録先の列つき（1 つのファイルで、実績・銀行・カードに振り分ける）
+              </h3>
+              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`target,account,date,description,amount,accountCode
+実績,,${THIS_YEAR}-06-30,,350000,H1000
+銀行,住信SBI普通,${THIS_YEAR}-06-25,給与,300000,
+カード,楽天カード,${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,`}</pre>
+              <p className="mt-1 text-xs text-slate-500">{ENTRY_HELP.csvRouted}</p>
+            </div>
           </div>
 
           {/* 給与明細の項目は、下の科目コードを使ってこの CSV から登録する
@@ -1129,13 +1259,6 @@ HA101,${THIS_YEAR},12,500000`}</pre>
       {/* ── 実績一覧（明細一覧タブ = 科目×月テーブル / 履歴タブ = 変更履歴）── */}
       {(tab === "manual" || tab === "history") && (
         <div>
-          {tab === "history" && source === "manual" && histTotal > 0 && (
-            <p className="text-xs text-slate-400 mb-2">
-              全 {histTotal.toLocaleString()} 件中 {histOffset + 1}〜
-              {Math.min(histOffset + HISTORY_PAGE_SIZE, histTotal)} 件を表示
-            </p>
-          )}
-
           {/* ── 科目×月テーブル（一覧タブ。予算管理の一覧と同じ部品）──────── */}
           {tab === "manual" &&
             (matrixLoading && !matrixData ? (
@@ -1166,135 +1289,158 @@ HA101,${THIS_YEAR},12,500000`}</pre>
               </>
             ))}
 
-          {/* ── 履歴（履歴タブ）─────────────────────────── */}
+          {/* ── 履歴（出どころが手動 = 実績の変更記録）。銀行・カードと同じ共通の表 ── */}
           {tab === "history" &&
             source === "manual" &&
-            (histLoading ? (
+            (histLoading && !recentHistory ? (
               <LoadingSpinner label="履歴を読み込み中…" />
-            ) : recentHistory && recentHistory.length > 0 ? (
-              <div className="card overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-slate-500 border-b border-slate-200">
-                      <th className="text-left py-2 pr-4 font-medium">
-                        <button
-                          type="button"
-                          onClick={() => toggleHistorySort("changedAt")}
-                          className={`inline-flex items-center gap-1 hover:text-slate-700 ${
-                            histSort === "changedAt" ? "text-indigo-700 font-semibold" : ""
-                          }`}
-                        >
-                          日時
-                          <span className="text-[10px]">
-                            {histSort === "changedAt" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
-                          </span>
-                        </button>
-                      </th>
-                      <th className="text-left py-2 pr-4 font-medium">操作</th>
-                      <th className="text-left py-2 pr-4 font-medium">
-                        <button
-                          type="button"
-                          onClick={() => toggleHistorySort("account")}
-                          className={`inline-flex items-center gap-1 hover:text-slate-700 ${
-                            histSort === "account" ? "text-indigo-700 font-semibold" : ""
-                          }`}
-                        >
-                          勘定科目
-                          <span className="text-[10px]">
-                            {histSort === "account" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
-                          </span>
-                        </button>
-                      </th>
-                      <th className="text-left py-2 pr-4 font-medium">期間</th>
-                      <th className="text-right py-2 font-medium">
-                        <button
-                          type="button"
-                          onClick={() => toggleHistorySort("amount")}
-                          className={`inline-flex items-center gap-1 hover:text-slate-700 ${
-                            histSort === "amount" ? "text-indigo-700 font-semibold" : ""
-                          }`}
-                        >
-                          金額
-                          <span className="text-[10px]">
-                            {histSort === "amount" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
-                          </span>
-                        </button>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {recentHistory.map((h) => (
-                      <tr key={h.historyId} className="hover:bg-slate-50">
-                        <td className="py-2 pr-4 text-slate-500 whitespace-nowrap text-xs font-mono">
-                          {fmtDate(h.changedAt)}
-                        </td>
-                        <td className="py-2 pr-4">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLOR[h.action] ?? ""}`}
-                          >
-                            {ACTION_LABEL[h.action] ?? h.action}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-4 text-slate-700">
-                          {h.action === "delete" ? (
-                            <>
-                              <span className="font-mono text-xs text-slate-400 mr-1">
-                                {h.account.code}
-                              </span>
-                              {displayName(h.account, sysMode)}
-                            </>
-                          ) : (
-                            <div className="flex flex-col gap-0.5">
-                              <select
-                                value={h.account.id}
-                                onChange={(e) =>
-                                  updateHistoryAccount(h.recordId, Number(e.target.value))
-                                }
-                                className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-40"
-                              >
-                                {GROUP_ORDER.map((cat) => {
-                                  const items = byCategory[cat] ?? [];
-                                  if (items.length === 0) return null;
-                                  return (
-                                    <optgroup key={cat} label={GROUP_LABELS[cat]}>
-                                      {items.map((a) => (
-                                        <option key={a.id} value={a.id}>
-                                          {a.code} {displayName(a, sysMode)}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  );
-                                })}
-                              </select>
-                              {historyAcctError[h.recordId] && (
-                                <span className="text-[10px] text-red-500">
-                                  {historyAcctError[h.recordId]}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2 pr-4 text-slate-600 whitespace-nowrap">
-                          {h.period.fiscalYear}年 {h.period.month}月
-                        </td>
-                        <td className="py-2 text-right font-mono text-slate-800">
-                          {yen(h.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <Pager
-                  offset={histOffset}
-                  pageSize={HISTORY_PAGE_SIZE}
-                  total={histTotal}
-                  onChange={setHistOffset}
-                  className="pt-3 mt-3 border-t border-slate-100"
-                />
-              </div>
             ) : (
-              <p className="text-sm text-slate-400">まだ履歴はありません。</p>
+              <LedgerTable
+                total={histTotal}
+                offset={histOffset}
+                pageSize={HISTORY_PAGE_SIZE}
+                onPageChange={setHistOffset}
+                emptyText="まだ履歴はありません。"
+                headers={{
+                  date: (
+                    <button
+                      type="button"
+                      onClick={() => toggleHistorySort("changedAt")}
+                      className={`inline-flex items-center gap-1 hover:text-slate-700 ${
+                        histSort === "changedAt" ? "text-indigo-700 font-semibold" : ""
+                      }`}
+                    >
+                      日付（変更日時）
+                      <span className="text-[10px]">
+                        {histSort === "changedAt" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
+                      </span>
+                    </button>
+                  ),
+                  category: (
+                    <button
+                      type="button"
+                      onClick={() => toggleHistorySort("account")}
+                      className={`inline-flex items-center gap-1 hover:text-slate-700 ${
+                        histSort === "account" ? "text-indigo-700 font-semibold" : ""
+                      }`}
+                    >
+                      科目
+                      <span className="text-[10px]">
+                        {histSort === "account" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
+                      </span>
+                    </button>
+                  ),
+                  amount: (
+                    <button
+                      type="button"
+                      onClick={() => toggleHistorySort("amount")}
+                      className={`inline-flex items-center gap-1 hover:text-slate-700 ${
+                        histSort === "amount" ? "text-indigo-700 font-semibold" : ""
+                      }`}
+                    >
+                      金額
+                      <span className="text-[10px]">
+                        {histSort === "amount" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
+                      </span>
+                    </button>
+                  ),
+                }}
+                rows={(recentHistory ?? []).map((h) => ({
+                  key: h.historyId,
+                  date: fmtDate(h.changedAt),
+                  account: "手動",
+                  description: `${h.period.fiscalYear}年${h.period.month}月の実績`,
+                  amount: yen(h.amount),
+                  tone: "none" as const,
+                  category: (
+                    <>
+                      {h.action === "delete" ? (
+                        <>
+                          <span className="font-mono text-xs text-slate-400 mr-1">
+                            {h.account.code}
+                          </span>
+                          {displayName(h.account, sysMode)}
+                        </>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          <select
+                            value={h.account.id}
+                            onChange={(e) =>
+                              updateHistoryAccount(h.recordId, Number(e.target.value))
+                            }
+                            className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-40"
+                          >
+                            {GROUP_ORDER.map((cat) => {
+                              const items = byCategory[cat] ?? [];
+                              if (items.length === 0) return null;
+                              return (
+                                <optgroup key={cat} label={GROUP_LABELS[cat]}>
+                                  {items.map((a) => (
+                                    <option key={a.id} value={a.id}>
+                                      {a.code} {displayName(a, sysMode)}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })}
+                          </select>
+                          {historyAcctError[h.recordId] && (
+                            <span className="text-[10px] text-red-500">
+                              {historyAcctError[h.recordId]}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ),
+                  status: (
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLOR[h.action] ?? ""}`}
+                    >
+                      {ACTION_LABEL[h.action] ?? h.action}
+                    </span>
+                  ),
+                }))}
+              />
             ))}
+        </div>
+      )}
+
+      {/* 取り込み先の確認（銀行・カードに、登録先の列が無い CSV を入れるとき） */}
+      {pendingImport && (
+        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
+            <h2 className="text-lg font-bold text-slate-800 mb-1">CSV 取込先の確認</h2>
+            <p className="text-xs text-slate-500 mb-4">
+              CSV の中身から取込先は判別できません。下記の明細として登録します。
+            </p>
+            <dl className="text-sm border border-slate-200 rounded-lg divide-y divide-slate-100 mb-4">
+              <div className="flex gap-3 px-3 py-2">
+                <dt className="w-20 shrink-0 text-slate-500">ファイル</dt>
+                <dd className="text-slate-700 break-all">{pendingImport.file.name}</dd>
+              </div>
+              <div className="flex gap-3 px-3 py-2 bg-amber-50">
+                <dt className="w-20 shrink-0 text-slate-500">取込先</dt>
+                <dd className="font-semibold text-slate-800">{pendingImport.label}</dd>
+              </div>
+            </dl>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingImport(null)}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => runImport(pendingImport.file)}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+              >
+                取り込む
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -31,6 +31,7 @@ import { digitsOnly, fmtDate, yen } from "../../format";
 import { TXN_SOURCE_LABEL as SOURCE_LABELS } from "../../shared/labels";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "../../shared/linked-account-type";
 import { CategoryPickerModal } from "../CategoryPickerModal";
+import { LedgerBadge, LedgerCount, LedgerRow } from "../LedgerRow";
 import { ChargeLinkSheet } from "../ChargeLinkSheet";
 import {
   Button,
@@ -286,12 +287,7 @@ export function CardTransactionsList({
           setPage(0);
         }}
       />
-      <Text style={s.count}>
-        {filtered.length} 件
-        {filtered.length > 0 &&
-          `（${current * PAGE_SIZE + 1}〜${Math.min((current + 1) * PAGE_SIZE, filtered.length)} 件を表示）`}
-        {filter === "unposted" && "・チャージを除く"}
-      </Text>
+      <LedgerCount total={filtered.length} offset={current * PAGE_SIZE} pageSize={PAGE_SIZE} />
 
       {filtered.length === 0 ? (
         <EmptyText>
@@ -299,71 +295,86 @@ export function CardTransactionsList({
         </EmptyText>
       ) : (
         paged.map((t) => (
-          <View key={t.id} style={s.row}>
-            <View style={s.rowHead}>
-              <Text style={s.date}>
-                {fmtDate(t.date)} · {SOURCE_LABELS[t.source] ?? t.source}
-              </Text>
-              <Text style={[s.amount, t.amount > 0 ? s.out : s.in]}>{yen(t.amount)}</Text>
-            </View>
-            <Text style={s.desc} numberOfLines={2}>
-              {t.description}
-            </Text>
-            <View style={s.rowActions}>
-              {t.transferToAccountId ? (
-                <Text style={s.badge}>チャージ（{t.transferToAccount?.name ?? "指定済み"}）</Text>
-              ) : t.chargeGroupId ? (
-                // チャージ元の明細と対にした入金側。こちらも収支には計上しない
-                <>
-                  <Text style={s.badgeIn}>チャージ入金</Text>
+          <LedgerRow
+            key={t.id}
+            date={fmtDate(t.date)}
+            account={account.name}
+            description={t.description}
+            amount={yen(t.amount)}
+            // カードは利用＝正（支出）、返金＝負
+            tone={t.amount > 0 ? "out" : "in"}
+            category={
+              <>
+                {t.transferToAccountId ? (
+                  <Text style={s.badge}>チャージ（{t.transferToAccount?.name ?? "指定済み"}）</Text>
+                ) : t.chargeGroupId ? (
+                  // チャージ元の明細と対にした入金側。こちらも収支には計上しない
+                  <>
+                    <Text style={s.badgeIn}>チャージ入金</Text>
+                    <TouchableOpacity
+                      onPress={() =>
+                        confirm("チャージ入金の紐付けを解除", CARD_HELP.chargeBadge, () =>
+                          setCharge(t, null),
+                        )
+                      }
+                    >
+                      <Text style={s.subLink}>解除</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
                   <TouchableOpacity
+                    style={[s.chip, t.categoryAccount && s.chipSet]}
+                    disabled={t.postedRecordId !== null}
+                    onPress={() => setPicking(t)}
+                  >
+                    <Text
+                      style={[s.chipText, t.categoryAccount && s.chipTextSet]}
+                      numberOfLines={1}
+                    >
+                      {categoryLabel(t)}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            }
+            status={
+              <>
+                <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
+                {isMovement(t) ? (
+                  <LedgerBadge>実績対象外</LedgerBadge>
+                ) : t.postedRecordId !== null ? (
+                  <LedgerBadge tone="emerald">転記済み</LedgerBadge>
+                ) : null}
+              </>
+            }
+            actions={
+              <>
+                {!isMovement(t) && t.postedRecordId === null && (
+                  <TouchableOpacity
+                    disabled={t.categoryAccountId === null}
                     onPress={() =>
-                      confirm("チャージ入金の紐付けを解除", CARD_HELP.chargeBadge, () =>
-                        setCharge(t, null),
-                      )
+                      run(async () => {
+                        const { updatedSiblingCount: n } = await postTransactionToActuals(
+                          "card",
+                          t.id,
+                        );
+                        return n > 0
+                          ? `実績へ転記しました。同じ摘要の未分類明細 ${n} 件にも科目を設定しました。`
+                          : "実績へ転記しました。";
+                      })
                     }
                   >
-                    <Text style={s.subLink}>解除</Text>
+                    <Text style={[s.link, t.categoryAccountId === null && s.disabled]}>
+                      転記する
+                    </Text>
                   </TouchableOpacity>
-                </>
-              ) : (
-                <TouchableOpacity
-                  style={[s.chip, t.categoryAccount && s.chipSet]}
-                  disabled={t.postedRecordId !== null}
-                  onPress={() => setPicking(t)}
-                >
-                  <Text style={[s.chipText, t.categoryAccount && s.chipTextSet]} numberOfLines={1}>
-                    {categoryLabel(t)}
-                  </Text>
+                )}
+                <TouchableOpacity onPress={() => setActions(t)}>
+                  <Text style={s.link}>操作 ▾</Text>
                 </TouchableOpacity>
-              )}
-              {isMovement(t) ? (
-                <Text style={s.muted}>実績対象外</Text>
-              ) : t.postedRecordId !== null ? (
-                <Text style={s.posted}>転記済み</Text>
-              ) : (
-                <TouchableOpacity
-                  disabled={t.categoryAccountId === null}
-                  onPress={() =>
-                    run(async () => {
-                      const { updatedSiblingCount: n } = await postTransactionToActuals(
-                        "card",
-                        t.id,
-                      );
-                      return n > 0
-                        ? `実績へ転記しました。同じ摘要の未分類明細 ${n} 件にも科目を設定しました。`
-                        : "実績へ転記しました。";
-                    })
-                  }
-                >
-                  <Text style={[s.link, t.categoryAccountId === null && s.disabled]}>転記する</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity style={s.more} onPress={() => setActions(t)}>
-                <Text style={s.link}>操作 ▾</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+              </>
+            }
+          />
         ))
       )}
       {filtered.length > PAGE_SIZE && (

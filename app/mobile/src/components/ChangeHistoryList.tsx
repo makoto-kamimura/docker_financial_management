@@ -6,6 +6,7 @@ import { displayName } from "../shared/display-name";
 import { fmtDateTime, yen } from "../format";
 import { CHANGE_ACTION_LABEL as ACTION_LABEL } from "../shared/labels";
 import { AccountPickerModal } from "./CategoryPickerModal";
+import { LedgerCount, LedgerRow } from "./LedgerRow";
 import { EmptyText, Pager } from "./ui";
 
 export const HISTORY_PAGE_SIZE = 30;
@@ -48,6 +49,8 @@ type Props = {
   loading: boolean;
   viewMode: ViewMode;
   emptyText: string;
+  /** 共通の行の「口座」に出す名前（実績の履歴は「手動」、予算の履歴は「予算」） */
+  sourceLabel?: string;
   /**
    * 指定すると、削除以外の行の勘定科目を押して付け替えられる（実績の履歴のみ。
    * PATCH /financials/{id} の accountId）。エラーは行の下に出す。
@@ -66,6 +69,7 @@ export function ChangeHistoryList({
   loading,
   viewMode,
   emptyText,
+  sourceLabel = "手動",
   accountEdit,
 }: Props) {
   const [editing, setEditing] = useState<ChangeHistoryRow | null>(null);
@@ -112,34 +116,39 @@ export function ChangeHistoryList({
         <EmptyText>{emptyText}</EmptyText>
       ) : (
         <>
-          <Text style={s.count}>
-            全 {total.toLocaleString("ja-JP")} 件中 {query.offset + 1}〜
-            {Math.min(query.offset + query.limit, total)} 件を表示
-          </Text>
+          <LedgerCount total={total} offset={query.offset} pageSize={query.limit} />
           {rows.map((h) => {
             const editable = accountEdit && h.action !== "delete" && h.targetId !== null;
             return (
-              <View key={h.historyId} style={s.row}>
-                <View style={[s.badge, { backgroundColor: ACTION_BG[h.action] ?? "#f1f5f9" }]}>
-                  <Text style={[s.badgeText, { color: ACTION_COLOR[h.action] ?? "#374151" }]}>
-                    {ACTION_LABEL[h.action] ?? h.action}
-                  </Text>
-                </View>
-                <View style={s.info}>
-                  <TouchableOpacity disabled={!editable} onPress={() => setEditing(h)}>
-                    <Text style={[s.account, editable && s.accountEditable]}>
-                      <Text style={s.code}>{h.account.code} </Text>
-                      {displayName(h.account, viewMode)}
-                      {editable ? " ▾" : ""}
+              <LedgerRow
+                key={h.historyId}
+                date={fmtDateTime(h.changedAt)}
+                account={sourceLabel}
+                description={`${h.period.fiscalYear}年${h.period.month}月`}
+                amount={yen(h.amount)}
+                tone="none"
+                category={
+                  <View>
+                    <TouchableOpacity disabled={!editable} onPress={() => setEditing(h)}>
+                      <Text style={[s.account, editable && s.accountEditable]}>
+                        <Text style={s.code}>{h.account.code} </Text>
+                        {displayName(h.account, viewMode)}
+                        {editable ? " ▾" : ""}
+                      </Text>
+                    </TouchableOpacity>
+                    {errors[h.historyId] ? (
+                      <Text style={s.error}>{errors[h.historyId]}</Text>
+                    ) : null}
+                  </View>
+                }
+                status={
+                  <View style={[s.badge, { backgroundColor: ACTION_BG[h.action] ?? "#f1f5f9" }]}>
+                    <Text style={[s.badgeText, { color: ACTION_COLOR[h.action] ?? "#374151" }]}>
+                      {ACTION_LABEL[h.action] ?? h.action}
                     </Text>
-                  </TouchableOpacity>
-                  {errors[h.historyId] ? <Text style={s.error}>{errors[h.historyId]}</Text> : null}
-                  <Text style={s.meta}>
-                    {h.period.fiscalYear}年 {h.period.month}月 ・ {fmtDateTime(h.changedAt)}
-                  </Text>
-                </View>
-                <Text style={s.amount}>{yen(h.amount)}</Text>
-              </View>
+                  </View>
+                }
+              />
             );
           })}
           <Pager

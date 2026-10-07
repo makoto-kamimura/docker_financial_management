@@ -6,7 +6,7 @@ import { buildCashOutlook, type OutlookRule } from "@/lib/cash-outlook";
 import { categoryBucket } from "@/lib/kpi";
 import { loanFundingTransfers } from "@/lib/loan-funding";
 
-// GET /api/bank-accounts/cash-outlook?before=12&after=12 … キャッシュフロータブの残高の推移。
+// GET /api/bank-accounts/cash-outlook?before=12&after=12 … 銀行管理の残高の推移。
 //   今月の前後の月末残高を、口座ごとと合計で返す（計算は lib/cash-outlook.ts）。
 //   過去は明細のある月からにする（最大 before か月前）。口座ごとの先の見込みは資金繰りと同じく
 //   資金移動ルール + 借入の返済の自動の引き落とし、合計の先の見込みは予算と実績の収支から出す。

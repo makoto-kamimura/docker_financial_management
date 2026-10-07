@@ -6,9 +6,14 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
+import {
+  LedgerBadge,
+  LedgerFilter,
+  LedgerMoreSection,
+  LedgerTable,
+} from "@/components/LedgerTable";
 import { BANK_HELP, BANK_TERMS } from "@/lib/help-texts";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "@/lib/linked-account-type";
 import type { LinkedAccountType } from "@/lib/linked-account-type";
@@ -16,7 +21,7 @@ import {
   TRANSFER_CHANNEL_LABELS as CHANNEL_LABELS,
   TXN_SOURCE_LABEL as SOURCE_LABELS,
 } from "@/lib/labels";
-import { CsvDropzone, Notice, Pager, Tabs } from "@/components/ui";
+import { Notice, Tabs } from "@/components/ui";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
@@ -74,12 +79,6 @@ type TransferCandidate = {
   amount: number;
   dayGap: number;
 };
-type ImportResult = {
-  inserted: number;
-  /** 既に取り込み済みで重複していた行数 */
-  skipped?: number;
-  errors: { row: number; message: string }[];
-};
 
 // ── 定数 ────────────────────────────────────────────────────────
 const now = new Date();
@@ -100,7 +99,13 @@ const BLANK_BANK_TRANSFER = {
 // 振替候補の日付のずれの選択肢（他行宛の振込は着金が翌営業日以降になることがある）
 const DAY_GAP_OPTIONS = [0, 1, 3, 7] as const;
 
-type Tab = "list" | "csv" | "recurring";
+type Tab = "list" | "recurring";
+type PostFilter = "all" | "posted" | "unposted";
+const POST_FILTERS: [PostFilter, string][] = [
+  ["all", "全件"],
+  ["unposted", "実績未転記"],
+  ["posted", "実績転記済"],
+];
 
 // view="recurring" で描画するブロック。register＝振替（銀行 → 銀行）の登録モーダル、
 // match＝取込済み明細の振替紐付け。実績管理の履歴（出どころは銀行）で、必要なブロックだけを選んで使う。
@@ -166,9 +171,6 @@ export function BankTransactionsPanel({
   // 取込済み明細の振替紐付け（案 C）: 許容する日付のずれと、処理中の候補
   const [matchDayGap, setMatchDayGap] = useState(3);
   const [linkingKey, setLinkingKey] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
 
   // ── データ取得 ──────────────────────────────────────────────
   const { data: accounts } = useQuery({
@@ -214,18 +216,26 @@ export function BankTransactionsPanel({
   );
   const accountNameById = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
 
-  // CSV 取込・自動取得の取り込み先。すべての口座を表示しているときは CSV の欄で選ぶ
-  const [importTargetId, setImportTargetId] = useState<number | null>(null);
-  const importAccountId = accountId ?? importTargetId;
-
   // 明細一覧は 30 件ずつ表示する。口座切替や再取得で件数が減った場合は末尾ページへ丸める
-  const txnTotal = txns?.length ?? 0;
+  // 「全件 / 実績未転記 / 実績転記済」（カードの履歴と同じ絞り込み）。
+  // 実績未転記は、これから転記する明細を拾うためのもの。振替・チャージは転記の対象外なので除く
+  const [postFilter, setPostFilter] = useState<PostFilter>("all");
+  const filteredTxns = useMemo(() => {
+    const all = txns ?? [];
+    if (postFilter === "posted") return all.filter((t) => t.postedRecordId !== null);
+    if (postFilter === "unposted")
+      return all.filter(
+        (t) => t.postedRecordId === null && !t.transferGroupId && !t.chargeToAccountId,
+      );
+    return all;
+  }, [txns, postFilter]);
+  const txnTotal = filteredTxns.length;
   const txnPageCount = Math.max(1, Math.ceil(txnTotal / TXN_PAGE_SIZE));
   const currentTxnPage = Math.min(txnPage, txnPageCount - 1);
   const txnOffset = currentTxnPage * TXN_PAGE_SIZE;
   const pagedTxns = useMemo(
-    () => (txns ?? []).slice(txnOffset, txnOffset + TXN_PAGE_SIZE),
-    [txns, txnOffset],
+    () => filteredTxns.slice(txnOffset, txnOffset + TXN_PAGE_SIZE),
+    [filteredTxns, txnOffset],
   );
 
   const { data: categoryAccounts } = useQuery({
@@ -265,62 +275,6 @@ export function BankTransactionsPanel({
   );
 
   // ── ハンドラ ────────────────────────────────────────────────
-
-  async function importFile(file: File) {
-    if (importAccountId === null) {
-      setImportError(
-        (accounts ?? []).length === 0
-          ? "口座を登録してください。"
-          : "取り込み先の口座を選んでください。",
-      );
-      return;
-    }
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      setImportError("CSV ファイル (.csv) のみ対応しています。");
-      return;
-    }
-    setImporting(true);
-    setImportResult(null);
-    setImportError(null);
-    try {
-      const res = await fetch(`/api/bank-accounts/${importAccountId}/transactions`, {
-        method: "POST",
-        headers: { "Content-Type": "text/csv" },
-        body: file,
-      });
-      if (res.ok) {
-        setImportResult((await res.json()) as ImportResult);
-        qc.invalidateQueries({ queryKey: ["bank-txns"] });
-      } else {
-        setImportError(await importErrorMessage(res));
-      }
-    } catch {
-      setImportError(importNetworkErrorMessage);
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function sync() {
-    if (importAccountId === null) {
-      setImportError(
-        (accounts ?? []).length === 0
-          ? "口座を登録してください。"
-          : "取り込み先の口座を選んでください。",
-      );
-      return;
-    }
-    setImportResult(null);
-    setImportError(null);
-    const res = await fetch(`/api/bank-accounts/${importAccountId}/sync`, { method: "POST" });
-    const json = await res.json();
-    if (res.ok) {
-      setImportResult({ inserted: json.fetched ?? 0, errors: [] });
-      qc.invalidateQueries({ queryKey: ["bank-txns"] });
-    } else {
-      setImportError("自動取得に失敗しました。");
-    }
-  }
 
   async function deleteTxn(t: Txn) {
     await fetch(`/api/bank-accounts/${t.accountId}/transactions?txnId=${t.id}`, {
@@ -621,7 +575,6 @@ export function BankTransactionsPanel({
   const TABS: [Tab, string][] = [
     ["list", "一覧"],
     ["recurring", "毎月の入出金"],
-    ["csv", "CSV インポート"],
   ];
 
   return (
@@ -692,433 +645,280 @@ export function BankTransactionsPanel({
         </Notice>
       )}
 
-      {/* ── 明細一覧タブ ─────────────────────────────────────── */}
+      {/* ── 明細一覧（実績管理の履歴の共通の表: components/LedgerTable.tsx）──────────── */}
       {tab === "list" && (
         <>
-          {txnTotal > 0 && (
-            <p className="text-xs text-slate-500 mb-3">
-              全 {txnTotal} 件中 {txnOffset + 1}〜{Math.min(txnOffset + TXN_PAGE_SIZE, txnTotal)}{" "}
-              件を表示
-            </p>
-          )}
-
           <InfoNote className="mb-2">{BANK_HELP.list}</InfoNote>
           <TermDetails terms={BANK_TERMS} className="mb-3" />
-
-          {/* 明細テーブル（列が多いので横スクロールさせる。固定幅にしないと右端の列が切れる） */}
-          <div className="card overflow-hidden p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[72rem]">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    {[
-                      "日付",
-                      // すべての口座をまとめて表示しているときは、どの口座の明細かを出す
-                      ...(allAccountsView ? ["口座"] : []),
-                      "摘要",
-                      "金額",
-                      "科目",
-                      "取得元",
-                      "実績",
-                      "チャージ先",
-                      "固定入出金",
-                      "",
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-xs font-semibold text-slate-600"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {pagedTxns.map((t) => {
-                    // 摘要が一致する固定入出金があれば「登録済み」表示に切り替える
-                    const registered = matchedTransfer(t);
-                    return (
-                      <tr key={t.id} className="hover:bg-slate-50 group">
-                        <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">
-                          {new Date(t.date).toLocaleDateString("ja-JP")}
-                        </td>
-                        {allAccountsView && (
-                          <td className="px-4 py-2.5 whitespace-nowrap text-slate-600">
-                            {accountNameById(t.accountId)}
-                          </td>
-                        )}
-                        <td className="px-4 py-2.5">{t.description}</td>
-                        <td
-                          className={`px-4 py-2.5 text-right tabular-nums ${t.amount < 0 ? "text-red-600" : "text-emerald-600"}`}
+          <LedgerTable
+            total={txnTotal}
+            offset={txnOffset}
+            pageSize={TXN_PAGE_SIZE}
+            onPageChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
+            toolbar={
+              <LedgerFilter
+                options={POST_FILTERS}
+                value={postFilter}
+                onChange={(f) => {
+                  setPostFilter(f);
+                  setTxnPage(0);
+                }}
+              />
+            }
+            emptyText={
+              (txns ?? []).length === 0 ? "明細がありません" : "この条件に一致する明細はありません"
+            }
+            rows={pagedTxns.map((t) => {
+              // 摘要が一致する固定入出金があれば「登録済み」表示に切り替える
+              const registered = matchedTransfer(t);
+              const excluded = Boolean(t.transferGroupId || t.chargeToAccountId);
+              return {
+                key: t.id,
+                date: new Date(t.date).toLocaleDateString("ja-JP"),
+                account: accountNameById(t.accountId),
+                description: t.description,
+                amount: yen(t.amount),
+                tone: t.amount < 0 ? "out" : "in",
+                category: (
+                  <>
+                    {/* 口座間振替は自己資金の移動なので科目に紐付けない（二重計上の防止） */}
+                    {t.transferGroupId ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                          振替
+                        </span>
+                        {/* 誤って紐付けた場合の戻し道。明細は残るので残高は変わらない */}
+                        <button
+                          onClick={() => unlinkTransfer(t.transferGroupId!)}
+                          className="text-xs text-slate-400 hover:text-red-600 whitespace-nowrap"
                         >
-                          {yen(t.amount)}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {/* 口座間振替は自己資金の移動なので科目に紐付けない（二重計上の防止） */}
-                          {t.transferGroupId ? (
-                            <span className="inline-flex items-center gap-1">
-                              <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                振替
-                              </span>
-                              {/* 誤って紐付けた場合の戻し道。明細は残るので残高は変わらない */}
-                              <button
-                                onClick={() => unlinkTransfer(t.transferGroupId!)}
-                                className="text-xs text-slate-400 hover:text-red-600 whitespace-nowrap"
-                              >
-                                解除
-                              </button>
+                          解除
+                        </button>
+                      </span>
+                    ) : t.chargeToAccountId ? (
+                      // チャージも自己資金の移動。実際の支出はチャージ先の利用明細で計上する
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                          チャージ
+                        </span>
+                        {t.chargeToAccount && (
+                          <span className="text-xs text-slate-500 whitespace-nowrap">
+                            → {t.chargeToAccount.name}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <select
+                        value={t.categoryAccountId ?? ""}
+                        disabled={t.postedRecordId !== null}
+                        onChange={(e) =>
+                          setTxnCategory(
+                            t.id,
+                            e.target.value === "" ? null : Number(e.target.value),
+                          )
+                        }
+                        className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white disabled:bg-slate-50 disabled:text-slate-400 min-w-32"
+                      >
+                        <option value="">未紐付け</option>
+                        {categorizableAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </>
+                ),
+                status: (
+                  <>
+                    <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
+                    {t.postedRecordId !== null && (
+                      <LedgerBadge tone="emerald">転記済み</LedgerBadge>
+                    )}
+                    {t.chargeToAccountId && (
+                      <LedgerBadge tone={t.chargeGroupId ? "emerald" : "slate"}>
+                        {t.chargeGroupId
+                          ? "チャージ（履歴と紐付け済み）"
+                          : "チャージ（履歴と未紐付け）"}
+                      </LedgerBadge>
+                    )}
+                    {registered && <LedgerBadge tone="indigo">毎月の入出金</LedgerBadge>}
+                  </>
+                ),
+                actions:
+                  !excluded && t.postedRecordId === null ? (
+                    <button
+                      onClick={() => postTxnToActuals(t.id)}
+                      disabled={t.categoryAccountId === null}
+                      className="text-xs text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
+                    >
+                      転記する
+                    </button>
+                  ) : null,
+                more: (
+                  <>
+                    <LedgerMoreSection title="チャージ先">
+                      {t.chargeToAccountId ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-slate-600 whitespace-nowrap">
+                            {t.chargeToAccount?.name ?? "指定済み"}
+                          </span>
+                          <span
+                            className={`text-[10px] whitespace-nowrap ${t.chargeGroupId ? "text-emerald-600" : "text-slate-400"}`}
+                            title={
+                              t.chargeGroupId
+                                ? "チャージ先の明細と紐付け済みです"
+                                : "チャージ先の入金明細とは紐付いていません（チャージ先に入金の記録が無い場合はこのままで構いません）"
+                            }
+                          >
+                            {t.chargeGroupId ? "履歴と紐付け済み" : "履歴と未紐付け"}
+                          </span>
+                          <button
+                            onClick={() => setTxnCharge(t.id, null)}
+                            className="text-xs text-slate-400 hover:text-red-600 text-left whitespace-nowrap"
+                          >
+                            解除
+                          </button>
+                        </div>
+                      ) : t.transferGroupId || t.postedRecordId !== null ? (
+                        // 振替として紐付け済み・転記済みの明細は先にそちらを外す必要がある
+                        <span className="text-xs text-slate-400">対象外</span>
+                      ) : t.amount >= 0 ? (
+                        // チャージは口座からの出金。入金明細は対象にならない
+                        <span className="text-xs text-slate-300">—</span>
+                      ) : chargeTargets.length === 0 ? (
+                        <span className="text-xs text-slate-300 whitespace-nowrap">
+                          チャージ先未登録
+                        </span>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <select
+                            value={txnChargeTarget[t.id] ?? ""}
+                            onChange={(e) =>
+                              setTxnChargeTarget((m) => ({ ...m, [t.id]: e.target.value }))
+                            }
+                            className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-32"
+                          >
+                            <option value="">チャージ先を選ぶ</option>
+                            {chargeTargets.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}（
+                                {LINKED_ACCOUNT_TYPE_LABELS[c.type as LinkedAccountType] ?? c.type}
+                                ）
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => {
+                              const target = chargeTargets.find(
+                                (c) => c.id === Number(txnChargeTarget[t.id]),
+                              );
+                              if (target) setChargeLink({ txn: t, target });
+                            }}
+                            disabled={!txnChargeTarget[t.id]}
+                            className="text-xs text-indigo-600 hover:text-indigo-700 text-left disabled:text-slate-300 disabled:cursor-not-allowed"
+                          >
+                            指定
+                          </button>
+                        </div>
+                      )}
+                    </LedgerMoreSection>
+                    <LedgerMoreSection title="毎月の入出金">
+                      {t.transferGroupId || t.chargeToAccountId ? (
+                        // 振替は毎月の固定入出金として登録しない（登録するなら資金移動ルール側で
+                        // 「銀行振込」＋相手口座を指定する）
+                        <span className="text-xs text-slate-400">対象外</span>
+                      ) : registered ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded whitespace-nowrap">
+                              登録済み
                             </span>
-                          ) : t.chargeToAccountId ? (
-                            // チャージも自己資金の移動。実際の支出はチャージ先の利用明細で計上する
-                            <span className="inline-flex items-center gap-1">
-                              <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                チャージ
-                              </span>
-                              {t.chargeToAccount && (
-                                <span className="text-xs text-slate-500 whitespace-nowrap">
-                                  → {t.chargeToAccount.name}
-                                </span>
-                              )}
-                            </span>
-                          ) : (
-                            <select
-                              value={t.categoryAccountId ?? ""}
-                              disabled={t.postedRecordId !== null}
-                              onChange={(e) =>
-                                setTxnCategory(
-                                  t.id,
-                                  e.target.value === "" ? null : Number(e.target.value),
+                            {/* 登録をやめる（明細はそのまま残る） */}
+                            <button
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `「${registered.label ?? t.description}」の毎月の入出金の登録を解除しますか？`,
+                                  )
                                 )
-                              }
-                              className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white disabled:bg-slate-50 disabled:text-slate-400 min-w-32"
+                                  deleteTransfer(registered.id);
+                              }}
+                              className="text-xs text-slate-400 hover:text-red-600 whitespace-nowrap"
                             >
-                              <option value="">未紐付け</option>
-                              {categorizableAccounts.map((a) => (
-                                <option key={a.id} value={a.id}>
-                                  {a.code} {a.name}
+                              解除
+                            </button>
+                          </div>
+                          {/* 摘要は一致するが日付・金額が違う場合は書き換えを確認する */}
+                          {differsFromTxn(registered, t) && (
+                            <>
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                                毎月{registered.day}日 · {yen(Number(registered.amount))}
+                              </span>
+                              <button
+                                onClick={() => rewriteRecurringFromTxn(registered, t)}
+                                className="text-xs text-amber-600 hover:text-amber-700 text-left whitespace-nowrap"
+                              >
+                                この明細で書き換える
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <select
+                            value={defaultChannel(t)}
+                            onChange={(e) =>
+                              setTxnChannel((m) => ({ ...m, [t.id]: e.target.value }))
+                            }
+                            className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-28"
+                          >
+                            {Object.entries(CHANNEL_LABELS).map(([v, l]) => (
+                              <option key={v} value={v}>
+                                {l}
+                              </option>
+                            ))}
+                          </select>
+                          {defaultChannel(t) === "CARD_PAYMENT" && (
+                            <select
+                              value={txnCard[t.id] ?? ""}
+                              onChange={(e) =>
+                                setTxnCard((m) => ({ ...m, [t.id]: e.target.value }))
+                              }
+                              className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-28"
+                            >
+                              <option value="">カード未紐付け</option>
+                              {(cardAccounts ?? []).map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
                                 </option>
                               ))}
                             </select>
                           )}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-slate-400">
-                          {SOURCE_LABELS[t.source] ?? t.source}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {t.transferGroupId || t.chargeToAccountId ? (
-                            <span className="text-xs text-slate-400">対象外</span>
-                          ) : t.postedRecordId !== null ? (
-                            <span className="text-xs bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded">
-                              転記済み
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => postTxnToActuals(t.id)}
-                              disabled={t.categoryAccountId === null}
-                              className="text-xs text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
-                            >
-                              転記する
-                            </button>
-                          )}
-                        </td>
-                        {/* チャージ先（デビット・プリペイド・電子マネー）の指定・解除 */}
-                        <td className="px-4 py-2.5">
-                          {t.chargeToAccountId ? (
-                            <div className="flex flex-col gap-1">
-                              <span className="text-xs text-slate-600 whitespace-nowrap">
-                                {t.chargeToAccount?.name ?? "指定済み"}
-                              </span>
-                              <span
-                                className={`text-[10px] whitespace-nowrap ${t.chargeGroupId ? "text-emerald-600" : "text-slate-400"}`}
-                                title={
-                                  t.chargeGroupId
-                                    ? "チャージ先の明細と紐付け済みです"
-                                    : "チャージ先の入金明細とは紐付いていません（チャージ先に入金の記録が無い場合はこのままで構いません）"
-                                }
-                              >
-                                {t.chargeGroupId ? "履歴と紐付け済み" : "履歴と未紐付け"}
-                              </span>
-                              <button
-                                onClick={() => setTxnCharge(t.id, null)}
-                                className="text-xs text-slate-400 hover:text-red-600 text-left whitespace-nowrap"
-                              >
-                                解除
-                              </button>
-                            </div>
-                          ) : t.transferGroupId || t.postedRecordId !== null ? (
-                            // 振替として紐付け済み・転記済みの明細は先にそちらを外す必要がある
-                            <span className="text-xs text-slate-400">対象外</span>
-                          ) : t.amount >= 0 ? (
-                            // チャージは口座からの出金。入金明細は対象にならない
-                            <span className="text-xs text-slate-300">—</span>
-                          ) : chargeTargets.length === 0 ? (
-                            <span className="text-xs text-slate-300 whitespace-nowrap">
-                              チャージ先未登録
-                            </span>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              <select
-                                value={txnChargeTarget[t.id] ?? ""}
-                                onChange={(e) =>
-                                  setTxnChargeTarget((m) => ({ ...m, [t.id]: e.target.value }))
-                                }
-                                className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-32"
-                              >
-                                <option value="">チャージ先を選ぶ</option>
-                                {chargeTargets.map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.name}（
-                                    {LINKED_ACCOUNT_TYPE_LABELS[c.type as LinkedAccountType] ??
-                                      c.type}
-                                    ）
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                onClick={() => {
-                                  const target = chargeTargets.find(
-                                    (c) => c.id === Number(txnChargeTarget[t.id]),
-                                  );
-                                  if (target) setChargeLink({ txn: t, target });
-                                }}
-                                disabled={!txnChargeTarget[t.id]}
-                                className="text-xs text-indigo-600 hover:text-indigo-700 text-left disabled:text-slate-300 disabled:cursor-not-allowed"
-                              >
-                                指定
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {t.transferGroupId || t.chargeToAccountId ? (
-                            // 振替は毎月の固定入出金として登録しない（登録するなら資金移動ルール側で
-                            // 「銀行振込」＋相手口座を指定する）
-                            <span className="text-xs text-slate-400">対象外</span>
-                          ) : registered ? (
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                  登録済み
-                                </span>
-                                {/* 登録をやめる（明細はそのまま残る） */}
-                                <button
-                                  onClick={() => {
-                                    if (
-                                      confirm(
-                                        `「${registered.label ?? t.description}」の毎月の入出金の登録を解除しますか？`,
-                                      )
-                                    )
-                                      deleteTransfer(registered.id);
-                                  }}
-                                  className="text-xs text-slate-400 hover:text-red-600 whitespace-nowrap"
-                                >
-                                  解除
-                                </button>
-                              </div>
-                              {/* 摘要は一致するが日付・金額が違う場合は書き換えを確認する */}
-                              {differsFromTxn(registered, t) && (
-                                <>
-                                  <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                                    毎月{registered.day}日 · {yen(Number(registered.amount))}
-                                  </span>
-                                  <button
-                                    onClick={() => rewriteRecurringFromTxn(registered, t)}
-                                    className="text-xs text-amber-600 hover:text-amber-700 text-left whitespace-nowrap"
-                                  >
-                                    この明細で書き換える
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              <select
-                                value={defaultChannel(t)}
-                                onChange={(e) =>
-                                  setTxnChannel((m) => ({ ...m, [t.id]: e.target.value }))
-                                }
-                                className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-28"
-                              >
-                                {Object.entries(CHANNEL_LABELS).map(([v, l]) => (
-                                  <option key={v} value={v}>
-                                    {l}
-                                  </option>
-                                ))}
-                              </select>
-                              {defaultChannel(t) === "CARD_PAYMENT" && (
-                                <select
-                                  value={txnCard[t.id] ?? ""}
-                                  onChange={(e) =>
-                                    setTxnCard((m) => ({ ...m, [t.id]: e.target.value }))
-                                  }
-                                  className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-28"
-                                >
-                                  <option value="">カード未紐付け</option>
-                                  {(cardAccounts ?? []).map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                      {c.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              <button
-                                onClick={() => registerRecurringFromTxn(t)}
-                                className="text-xs text-indigo-600 hover:text-indigo-700 text-left"
-                              >
-                                登録する
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-2 py-2.5 text-right">
                           <button
-                            onClick={() => deleteTxn(t)}
-                            className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 transition-opacity"
+                            onClick={() => registerRecurringFromTxn(t)}
+                            className="text-xs text-indigo-600 hover:text-indigo-700 text-left"
                           >
-                            削除
+                            登録する
                           </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {txnTotal === 0 && (
-                    <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-slate-400 text-sm">
-                        明細がありません
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {txnTotal > TXN_PAGE_SIZE && (
-              <Pager
-                offset={currentTxnPage * TXN_PAGE_SIZE}
-                pageSize={TXN_PAGE_SIZE}
-                total={txnTotal}
-                onChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
-                className="px-4 py-3 border-t border-slate-100"
-              />
-            )}
-          </div>
+                        </div>
+                      )}
+                    </LedgerMoreSection>
+                    <button
+                      onClick={() => deleteTxn(t)}
+                      className="text-xs text-slate-400 hover:text-red-500 text-left"
+                    >
+                      この明細を削除
+                    </button>
+                  </>
+                ),
+              };
+            })}
+          />
         </>
       )}
 
-      {/* ── CSV インポートタブ ───────────────────────────────── */}
-      {tab === "csv" && (
-        <div className="max-w-2xl space-y-6">
-          <SectionLead className="-mb-3">{BANK_HELP.csv}</SectionLead>
-          {/* すべての口座を表示しているときは、取り込み先の口座をここで選ぶ */}
-          {accountId === null && (
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="text-xs font-medium text-slate-600" htmlFor="import-target">
-                取り込み先の口座
-              </label>
-              <select
-                id="import-target"
-                className="input-field w-60"
-                value={importTargetId ?? ""}
-                onChange={(e) => setImportTargetId(e.target.value ? Number(e.target.value) : null)}
-              >
-                <option value="">選択してください</option>
-                {accounts?.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}（{a.bankName}）
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          <CsvDropzone busy={importing} onFile={importFile} />
-
-          <div className="card flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-700">自動取得（同期）</p>
-              <p className="text-xs text-slate-400 mt-0.5">口座と連携して最新の明細を取得します</p>
-            </div>
-            <button onClick={sync} className="btn-secondary whitespace-nowrap">
-              同期する
-            </button>
-          </div>
-
-          {importResult && (
-            <div
-              className={`card border ${importResult.errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}
-            >
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-2xl">{importResult.errors.length === 0 ? "✅" : "⚠️"}</span>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {importResult.inserted.toLocaleString()} 件を登録しました
-                  </p>
-                  {(importResult.skipped ?? 0) > 0 && (
-                    <p className="text-xs text-slate-600">
-                      {importResult.skipped!.toLocaleString()}{" "}
-                      件は既に取り込み済みのためスキップしました
-                    </p>
-                  )}
-                  {importResult.errors.length > 0 && (
-                    <p className="text-xs text-amber-700">
-                      {importResult.errors.length} 件のエラーがあります
-                    </p>
-                  )}
-                </div>
-              </div>
-              {importResult.errors.length > 0 && (
-                <div className="mt-3 max-h-48 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-slate-500 border-b border-amber-200">
-                        <th className="text-left pb-1 w-16">行番号</th>
-                        <th className="text-left pb-1">エラー内容</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-amber-100">
-                      {importResult.errors.map((err, i) => (
-                        <tr key={i} className="text-slate-600">
-                          <td className="py-1 font-mono">{err.row}</td>
-                          <td className="py-1">{err.message}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {importError && (
-            <div className="card border border-red-200 bg-red-50">
-              <p className="text-sm text-red-700">{importError}</p>
-            </div>
-          )}
-
-          <div className="card bg-slate-50">
-            <h3 className="text-xs font-semibold text-slate-700 mb-2">CSV フォーマット</h3>
-            <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`date,description,amount,balance
-2026-06-25,給与振込,450000,520000
-2026-06-28,家賃,-90000,430000
-2026-06-30,電気代,-8500,`}</pre>
-            <ul className="mt-3 space-y-1 text-xs text-slate-500">
-              <li>
-                <span className="font-medium">date</span>：取引日（YYYY-MM-DD）
-              </li>
-              <li>
-                <span className="font-medium">description</span>：摘要
-              </li>
-              <li>
-                <span className="font-medium">amount</span>：金額（収入は正、支出は負）
-              </li>
-              <li>
-                <span className="font-medium">balance</span>
-                ：取引後残高（任意。列があっても取込は通りますが、明細一覧には表示しません）
-              </li>
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {/* ── 固定の入出金（資金移動スケジュール）───────────────── */}
+      {/* ── 振替の登録と、取込済み明細の振替紐付け ───────────────── */}
       {tab === "recurring" && (
         <>
           {/* ── 都度の振替（銀行 → 銀行）─────────────────────────

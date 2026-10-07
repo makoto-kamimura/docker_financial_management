@@ -21,26 +21,31 @@ export type ParsedTxn = {
 
 export type ParseResult = { rows: ParsedTxn[]; errors: { row: number; message: string }[] };
 
-// CSV テキストを入出金明細に変換する。externalId は内容から決定的に生成し重複取込を防ぐ。
+/** CSV の 1 行（date,description,amount[,balance]）を明細にする。形が違えば null（実績管理の CSV 取込でも使う） */
+export function parseBankRow(raw: Record<string, unknown>, accountId: number): ParsedTxn | null {
+  const r = RowSchema.safeParse(raw);
+  if (!r.success) return null;
+  const { date, description, amount, balance } = r.data;
+  return {
+    date,
+    description,
+    amount,
+    balance,
+    // externalId は内容から決定的に生成し重複取込を防ぐ
+    externalId: `csv-${accountId}-${date}-${amount}-${description}`,
+  };
+}
+
+// CSV テキストを入出金明細に変換する。
 export function parseBankCsv(csv: string, accountId: number): ParseResult {
   const parsed = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true });
   const rows: ParsedTxn[] = [];
   const errors: ParseResult["errors"] = [];
 
   parsed.data.forEach((raw, i) => {
-    const r = RowSchema.safeParse(raw);
-    if (!r.success) {
-      errors.push({ row: i + 2, message: "validation error" });
-      return;
-    }
-    const { date, description, amount, balance } = r.data;
-    rows.push({
-      date,
-      description,
-      amount,
-      balance,
-      externalId: `csv-${accountId}-${date}-${amount}-${description}`,
-    });
+    const row = parseBankRow(raw, accountId);
+    if (!row) errors.push({ row: i + 2, message: "validation error" });
+    else rows.push(row);
   });
 
   return { rows, errors };

@@ -494,7 +494,7 @@ export async function fetchBankSummary(year: number, month: number): Promise<Ban
   return json.data;
 }
 
-// 銀行管理キャッシュフロータブの残高の推移（web 版 GET /api/bank-accounts/cash-outlook）。
+// 銀行管理の残高の推移（web 版 GET /api/bank-accounts/cash-outlook）。
 // 合計の先は予算と実績の収支、口座ごとの先は毎月の入出金から見込んだ月末残高
 export type CashOutlook = {
   months: string[];
