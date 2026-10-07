@@ -16,7 +16,6 @@ import {
   TRANSFER_CHANNEL_LABELS as CHANNEL_LABELS,
   TXN_SOURCE_LABEL as SOURCE_LABELS,
 } from "@/lib/labels";
-import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
 import { CsvDropzone, Notice, Pager, Tabs } from "@/components/ui";
 
 // ── 型 ──────────────────────────────────────────────────────────
@@ -85,11 +84,6 @@ type ImportResult = {
 // ── 定数 ────────────────────────────────────────────────────────
 const now = new Date();
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
-
-// 相手先の登録済み口座を紐付けられる種別。銀行振込は from / to の両方が埋まると
-// 「毎月の銀行→銀行の振替」になる（片側だけのルールでは相手口座の残高が動かない）。
-const PARTNER_ACCOUNT_CHANNELS = ["AUTO_DEBIT", "BANK_TRANSFER"];
 
 // 明細一覧のページング（実績管理の履歴と同じ 30 件単位）
 const TXN_PAGE_SIZE = 30;
@@ -106,33 +100,17 @@ const BLANK_BANK_TRANSFER = {
 // 振替候補の日付のずれの選択肢（他行宛の振込は着金が翌営業日以降になることがある）
 const DAY_GAP_OPTIONS = [0, 1, 3, 7] as const;
 
-const BLANK_RECURRING = {
-  label: "",
-  channel: "AUTO_DEBIT" as string,
-  day: 25,
-  amount: "",
-  note: "",
-  direction: "out" as "in" | "out",
-  // 登録先の口座（この口座の入出金として登録する）。空 = カレンダーの対象口座に従う
-  ownerAccountId: "" as string,
-  // 銀行引き落とし: 相手側の登録済み銀行口座（空 = 外部）
-  partnerAccountId: "" as string,
-  // カード引き落とし: 登録済みカード・電子マネー（空 = 未紐付け）
-  linkedAccountId: "" as string,
-};
-
 type Tab = "list" | "csv" | "recurring";
 
-// view="recurring" で描画するブロック。銀行管理の「キャッシュフロー」タブは
-// 資金移動スケジュール → 取込済み明細の振替紐付け → 口座間 資金フロー図 の順で並べるため、
-// ページ側が必要なブロックだけを選べるようにしている（省略時は全部）。
-type RecurringPart = "register" | "calendar" | "match";
-const ALL_RECURRING_PARTS: RecurringPart[] = ["register", "calendar", "match"];
+// view="recurring" で描画するブロック。register＝振替（銀行 → 銀行）の登録モーダル、
+// match＝取込済み明細の振替紐付け。実績管理の履歴（出どころは銀行）で、必要なブロックだけを選んで使う。
+type RecurringPart = "register" | "match";
+const ALL_RECURRING_PARTS: RecurringPart[] = ["register", "match"];
 
 type Props = {
   /** 呼び出し側（銀行管理ページ）のタブで表示ビューを制御する。省略時はパネル内タブを出す */
   view?: Tab;
-  /** ビュー切替を親へ通知する（明細一覧からカレンダーを開く導線で使う） */
+  /** ビュー切替を親へ通知する */
   onViewChange?: (view: Tab) => void;
   /**
    * 表示対象の口座を親から指定する（銀行管理の「表示する銀行」カード）。null はすべての口座。
@@ -177,7 +155,6 @@ export function BankTransactionsPanel({
   // 明細一覧のページ番号（0 始まり）
   const [txnPage, setTxnPage] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
-  const [recurring, setRecurring] = useState(BLANK_RECURRING);
   const [bankTransfer, setBankTransfer] = useState(BLANK_BANK_TRANSFER);
   // 振替登録モーダルの開閉。親から制御されていればそちらに従う
   const [innerBankTransferOpen, setInnerBankTransferOpen] = useState(false);
@@ -193,16 +170,7 @@ export function BankTransactionsPanel({
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
-  // カレンダー状態
-  // カレンダーの年は対象年度（左のメニュー）に合わせる。月を送って年をまたいだら、対象年度も変える
-  const viewYear = useFiscalYear();
-  const setViewYear = (v: number | ((y: number) => number)) =>
-    setFiscalYear(typeof v === "function" ? v(viewYear) : v);
-  const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
-
   // ── データ取得 ──────────────────────────────────────────────
-  // 資金フロー図は「銀行管理」（/bank-accounts）へ移設した。
   const { data: accounts } = useQuery({
     queryKey: ["bank-accounts"],
     queryFn: async (): Promise<BankAccount[]> => {
@@ -284,13 +252,9 @@ export function BankTransactionsPanel({
       (await (await fetch("/api/linked-accounts")).json()).data ?? [],
   });
 
-  // カレンダーの対象口座。"all" は全銀行分をまとめて表示する（口座別スケジュールの俯瞰用）
-  // 銀行管理から口座を渡されたときは、その選択（null はすべての銀行）に従い、パネル内の切替は出さない
-  const [calendarScope, setCalendarScope] = useState<number | "all" | null>(null);
-  const scopeControlled = accountIdProp !== undefined;
-  const scopeId: number | "all" | null = scopeControlled
-    ? (accountIdProp ?? "all")
-    : (calendarScope ?? accountId);
+  // 固定入出金の照合に使う口座。呼び出し側から口座を渡されたときは、その選択（null はすべての銀行）に従う
+  const scopeId: number | "all" | null =
+    accountIdProp !== undefined ? (accountIdProp ?? "all") : accountId;
 
   const transfers = useMemo(
     () =>
@@ -299,37 +263,6 @@ export function BankTransactionsPanel({
       ),
     [allTransfers, scopeId],
   );
-
-  // 固定入出金の登録先口座。フォームで明示指定があればそれを、無ければカレンダーの対象口座に従う。
-  // 対象口座が「すべての銀行」のときは登録先が決まらないため、フォーム側で選ばせる（null）。
-  const recurringOwnerId =
-    recurring.ownerAccountId !== ""
-      ? Number(recurring.ownerAccountId)
-      : typeof scopeId === "number"
-        ? scopeId
-        : null;
-
-  // 全銀行表示のとき、資金移動が属する口座名を添える
-  const accountNameOf = (t: Transfer) => {
-    const id = t.fromAccountId ?? t.toAccountId;
-    return (accounts ?? []).find((a) => a.id === id)?.name ?? "—";
-  };
-
-  const transfersByDay = useMemo(() => {
-    const m = new Map<number, Transfer[]>();
-    for (const t of transfers) {
-      if (!m.has(t.day)) m.set(t.day, []);
-      m.get(t.day)!.push(t);
-    }
-    return m;
-  }, [transfers]);
-
-  // カレンダー計算
-  const firstWeekday = new Date(viewYear, viewMonth - 1, 1).getDay();
-  const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
-  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
-
-  const selectedDayTransfers = selectedDay ? (transfersByDay.get(selectedDay) ?? []) : [];
 
   // ── ハンドラ ────────────────────────────────────────────────
 
@@ -506,7 +439,7 @@ export function BankTransactionsPanel({
       // 日付は続けて登録しやすいよう残す
       setBankTransfer((b) => ({ ...BLANK_BANK_TRANSFER, date: b.date }));
       setMsg("振替を登録しました。出金元・入金先の両方の明細に反映されます。");
-      // 両口座の明細と、残高を参照する画面（銀行口座・残高の推移・資金繰り）を更新する
+      // 両口座の明細と、残高を参照する画面（銀行口座・残高の推移）を更新する
       refreshAfterTransferChange();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -577,59 +510,8 @@ export function BankTransactionsPanel({
     }
   }
 
-  async function submitRecurring(e: { preventDefault(): void }) {
-    e.preventDefault();
-    // 登録先はカレンダーの対象口座（またはフォームでの明示指定）。
-    // 「すべての銀行」表示のままだと登録先が決まらないので、口座を選ばせる。
-    if (recurringOwnerId === null) {
-      setMsg(
-        (accounts ?? []).length === 0
-          ? "口座を登録してください。"
-          : "登録先の口座を選択してください。",
-      );
-      return;
-    }
-    // 銀行引き落とし・銀行振込で相手口座を選んだ場合は、この口座の反対側に据える（未選択なら外部）。
-    // 銀行振込（BANK_TRANSFER）で相手に登録済み口座を選べば、from / to の両方が埋まった
-    // 「毎月の銀行→銀行の振替」になる。
-    const partnerId = PARTNER_ACCOUNT_CHANNELS.includes(recurring.channel)
-      ? recurring.partnerAccountId
-        ? Number(recurring.partnerAccountId)
-        : null
-      : null;
-    const body = {
-      fromAccountId: recurring.direction === "out" ? recurringOwnerId : partnerId,
-      toAccountId: recurring.direction === "in" ? recurringOwnerId : partnerId,
-      label: recurring.label || null,
-      channel: recurring.channel,
-      day: recurring.day,
-      amount: Number(recurring.amount),
-      note: recurring.note || null,
-      kind: "AUTO",
-      linkedAccountId:
-        recurring.channel === "CARD_PAYMENT" && recurring.linkedAccountId
-          ? Number(recurring.linkedAccountId)
-          : null,
-    };
-    const res = await fetch("/api/transfers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      setRecurring((r) => ({ ...BLANK_RECURRING, day: r.day }));
-      setMsg("追加しました");
-      qc.invalidateQueries({ queryKey: ["transfers"] });
-      qc.invalidateQueries({ queryKey: ["transfer-flow"] });
-      qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setMsg(`追加に失敗しました: ${err.error ?? "エラー"}`);
-    }
-  }
-
   // ── 明細一覧から固定入出金（毎月の支払い項目）を登録する ─────────
-  // 明細の「日」「金額」「摘要」をそのまま毎月の予定に写し、カレンダーへ反映する。
+  // 明細の「日」「金額」「摘要」をそのまま毎月の予定に写す（残高の推移の見込みに入る）。
   const [txnChannel, setTxnChannel] = useState<Record<number, string>>({});
   const [txnCard, setTxnCard] = useState<Record<number, string>>({});
 
@@ -682,9 +564,7 @@ export function BankTransactionsPanel({
       body: JSON.stringify({ day, amount, label: t.description }),
     });
     if (res.ok) {
-      setMsg(
-        `毎月${day}日・${yen(amount)}に書き換えました。カレンダーと資金移動にも反映されます。`,
-      );
+      setMsg(`毎月${day}日・${yen(amount)}に書き換えました。残高の推移の見込みにも反映されます。`);
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["transfer-flow"] });
       qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
@@ -720,7 +600,7 @@ export function BankTransactionsPanel({
     });
     if (res.ok) {
       setMsg(
-        `毎月${new Date(t.date).getDate()}日の${CHANNEL_LABELS[channel] ?? channel}として登録しました。カレンダーにも表示されます。`,
+        `毎月${new Date(t.date).getDate()}日の${CHANNEL_LABELS[channel] ?? channel}として登録しました。残高の推移の見込みに入ります。`,
       );
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["transfer-flow"] });
@@ -731,16 +611,6 @@ export function BankTransactionsPanel({
     }
   }
 
-  // 明細の日付を資金移動タブのカレンダーで開く（登録済みの固定入出金を確認する導線）
-  function openInCalendar(t: Txn) {
-    const d = new Date(t.date);
-    setViewYear(d.getFullYear());
-    setViewMonth(d.getMonth() + 1);
-    setSelectedDay(d.getDate());
-    setRecurring((r) => ({ ...r, day: d.getDate() }));
-    setTab("recurring");
-  }
-
   async function deleteTransfer(id: number) {
     await fetch(`/api/transfers/${id}`, { method: "DELETE" });
     qc.invalidateQueries({ queryKey: ["transfers"] });
@@ -748,28 +618,9 @@ export function BankTransactionsPanel({
     qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
   }
 
-  function prevCalMonth() {
-    if (viewMonth === 1) {
-      setViewYear((y) => y - 1);
-      setViewMonth(12);
-    } else setViewMonth((m) => m - 1);
-  }
-  function nextCalMonth() {
-    if (viewMonth === 12) {
-      setViewYear((y) => y + 1);
-      setViewMonth(1);
-    } else setViewMonth((m) => m + 1);
-  }
-
-  function selectCalDay(day: number) {
-    setSelectedDay(day);
-    setRecurring((r) => ({ ...r, day }));
-  }
-
-  const selectedAccount = accounts?.find((a) => a.id === scopeId);
   const TABS: [Tab, string][] = [
     ["list", "一覧"],
-    ["recurring", "カレンダー"],
+    ["recurring", "毎月の入出金"],
     ["csv", "CSV インポート"],
   ];
 
@@ -792,7 +643,8 @@ export function BankTransactionsPanel({
         </div>
       )}
 
-      {accounts && accounts.length === 0 && (
+      {/* 口座が無いときの案内（毎月の入出金のブロックと明細の一覧を並べるときに二重に出さない） */}
+      {accounts && accounts.length === 0 && tab !== "recurring" && (
         <Notice tone="warn" className="mb-4">
           <div className="flex items-center justify-between gap-3">
             <span>
@@ -1048,11 +900,19 @@ export function BankTransactionsPanel({
                                 <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded whitespace-nowrap">
                                   登録済み
                                 </span>
+                                {/* 登録をやめる（明細はそのまま残る） */}
                                 <button
-                                  onClick={() => openInCalendar(t)}
-                                  className="text-xs text-indigo-600 hover:text-indigo-700 whitespace-nowrap"
+                                  onClick={() => {
+                                    if (
+                                      confirm(
+                                        `「${registered.label ?? t.description}」の毎月の入出金の登録を解除しますか？`,
+                                      )
+                                    )
+                                      deleteTransfer(registered.id);
+                                  }}
+                                  className="text-xs text-slate-400 hover:text-red-600 whitespace-nowrap"
                                 >
-                                  カレンダー
+                                  解除
                                 </button>
                               </div>
                               {/* 摘要は一致するが日付・金額が違う場合は書き換えを確認する */}
@@ -1389,411 +1249,7 @@ export function BankTransactionsPanel({
             </div>
           )}
 
-          {/* ── 資金移動カレンダー（スケジュールモード）─────────────── */}
-          {recurringParts.includes("calendar") && (
-            <>
-              {/* 対象口座の切替。「すべての銀行」で全口座の移動スケジュールを俯瞰できる。
-                  銀行管理から口座を渡されたときは、ページの「表示する銀行」カードに従う */}
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                {!scopeControlled && (
-                  <>
-                    <label className="text-xs font-medium text-slate-600">対象口座</label>
-                    <select
-                      value={scopeId === "all" ? "all" : (scopeId ?? "")}
-                      onChange={(e) => {
-                        setCalendarScope(e.target.value === "all" ? "all" : Number(e.target.value));
-                        setSelectedDay(null);
-                        // 追加フォームの登録先・相手先は対象口座に追従させる（前の口座の指定を持ち越さない）
-                        setRecurring((r) => ({ ...r, ownerAccountId: "", partnerAccountId: "" }));
-                      }}
-                      className="select-sm"
-                    >
-                      <option value="all">すべての銀行</option>
-                      {(accounts ?? []).map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}（{a.bankName}）
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
-                <span className="text-xs text-slate-400">
-                  {scopeId === "all"
-                    ? `全 ${(accounts ?? []).length} 口座の資金移動 ${transfers.length} 件を表示しています`
-                    : `この口座の資金移動 ${transfers.length} 件を表示しています`}
-                </span>
-              </div>
-              <div className="flex gap-4 items-start">
-                {/* 左: カレンダー */}
-                <div className="card flex-1 min-w-0 p-0 overflow-hidden">
-                  {/* 月ナビ */}
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                    <button
-                      onClick={prevCalMonth}
-                      className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path
-                          fillRule="evenodd"
-                          d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                    </button>
-                    <span className="font-semibold text-slate-800">
-                      {viewYear}年{viewMonth}月
-                    </span>
-                    <button
-                      onClick={nextCalMonth}
-                      className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path
-                          fillRule="evenodd"
-                          d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* 曜日ヘッダ */}
-                  <div className="grid grid-cols-7 border-b border-slate-100">
-                    {WEEKDAYS.map((w, i) => (
-                      <div
-                        key={w}
-                        className={`py-2 text-center text-xs font-medium ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-slate-500"}`}
-                      >
-                        {w}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* カレンダーグリッド */}
-                  <div className="grid grid-cols-7">
-                    {Array.from({ length: totalCells }, (_, i) => {
-                      const day = i - firstWeekday + 1;
-                      const isValid = day >= 1 && day <= daysInMonth;
-                      const isToday =
-                        isValid &&
-                        viewYear === now.getFullYear() &&
-                        viewMonth === now.getMonth() + 1 &&
-                        day === now.getDate();
-                      const isSelected = isValid && day === selectedDay;
-                      const dayTxs = isValid ? (transfersByDay.get(day) ?? []) : [];
-                      const weekday = i % 7;
-                      return (
-                        <button
-                          key={i}
-                          disabled={!isValid}
-                          onClick={() => isValid && selectCalDay(day)}
-                          className={[
-                            "min-h-[4.5rem] p-1.5 border-b border-r border-slate-100 text-left transition-colors",
-                            !isValid ? "bg-slate-50/50" : "hover:bg-indigo-50/50 cursor-pointer",
-                            isSelected ? "bg-indigo-50 ring-1 ring-inset ring-indigo-300" : "",
-                          ].join(" ")}
-                        >
-                          {isValid && (
-                            <>
-                              <span
-                                className={[
-                                  "inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full mb-0.5",
-                                  isToday
-                                    ? "bg-indigo-600 text-white"
-                                    : weekday === 0
-                                      ? "text-red-500"
-                                      : weekday === 6
-                                        ? "text-blue-500"
-                                        : "text-slate-700",
-                                ].join(" ")}
-                              >
-                                {day}
-                              </span>
-                              {dayTxs.slice(0, 2).map((t) => {
-                                // 横の一覧と同じ判定（全銀行表示では出金元の有無で向きを決める）
-                                const isOut =
-                                  scopeId === "all"
-                                    ? t.fromAccountId !== null
-                                    : t.fromAccountId === scopeId;
-                                return (
-                                  <p
-                                    key={t.id}
-                                    className={`text-[10px] truncate leading-tight ${isOut ? "text-rose-600" : "text-emerald-600"}`}
-                                  >
-                                    {isOut ? "−" : "+"}
-                                    {t.label ?? CHANNEL_LABELS[t.channel] ?? t.channel}
-                                  </p>
-                                );
-                              })}
-                              {dayTxs.length > 2 && (
-                                <p className="text-[9px] text-slate-400">他{dayTxs.length - 2}件</p>
-                              )}
-                            </>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 右: サイドパネル */}
-                <div className="w-80 shrink-0 flex flex-col gap-3">
-                  {selectedDay ? (
-                    <>
-                      {/* 日付ヘッダー */}
-                      <div className="card py-2 px-4">
-                        <p className="text-sm font-semibold text-slate-800">
-                          毎月{selectedDay}日 —{" "}
-                          {scopeId === "all"
-                            ? "すべての銀行"
-                            : (selectedAccount?.name ?? "この口座")}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {selectedDayTransfers.length} 件の固定入出金
-                        </p>
-                      </div>
-
-                      {/* その日の一覧 */}
-                      {selectedDayTransfers.length > 0 && (
-                        <div className="card p-0 overflow-hidden">
-                          <ul className="divide-y divide-slate-100">
-                            {selectedDayTransfers.map((t) => {
-                              // 全銀行表示では基準口座が定まらないため、出金元の有無で向きを判定する
-                              const isOut =
-                                scopeId === "all"
-                                  ? t.fromAccountId !== null
-                                  : t.fromAccountId === scopeId;
-                              const partner = isOut ? t.toAccount : t.fromAccount;
-                              return (
-                                <li key={t.id} className="flex items-center gap-2 px-3 py-2.5">
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium text-slate-800 truncate">
-                                      {t.label ?? "—"}
-                                    </p>
-                                    <p className="text-[10px] text-slate-400 mt-0.5">
-                                      {scopeId === "all" && (
-                                        <span className="text-indigo-500">
-                                          {accountNameOf(t)} ·{" "}
-                                        </span>
-                                      )}
-                                      {CHANNEL_LABELS[t.channel] ?? t.channel}
-                                      {t.linkedAccount
-                                        ? " · " + t.linkedAccount.name
-                                        : partner?.name
-                                          ? " · " + partner.name
-                                          : " · 外部"}
-                                    </p>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    <span
-                                      className={`text-xs font-semibold ${isOut ? "text-rose-600" : "text-emerald-600"}`}
-                                    >
-                                      {isOut ? "−" : "+"}
-                                      {yen(Number(t.amount))}
-                                    </span>
-                                    <button
-                                      onClick={() => deleteTransfer(t.id)}
-                                      className="text-slate-300 hover:text-red-400 text-xs"
-                                      title="削除"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* 追加フォーム */}
-                      <div className="card">
-                        <h3 className="text-xs font-semibold text-slate-600 mb-3">
-                          毎月{selectedDay}日 の入出金を追加
-                        </h3>
-                        <form onSubmit={submitRecurring} className="flex flex-col gap-2.5">
-                          {/* 登録先の口座。カレンダーの対象口座に追従し、ここで変更もできる。
-                        「すべての銀行」表示のままだと登録先が決まらないため必須にする。 */}
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[10px] text-slate-500">
-                              登録先の口座（この口座の入出金として登録）
-                            </label>
-                            <select
-                              value={recurringOwnerId === null ? "" : String(recurringOwnerId)}
-                              onChange={(e) =>
-                                setRecurring((r) => ({
-                                  ...r,
-                                  ownerAccountId: e.target.value,
-                                  // 登録先を変えたら、同じ口座が相手先に残らないようにする
-                                  partnerAccountId:
-                                    r.partnerAccountId === e.target.value ? "" : r.partnerAccountId,
-                                }))
-                              }
-                              className="input-field text-xs"
-                            >
-                              <option value="">選択してください</option>
-                              {(accounts ?? []).map((a) => (
-                                <option key={a.id} value={a.id}>
-                                  {a.name}（{a.bankName}）
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs">
-                            {(["out", "in"] as const).map((d) => (
-                              <button
-                                key={d}
-                                type="button"
-                                onClick={() => setRecurring((r) => ({ ...r, direction: d }))}
-                                className={`flex-1 py-1.5 font-medium transition-colors ${recurring.direction === d ? (d === "out" ? "bg-rose-500 text-white" : "bg-emerald-500 text-white") : "bg-white text-slate-500 hover:bg-slate-50"}`}
-                              >
-                                {d === "out" ? "出金（支払）" : "入金（受取）"}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[10px] text-slate-500">ラベル（任意）</label>
-                            <input
-                              type="text"
-                              placeholder="例: 家賃・給与振込"
-                              value={recurring.label}
-                              onChange={(e) =>
-                                setRecurring((r) => ({ ...r, label: e.target.value }))
-                              }
-                              className="input-field text-xs"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[10px] text-slate-500">種別</label>
-                            <select
-                              value={recurring.channel}
-                              onChange={(e) =>
-                                setRecurring((r) => ({ ...r, channel: e.target.value }))
-                              }
-                              className="input-field text-xs"
-                            >
-                              {Object.entries(CHANNEL_LABELS).map(([v, l]) => (
-                                <option key={v} value={v}>
-                                  {l}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          {/* 銀行引き落とし・銀行振込: お金の相手先（登録先口座の反対側）を紐付ける。
-                        登録先口座そのものは相手先になり得ないため候補から外す。
-                        銀行振込で相手に登録済み口座を選ぶと、毎月の銀行→銀行の振替になる。 */}
-                          {PARTNER_ACCOUNT_CHANNELS.includes(recurring.channel) && (
-                            <div className="flex flex-col gap-1">
-                              <label className="text-[10px] text-slate-500">
-                                {recurring.direction === "out"
-                                  ? recurring.channel === "BANK_TRANSFER"
-                                    ? "相手先の口座＝振込先（任意）"
-                                    : "相手先の口座＝引き落とし先（任意）"
-                                  : recurring.channel === "BANK_TRANSFER"
-                                    ? "相手先の口座＝振込元（任意）"
-                                    : "相手先の口座＝入金元（任意）"}
-                              </label>
-                              <select
-                                value={recurring.partnerAccountId}
-                                onChange={(e) =>
-                                  setRecurring((r) => ({ ...r, partnerAccountId: e.target.value }))
-                                }
-                                className="input-field text-xs"
-                              >
-                                <option value="">外部（登録口座以外）</option>
-                                {(accounts ?? [])
-                                  .filter((a) => a.id !== recurringOwnerId)
-                                  .map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                      {a.name}（{a.bankName}）
-                                    </option>
-                                  ))}
-                              </select>
-                              <span className="text-[10px] text-slate-400">
-                                {recurring.channel === "BANK_TRANSFER"
-                                  ? "登録済みの口座を選ぶと、毎月の銀行→銀行の振替として両方の口座に反映されます。相手が登録口座以外なら「外部」のままで構いません。"
-                                  : recurring.direction === "out"
-                                    ? "上の「登録先の口座」から引き落とされます。相手が登録口座以外（家賃・公共料金など）なら「外部」のままで構いません。"
-                                    : "上の「登録先の口座」へ入金されます。振込元が登録口座以外（給与など）なら「外部」のままで構いません。"}
-                              </span>
-                            </div>
-                          )}
-                          {/* カード引き落とし: 登録済みカード・電子マネーを紐付ける */}
-                          {recurring.channel === "CARD_PAYMENT" && (
-                            <div className="flex flex-col gap-1">
-                              <label className="text-[10px] text-slate-500">
-                                紐付けるカード・電子マネー
-                              </label>
-                              <select
-                                value={recurring.linkedAccountId}
-                                onChange={(e) =>
-                                  setRecurring((r) => ({ ...r, linkedAccountId: e.target.value }))
-                                }
-                                className="input-field text-xs"
-                              >
-                                <option value="">未紐付け</option>
-                                {(cardAccounts ?? []).map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.name}（{c.institution}）
-                                  </option>
-                                ))}
-                              </select>
-                              {(cardAccounts ?? []).length === 0 && (
-                                <span className="text-[10px] text-slate-400">
-                                  「カード・電子マネー管理」でカードを登録すると選べます。
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[10px] text-slate-500">金額（円）</label>
-                            <input
-                              type="number"
-                              min={1}
-                              required
-                              placeholder="例: 90000"
-                              value={recurring.amount}
-                              onChange={(e) =>
-                                setRecurring((r) => ({ ...r, amount: e.target.value }))
-                              }
-                              className="input-field text-xs"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[10px] text-slate-500">メモ（任意）</label>
-                            <input
-                              type="text"
-                              placeholder="備考"
-                              value={recurring.note}
-                              onChange={(e) =>
-                                setRecurring((r) => ({ ...r, note: e.target.value }))
-                              }
-                              className="input-field text-xs"
-                            />
-                          </div>
-                          <button type="submit" className="btn-primary text-xs mt-1">
-                            追加
-                          </button>
-                        </form>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="card text-center py-8">
-                      <p className="text-sm text-slate-400">
-                        カレンダーの日付をクリックして
-                        <br />
-                        固定の入出金を確認・追加
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ── 取込済み明細の振替紐付け（案 C）─────────────────────
-              両口座の CSV を別々に取り込むと 1 回の資金移動が 2 明細に分かれて入る。
-              対にしておかないと収入・支出として二重計上されるため、候補を突き合わせて紐付ける。 */}
+          {/* ── 取込済み明細の振替紐付け ─────────────── */}
           {recurringParts.includes("match") && (
             <div className="card mb-4">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">

@@ -11,6 +11,7 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   categorizeTransaction,
   deleteBankTransaction,
+  deleteTransfer,
   fetchBankTransactions,
   fetchLinkedAccounts,
   fetchTransfers,
@@ -55,8 +56,6 @@ type Props = {
   accountId: number | null;
   categoryAccounts: Account[];
   viewMode: ViewMode;
-  /** 明細の日付を振替タブのスケジュールで開く */
-  onOpenCalendar: (date: string) => void;
   /** 残高が変わる操作（登録・削除・振替解除）の後に呼ぶ */
   onBalanceChanged: () => void;
 };
@@ -66,7 +65,6 @@ export function BankTransactionsList({
   accountId,
   categoryAccounts,
   viewMode,
-  onOpenCalendar,
   onBalanceChanged,
 }: Props) {
   const [txns, setTxns] = useState<BankTransaction[]>([]);
@@ -144,6 +142,14 @@ export function BankTransactionsList({
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "処理に失敗しました");
     }
+  }
+
+  // 毎月の入出金（資金移動ルール）の登録をやめる。明細はそのまま残る
+  function unregister(tr: Transfer) {
+    run(async () => {
+      await deleteTransfer(tr.id);
+      return "毎月の入出金の登録を解除しました。";
+    });
   }
 
   function post(t: BankTransaction) {
@@ -381,8 +387,8 @@ export function BankTransactionsList({
             rewriteRecurring(tr, actions);
             setActions(null);
           }}
-          onOpenCalendar={() => {
-            onOpenCalendar(actions.date);
+          onUnregister={(tr) => {
+            unregister(tr);
             setActions(null);
           }}
           onDelete={() => remove(actions)}
@@ -414,7 +420,7 @@ function TxnActionsSheet({
   onUncharge,
   onRegister,
   onRewrite,
-  onOpenCalendar,
+  onUnregister,
   onDelete,
 }: {
   txn: BankTransaction;
@@ -427,7 +433,8 @@ function TxnActionsSheet({
   onUncharge: () => void;
   onRegister: (channel: string, cardId: number | null) => void;
   onRewrite: (tr: Transfer) => void;
-  onOpenCalendar: () => void;
+  /** 毎月の入出金の登録をやめる（明細はそのまま残る） */
+  onUnregister: (tr: Transfer) => void;
   onDelete: () => void;
 }) {
   const [target, setTarget] = useState<number | null>(null);
@@ -490,7 +497,12 @@ function TxnActionsSheet({
         <View>
           <View style={s.sheetRow}>
             <Text style={s.sheetText}>登録済み</Text>
-            <Button small variant="secondary" label="スケジュールで見る" onPress={onOpenCalendar} />
+            <Button
+              small
+              variant="secondary"
+              label="解除"
+              onPress={() => onUnregister(registered)}
+            />
           </View>
           {differs(registered) && (
             <View style={s.sheetRow}>

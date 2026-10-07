@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useState, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { EmptyState, LoadingSpinner } from "@/components/StateViews";
@@ -11,6 +11,8 @@ import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
 import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { CardTransactionsPanel } from "@/components/CardTransactionsPanel";
+import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPanel";
+import { TransferRulesCard } from "@/components/TransferRulesCard";
 import { CsvDropzone, Notice, PageHeader, Pager, SegmentedControl, Tabs } from "@/components/ui";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
 import { SectionLead } from "@/components/Explain";
@@ -231,7 +233,6 @@ function EntryContent() {
   // ── タブ ──────────────────────────────────────────────────────
   const initial = useInitialTab();
   const [tab, setTab] = useState<Tab>(initial.tab);
-  const router = useRouter();
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
   const [source, setSource] = useState<Source>(initial.source);
@@ -243,6 +244,8 @@ function EntryContent() {
     initial.source === "card" ? initial.account : null,
   );
   const sourceTab = tab === "calendar" || tab === "history";
+  // 銀行の履歴の「振替を登録（銀行 → 銀行）」のモーダル
+  const [bankTransferOpen, setBankTransferOpen] = useState(false);
   const { data: bankAccounts } = useQuery({
     queryKey: ["bank-accounts"],
     enabled: sourceTab && source === "bank",
@@ -666,13 +669,24 @@ function EntryContent() {
       {tab === "calendar" && source === "card" && cardId !== null && (
         <CardTransactionsPanel view="calendar" accountId={cardId} />
       )}
+      {/* 銀行の履歴: 毎月の入出金の候補 → 毎月の入出金（資金移動ルール）→ 振替紐付け → 明細の一覧。
+          ルールと振替は銀行管理の資金移動スケジュールから移した */}
       {tab === "history" && source === "bank" && (
-        <BankTransactionsPanel
-          view="list"
-          accountId={bankAccountId}
-          // 明細から「予定のカレンダーで見る」は、銀行管理のキャッシュフロータブで開く
-          onViewChange={(v) => v === "recurring" && router.push("/bank-accounts?tab=cashflow")}
-        />
+        <>
+          <RecurringSuggestionsPanel accountId={bankAccountId} />
+          <TransferRulesCard
+            accountId={bankAccountId}
+            onRegisterTransfer={() => setBankTransferOpen(true)}
+          />
+          <BankTransactionsPanel
+            view="recurring"
+            recurringParts={["register", "match"]}
+            bankTransferOpen={bankTransferOpen}
+            onBankTransferOpenChange={setBankTransferOpen}
+            accountId={bankAccountId}
+          />
+          <BankTransactionsPanel view="list" accountId={bankAccountId} />
+        </>
       )}
       {tab === "history" && source === "card" && cardId !== null && (
         <CardTransactionsPanel view="list" accountId={cardId} />

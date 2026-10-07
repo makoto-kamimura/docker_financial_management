@@ -619,7 +619,7 @@ export default function CardTransactionsPage() {
                               ))
                             ) : (
                               <span className="text-slate-400">
-                                引き落としは未登録（銀行管理のキャッシュフロータブで登録します）
+                                引き落としは未登録（実績管理の履歴で、銀行の引き落としの明細から登録します）
                               </span>
                             )}
                           </div>

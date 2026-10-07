@@ -1,5 +1,5 @@
 // 銀行管理（web 版 /bank-accounts と同じ「キャッシュフロー / 一覧 / カレンダー」。CSV インポート・自動取得は web 版のみ）。
-//   キャッシュフロー … 残高の推移、資金繰り、毎月の入出金（components/bank/TransferTab）、
+//   キャッシュフロー … 残高の推移、
 //                      銀行口座（追加・編集・削除・差額入力）。口座残高のサマリはホームへ移した
 //   明細の一覧と手入力の登録は、実績の画面の「履歴」「カレンダー」（出どころに銀行）へ移した
 import { useCallback, useEffect, useState } from "react";
@@ -23,11 +23,8 @@ import {
   type BankAccount,
   type ViewMode,
 } from "../api";
-import { TransferTab, type ScheduleMode } from "../components/bank/TransferTab";
 import { AccountPickerModal } from "../components/CategoryPickerModal";
 import { CashFlowTrend } from "../components/CashFlowTrend";
-import { FundingPlanView } from "../components/FundingPlanView";
-import { RecurringSuggestions } from "../components/RecurringSuggestions";
 import {
   Button,
   Card,
@@ -42,9 +39,8 @@ import {
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
 import { BANK_HELP } from "../shared/help-texts";
-import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
+import { digitsOnly, fmtDate, fmtDateTime, yen } from "../format";
 import { BANK_ACCOUNT_TYPE_LABEL } from "../shared/labels";
-import { useFiscalYear } from "../fiscal-year";
 
 // 紐付き勘定科目に選べるのは資産・負債のみ（web 版と同じ）
 const LINKABLE = ["ASSET", "LIABILITY"] as const;
@@ -81,11 +77,9 @@ type Props = {
   viewMode: ViewMode;
   /** 「明細を見る」から、実績の画面の履歴でこの口座の明細を開く */
   onOpenHistory: (accountId: number) => void;
-  /** 実績の履歴の「予定で見る」から開いたときの日（資金移動スケジュールのカレンダーで選ぶ） */
-  initialFocusDay?: number | null;
 };
 
-export function BankAccountsScreen({ viewMode, onOpenHistory, initialFocusDay = null }: Props) {
+export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
   const now = new Date();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountRefs, setAccountRefs] = useState<Account[]>([]);
@@ -94,19 +88,11 @@ export function BankAccountsScreen({ viewMode, onOpenHistory, initialFocusDay = 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 資金繰り・実績フロー図の起点年月
-  // 年は画面上部のサブヘッダーの対象年度（全画面で共通）。ここでは月だけを選ぶ
-  const year = useFiscalYear();
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  // 残高が変わったら資金繰りを取り直すためのキー
+  // 残高が変わったら残高の推移を取り直すためのキー
   const [reloadKey, setReloadKey] = useState(0);
   const [form, setForm] = useState<AccountForm | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pickingAccount, setPickingAccount] = useState(false);
-  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(
-    initialFocusDay !== null ? "calendar" : "list",
-  );
-  const focusDay = initialFocusDay;
 
   const load = useCallback(async () => {
     setError(null);
@@ -217,17 +203,6 @@ export function BankAccountsScreen({ viewMode, onOpenHistory, initialFocusDay = 
     return a ? `${a.code} ${displayName(a, viewMode)}` : "なし";
   };
 
-  // 資金繰り・実績フロー図の起点の月（年は対象年度）
-  const periodPicker = (
-    <View style={s.periodRow}>
-      <Pills
-        options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
-        value={month}
-        onChange={setMonth}
-      />
-    </View>
-  );
-
   if (loading) {
     return (
       <View style={s.center}>
@@ -266,36 +241,7 @@ export function BankAccountsScreen({ viewMode, onOpenHistory, initialFocusDay = 
 
         <>
           {/* 残高の推移（web 版と同じ。合計の先は予算と実績、口座ごとの先は毎月の入出金から見込む） */}
-          <CashFlowTrend year={year} month={month} reloadKey={reloadKey} accountId={selectedId} />
-
-          <SectionTitle note={BANK_HELP.funding}>
-            資金繰り（{year}年{month}月から3か月）
-          </SectionTitle>
-          {periodPicker}
-          <FundingPlanView
-            year={year}
-            month={month}
-            months={3}
-            reloadKey={reloadKey}
-            accountId={selectedId}
-          />
-
-          {/* 明細から見つけた毎月の入出金の候補（登録で資金移動ルールになる） */}
-          <RecurringSuggestions
-            reloadKey={reloadKey}
-            onChanged={onBalanceChanged}
-            accountId={selectedId}
-          />
-          <TransferTab
-            accounts={accounts}
-            accountId={selectedId}
-            year={year}
-            month={month}
-            scheduleMode={scheduleMode}
-            onScheduleModeChange={setScheduleMode}
-            focusDay={focusDay}
-            onBalanceChanged={onBalanceChanged}
-          />
+          <CashFlowTrend reloadKey={reloadKey} accountId={selectedId} />
 
           {/* 銀行口座（資産・借入金の画面と同じく 1 枚のカードにまとめる） */}
           <Card>
