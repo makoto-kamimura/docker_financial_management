@@ -177,7 +177,6 @@ function BankAccountsContent() {
       setEditAccount(null);
       // 差額は残高の定義に含まれるため、残高を使う表示をまとめて取り直す
       qc.invalidateQueries({ queryKey: ["bank-accounts"] });
-      qc.invalidateQueries({ queryKey: ["funding-plan"] });
       qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     } else {
       const j = await r.json().catch(() => null);

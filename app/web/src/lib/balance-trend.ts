@@ -183,7 +183,7 @@ export function buildDailyBalanceTrend(input: {
     const [y, m, d] = cursor.split("-").map(Number);
     const dim = daysInMonth(y, m);
     for (const t of recurring) {
-      // 指定日が月末を超える場合は月末日に実行する（lib/funding-plan.ts と同じ扱い）
+      // 指定日が月末を超える場合は月末日に実行する（以前の資金繰りの計算と同じ扱い）
       if (d !== Math.min(t.day, dim)) continue;
       const amount = Math.abs(t.amount);
       if (t.fromId !== null && projected.has(t.fromId)) {

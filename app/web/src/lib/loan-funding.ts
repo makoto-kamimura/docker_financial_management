@@ -1,9 +1,22 @@
 import { computeDebtSchedule } from "@/lib/debt-schedule";
-import type { FundingTransfer } from "@/lib/funding-plan";
 import { manualMonthlyPaymentOf, ratePercentOf } from "@/lib/personal-asset-debt";
 import type { Loan } from "@prisma/client";
 
-// 借入の返済を、資金繰り・資金フロー図の「毎月のお金の動き」として並べる。
+// 毎月のお金の動き（資金移動ルール）。fromId/toId は口座(number)または外部(null)。
+export type FundingTransfer = {
+  fromId: number | null;
+  toId: number | null;
+  amount: number;
+  day: number;
+  /** 表示用のラベル（未設定なら種別名などを呼び出し側で入れる） */
+  label: string | null;
+  /** この月（"YYYY-MM"）から有効。無ければ期限なし（借入の返済は借入日の月から） */
+  activeFrom?: string;
+  /** この月（"YYYY-MM"）まで有効。無ければ期限なし（借入の返済は完済予定の月まで） */
+  activeUntil?: string;
+};
+
+// 借入の返済を、残高の推移の見込みの「毎月のお金の動き」として並べる。
 // 借入金管理で引き落とし口座と日を入れた、返済中の借入が対象。月々の返済額を、借入日の月から完済予定の月まで、
 // その口座からの出金として扱う。同じ口座・日・金額（±1%）の資金移動ルールがあれば、そちらを使い入れない
 // （手で登録したルールと二重に数えないため）。

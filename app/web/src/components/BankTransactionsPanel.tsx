@@ -295,7 +295,6 @@ export function BankTransactionsPanel({
       // 振替は相手口座の明細も一緒に消えるため、全口座の明細と残高を取り直す
       qc.invalidateQueries({ queryKey: ["bank-txns"] });
       qc.invalidateQueries({ queryKey: ["bank-accounts"] });
-      qc.invalidateQueries({ queryKey: ["funding-plan"] });
       qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     } else {
       qc.invalidateQueries({ queryKey: ["bank-txns"] });
@@ -405,7 +404,6 @@ export function BankTransactionsPanel({
     qc.invalidateQueries({ queryKey: ["bank-txns"] });
     qc.invalidateQueries({ queryKey: ["transfer-candidates"] });
     qc.invalidateQueries({ queryKey: ["bank-accounts"] });
-    qc.invalidateQueries({ queryKey: ["funding-plan"] });
     qc.invalidateQueries({ queryKey: ["cash-outlook"] });
   }
 
@@ -521,7 +519,6 @@ export function BankTransactionsPanel({
       qc.invalidateQueries({ queryKey: ["transfers"] });
       qc.invalidateQueries({ queryKey: ["transfer-flow"] });
       qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
-      qc.invalidateQueries({ queryKey: ["funding-plan"] });
       qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     } else {
       const err = await res.json().catch(() => ({}));

@@ -125,7 +125,7 @@ export function BankTransactionsCalendar({ accountId }: Props) {
   // 明細が変わると残高を使う表示（残高の推移・ダッシュボードのサマリ）も変わる
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["bank-txns"] });
-    for (const key of ["bank-accounts", "funding-plan", "bank-summary"]) {
+    for (const key of ["bank-accounts", "bank-summary"]) {
       qc.invalidateQueries({ queryKey: [key] });
     }
     invalidateActuals(qc);

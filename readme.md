@@ -126,7 +126,7 @@ flowchart LR
 | 資金移動ルール | 毎月決まった日に発生するお金の動き（給与・収入 / 支出 / 銀行振込 / 銀行引き落とし / カード引き落とし）。出金元・入金先のどちらかは「外部」にできる。明細から登録したものを固定入出金と呼ぶ |
 | 振替 | 自分の口座どうしのお金の移動。2つの明細を組にして、収支から除き、残高だけに反映する |
 | 引き落とし | 口座から決まった日に引き落とされるもの。銀行引き落としと、カードの利用分をまとめて引き落とすカード引き落としがある |
-| カード払いの固定決済 | サブスクリプションなど、カードで決まった日に支払うもの。お金はカード引き落としで口座から出るので、銀行の資金繰りには含めない（二重計上を防ぐため） |
+| カード払いの固定決済 | サブスクリプションなど、カードで決まった日に支払うもの。お金はカード引き落としで口座から出るので、銀行の残高の見込みには含めない（二重計上を防ぐため） |
 | チャージ | デビットカード・プリペイドカード・電子マネーへの入金。お金の置き場所が変わるだけなので、収支から除く。クレジットカードはチャージ先にできない |
 | 差額（残高調整） | 口座の残高 ＝ 取り込んだ明細の合計 ＋ 差額。明細を取り込み始める前の残高（期首残高）や、取り込めていない明細の分を差額で合わせる |
 | 資金移動ルール | 給与・引き落とし・振込など、毎月決まった日のお金の動き。残高の推移の見込みに使う |
@@ -586,15 +586,11 @@ KPI の下に、次の順で置く。
 - 合計の先の月：前の月の残高 ＋ その月の予算の収支。予算の無い月は、資金移動ルール（借入の返済の自動の引き落としも含む）の月の収支で代わりにする。
 - 口座ごとの先の月：予算は口座ごとに分かれていないため、資金移動ルール（借入の返済も含む）の月の収支を積み上げる。
 
-### 10.5 資金繰り（画面には出さない）
+### 10.5 借入の返済の引き落とし
 
-今の残高と資金移動ルールから、3か月先までの日ごとの残高を計算し、口座ごとに、残高が初めてマイナスになる日（入金の期限）と、必要な入金額を出す（`GET /api/transfers/funding`）。銀行管理の画面からは削除した（2026-10）。API は残している。
+借入金管理で引き落とし口座と日を入れた借入の返済は、借入日の月から完済予定の月まで、月々の返済額をその口座からの引き落としとして、残高の推移の見込みに自動で並べる（`src/lib/loan-funding.ts`）。同じ口座・日・金額（±1%）の資金移動ルールがあれば、そちらを使い借入からは入れない（二重に数えない）。
 
-借入金管理で引き落とし口座と日を入れた借入の返済も、借入日の月から完済予定の月まで、月々の返済額をその口座からの引き落としとして自動で並べる（資金フロー図にも描く。`src/lib/loan-funding.ts`）。同じ口座・日・金額（±1%）の資金移動ルールがあれば、そちらを使い借入からは入れない（二重に数えない）。
-
-### 10.6 資金フロー図（画面には出さない）
-
-口座どうし・外部との、お金の流れを Sankey 図のデータにする。資金移動ルールから描く「設定ベース」（`GET /api/transfers/flow`）と、月の明細から描く「実績ベース（月次）」（`GET /api/cashflow/monthly`）がある。銀行管理の画面からは削除した（2026-10）。`/api/transfers/flow` は、実績管理の履歴の「毎月の入出金」の一覧の元データとして使う。
+資金繰り（日ごとの残高と入金の期限）と資金フロー図（Sankey）は、画面から消したあと（2026-10）、API と計算も削除した。`GET /api/transfers/flow` は資金移動ルールの一覧（実績管理の履歴の「毎月の入出金」）、`GET /api/linked-accounts/flow` はカードごとの引き落としと固定決済（カード・電子マネー管理の一覧）だけを返す。
 
 ## 11. カード・電子マネー
 
@@ -624,7 +620,7 @@ KPI の下に、次の順で置く。
 
 - サブスクリプションなど、カードで決まった日に払うものを、名前・金額・日・科目で登録する。明細から登録することもできる。
 - サマリのカードの行に件数と月額を出し、利用額の推移の先の月の見込みに使う。
-- 銀行の資金繰りには含めない。お金はカード引き落としとして口座から出るので、含めると二重になる（[24章](#24-決定事項)）。
+- 銀行の残高の見込みには含めない。お金はカード引き落としとして口座から出るので、含めると二重になる（[24章](#24-決定事項)）。
 
 ### 11.5 引き落としとの関係
 
@@ -845,7 +841,7 @@ freee・マネーフォワード（OAuth 2.0）とオープンバンキングと
 | 領域 | 技術 | 補足 |
 |---|---|---|
 | UI | Tailwind CSS 4・lucide-react | |
-| グラフ | Recharts 2 | 資金フロー図（Sankey）を含む |
+| グラフ | Recharts 2 | 推移の折れ線・予算と実績の棒 |
 | データ取得 | TanStack Query 5 | |
 | 入力の検査 | Zod 3 | API の本文・クエリと、環境変数の検査 |
 | ORM | Prisma 6 | マイグレーションは `prisma/migrations` |
@@ -920,7 +916,7 @@ docker_financial_management/
 ### 18.5 Web とモバイルのロジック共有
 
 - 表示ラベル・モード別の用語・借入の償還計算・ステップ進捗などは、`app/web/src/lib/` を正とし、`app/mobile/src/shared/` にそのまま複製する。
-- 共有するファイルは `app/web/src/lib/shared-with-mobile.ts` の一覧で管理する（debt-schedule・display-name・financial-matrix・forecast-methods・labels・linked-account-type・loan-schedule・mode-labels・rate-forecast・step-checklist）。
+- 共有するファイルは `app/web/src/lib/shared-with-mobile.ts` の一覧で管理する（debt-schedule・display-name・financial-matrix・labels・linked-account-type・loan-schedule・mode-labels・rate-forecast・step-checklist）。
 - Web 側を直したら、`app/web` で `npm run sync:mobile` を実行して複製する。
 - 複製がずれていたり、共有するファイルが `@/` で始まる import を使っていたりすると、Web の単体テスト（`shared-with-mobile.test.ts`）が失敗する。
 
@@ -1056,7 +1052,7 @@ npm run typecheck && npm run format:check
 
 ### 20.3 口座の残高
 
-残高の定義は `src/lib/bank-balance.ts` の1か所だけに置く：`SUM(financial_records.flow)`（その口座の銀行明細）`+ bank_accounts.balanceAdjustment`。総資産サマリ・資金繰りはすべてこれを使う。
+残高の定義は `src/lib/bank-balance.ts` の1か所だけに置く：`SUM(financial_records.flow)`（その口座の銀行明細）`+ bank_accounts.balanceAdjustment`。総資産サマリ・残高の推移はすべてこれを使う。
 
 ### 20.4 振替とチャージ
 
@@ -1067,7 +1063,7 @@ npm run typecheck && npm run format:check
 
 ### 20.5 カード払いの固定決済
 
-カード払いの固定決済は `card_recurring_payments` に置き、資金移動ルール（`transfers`）には入れない。`transfers` は銀行の資金繰りに使うので、ここに入れるとカード引き落としと二重に数えてしまう。
+カード払いの固定決済は `card_recurring_payments` に置き、資金移動ルール（`transfers`）には入れない。`transfers` は銀行の残高の見込みに使うので、ここに入れるとカード引き落としと二重に数えてしまう。
 
 ### 20.6 明細と実績、仕訳の同期
 
@@ -1080,7 +1076,7 @@ npm run typecheck && npm run format:check
 
 ### 20.7 予測
 
-`src/lib/forecast.ts` に、線形回帰・移動平均・成長率・Holt・Holt-Winters と、過去のデータでの検証（MAPE・RMSE）を実装している。画面の手法の選択肢は `forecast-methods.ts`（既定は移動平均）。変動金利の先の見込みは `rate-forecast.ts`。
+`src/lib/forecast.ts` に、線形回帰・移動平均・成長率・Holt・Holt-Winters と、過去のデータでの検証（MAPE・RMSE）を実装している。既定は移動平均。変動金利の先の見込みは `rate-forecast.ts`。
 
 ### 20.8 キャッシュ
 
@@ -1174,7 +1170,7 @@ npm run typecheck && npm run format:check
 | `personal_assets` | name, category, acquiredOn, acquisitionCost, currentValue, countAsAsset, linkedAccountId, loanId, valuationMethod, valuationRate, usefulLifeYears, buildingStructure | 実物資産。loanId は一意。内訳があるときの currentValue / acquisitionCost は内訳の合計 |
 | `personal_asset_parts` | assetId, name, category, acquisitionCost, currentValue, valuationMethod, valuationRate, usefulLifeYears, buildingStructure, sortOrder | 実物資産の内訳（土地と建物など）。資産を消すと一緒に消える |
 | `personal_asset_valuations` | assetId, partId, valuedOn, value, rule | 評価額の記録（手で入れた値と、価値の変わり方を変えたときの見積もり）。rule はその日から効く変わり方で、null は今の設定。partId が null の行は資産そのもの。同じ日に入れ直すと置き換える |
-| `loans` | lenderName, amount, interestRate, borrowedOn, repaymentDate, remainingAmount, status, loanType, linkedAccountId, monthlyPayment, residualValue, monthlyPaymentIsManual, debitBankAccountId, debitDay | debit* は返済の引き落とし口座と日（資金繰りに自動で並べる） |
+| `loans` | lenderName, amount, interestRate, borrowedOn, repaymentDate, remainingAmount, status, loanType, linkedAccountId, monthlyPayment, residualValue, monthlyPaymentIsManual, debitBankAccountId, debitDay | debit* は返済の引き落とし口座と日（残高の推移の見込みに自動で並べる） |
 | `recurring_suggestion_dismissals` | bankAccountId, signature | 明細からの「毎月の入出金」の候補で非表示にしたもの。`[tenantId, bankAccountId, signature]` 一意 |
 | `loan_interest_rate_changes` | loanId, effectiveOn, interestRate, previousRate, monthlyPayment, previousMonthlyPayment, calculatedMonthlyPayment, note | `[loanId, effectiveOn]` 一意 |
 | `loan_repayments` | loanId, repaidOn, principal, interest, totalAmount | |
@@ -1279,7 +1275,7 @@ npm run typecheck && npm run format:check
 |---|---|---|
 | GET / POST | `/financials` | V / E |
 | PATCH / DELETE | `/financials/[id]` | E |
-| GET | `/financials/[id]/history` `/financials/matrix` `/financials/recent` | V |
+| GET | `/financials/matrix` | V |
 | POST | `/financials/import` | E |
 | GET / POST / DELETE | `/actuals` | V / E / E |
 | POST / DELETE | `/actuals/confirm` | E / Ad |
@@ -1287,7 +1283,6 @@ npm run typecheck && npm run format:check
 | GET / POST | `/forecasts` | V / E |
 | GET | `/kpi` | V |
 | GET | `/reports/general-ledger` `/reports/trial-balance` `/reports/monthly-trend` | V |
-| GET | `/cashflow` `/cashflow/monthly` | V |
 
 ### 22.4 予算
 
@@ -1320,8 +1315,7 @@ npm run typecheck && npm run format:check
 | POST / DELETE | `/bank-transfers/link` | E |
 | GET / POST | `/transfers` | V / E |
 | PATCH / DELETE | `/transfers/[id]` | E |
-| GET | `/transfers/flow` `/transfers/funding` | V |
-| POST | `/transfers/simulate` | V |
+| GET | `/transfers/flow` | V |
 
 ### 22.6 カード・電子マネー
 
@@ -1452,7 +1446,7 @@ npm run typecheck && npm run format:check
 | D-5c | 実績への同期は `syncJournalToFinancialRecords` の1か所を通す | 経路ごとに同期がずれないようにするため |
 | D-5d | 売掛・買掛の発生と消込、棚卸の確定、減価償却では、監査のための仕訳も記録する。発生時点で売上・仕入を実績に計上すること（発生主義）はしない | 試算表・総勘定元帳に記録を残しつつ、実績の意味を変えないため |
 | D-6 | 課税方式は年度ごとの `tax_settings` を正とし、ないときだけ事業者情報の既定値を使う | 年度によって課税方式が変わるため |
-| — | カード払いの固定決済は `transfers` に入れず `card_recurring_payments` に分ける | 銀行の資金繰りで、カード引き落としと二重に数えないため（[20.5節](#205-カード払いの固定決済)） |
+| — | カード払いの固定決済は `transfers` に入れず `card_recurring_payments` に分ける | 銀行の残高の見込みで、カード引き落としと二重に数えないため（[20.5節](#205-カード払いの固定決済)） |
 | — | 口座の残高は「明細の合計 ＋ 差額（`balanceAdjustment`）」に一本化する | 明細の取り込み前の残高を扱えるようにし、残高の定義を1か所にするため（[20.3節](#203-口座の残高)） |
 | — | 振替とチャージの明細は、科目を付けず実績から除く | お金の置き場所が変わるだけで、収支ではないため |
 | — | 勘定科目変換は対応の提案と記録までとし、既存データの科目の付け替えはしない | データの整合性と巻き戻しの設計が決まっていないため |

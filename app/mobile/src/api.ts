@@ -1101,57 +1101,6 @@ export async function unlinkBankTransfer(transferGroupId: string): Promise<void>
   );
 }
 
-// ── 資金繰り・月次の実績フロー ─────────────────────────────────────────
-export type FundingEvent = { date: string; label: string; amount: number; balanceAfter: number };
-export type FundingPlan = {
-  accountId: number;
-  accountName: string;
-  opening: number;
-  closing: number;
-  minBalance: number;
-  minBalanceDate: string | null;
-  requiredDeposit: number;
-  deadline: string | null;
-  trigger: FundingEvent | null;
-  events: FundingEvent[];
-};
-export type FundingResponse = {
-  year: number;
-  month: number;
-  months: number;
-  plans: FundingPlan[];
-};
-
-export async function fetchFundingPlan(
-  year: number,
-  month: number,
-  months = 3,
-): Promise<FundingResponse> {
-  return request<FundingResponse>(
-    `/transfers/funding?year=${year}&month=${month}&months=${months}`,
-    "資金繰りの計算に失敗しました",
-  );
-}
-
-export type MonthlyCashFlowResponse = {
-  year: number;
-  month: number;
-  graph: FlowGraph;
-  /** 推測で補ったフローの本数と、推測に使った過去の月数 */
-  estimatedCount?: number;
-  historyMonths?: number;
-};
-
-export async function fetchMonthlyCashFlow(
-  year: number,
-  month: number,
-): Promise<MonthlyCashFlowResponse> {
-  return request<MonthlyCashFlowResponse>(
-    `/cashflow/monthly?year=${year}&month=${month}`,
-    "実績フローの取得に失敗しました",
-  );
-}
-
 // チャージ先の履歴から対になる明細の候補（銀行・カードのチャージ指定で共通）
 export type ChargeCandidate = {
   id: number;
@@ -1359,14 +1308,8 @@ export async function deleteCardTransferRule(id: number): Promise<void> {
   });
 }
 
-// カード・電子マネーの資金フロー図（引き落とし・チャージ・固定決済）とスケジュールの元データ
+// カードごとの毎月の引き落としと固定決済（GET /linked-accounts/flow。一覧でカードごとに並べる）
 export type CardFlowResponse = {
-  cyclic: boolean;
-  graph: FlowGraph;
-  /** チャージを月あたりに均すのに使った月数 */
-  chargeMonths: number;
-  /** 引き落とし・チャージ・固定決済のどれにも現れないカード */
-  unlinked: { id: number; name: string; type: string }[];
   transfers: {
     id: number;
     from: string | null;
@@ -1407,13 +1350,9 @@ export async function fetchCardUsageTrend(): Promise<CardUsageTrend> {
 export async function fetchCardFlow(): Promise<CardFlowResponse> {
   const json = await request<Partial<CardFlowResponse>>(
     "/linked-accounts/flow",
-    "フローデータの取得に失敗しました",
+    "毎月の入出金の取得に失敗しました",
   );
   return {
-    cyclic: json.cyclic ?? false,
-    graph: json.graph ?? { nodes: [], links: [] },
-    chargeMonths: json.chargeMonths ?? 3,
-    unlinked: json.unlinked ?? [],
     transfers: (json.transfers ?? []).map((t) => ({ ...t, amount: Number(t.amount) })),
     recurring: (json.recurring ?? []).map((r) => ({ ...r, amount: Number(r.amount) })),
   };
@@ -1591,12 +1530,7 @@ export async function deleteTransfer(id: number): Promise<void> {
   await request(`/transfers/${id}`, "削除に失敗しました", { method: "DELETE" });
 }
 
-export type FlowGraph = {
-  nodes: { name: string }[];
-  links: { source: number; target: number; value: number; estimated?: boolean }[];
-};
-
-// 資金フロー図（設定ベース）と、登録済みルールの一覧
+// 登録済みの資金移動ルール（毎月の入出金）の一覧
 export type TransferFlowRow = {
   id: number;
   from: string | null;
@@ -1614,19 +1548,15 @@ export type TransferFlowRow = {
 };
 
 export type TransferFlowResponse = {
-  cyclic: boolean;
-  graph: FlowGraph;
   transfers: TransferFlowRow[];
 };
 
 export async function fetchTransferFlow(): Promise<TransferFlowResponse> {
   const json = await request<Partial<TransferFlowResponse>>(
     "/transfers/flow",
-    "フローデータの取得に失敗しました",
+    "毎月の入出金の取得に失敗しました",
   );
   return {
-    cyclic: json.cyclic ?? false,
-    graph: json.graph ?? { nodes: [], links: [] },
     transfers: (json.transfers ?? []).map((t) => ({ ...t, amount: Number(t.amount) })),
   };
 }
