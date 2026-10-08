@@ -46,9 +46,10 @@ import {
   SelectField,
   SheetModal,
   TabBar,
+  TermList,
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
-import { ENTRY_HELP, textFor } from "../shared/help-texts";
+import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "../shared/help-texts";
 import { buildFinancialMatrix, type MatrixCell } from "../shared/financial-matrix";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { fmtDate, fmtDateTime, MONTHS, yen } from "../format";
@@ -260,6 +261,7 @@ export function EntryScreen({
         <Lead>{textFor(ENTRY_HELP.page, viewMode)}</Lead>
         {tab === "calendar" && <Lead>{ENTRY_HELP.calendar}</Lead>}
         {tab === "history" && <Lead>{ENTRY_HELP.history}</Lead>}
+        {tab === "history" && <TermList terms={LEARNING_RULE_TERMS} label="学習ルールのしくみ" />}
 
         {/* 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ */}
         {sourceTab && (

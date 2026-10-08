@@ -383,6 +383,36 @@ describe("現金の明細", () => {
     expect(del.status).toBe(200);
     expect(await prisma.financialRecord.count({ where: { id: created.id } })).toBe(0);
   });
+
+  it("科目を付けると銀行・カードと同じく学習し、同じ摘要の未割り当ての現金の明細にも付く", async () => {
+    const postCash = async (date: string) => {
+      const res = await cashPost(
+        makeReq("POST", "http://x/api/actuals", {
+          date,
+          description: "魚屋",
+          accountCode: expense.code,
+          amount: 400,
+          direction: "expense",
+        }),
+        emptyRouteContext(),
+      );
+      return (await res.json()).data.id as number;
+    };
+    const a = await postCash(`${YEAR}-06-10`);
+    const b = await postCash(`${YEAR}-06-20`);
+    await cashCategorize(makeReq("PATCH", "http://x", { categoryAccountId: null }), params(b));
+
+    const res = await cashCategorize(
+      makeReq("PATCH", "http://x", { categoryAccountId: other.id, learn: true }),
+      params(a),
+    );
+    expect((await res.json()).updatedSiblingCount).toBe(1);
+    expect((await row(b)).accountId).toBe(other.id);
+    const rule = await prisma.txnCategoryRule.findUniqueOrThrow({
+      where: { tenantId_keyword: { tenantId, keyword: "魚屋" } },
+    });
+    expect([rule.categoryAccountId, rule.priority]).toEqual([other.id, 100]);
+  });
 });
 
 describe("実績を確定済みの月", () => {

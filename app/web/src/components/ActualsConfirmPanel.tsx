@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Lock } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
-import { SectionLead } from "@/components/Explain";
+import { SectionLead, TermDetails } from "@/components/Explain";
 import {
   budgetConfirmHref,
   CycleSteps,
@@ -24,7 +24,7 @@ import {
 } from "@/components/CycleSteps";
 import { MonthPicker } from "@/components/MonthPicker";
 import { useCycleMonth } from "@/lib/use-cycle-month";
-import { ENTRY_HELP, textFor } from "@/lib/help-texts";
+import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "@/lib/help-texts";
 import { displayName, type ViewMode } from "@/lib/display-name";
 import { invalidateActuals } from "@/lib/invalidate-actuals";
 import { Notice } from "@/components/ui";
@@ -490,7 +490,8 @@ function UnassignedCard({
           <h3 className="section-title mb-1">
             未割り当ての明細（{month}月・{entries?.length ?? 0} 件）
           </h3>
-          <SectionLead className="mb-3">{ENTRY_HELP.unassigned}</SectionLead>
+          <SectionLead className="mb-2">{ENTRY_HELP.unassigned}</SectionLead>
+          <TermDetails terms={LEARNING_RULE_TERMS} summary="学習ルールのしくみ" className="mb-3" />
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
           <button

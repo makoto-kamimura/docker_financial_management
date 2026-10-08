@@ -16,9 +16,9 @@ import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPane
 import { TransferRulesCard } from "@/components/TransferRulesCard";
 import { CsvDropzone, Notice, PageHeader, SegmentedControl, Tabs } from "@/components/ui";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
-import { SectionLead } from "@/components/Explain";
+import { SectionLead, TermDetails } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
-import { ENTRY_HELP, textFor } from "@/lib/help-texts";
+import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "@/lib/help-texts";
 import { displayName } from "@/lib/display-name";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
 import { buildFinancialMatrix, type MatrixRecord } from "@/lib/financial-matrix";
@@ -249,13 +249,13 @@ function EntryContent() {
   const histTotal = cashHistory?.length ?? 0;
   const [histMsg, setHistMsg] = useState<string | null>(null);
 
-  // 現金の明細の科目を変える（科目を付けた明細がそのまま実績）
+  // 現金の明細の科目を変える（科目を付けた明細がそのまま実績。銀行・カードと同じく学習する）
   async function setCashCategory(id: number, categoryAccountId: number | null) {
     setHistMsg(null);
     const res = await fetch(`/api/actuals/${id}/categorize`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryAccountId }),
+      body: JSON.stringify({ categoryAccountId, learn: categoryAccountId !== null }),
     });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -593,6 +593,14 @@ function EntryContent() {
             }[tab]
           }
         </SectionLead>
+      )}
+      {/* CSV と履歴は科目が学習ルールで付く・学習する場所なので、しくみを開いて読めるようにする */}
+      {(tab === "csv" || tab === "history") && (
+        <TermDetails
+          terms={LEARNING_RULE_TERMS}
+          summary="学習ルールのしくみ"
+          className="-mt-2 mb-4"
+        />
       )}
 
       {/* ── 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ ── */}
