@@ -1,6 +1,6 @@
 // 実績管理（web 版 /entry と同じ「明細一覧 / カレンダー / 履歴」。CSV インポートは web 版のみ）。
-// 明細一覧は web 版の「科目 × 月」の表を 1 か月ずつ表示する。1 件だけのセルはその場で編集・削除でき、
-// 複数件のセルは内訳シートで 1 件ずつ確認する。仕訳と連動した実績は仕訳帳から直す。
+// 明細一覧は web 版の「科目 × 月」の表を 1 か月ずつ表示する（見るだけ）。実績は明細（現金・銀行・カード）に
+// 科目を付けると入るので、ここでは直接入れない。セルを押すと、どの明細・仕訳から入ったかの内訳を出す。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,19 +13,17 @@ import {
   View,
 } from "react-native";
 import {
-  deleteFinancialRecord,
+  categorizeCashEntry,
+  deleteActual,
   fetchAccounts,
   fetchBankAccounts,
+  fetchCashEntries,
   fetchFinancialMatrix,
   fetchLinkedAccounts,
-  fetchRecordHistory,
-  patchFinancialRecord,
-  postFinancialRecord,
   type Account,
   type BankAccount,
+  type CashEntry,
   type FinancialRecordRow,
-  type HistoryPage,
-  type HistoryQuery,
   type LinkedAccount,
   type RecordSource,
   type ViewMode,
@@ -37,13 +35,13 @@ import { TransferRules } from "../components/bank/TransferRules";
 import { RecurringSuggestions } from "../components/RecurringSuggestions";
 import { CardCalendar } from "../components/card/CardCalendar";
 import { CardTransactionsList } from "../components/card/CardTransactionsList";
-import { ChangeHistoryList, INITIAL_HISTORY_QUERY } from "../components/ChangeHistoryList";
+import { CategoryPickerModal } from "../components/CategoryPickerModal";
+import { LedgerBadge, LedgerCount, LedgerRow } from "../components/LedgerRow";
 import {
-  Button,
   EmptyText,
-  Input,
   Lead,
   Notice,
+  Pager,
   Pills,
   SelectField,
   SheetModal,
@@ -51,9 +49,9 @@ import {
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
 import { ENTRY_HELP, textFor } from "../shared/help-texts";
-import { buildFinancialMatrix, editableRecord, type MatrixCell } from "../shared/financial-matrix";
+import { buildFinancialMatrix, type MatrixCell } from "../shared/financial-matrix";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
-import { digitsOnly, fmtDate, fmtDateTime, MONTHS, yen } from "../format";
+import { fmtDate, fmtDateTime, MONTHS, yen } from "../format";
 import { ActualsConfirmSection } from "../components/ActualsConfirmSection";
 import { useFiscalYear } from "../fiscal-year";
 
@@ -77,14 +75,15 @@ const SOURCES: { value: Source; label: string }[] = [
 
 // セル内訳に出す「どこから入った実績か」（web 版と同じ文言）
 const SOURCE_LABEL: Record<RecordSource["kind"], string> = {
-  bank: "銀行明細から転記",
-  card: "カード明細から転記",
+  cash: "現金の明細",
+  bank: "銀行の明細",
+  card: "カードの明細",
   journal: "仕訳と連動",
-  direct: "手入力・CSV 取込",
+  direct: "過去の直接入力",
 };
 
-// 金額入力中のセル（id あり = 既存 1 件の編集 / なし = 新規登録）
-type CellEdit = { accountCode: string; id: number | null; amount: string };
+// 現金の履歴は 30 件ずつ（銀行・カードの履歴と同じ）
+const CASH_PAGE_SIZE = 30;
 
 type Props = {
   viewMode: ViewMode;
@@ -156,20 +155,19 @@ export function EntryScreen({
     years: [],
     confirmedMonths: [],
     data: [],
-  }); // 実績を確定済みの月は編集できない（web 版の一覧の鍵の印と同じ）
+  }); // 実績を確定済みの月（web 版の一覧の鍵の印と同じ）
   const locked = matrix.confirmedMonths.includes(month);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [edit, setEdit] = useState<CellEdit | null>(null);
   const [detailCode, setDetailCode] = useState<string | null>(null);
-  const [detailEdit, setDetailEdit] = useState<{ id: number; amount: string } | null>(null);
 
-  // ── 履歴 ────────────────────────────────────────────────────
-  const [histQuery, setHistQuery] = useState<HistoryQuery>(INITIAL_HISTORY_QUERY);
-  const [history, setHistory] = useState<HistoryPage>({ data: [], total: 0 });
+  // ── 履歴（出どころが現金 = 現金の明細）───────────────────────────
+  const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
+  const [cashPage, setCashPage] = useState(0);
   const [histLoading, setHistLoading] = useState(false);
+  const [picking, setPicking] = useState<CashEntry | null>(null);
 
   const loadMatrix = useCallback(async () => {
     setError(null);
@@ -187,13 +185,13 @@ export function EntryScreen({
   const loadHistory = useCallback(async () => {
     setHistLoading(true);
     try {
-      setHistory(await fetchRecordHistory(histQuery));
+      setCashEntries(await fetchCashEntries());
     } catch {
-      setHistory({ data: [], total: 0 });
+      setCashEntries([]);
     } finally {
       setHistLoading(false);
     }
-  }, [histQuery]);
+  }, []);
 
   useEffect(() => {
     loadMatrix();
@@ -228,51 +226,21 @@ export function EntryScreen({
   const detailRow = detailCode ? rows.find((r) => r.account.code === detailCode) : undefined;
   const detailCell: MatrixCell<FinancialRecordRow> | undefined = detailRow?.byMonth.get(month);
 
-  async function run(action: () => Promise<void>) {
+  // 現金の明細の科目の変更・削除。科目を付けた明細がそのまま実績になる
+  async function runCash(action: () => Promise<void>) {
     try {
       await action();
-      await loadMatrix();
+      await Promise.all([loadHistory(), loadMatrix()]);
     } catch (e) {
       Alert.alert("エラー", e instanceof Error ? e.message : "処理に失敗しました");
     }
   }
 
-  async function saveCell() {
-    if (!edit || edit.amount === "") return;
-    const amount = Number(edit.amount);
-    const target = edit;
-    setEdit(null);
-    await run(() =>
-      target.id !== null
-        ? patchFinancialRecord(target.id, { amount })
-        : postFinancialRecord({
-            accountCode: target.accountCode,
-            fiscalYear: matrix.year,
-            month,
-            amount,
-          }),
-    );
-  }
-
-  function confirmDelete(r: FinancialRecordRow) {
-    Alert.alert("実績を削除", `${yen(r.amount)} の実績を削除します。よろしいですか？`, [
+  function confirmDeleteCash(e: CashEntry) {
+    Alert.alert("明細を削除", `「${e.description}」を削除します。よろしいですか？`, [
       { text: "キャンセル", style: "cancel" },
-      {
-        text: "削除",
-        style: "destructive",
-        onPress: () => {
-          if (detailEdit?.id === r.id) setDetailEdit(null);
-          run(() => deleteFinancialRecord(r.id));
-        },
-      },
+      { text: "削除", style: "destructive", onPress: () => runCash(() => deleteActual(e.id)) },
     ]);
-  }
-
-  async function saveDetail() {
-    if (!detailEdit || detailEdit.amount === "") return;
-    const { id, amount } = detailEdit;
-    setDetailEdit(null);
-    await run(() => patchFinancialRecord(id, { amount: Number(amount) }));
   }
 
   return (
@@ -397,10 +365,7 @@ export function EntryScreen({
                   label: matrix.confirmedMonths.includes(m) ? `🔒${m}月` : `${m}月`,
                 }))}
                 value={month}
-                onChange={(m) => {
-                  setEdit(null);
-                  setMonth(m);
-                }}
+                onChange={setMonth}
               />
               {locked && (
                 <Notice tone="info">
@@ -411,14 +376,13 @@ export function EntryScreen({
 
               {rows.length === 0 ? (
                 <EmptyText>
-                  {matrix.year}年の実績がありません。カレンダーから登録してください（CSV
+                  {matrix.year}
+                  年の実績がありません。明細（現金・銀行・カード）をカレンダーから登録し、科目を付けると実績になります（CSV
                   インポートは Web 版で行えます）。
                 </EmptyText>
               ) : (
                 rows.map((row, i) => {
                   const cell = row.byMonth.get(month);
-                  const single = editableRecord(cell);
-                  const editing = edit?.accountCode === row.account.code ? edit : null;
                   const showGroup =
                     i === 0 || rows[i - 1].account.category !== row.account.category;
                   return (
@@ -436,62 +400,15 @@ export function EntryScreen({
                           </Text>
                           <Text style={s.annual}>年間合計 {yen(row.annual)}</Text>
                         </View>
-                        {editing ? (
-                          <View style={s.editRow}>
-                            <Input
-                              autoFocus
-                              keyboardType="number-pad"
-                              value={editing.amount}
-                              placeholder="金額"
-                              onChangeText={(t) => setEdit({ ...editing, amount: digitsOnly(t) })}
-                              style={s.amountInput}
-                            />
-                            <Button small label="保存" onPress={saveCell} />
-                            <TouchableOpacity onPress={() => setEdit(null)} hitSlop={8}>
-                              <Text style={s.cancel}>取消</Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : cell ? (
+                        {cell ? (
                           <View style={s.cellRight}>
                             <Text style={s.amount}>{yen(cell.total)}</Text>
-                            {cell.records.length > 1 ? (
-                              <TouchableOpacity onPress={() => setDetailCode(row.account.code)}>
-                                <Text style={s.link}>{cell.records.length}件の内訳</Text>
-                              </TouchableOpacity>
-                            ) : single && single.journalEntryId !== null ? (
-                              <Text style={s.muted}>仕訳（仕訳帳から修正）</Text>
-                            ) : (
-                              single &&
-                              !locked && (
-                                <View style={s.actions}>
-                                  <TouchableOpacity
-                                    onPress={() =>
-                                      setEdit({
-                                        accountCode: row.account.code,
-                                        id: single.id,
-                                        amount: String(single.amount),
-                                      })
-                                    }
-                                  >
-                                    <Text style={s.link}>編集</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity onPress={() => confirmDelete(single)}>
-                                    <Text style={s.danger}>削除</Text>
-                                  </TouchableOpacity>
-                                </View>
-                              )
-                            )}
+                            <TouchableOpacity onPress={() => setDetailCode(row.account.code)}>
+                              <Text style={s.link}>{cell.records.length}件の内訳</Text>
+                            </TouchableOpacity>
                           </View>
-                        ) : locked ? (
-                          <Text style={s.muted}>—</Text>
                         ) : (
-                          <TouchableOpacity
-                            onPress={() =>
-                              setEdit({ accountCode: row.account.code, id: null, amount: "" })
-                            }
-                          >
-                            <Text style={s.add}>— 追加</Text>
-                          </TouchableOpacity>
+                          <Text style={s.muted}>—</Text>
                         )}
                       </View>
                     </View>
@@ -505,87 +422,100 @@ export function EntryScreen({
           <ActualsCalendar accounts={accounts} viewMode={viewMode} />
         )}
 
-        {tab === "history" && source === "manual" && (
-          <ChangeHistoryList
-            rows={history.data}
-            total={history.total}
-            query={histQuery}
-            onQueryChange={setHistQuery}
-            loading={histLoading}
-            viewMode={viewMode}
-            emptyText="まだ履歴はありません。"
-            accountEdit={{
-              accounts,
-              onChange: async (row, accountId) => {
-                await patchFinancialRecord(row.targetId as number, { accountId });
-                await loadHistory();
-              },
-            }}
-          />
-        )}
+        {tab === "history" &&
+          source === "manual" &&
+          (histLoading && cashEntries.length === 0 ? (
+            <ActivityIndicator color="#4f46e5" style={{ marginTop: 40 }} />
+          ) : cashEntries.length === 0 ? (
+            <EmptyText>現金の明細はまだありません。カレンダーから登録できます。</EmptyText>
+          ) : (
+            <>
+              <LedgerCount
+                total={cashEntries.length}
+                offset={cashPage * CASH_PAGE_SIZE}
+                pageSize={CASH_PAGE_SIZE}
+              />
+              {cashEntries
+                .slice(cashPage * CASH_PAGE_SIZE, (cashPage + 1) * CASH_PAGE_SIZE)
+                .map((e) => (
+                  <LedgerRow
+                    key={e.id}
+                    date={fmtDate(e.date)}
+                    account="現金"
+                    description={e.description}
+                    amount={yen(e.amount)}
+                    tone={e.amount < 0 ? "out" : "in"}
+                    category={
+                      <TouchableOpacity onPress={() => setPicking(e)}>
+                        <Text style={s.link} numberOfLines={1}>
+                          {e.categoryAccount
+                            ? displayName(e.categoryAccount, viewMode)
+                            : "科目を選ぶ"}
+                        </Text>
+                      </TouchableOpacity>
+                    }
+                    status={
+                      <LedgerBadge tone={e.categoryAccountId !== null ? "emerald" : "amber"}>
+                        {e.categoryAccountId !== null ? "実績" : "未割り当て"}
+                      </LedgerBadge>
+                    }
+                    actions={
+                      <TouchableOpacity onPress={() => confirmDeleteCash(e)}>
+                        <Text style={s.danger}>削除</Text>
+                      </TouchableOpacity>
+                    }
+                  />
+                ))}
+              {cashEntries.length > CASH_PAGE_SIZE && (
+                <Pager
+                  offset={cashPage * CASH_PAGE_SIZE}
+                  total={cashEntries.length}
+                  pageSize={CASH_PAGE_SIZE}
+                  onChange={(o) => setCashPage(o / CASH_PAGE_SIZE)}
+                />
+              )}
+            </>
+          ))}
       </ScrollView>
+
+      <CategoryPickerModal
+        visible={picking !== null}
+        accounts={accounts}
+        description={picking?.description}
+        currentId={picking?.categoryAccountId ?? null}
+        onSelect={(id) => {
+          const e = picking;
+          setPicking(null);
+          if (e) runCash(() => categorizeCashEntry(e.id, id));
+        }}
+        onClose={() => setPicking(null)}
+      />
 
       {/* ── セル内訳（同じ科目・月に複数の実績があるとき）── */}
       <SheetModal
         visible={detailCode !== null}
         title={detailRow ? nameOf(detailRow.account) : "実績の内訳"}
         subtitle={`${matrix.year}年${month}月 ・ 合計 ${yen(detailCell?.total ?? 0)}（${detailCell?.records.length ?? 0} 件）`}
-        onClose={() => {
-          setDetailCode(null);
-          setDetailEdit(null);
-        }}
+        onClose={() => setDetailCode(null)}
       >
         {!detailCell || detailCell.records.length === 0 ? (
-          <EmptyText>このセルの実績はすべて削除されました。</EmptyText>
+          <EmptyText>このセルの実績はありません。</EmptyText>
         ) : (
-          detailCell.records.map((r) => {
-            const editing = detailEdit?.id === r.id ? detailEdit : null;
-            return (
-              <View key={r.id} style={s.detailRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.sourceBadge}>{SOURCE_LABEL[r.source.kind]}</Text>
-                  <Text style={s.detailText} numberOfLines={2}>
-                    {r.source.description
-                      ? `${r.source.date ? `${fmtDate(r.source.date)} · ` : ""}${r.source.description}` +
-                        (r.source.accountName ? `（${r.source.accountName}）` : "")
-                      : "—"}
-                  </Text>
-                  <Text style={s.muted}>登録 {fmtDateTime(r.createdAt)}</Text>
-                </View>
-                {editing ? (
-                  <View style={s.editRow}>
-                    <Input
-                      autoFocus
-                      keyboardType="number-pad"
-                      value={editing.amount}
-                      onChangeText={(t) => setDetailEdit({ ...editing, amount: digitsOnly(t) })}
-                      style={s.amountInput}
-                    />
-                    <Button small label="保存" onPress={saveDetail} />
-                  </View>
-                ) : (
-                  <View style={s.cellRight}>
-                    <Text style={s.amount}>{yen(r.amount)}</Text>
-                    {r.journalEntryId !== null ? (
-                      // 仕訳と連動した実績は仕訳側が正なのでここでは触らせない
-                      <Text style={s.muted}>仕訳から修正</Text>
-                    ) : (
-                      <View style={s.actions}>
-                        <TouchableOpacity
-                          onPress={() => setDetailEdit({ id: r.id, amount: String(r.amount) })}
-                        >
-                          <Text style={s.link}>編集</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => confirmDelete(r)}>
-                          <Text style={s.danger}>削除</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                )}
+          detailCell.records.map((r) => (
+            <View key={r.id} style={s.detailRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.sourceBadge}>{SOURCE_LABEL[r.source.kind]}</Text>
+                <Text style={s.detailText} numberOfLines={2}>
+                  {r.source.description
+                    ? `${r.source.date ? `${fmtDate(r.source.date)} · ` : ""}${r.source.description}` +
+                      (r.source.accountName ? `（${r.source.accountName}）` : "")
+                    : "—"}
+                </Text>
+                <Text style={s.muted}>登録 {fmtDateTime(r.createdAt)}</Text>
               </View>
-            );
-          })
+              <Text style={s.amount}>{yen(r.amount)}</Text>
+            </View>
+          ))
         )}
       </SheetModal>
     </View>

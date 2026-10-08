@@ -1,6 +1,7 @@
 // 実績管理のカレンダー（web 版 /entry の「カレンダー」タブと同じ内容）。
-// 日付ごとの入出金（仕訳）を GET/POST/DELETE /actuals で扱う。月の収入・支出合計と日別の増減を表示し、
-// 選んだ日に「収入 / 支出・摘要・科目・金額」で登録できる。支払元・入金先は現金に決まる（出どころの「現金」）。
+// 現金の明細を GET/POST/DELETE /actuals で扱う。月の収入・支出合計と日別の増減を表示し、
+// 選んだ日に「収入 / 支出・摘要・科目・金額」で登録できる（出どころの「現金」）。
+// 科目を付けて登録するので、登録した時点で実績になる。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
@@ -8,7 +9,7 @@ import {
   fetchActuals,
   postActual,
   type Account,
-  type ActualEntry,
+  type CashEntry,
   type ViewMode,
 } from "../api";
 import { displayName } from "../shared/display-name";
@@ -28,16 +29,9 @@ const BLANK_FORM = {
   direction: "expense" as Direction,
 };
 
-// 仕訳 1 件の収入（収入科目の貸方）・支出（費用科目の借方）。web 版 entryAmount と同じ
-function entryAmount(e: ActualEntry): { income: number; expense: number } {
-  let income = 0;
-  let expense = 0;
-  for (const d of e.details) {
-    const amt = Number(d.amount);
-    if (INCOME_CATS.includes(d.account.category) && d.side === "credit") income += amt;
-    if (EXPENSE_CATS.includes(d.account.category) && d.side === "debit") expense += amt;
-  }
-  return { income, expense };
+// 明細 1 件の収入（入金）・支出（出金）。web 版 entryAmount と同じ
+function entryAmount(e: CashEntry): { income: number; expense: number } {
+  return { income: Math.max(e.amount, 0), expense: Math.max(-e.amount, 0) };
 }
 
 type Props = { accounts: Account[]; viewMode: ViewMode };
@@ -47,7 +41,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate());
-  const [entries, setEntries] = useState<ActualEntry[]>([]);
+  const [entries, setEntries] = useState<CashEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(BLANK_FORM);
   const [saving, setSaving] = useState(false);
@@ -70,9 +64,9 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   }, [load]);
 
   const byDay = useMemo(() => {
-    const m = new Map<number, ActualEntry[]>();
+    const m = new Map<number, CashEntry[]>();
     for (const e of entries) {
-      const d = new Date(e.transactionDate).getDate();
+      const d = new Date(e.date).getDate();
       m.set(d, [...(m.get(d) ?? []), e]);
     }
     return m;
@@ -136,7 +130,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
     }
   }
 
-  function confirmDelete(e: ActualEntry) {
+  function confirmDelete(e: CashEntry) {
     Alert.alert("実績を削除", `「${e.description}」を削除します。よろしいですか？`, [
       { text: "キャンセル", style: "cancel" },
       {
@@ -257,7 +251,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                       {e.description}
                     </Text>
                     <Text style={s.entryAccounts} numberOfLines={1}>
-                      {e.details.map((d) => displayName(d.account, viewMode)).join(" / ")}
+                      {e.categoryAccount ? displayName(e.categoryAccount, viewMode) : "未割り当て"}
                     </Text>
                   </View>
                   <Text style={isIncome ? s.income : s.expense}>

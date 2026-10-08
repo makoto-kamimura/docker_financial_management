@@ -8,7 +8,7 @@
 // ここでは「同額・符号が逆・別口座・日付が近い」明細の組を候補として拾う。突き合わせは
 // 機械的な推測にすぎないので、実際に紐付けるかどうかは画面で 1 組ずつ人が確認する。
 
-/** 突き合わせ対象の明細（transferGroupId が未設定で、実績へ未転記のものだけを渡す） */
+/** 突き合わせ対象の明細（transferGroupId・チャージが未設定のものだけを渡す） */
 export type MatchableTxn = {
   id: number;
   accountId: number;
@@ -114,7 +114,6 @@ export type LinkableTxn = {
   accountId: number;
   amount: number;
   transferGroupId: string | null;
-  postedRecordId: number | null;
   /** カード・電子マネーへのチャージとして指定済みなら、その相手（口座間振替にはできない） */
   chargeToAccountId?: number | null;
 };
@@ -131,9 +130,6 @@ export function validateTransferLink(a: LinkableTxn, b: LinkableTxn): string | n
   if (a.transferGroupId || b.transferGroupId) return "すでに振替として紐付けられている明細です";
   if (a.chargeToAccountId || b.chargeToAccountId) {
     return "カード・電子マネーへのチャージとして指定済みの明細です（先にチャージを解除してください）";
-  }
-  if (a.postedRecordId !== null || b.postedRecordId !== null) {
-    return "実績へ転記済みの明細は紐付けできません（先に転記を取り消してください）";
   }
 
   const hasOut = a.amount < 0 || b.amount < 0;

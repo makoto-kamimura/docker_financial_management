@@ -22,7 +22,7 @@ export const POST = withApi({
       bankName: account.bankName,
     });
 
-    const inserted = await insertExternalEntries(
+    const { inserted, locked } = await insertExternalEntries(
       db,
       user.tenantId,
       { kind: "BANK", accountId: id },
@@ -30,6 +30,13 @@ export const POST = withApi({
       "SYNC",
     );
     await audit("sync_txn", `bank_account:${id}:${provider.name}:${inserted}`);
-    return NextResponse.json({ provider: provider.name, fetched: fetched.length });
+    // 重複（取り込み済み）と実績を確定済みの月の行は登録しない
+    return NextResponse.json({
+      provider: provider.name,
+      fetched: fetched.length,
+      inserted,
+      skipped: fetched.length - inserted - locked,
+      locked,
+    });
   },
 });

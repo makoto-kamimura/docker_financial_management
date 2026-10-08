@@ -4,6 +4,7 @@
 // AppShell とページ見出しは呼び出し側（/bank-accounts）が持つ。
 
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidateActuals } from "@/lib/invalidate-actuals";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
@@ -36,10 +37,9 @@ type Txn = {
   source: "MANUAL" | "CSV" | "SYNC";
   categoryAccountId: number | null;
   categoryAccount: { id: number; code: string; name: string } | null;
-  postedRecordId: number | null;
-  /** 口座間振替で対になる明細の識別子。値があれば科目紐付け・転記の対象外 */
+  /** 口座間振替で対になる明細の識別子。値があれば科目を付けず、実績に入らない */
   transferGroupId: string | null;
-  /** デビット・プリペイド・電子マネーへのチャージの場合のチャージ先。値があれば科目紐付け・転記の対象外 */
+  /** デビット・プリペイド・電子マネーへのチャージの場合のチャージ先。値があれば科目を付けず、実績に入らない */
   chargeToAccountId: number | null;
   chargeToAccount: { id: number; name: string } | null;
   /** チャージ先に入った明細と対にする識別子（紐付け済みかどうかの表示に使う） */
@@ -100,11 +100,11 @@ const BLANK_BANK_TRANSFER = {
 const DAY_GAP_OPTIONS = [0, 1, 3, 7] as const;
 
 type Tab = "list" | "recurring";
-type PostFilter = "all" | "posted" | "unposted";
+type PostFilter = "all" | "unassigned" | "actual";
 const POST_FILTERS: [PostFilter, string][] = [
   ["all", "全件"],
-  ["unposted", "実績未転記"],
-  ["posted", "実績転記済"],
+  ["unassigned", "未割り当て"],
+  ["actual", "実績"],
 ];
 
 // view="recurring" で描画するブロック。register＝振替（銀行 → 銀行）の登録モーダル、
@@ -217,15 +217,20 @@ export function BankTransactionsPanel({
   const accountNameById = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
 
   // 明細一覧は 30 件ずつ表示する。口座切替や再取得で件数が減った場合は末尾ページへ丸める
-  // 「全件 / 実績未転記 / 実績転記済」（カードの履歴と同じ絞り込み）。
-  // 実績未転記は、これから転記する明細を拾うためのもの。振替・チャージは転記の対象外なので除く
+  // 「全件 / 未割り当て / 実績」（カードの履歴と同じ絞り込み）。
+  // 科目を付けた明細がそのまま実績。未割り当ては、これから科目を付ける明細を拾うためのもの
+  // （振替・チャージは科目を付けない明細なので除く）
   const [postFilter, setPostFilter] = useState<PostFilter>("all");
   const filteredTxns = useMemo(() => {
     const all = txns ?? [];
-    if (postFilter === "posted") return all.filter((t) => t.postedRecordId !== null);
-    if (postFilter === "unposted")
+    if (postFilter === "actual") return all.filter((t) => t.categoryAccountId !== null);
+    if (postFilter === "unassigned")
       return all.filter(
-        (t) => t.postedRecordId === null && !t.transferGroupId && !t.chargeToAccountId,
+        (t) =>
+          t.categoryAccountId === null &&
+          !t.transferGroupId &&
+          !t.chargeToAccountId &&
+          !t.chargeGroupId,
       );
     return all;
   }, [txns, postFilter]);
@@ -277,9 +282,14 @@ export function BankTransactionsPanel({
   // ── ハンドラ ────────────────────────────────────────────────
 
   async function deleteTxn(t: Txn) {
-    await fetch(`/api/bank-accounts/${t.accountId}/transactions?txnId=${t.id}`, {
+    const res = await fetch(`/api/bank-accounts/${t.accountId}/transactions?txnId=${t.id}`, {
       method: "DELETE",
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setMsg(`削除に失敗しました: ${err.error ?? "エラー"}`);
+    }
+    invalidateActuals(qc);
     if (t.transferGroupId) {
       // 振替は相手口座の明細も一緒に消えるため、全口座の明細と残高を取り直す
       qc.invalidateQueries({ queryKey: ["bank-txns"] });
@@ -291,13 +301,22 @@ export function BankTransactionsPanel({
     }
   }
 
+  // 科目を付けると、その明細がそのまま実績になる。付けた科目は学習し、
+  // 同じ摘要でまだ未割り当ての明細にも同じ科目を付ける
   async function setTxnCategory(txnId: number, categoryAccountId: number | null) {
-    await fetch(`/api/bank-transactions/${txnId}/categorize`, {
+    const res = await fetch(`/api/bank-transactions/${txnId}/categorize`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryAccountId }),
+      body: JSON.stringify({ categoryAccountId, learn: categoryAccountId !== null }),
     });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg(`科目の変更に失敗しました: ${json.error ?? "エラー"}`);
+    } else if ((json.updatedSiblingCount ?? 0) > 0) {
+      setMsg(`同じ摘要の未割り当ての明細 ${json.updatedSiblingCount} 件にも同じ科目を付けました。`);
+    }
     qc.invalidateQueries({ queryKey: ["bank-txns"] });
+    invalidateActuals(qc);
   }
 
   // ── 明細をチャージ（銀行 → デビット / プリペイド / 電子マネー）に指定する ───────
@@ -326,7 +345,7 @@ export function BankTransactionsPanel({
     if (res.ok) {
       setMsg(
         chargeToAccountId === null
-          ? "チャージの指定を解除しました。科目の紐付け・転記ができるようになります。"
+          ? "チャージの指定を解除しました。科目を付けられるようになります。"
           : pairTxnId !== null
             ? "チャージ先の明細と紐付けました。両方とも収入・支出には計上されません。"
             : "チャージ（資金移動）に指定しました。収入・支出には計上されません。",
@@ -341,27 +360,6 @@ export function BankTransactionsPanel({
     qc.invalidateQueries({ queryKey: ["charge-candidates"] });
     // 振替候補はチャージ指定済みの明細を除いて数えている
     qc.invalidateQueries({ queryKey: ["transfer-candidates"] });
-  }
-
-  async function postTxnToActuals(txnId: number) {
-    const res = await fetch(`/api/bank-transactions/${txnId}/categorize`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ post: true, learn: true }),
-    });
-    if (res.ok) {
-      const json = await res.json().catch(() => ({}));
-      const n = json.updatedSiblingCount ?? 0;
-      setMsg(
-        n > 0
-          ? `実績へ転記しました。同じ摘要の未分類明細 ${n} 件にも科目を設定しました。`
-          : "実績へ転記しました。",
-      );
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setMsg(`転記に失敗しました: ${err.error ?? "エラー"}`);
-    }
-    qc.invalidateQueries({ queryKey: ["bank-txns"] });
   }
 
   // 都度の銀行→銀行の振替。1 回の操作で出金元・入金先の両方に明細を作る
@@ -447,7 +445,7 @@ export function BankTransactionsPanel({
   async function unlinkTransfer(transferGroupId: string) {
     const confirmed = window.confirm(
       "この振替の紐付けを解除します。\n\n" +
-        "明細は両方とも残るため口座残高は変わりませんが、以後それぞれ科目の紐付け・実績への転記ができるようになります。",
+        "明細は両方とも残るため口座残高は変わりませんが、以後それぞれ科目を付けられるようになります（付けた明細が実績になります）。",
     );
     if (!confirmed) return;
 
@@ -710,7 +708,6 @@ export function BankTransactionsPanel({
                     ) : (
                       <select
                         value={t.categoryAccountId ?? ""}
-                        disabled={t.postedRecordId !== null}
                         onChange={(e) =>
                           setTxnCategory(
                             t.id,
@@ -719,7 +716,7 @@ export function BankTransactionsPanel({
                         }
                         className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white disabled:bg-slate-50 disabled:text-slate-400 min-w-32"
                       >
-                        <option value="">未紐付け</option>
+                        <option value="">未割り当て</option>
                         {categorizableAccounts.map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.code} {a.name}
@@ -732,8 +729,10 @@ export function BankTransactionsPanel({
                 status: (
                   <>
                     <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
-                    {t.postedRecordId !== null && (
-                      <LedgerBadge tone="emerald">転記済み</LedgerBadge>
+                    {!excluded && !t.chargeGroupId && (
+                      <LedgerBadge tone={t.categoryAccountId !== null ? "emerald" : "amber"}>
+                        {t.categoryAccountId !== null ? "実績" : "未割り当て"}
+                      </LedgerBadge>
                     )}
                     {t.chargeToAccountId && (
                       <LedgerBadge tone={t.chargeGroupId ? "emerald" : "slate"}>
@@ -745,16 +744,6 @@ export function BankTransactionsPanel({
                     {registered && <LedgerBadge tone="indigo">毎月の入出金</LedgerBadge>}
                   </>
                 ),
-                actions:
-                  !excluded && t.postedRecordId === null ? (
-                    <button
-                      onClick={() => postTxnToActuals(t.id)}
-                      disabled={t.categoryAccountId === null}
-                      className="text-xs text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
-                    >
-                      転記する
-                    </button>
-                  ) : null,
                 more: (
                   <>
                     <LedgerMoreSection title="チャージ先">
@@ -780,8 +769,8 @@ export function BankTransactionsPanel({
                             解除
                           </button>
                         </div>
-                      ) : t.transferGroupId || t.postedRecordId !== null ? (
-                        // 振替として紐付け済み・転記済みの明細は先にそちらを外す必要がある
+                      ) : t.transferGroupId ? (
+                        // 振替として紐付け済みの明細は先にそちらを外す必要がある
                         <span className="text-xs text-slate-400">対象外</span>
                       ) : t.amount >= 0 ? (
                         // チャージは口座からの出金。入金明細は対象にならない

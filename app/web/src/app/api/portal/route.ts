@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
 
 // GET /api/portal … 税理士ポータル（自テナントの財務サマリ、accountant 以上）
 export const GET = withApi({
@@ -12,10 +13,12 @@ export const GET = withApi({
 
     const tenant = await db.tenant.findUnique({ where: { id: tenantId } });
 
-    const records = await db.financialRecord.findMany({
-      where: { tenantId, period: { fiscalYear } },
-      include: { account: true },
-    });
+    const records = actualRows(
+      await db.financialRecord.findMany({
+        where: { tenantId, ...ACTUAL_WHERE, period: { fiscalYear } },
+        include: { account: true },
+      }),
+    );
 
     const totals: Record<string, number> = {};
     for (const r of records) {

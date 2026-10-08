@@ -3,7 +3,7 @@
 // 実績管理の「履歴」の共通の表。出どころ（手動 / 銀行 / カード・電子マネー）が違っても、
 // 同じ列（日付・口座・摘要・金額・科目・状態・操作）と、同じ位置の件数・絞り込み・ページ送りで見せる。
 // 行の中身（科目の選択・状態のバッジ・操作のボタン）は呼び出し側が組み立てて渡す。
-// 操作は、よく使うもの（転記など）をそのまま出し、残りは「その他」を開くと出る（列が詰まらないように）。
+// 操作は、よく使うもの（削除など）をそのまま出し、残りは「その他」を開くと出る（列が詰まらないように）。
 
 import type { ReactNode } from "react";
 import { Pager } from "@/components/ui";
@@ -38,7 +38,7 @@ export type LedgerRow = {
   tone: "in" | "out" | "none";
   category: ReactNode;
   status: ReactNode;
-  /** すぐ押せる操作（転記など） */
+  /** すぐ押せる操作（削除など） */
   actions?: ReactNode;
   /** 「その他」を開くと出る操作（チャージ先・毎月の入出金・削除など） */
   more?: ReactNode;
@@ -190,7 +190,7 @@ export function LedgerMoreSection({ title, children }: { title: string; children
   );
 }
 
-/** 表の上に置く「全件 / 実績未転記 / 実績転記済」などの切り替え */
+/** 表の上に置く「全件 / 未割り当て / 実績」などの切り替え */
 export function LedgerFilter<T extends string>({
   options,
   value,

@@ -26,6 +26,7 @@ vi.mock("@/lib/authz", () => ({
 }));
 
 import { prisma } from "@/lib/prisma";
+import { createTestEntry } from "@/lib/test-entries";
 import { emptyRouteContext } from "@/lib/api-handler";
 import { GET as itemsGet, POST as itemsPost } from "./route";
 import { DELETE as itemDelete } from "./[id]/route";
@@ -60,7 +61,7 @@ beforeAll(async () => {
     "budget_histories",
     "budget_confirmations",
     "linked_accounts",
-    "ledger_entries",
+    "financial_records",
     "card_recurring_payments",
   ]) {
     await prisma.$executeRawUnsafe(
@@ -92,8 +93,7 @@ afterAll(async () => {
   await prisma.budget.deleteMany({ where });
   await prisma.budgetConfirmation.deleteMany({ where });
   await prisma.cardRecurringPayment.deleteMany({ where });
-  if (cardA)
-    await prisma.ledgerEntry.deleteMany({ where: { cardAccountId: { in: [cardA, cardB] } } });
+  await prisma.financialRecord.deleteMany({ where });
   await prisma.linkedAccount.deleteMany({ where });
   await prisma.period.deleteMany({ where });
   await prisma.account.deleteMany({ where });
@@ -187,31 +187,29 @@ describe("GET /api/linked-accounts/usage-trend", () => {
     cardB = b.id;
     const now = new Date();
     const thisMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
-    const cardEntry = (cardAccountId: number) => ({
-      tenantId,
-      kind: "CARD" as const,
-      cardAccountId,
+    // 明細の flow は +入金 / −出金（カードの利用は負）
+    const cardEntry = (accountId: number) => ({ kind: "CARD" as const, accountId });
+    await createTestEntry(tenantId, cardEntry(cardA), {
+      date: thisMonth,
+      description: "買い物",
+      flow: -5_000,
     });
-    await prisma.ledgerEntry.createMany({
-      data: [
-        // 明細の表は +入金 / −出金（カードの利用は負）
-        { ...cardEntry(cardA), date: thisMonth, description: "買い物", amount: -5_000 },
-        { ...cardEntry(cardA), date: thisMonth, description: "返金", amount: 1_000 },
-        {
-          ...cardEntry(cardA),
-          date: thisMonth,
-          description: "チャージ",
-          amount: -3_000,
-          chargeToCardId: cardB,
-        },
-        {
-          ...cardEntry(cardB),
-          date: thisMonth,
-          description: "入金",
-          amount: 3_000,
-          chargeGroupId: `g_${SUFFIX}`,
-        },
-      ],
+    await createTestEntry(tenantId, cardEntry(cardA), {
+      date: thisMonth,
+      description: "返金",
+      flow: 1_000,
+    });
+    await createTestEntry(tenantId, cardEntry(cardA), {
+      date: thisMonth,
+      description: "チャージ",
+      flow: -3_000,
+      chargeToCardId: cardB,
+    });
+    await createTestEntry(tenantId, cardEntry(cardB), {
+      date: thisMonth,
+      description: "入金",
+      flow: 3_000,
+      chargeGroupId: `g_${SUFFIX}`,
     });
     await prisma.cardRecurringPayment.create({
       data: { tenantId, accountId: cardA, label: "動画配信", amount: 1_500, day: 10 },

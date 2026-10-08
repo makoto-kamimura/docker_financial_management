@@ -5,7 +5,7 @@
  *   - 明細の最終日（銀行・カード・電子マネー）が月末日までそろうと「実績入力済み」になる
  *   - 予算が未確定・明細が足りない月は実績を確定できない
  *   - 前月の実績が未確定なら翌月の予算を確定できない
- *   - 実績を確定した月は、実績の登録・変更・削除・CSV 取込・仕訳・明細の転記を受け付けない
+ *   - 実績を確定した月は、明細の登録・削除・科目の変更と仕訳を受け付けない（直接入力の API は 410）
  *   - 解除は確定と逆の順で、admin のみ
  *
  * 実行: `npm run test:integration`（platform-db 起動が前提）
@@ -35,7 +35,8 @@ vi.mock("@/lib/authz", () => ({
 
 import { prisma } from "@/lib/prisma";
 import { emptyRouteContext } from "@/lib/api-handler";
-import { importRows } from "@/lib/import";
+import { createTestEntry } from "@/lib/test-entries";
+import { POST as cashPost } from "./route";
 import { POST as actualsConfirmPost, DELETE as actualsConfirmDelete } from "./confirm/route";
 import { GET as varianceGet } from "../budgets/variance/route";
 import { GET as cycleStatusGet } from "../cycle-status/route";
@@ -64,7 +65,7 @@ let tenantId: number;
 let admin: { id: number; email: string; name: string; role: string; tenantId: number };
 let editor: typeof admin;
 let food: { id: number; code: string };
-let cash: { id: number; code: string };
+let cashAccount: { id: number; code: string };
 let mayRecordId: number;
 let bankTxnId: number;
 let cardId: number;
@@ -119,7 +120,6 @@ beforeAll(async () => {
     "budgets",
     "audit_logs",
     "bank_accounts",
-    "ledger_entries",
     "linked_accounts",
     "financial_records",
   ]) {
@@ -145,7 +145,7 @@ beforeAll(async () => {
   food = await prisma.account.create({
     data: { tenantId, code: `F_${SUFFIX}`, name: "食費", category: "EXPENSE" },
   });
-  cash = await prisma.account.create({
+  cashAccount = await prisma.account.create({
     data: { tenantId, code: `C_${SUFFIX}`, name: "現金", category: "ASSET" },
   });
 
@@ -160,39 +160,28 @@ beforeAll(async () => {
   });
   mayRecordId = record.id;
 
-  // 銀行は月末日まで届いている（未転記の出金が 1 件）
+  // 銀行は月末日まで届いている（科目が未割り当ての出金が 1 件）
   const bank = await prisma.bankAccount.create({
     data: { tenantId, name: "給与口座", bankName: "テスト銀行" },
   });
-  const bankTxn = await prisma.ledgerEntry.create({
-    data: {
-      tenantId,
-      kind: "BANK",
-      bankAccountId: bank.id,
-      date: new Date(YEAR, 4, 31),
-      description: "スーパー",
-      amount: -3_000,
-      categoryAccountId: food.id,
-    },
-  });
+  const bankTxn = await createTestEntry(
+    tenantId,
+    { kind: "BANK", accountId: bank.id },
+    { date: new Date(YEAR, 4, 31), description: "スーパー", flow: -3_000 },
+  );
   bankTxnId = bankTxn.id;
   bankId = bank.id;
 
-  // カードは 5/20 で止まっている（未転記 1 件）。電子マネーは明細なし
+  // カードは 5/20 で止まっている（未割り当て 1 件）。電子マネーは明細なし
   const card = await prisma.linkedAccount.create({
     data: { tenantId, name: "テストカード", type: "CREDIT_CARD", institution: "テスト" },
   });
   cardId = card.id;
-  await prisma.ledgerEntry.create({
-    data: {
-      tenantId,
-      kind: "CARD",
-      cardAccountId: card.id,
-      date: new Date(YEAR, 4, 20),
-      description: "書店",
-      amount: -1_500,
-    },
-  });
+  await createTestEntry(
+    tenantId,
+    { kind: "CARD", accountId: card.id },
+    { date: new Date(YEAR, 4, 20), description: "書店", flow: -1_500 },
+  );
   await prisma.linkedAccount.create({
     data: { tenantId, name: "テスト電子マネー", type: "E_MONEY", institution: "テスト" },
   });
@@ -204,11 +193,10 @@ afterAll(async () => {
   await prisma.budgetConfirmation.deleteMany({ where });
   await prisma.budgetHistory.deleteMany({ where });
   await prisma.budget.deleteMany({ where });
-  await prisma.ledgerEntry.deleteMany({ where });
-  await prisma.linkedAccount.deleteMany({ where });
-  await prisma.bankAccount.deleteMany({ where });
   await prisma.financialRecordHistory.deleteMany({ where: { record: { tenantId } } });
   await prisma.financialRecord.deleteMany({ where });
+  await prisma.linkedAccount.deleteMany({ where });
+  await prisma.bankAccount.deleteMany({ where });
   await prisma.journalDetail.deleteMany({ where: { journalEntry: { tenantId } } });
   await prisma.journalEntry.deleteMany({ where });
   await prisma.period.deleteMany({ where });
@@ -229,7 +217,7 @@ describe("実績の確定", () => {
       coveredThrough: `${YEAR}-05-20`,
       monthEnd: `${YEAR}-05-31`,
       lagging: [{ kind: "card", id: cardId }],
-      unposted: 2,
+      unassigned: 2,
     });
     const byName = Object.fromEntries(
       data.actuals.sources.map((s: { name: string; lastDate: string | null }) => [
@@ -307,16 +295,11 @@ describe("実績の確定", () => {
 
   it("② 全ソースが月末日まで届くと入力済みになり、実績を確定できる", async () => {
     actingUser = editor;
-    await prisma.ledgerEntry.create({
-      data: {
-        tenantId,
-        kind: "CARD",
-        cardAccountId: cardId,
-        date: new Date(YEAR, 5, 2),
-        description: "書店",
-        amount: -800,
-      },
-    });
+    await createTestEntry(
+      tenantId,
+      { kind: "CARD", accountId: cardId },
+      { date: new Date(YEAR, 5, 2), description: "書店", flow: -800 },
+    );
     const before = await variance(5);
     expect(before.actuals.entered).toBe(true);
     expect(before.actuals.lagging).toEqual([]);
@@ -333,31 +316,36 @@ describe("実績の確定", () => {
     expect((await latest.json()).data).toEqual({ lastActualsConfirmed: `${YEAR}-05` });
   });
 
-  it("実績を確定した月は、実績の登録・変更・削除を受け付けない（409）", async () => {
+  it("科目×月への直接の登録・変更・削除の API は 410（実績は明細から入る）", async () => {
     actingUser = editor;
-    expect((await postFinancial()).status).toBe(409);
+    expect((await postFinancial()).status).toBe(410);
     const patch = await financialPatch(
       makeReq("PATCH", `http://x/api/financials/${mayRecordId}`, { amount: 1 }),
       params(mayRecordId),
     );
-    expect(patch.status).toBe(409);
+    expect(patch.status).toBe(410);
     const del = await financialDelete(
       makeReq("DELETE", `http://x/api/financials/${mayRecordId}`),
       params(mayRecordId),
     );
-    expect(del.status).toBe(409);
+    expect(del.status).toBe(410);
     const rec = await prisma.financialRecord.findUnique({ where: { id: mayRecordId } });
     expect(Number(rec?.amount)).toBe(42_000);
   });
 
-  it("実績を確定した月へは、CSV 取込・仕訳・明細の転記もできない", async () => {
+  it("実績を確定した月は、明細の登録・科目の変更・仕訳を受け付けない（409）", async () => {
     actingUser = editor;
-    const imported = await importRows(
-      [{ accountCode: food.code, fiscalYear: YEAR, month: 5, amount: 100 }],
-      tenantId,
+    const cash = await cashPost(
+      makeReq("POST", "http://x/api/actuals", {
+        date: `${YEAR}-05-10`,
+        description: "八百屋",
+        accountCode: food.code,
+        amount: 500,
+        direction: "expense",
+      }),
+      emptyRouteContext(),
     );
-    expect(imported.inserted).toBe(0);
-    expect(imported.errors[0].message).toContain("確定済み");
+    expect(cash.status).toBe(409);
 
     const journal = await journalsPost(
       makeReq("POST", "http://x/api/journals", {
@@ -365,7 +353,7 @@ describe("実績の確定", () => {
         description: "食料品",
         details: [
           { side: "debit", accountId: food.id, amount: 500 },
-          { side: "credit", accountId: cash.id, amount: 500 },
+          { side: "credit", accountId: cashAccount.id, amount: 500 },
         ],
       }),
       emptyRouteContext(),
@@ -374,13 +362,16 @@ describe("実績の確定", () => {
     // 実績に反映されない仕訳だけが残らない
     expect(await prisma.journalEntry.count({ where: { tenantId } })).toBe(0);
 
-    const post = await bankCategorize(
-      makeReq("PATCH", `http://x/api/bank-transactions/${bankTxnId}/categorize`, { post: true }),
+    const categorize = await bankCategorize(
+      makeReq("PATCH", `http://x/api/bank-transactions/${bankTxnId}/categorize`, {
+        categoryAccountId: food.id,
+      }),
       params(bankTxnId),
     );
-    expect(post.status).toBe(409);
-    const txn = await prisma.ledgerEntry.findUnique({ where: { id: bankTxnId } });
-    expect(txn?.postedRecordId).toBeNull();
+    expect(categorize.status).toBe(409);
+    const txn = await prisma.financialRecord.findUnique({ where: { id: bankTxnId } });
+    expect(txn?.accountId).toBeNull();
+    expect(Number(txn?.amount)).toBe(0);
   });
 
   it("③ 当月の実績を確定すると、翌月の予算を確定できる", async () => {
@@ -401,7 +392,7 @@ describe("実績の確定", () => {
       month: 5,
       next: { year: YEAR, month: 6 },
       prevActualsPending: false,
-      actuals: { entered: true, monthEnd: `${YEAR}-05-31`, unposted: 2 },
+      actuals: { entered: true, monthEnd: `${YEAR}-05-31`, unassigned: 2 },
     });
     expect(data.confirmedAt).not.toBeNull();
     expect(data.actuals.confirmedAt).not.toBeNull();
@@ -435,8 +426,16 @@ describe("実績の確定", () => {
     expect((await unconfirmActuals(5)).status).toBe(204);
     expect((await unconfirmBudget(5)).status).toBe(204);
 
-    // 解除後は実績を登録できる
+    // 解除後は明細に科目を付けられる（その明細が実績になる）
     actingUser = editor;
-    expect((await postFinancial()).status).toBe(201);
+    const categorize = await bankCategorize(
+      makeReq("PATCH", `http://x/api/bank-transactions/${bankTxnId}/categorize`, {
+        categoryAccountId: food.id,
+      }),
+      params(bankTxnId),
+    );
+    expect(categorize.status).toBe(200);
+    const txn = await prisma.financialRecord.findUnique({ where: { id: bankTxnId } });
+    expect([txn?.accountId, Number(txn?.amount)]).toEqual([food.id, 3_000]);
   });
 });

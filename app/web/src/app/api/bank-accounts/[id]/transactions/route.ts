@@ -6,10 +6,12 @@ import { parseBankCsv } from "@/lib/banktxn-import";
 import {
   BANK,
   CARD,
+  createEntry,
   ENTRY_REFS_INCLUDE,
   insertExternalEntries,
   toBankTxn,
 } from "@/lib/ledger-entries";
+import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 import { invalidateCache } from "@/lib/redis";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/import";
@@ -29,8 +31,8 @@ export const GET = withApi({
     if (!account) throw notFound();
 
     // チャージ（デビット・プリペイド・電子マネーへの資金移動）の明細はチャージ先を表示し、
-    // 科目紐付け・転記の対象外にする
-    const txns = await db.ledgerEntry.findMany({
+    // 科目を付けず、実績に入れない
+    const txns = await db.financialRecord.findMany({
       where: { ...BANK, bankAccountId: id },
       orderBy: { date: "desc" },
       take: 200,
@@ -54,18 +56,18 @@ export const POST = withApi({
       if (!parsed.success) throw badRequest("date, description, amount は必須です");
 
       const body = parsed.data;
-      const txn = await db.ledgerEntry.create({
-        data: {
-          tenantId: user.tenantId,
-          ...BANK,
-          bankAccountId: id,
+      const txn = await createEntry(
+        db,
+        user.tenantId,
+        { kind: "BANK", accountId: id },
+        {
           date: new Date(body.date),
           description: body.description,
-          amount: body.amount,
+          flow: body.amount,
           balance: body.balance ?? null,
           source: "MANUAL",
         },
-      });
+      );
       await audit("create_txn", `bank_account:${id}:${txn.id}`);
       await invalidateCache(`assets:summary:${user.tenantId}:*`);
       return NextResponse.json({ data: toBankTxn(txn) }, { status: 201 });
@@ -91,18 +93,22 @@ export const POST = withApi({
       );
     }
 
-    const inserted = await insertExternalEntries(
+    const { inserted, locked } = await insertExternalEntries(
       db,
       user.tenantId,
       { kind: "BANK", accountId: id },
       rows,
       "CSV",
     );
-    // 同じ内容の明細は externalId の一意制約で自動的にスキップされる（重複取込の防止）
-    const skipped = rows.length - inserted;
+    // 同じ内容の明細は externalId の一意制約で自動的にスキップされる（重複取込の防止）。
+    // 実績を確定済みの月の行は登録しない（locked）
+    const skipped = rows.length - inserted - locked;
     await audit("import_txn", `bank_account:${id}:${inserted}`);
     await invalidateCache(`assets:summary:${user.tenantId}:*`);
-    return NextResponse.json({ inserted, skipped, errors }, { status: errors.length ? 207 : 201 });
+    return NextResponse.json(
+      { inserted, skipped, locked, errors },
+      { status: errors.length ? 207 : 201 },
+    );
   },
 });
 
@@ -116,27 +122,38 @@ export const DELETE = withApi({
 
     // 口座間振替は 2 行で 1 件なので、片方を消したら対の行（相手口座側）も一緒に消す。
     // 片側だけ残すと相手口座の残高がずれるため。
-    const target = await db.ledgerEntry.findFirst({
+    const target = await db.financialRecord.findFirst({
       where: { id: query.txnId, ...BANK, bankAccountId: id },
-      select: { transferGroupId: true, chargeGroupId: true },
+      select: { transferGroupId: true, chargeGroupId: true, periodId: true },
     });
     if (!target) throw notFound();
+    // 実績を確定済みの月の明細は消せない（振替なら相手の行の月も見る）
+    const pairPeriods = target.transferGroupId
+      ? await db.financialRecord.findMany({
+          where: { transferGroupId: target.transferGroupId, ...BANK },
+          select: { periodId: true },
+        })
+      : [];
+    await assertActualsPeriodsEditable(db, [
+      target.periodId,
+      ...pairPeriods.map((p) => p.periodId),
+    ]);
 
     // チャージ先の明細と対にしていた場合、相手はチャージ先カードの明細で、この出金が消えても
-    // それ自体は実在する記録なので消さない。紐付けだけ外して科目紐付け・転記をできる状態に戻す。
+    // それ自体は実在する記録なので消さない。紐付けだけ外して科目を付けられる状態に戻す。
     if (target.chargeGroupId) {
-      await db.ledgerEntry.updateMany({
+      await db.financialRecord.updateMany({
         where: { chargeGroupId: target.chargeGroupId, ...CARD },
         data: { chargeGroupId: null },
       });
     }
 
     if (target.transferGroupId) {
-      await db.ledgerEntry.deleteMany({
+      await db.financialRecord.deleteMany({
         where: { transferGroupId: target.transferGroupId, ...BANK },
       });
     } else {
-      await db.ledgerEntry.delete({ where: { id: query.txnId, bankAccountId: id } });
+      await db.financialRecord.delete({ where: { id: query.txnId, bankAccountId: id } });
     }
     await audit("delete_txn", `bank_account:${id}:${query.txnId}`);
     await invalidateCache(`assets:summary:${user.tenantId}:*`);

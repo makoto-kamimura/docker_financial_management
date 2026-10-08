@@ -1,8 +1,8 @@
 // カード・電子マネー管理の「明細一覧」（web 版 /card-transactions の明細一覧タブと同じ機能）。
 //   - 利用明細の手動登録（利用 / 返金）
 //   - 取込時に自動でチャージ扱いにするルールの確認・削除
-//   - 全件 / 実績未転記 / 実績転記済 の絞り込み
-//   - 科目の紐付け・実績への転記（チャージ・チャージ入金は対象外）
+//   - 全件 / 未割り当て / 実績 の絞り込み
+//   - 科目の紐付け（付けた明細がそのまま実績。チャージ・チャージ入金は対象外）
 //   - チャージ先の指定・解除、固定決済（毎月このカードで決済される支払い）の登録・書き換え・解除、削除
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -17,7 +17,6 @@ import {
   patchCardRecurringPayment,
   postCardRecurringPayment,
   postCardTransaction,
-  postTransactionToActuals,
   setCardTransactionCharge,
   type Account,
   type CardRecurringPayment,
@@ -50,15 +49,15 @@ import {
 import { CARD_HELP, CARD_TERMS } from "../../shared/help-texts";
 
 const PAGE_SIZE = 30;
-type PostFilter = "all" | "unposted" | "posted";
+type PostFilter = "all" | "unassigned" | "actual";
 const POST_FILTERS: { value: PostFilter; label: string }[] = [
   { value: "all", label: "全件" },
-  { value: "unposted", label: "実績未転記" },
-  { value: "posted", label: "実績転記済" },
+  { value: "unassigned", label: "未割り当て" },
+  { value: "actual", label: "実績" },
 ];
 
 const normalizeLabel = (s: string) => s.trim().toLowerCase();
-// チャージ元・チャージ入金は資金の移動なので収支・転記・固定決済の対象外
+// チャージ元・チャージ入金は資金の移動なので収支・実績・固定決済の対象外
 const isMovement = (t: CardTransaction) =>
   t.transferToAccountId !== null || t.chargeGroupId !== null;
 
@@ -119,9 +118,10 @@ export function CardTransactionsList({
   }, [load]);
 
   const filtered = useMemo(() => {
-    if (filter === "posted") return txns.filter((t) => t.postedRecordId !== null);
-    if (filter === "unposted")
-      return txns.filter((t) => t.postedRecordId === null && !isMovement(t));
+    // 科目を付けた明細がそのまま実績。チャージは科目を付けない明細なので未割り当てから除く
+    if (filter === "actual") return txns.filter((t) => t.categoryAccountId !== null);
+    if (filter === "unassigned")
+      return txns.filter((t) => t.categoryAccountId === null && !isMovement(t));
     return txns;
   }, [txns, filter]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -168,7 +168,7 @@ export function CardTransactionsList({
     run(async () => {
       await setCardTransactionCharge(t.id, to, pairTxnId);
       return to === null
-        ? "チャージの指定を解除しました。科目の紐付け・転記ができるようになります。"
+        ? "チャージの指定を解除しました。科目を付けられるようになります。"
         : pairTxnId !== null
           ? "チャージ先の明細と紐付けました。両方とも収入・支出には計上されません。"
           : "チャージ（資金移動）に指定しました。収入・支出には計上されません。";
@@ -271,12 +271,12 @@ export function CardTransactionsList({
         </Card>
       )}
 
-      {/* チャージを「実績未転記」から外している理由も、ここで示す（web 版と同じ） */}
+      {/* チャージを「未割り当て」から外している理由も、ここで示す（web 版と同じ） */}
       <Notice>
         {CARD_HELP.list}
-        {filter === "unposted" ? ` ${CARD_HELP.postFilter}` : ""}
+        {filter === "unassigned" ? ` ${CARD_HELP.postFilter}` : ""}
       </Notice>
-      <TermList terms={CARD_TERMS} label="科目・転記・チャージ・固定決済の説明" />
+      <TermList terms={CARD_TERMS} label="科目・チャージ・固定決済の説明" />
 
       <Pills
         scroll={false}
@@ -324,7 +324,6 @@ export function CardTransactionsList({
                 ) : (
                   <TouchableOpacity
                     style={[s.chip, t.categoryAccount && s.chipSet]}
-                    disabled={t.postedRecordId !== null}
                     onPress={() => setPicking(t)}
                   >
                     <Text
@@ -342,33 +341,15 @@ export function CardTransactionsList({
                 <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
                 {isMovement(t) ? (
                   <LedgerBadge>実績対象外</LedgerBadge>
-                ) : t.postedRecordId !== null ? (
-                  <LedgerBadge tone="emerald">転記済み</LedgerBadge>
-                ) : null}
+                ) : t.categoryAccountId !== null ? (
+                  <LedgerBadge tone="emerald">実績</LedgerBadge>
+                ) : (
+                  <LedgerBadge tone="amber">未割り当て</LedgerBadge>
+                )}
               </>
             }
             actions={
               <>
-                {!isMovement(t) && t.postedRecordId === null && (
-                  <TouchableOpacity
-                    disabled={t.categoryAccountId === null}
-                    onPress={() =>
-                      run(async () => {
-                        const { updatedSiblingCount: n } = await postTransactionToActuals(
-                          "card",
-                          t.id,
-                        );
-                        return n > 0
-                          ? `実績へ転記しました。同じ摘要の未分類明細 ${n} 件にも科目を設定しました。`
-                          : "実績へ転記しました。";
-                      })
-                    }
-                  >
-                    <Text style={[s.link, t.categoryAccountId === null && s.disabled]}>
-                      転記する
-                    </Text>
-                  </TouchableOpacity>
-                )}
                 <TouchableOpacity onPress={() => setActions(t)}>
                   <Text style={s.link}>操作 ▾</Text>
                 </TouchableOpacity>
@@ -394,7 +375,13 @@ export function CardTransactionsList({
         onSelect={(id) => {
           const t = picking;
           setPicking(null);
-          if (t) run(() => categorizeTransaction("card", t.id, id));
+          if (t)
+            run(async () => {
+              const { updatedSiblingCount: n } = await categorizeTransaction("card", t.id, id);
+              return n > 0
+                ? `同じ摘要の未割り当ての明細 ${n} 件にも同じ科目を付けました。`
+                : undefined;
+            });
         }}
         onClose={() => setPicking(null)}
       />
@@ -524,8 +511,8 @@ function CardTxnActionsSheet({
           </Text>
           <Button small variant="danger" label="解除" onPress={onUncharge} />
         </View>
-      ) : txn.chargeGroupId || txn.postedRecordId !== null ? (
-        // 入金側は自分ではチャージ先を持たない。転記済みは先に転記の取り消しが要る
+      ) : txn.chargeGroupId ? (
+        // 入金側は自分ではチャージ先を持たない
         <Text style={s.muted}>対象外</Text>
       ) : chargeTargets.length === 0 ? (
         <Text style={s.muted}>チャージ先未登録</Text>

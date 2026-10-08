@@ -49,15 +49,13 @@ export function signedFinancialRecordAmount(detail: {
 }
 
 /**
- * 入出金明細（銀行・カード）を実績へ直接転記するときの符号付き金額。
+ * 入出金明細（現金・銀行・カード）に科目を付けたときの、実績としての符号付き金額。
  *
  * 仕訳を経由する場合は借方・貸方の入れ替えで符号が決まる（{@link signedFinancialRecordAmount}）が、
- * 口座に勘定科目が紐付いていない場合は FinancialRecord を直接書くため、ここで同じ規約を再現する。
- * 以前は Math.abs() で符号を捨てていたため、収入科目に紐付いた出金明細（受け取った仕送りの返金など）が
- * プラスの収入として計上され、相殺されるどころか二重計上になっていた。
+ * 明細は仕訳を経由せずにそのまま実績になるため、ここで同じ規約を再現する（lib/ledger-entries.ts の entryActualAmount）。
+ * 収入科目に紐付いた出金明細（受け取った仕送りの返金など）はマイナスの収入として、同じ月の入金と相殺される。
  *
- * @param spendAmount 明細の金額を「支出が正」に正規化した値
- *   （銀行明細は出金が負なので `-amount`、カード明細は利用が正なのでそのまま `amount`）
+ * @param spendAmount 明細の金額を「支出が正」に正規化した値（明細の flow は出金が負なので `-flow`）
  */
 export function signedActualAmountFromSpend(
   category: AccountCategoryValue,

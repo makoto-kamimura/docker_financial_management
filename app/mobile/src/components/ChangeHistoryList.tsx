@@ -1,11 +1,10 @@
-// 予算・実績の変更履歴（web 版 予算管理 / 実績管理の「履歴」タブと同じ列・並べ替え・ページ送り）。
-import { useState } from "react";
+// 予算の変更履歴（web 版 予算管理の「履歴」タブと同じ列・並べ替え・ページ送り）。
+// 実績の履歴は、現金・銀行・カードの明細の一覧（実績管理の「履歴」）になった。
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import type { Account, ChangeHistoryRow, HistoryQuery, HistorySort, ViewMode } from "../api";
+import type { ChangeHistoryRow, HistoryQuery, HistorySort, ViewMode } from "../api";
 import { displayName } from "../shared/display-name";
 import { fmtDateTime, yen } from "../format";
 import { CHANGE_ACTION_LABEL as ACTION_LABEL } from "../shared/labels";
-import { AccountPickerModal } from "./CategoryPickerModal";
 import { LedgerCount, LedgerRow } from "./LedgerRow";
 import { EmptyText, Pager } from "./ui";
 
@@ -49,16 +48,8 @@ type Props = {
   loading: boolean;
   viewMode: ViewMode;
   emptyText: string;
-  /** 共通の行の「口座」に出す名前（実績の履歴は「現金」、予算の履歴は「予算」） */
+  /** 共通の行の「口座」に出す名前（予算の履歴は「予算」） */
   sourceLabel?: string;
-  /**
-   * 指定すると、削除以外の行の勘定科目を押して付け替えられる（実績の履歴のみ。
-   * PATCH /financials/{id} の accountId）。エラーは行の下に出す。
-   */
-  accountEdit?: {
-    accounts: Account[];
-    onChange: (row: ChangeHistoryRow, accountId: number) => Promise<void>;
-  };
 };
 
 export function ChangeHistoryList({
@@ -69,26 +60,8 @@ export function ChangeHistoryList({
   loading,
   viewMode,
   emptyText,
-  sourceLabel = "現金",
-  accountEdit,
+  sourceLabel = "予算",
 }: Props) {
-  const [editing, setEditing] = useState<ChangeHistoryRow | null>(null);
-  const [errors, setErrors] = useState<Record<number, string>>({});
-
-  async function changeAccount(row: ChangeHistoryRow, account: Account | null) {
-    setEditing(null);
-    if (!account || !accountEdit || account.id === row.account.id) return;
-    setErrors((e) => ({ ...e, [row.historyId]: "" }));
-    try {
-      await accountEdit.onChange(row, account.id);
-    } catch (e) {
-      setErrors((m) => ({
-        ...m,
-        [row.historyId]: e instanceof Error ? e.message : "勘定科目の変更に失敗しました。",
-      }));
-    }
-  }
-
   return (
     <View>
       {/* 並べ替え（web 版の列見出しクリックに相当） */}
@@ -117,40 +90,29 @@ export function ChangeHistoryList({
       ) : (
         <>
           <LedgerCount total={total} offset={query.offset} pageSize={query.limit} />
-          {rows.map((h) => {
-            const editable = accountEdit && h.action !== "delete" && h.targetId !== null;
-            return (
-              <LedgerRow
-                key={h.historyId}
-                date={fmtDateTime(h.changedAt)}
-                account={sourceLabel}
-                description={`${h.period.fiscalYear}年${h.period.month}月`}
-                amount={yen(h.amount)}
-                tone="none"
-                category={
-                  <View>
-                    <TouchableOpacity disabled={!editable} onPress={() => setEditing(h)}>
-                      <Text style={[s.account, editable && s.accountEditable]}>
-                        <Text style={s.code}>{h.account.code} </Text>
-                        {displayName(h.account, viewMode)}
-                        {editable ? " ▾" : ""}
-                      </Text>
-                    </TouchableOpacity>
-                    {errors[h.historyId] ? (
-                      <Text style={s.error}>{errors[h.historyId]}</Text>
-                    ) : null}
-                  </View>
-                }
-                status={
-                  <View style={[s.badge, { backgroundColor: ACTION_BG[h.action] ?? "#f1f5f9" }]}>
-                    <Text style={[s.badgeText, { color: ACTION_COLOR[h.action] ?? "#374151" }]}>
-                      {ACTION_LABEL[h.action] ?? h.action}
-                    </Text>
-                  </View>
-                }
-              />
-            );
-          })}
+          {rows.map((h) => (
+            <LedgerRow
+              key={h.historyId}
+              date={fmtDateTime(h.changedAt)}
+              account={sourceLabel}
+              description={`${h.period.fiscalYear}年${h.period.month}月`}
+              amount={yen(h.amount)}
+              tone="none"
+              category={
+                <Text style={s.account}>
+                  <Text style={s.code}>{h.account.code} </Text>
+                  {displayName(h.account, viewMode)}
+                </Text>
+              }
+              status={
+                <View style={[s.badge, { backgroundColor: ACTION_BG[h.action] ?? "#f1f5f9" }]}>
+                  <Text style={[s.badgeText, { color: ACTION_COLOR[h.action] ?? "#374151" }]}>
+                    {ACTION_LABEL[h.action] ?? h.action}
+                  </Text>
+                </View>
+              }
+            />
+          ))}
           <Pager
             offset={query.offset}
             total={total}
@@ -158,23 +120,6 @@ export function ChangeHistoryList({
             onChange={(offset) => onQueryChange({ ...query, offset })}
           />
         </>
-      )}
-
-      {accountEdit && (
-        <AccountPickerModal
-          visible={editing !== null}
-          accounts={accountEdit.accounts}
-          title="勘定科目を変更"
-          description={
-            editing
-              ? `${editing.period.fiscalYear}年${editing.period.month}月 ${yen(editing.amount)}`
-              : undefined
-          }
-          note="転記元の銀行・カード明細がある実績は、明細側の科目も一緒に変わります。"
-          currentId={editing?.account.id ?? null}
-          onSelect={(a) => editing && changeAccount(editing, a)}
-          onClose={() => setEditing(null)}
-        />
       )}
     </View>
   );
@@ -210,9 +155,7 @@ const s = StyleSheet.create({
   badgeText: { fontSize: 11, fontWeight: "700" },
   info: { flex: 1 },
   account: { fontSize: 13, color: "#1e293b", fontWeight: "500" },
-  accountEditable: { color: "#4338ca" },
   code: { fontSize: 11, color: "#94a3b8" },
-  error: { fontSize: 10, color: "#dc2626", marginTop: 2 },
   meta: { fontSize: 10, color: "#94a3b8", marginTop: 2 },
   amount: { fontSize: 13, fontWeight: "700", color: "#1e293b" },
 });

@@ -1,5 +1,6 @@
 import type { TenantDbClient } from "@/lib/tenant-db";
 import { LINKED_ACCOUNT_TYPE_LABELS, type LinkedAccountType } from "@/lib/linked-account-type";
+import { UNPAIRED } from "@/lib/ledger-entries";
 
 // 実績がどこまで入力済みかの判定（実績管理の「実績の確定」＝ ② の前提）。
 //
@@ -98,7 +99,7 @@ export function buildCoverageSnapshot(
 
 /** 銀行口座・カード台帳の全ソースと、それぞれの明細の最終日 */
 export async function loadActualsSources(
-  db: Pick<TenantDbClient, "bankAccount" | "linkedAccount" | "ledgerEntry">,
+  db: Pick<TenantDbClient, "bankAccount" | "linkedAccount" | "financialRecord">,
   tenantId: number,
 ): Promise<ActualsSource[]> {
   const [banks, cards, bankMax, cardMax] = await Promise.all([
@@ -112,12 +113,12 @@ export async function loadActualsSources(
       select: { id: true, name: true, type: true },
       orderBy: { id: "asc" },
     }),
-    db.ledgerEntry.groupBy({
+    db.financialRecord.groupBy({
       by: ["bankAccountId"],
       _max: { date: true },
       where: { tenantId, kind: "BANK" },
     }),
-    db.ledgerEntry.groupBy({
+    db.financialRecord.groupBy({
       by: ["cardAccountId"],
       _max: { date: true },
       where: { tenantId, kind: "CARD" },
@@ -150,38 +151,36 @@ export async function loadActualsSources(
 }
 
 /**
- * 対象月の明細のうち、実績にまだ転記していないものの件数（参考表示。確定は止めない）。
- * 口座間振替・チャージは転記の対象外なので数えない。
+ * 対象月の明細のうち、科目が付いていない（未割り当ての）ものの件数。
+ * 口座間振替・チャージは科目を付けない明細なので数えない。
  */
-export async function countUnpostedTxns(
-  db: Pick<TenantDbClient, "ledgerEntry">,
+export async function countUnassignedEntries(
+  db: Pick<TenantDbClient, "financialRecord">,
   tenantId: number,
   year: number,
   month: number,
 ): Promise<number> {
-  return db.ledgerEntry.count({
+  return db.financialRecord.count({
     where: {
       tenantId,
-      kind: { in: ["BANK", "CARD"] },
+      kind: { not: null },
+      accountId: null,
       date: { gte: new Date(year, month - 1, 1), lt: new Date(year, month, 1) },
-      postedRecordId: null,
-      transferGroupId: null,
-      chargeToCardId: null,
-      chargeGroupId: null,
+      ...UNPAIRED,
     },
   });
 }
 
-/** 対象月の実績の入力状況（ソース一覧・判定・未転記件数） */
+/** 対象月の実績の入力状況（ソース一覧・判定・未割り当ての件数） */
 export async function loadActualsCoverage(
-  db: Pick<TenantDbClient, "bankAccount" | "linkedAccount" | "ledgerEntry">,
+  db: Pick<TenantDbClient, "bankAccount" | "linkedAccount" | "financialRecord">,
   tenantId: number,
   year: number,
   month: number,
 ) {
-  const [sources, unposted] = await Promise.all([
+  const [sources, unassigned] = await Promise.all([
     loadActualsSources(db, tenantId),
-    countUnpostedTxns(db, tenantId, year, month),
+    countUnassignedEntries(db, tenantId, year, month),
   ]);
-  return { sources, unposted, ...judgeActualsCoverage(sources, year, month) };
+  return { sources, unassigned, ...judgeActualsCoverage(sources, year, month) };
 }

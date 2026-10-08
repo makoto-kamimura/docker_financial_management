@@ -3,7 +3,7 @@
  *
  * - PATCH /api/auth/me … 自分の表示名だけが変わり、監査ログに残る
  * - GET /api/audit-logs … 自分のテナントの記録だけを、今の表示名つきで返す
- * - POST /api/actuals … 対当科目を省くと、現金の科目で仕訳を作る（実績のカレンダーの「現金」）
+ * - POST /api/actuals … 現金の明細を科目つきで作る（実績のカレンダーの「現金」。その行がそのまま実績）
  *
  * 実行: `npm run test:integration`（DB 起動が前提）
  */
@@ -146,7 +146,7 @@ describe("GET /api/audit-logs", () => {
 });
 
 describe("POST /api/actuals", () => {
-  it("対当科目を省くと、現金の科目で仕訳を作る", async () => {
+  it("現金の明細を科目つきで作り、その行がそのまま実績になる", async () => {
     actingUser = admin;
     const res = await actualsPost(
       makeReq("POST", "http://x/api/actuals", {
@@ -160,8 +160,9 @@ describe("POST /api/actuals", () => {
     );
     expect(res.status).toBe(201);
     const { data } = await res.json();
-    expect(data.paymentMethod).toBe("cash");
-    const credit = data.details.find((d: { side: string }) => d.side === "credit");
-    expect(credit.account.name).toBe("現金");
+    expect(data).toMatchObject({ amount: -1200, description: "八百屋" });
+    const row = await prisma.financialRecord.findUniqueOrThrow({ where: { id: data.id } });
+    expect([row.kind, Number(row.flow), Number(row.amount)]).toEqual(["CASH", -1200, 1200]);
+    expect(await prisma.journalEntry.count({ where: { tenantId } })).toBe(0);
   });
 });

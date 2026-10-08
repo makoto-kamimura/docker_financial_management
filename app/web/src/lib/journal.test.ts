@@ -44,7 +44,7 @@ describe("signedFinancialRecordAmount (D-5b 符号規約)", () => {
   });
 });
 
-describe("signedActualAmountFromSpend（明細を直接転記するときの符号）", () => {
+describe("signedActualAmountFromSpend（明細に科目を付けたときの実績の符号）", () => {
   // 銀行明細は出金が負なので -amount を渡す
   const fromBankTxn = (category: "REVENUE" | "EXPENSE" | "COGS", txnAmount: number) =>
     signedActualAmountFromSpend(category, -txnAmount);

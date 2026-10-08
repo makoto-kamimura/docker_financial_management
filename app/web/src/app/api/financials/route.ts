@@ -1,17 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
-import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
+import { DIRECT_ACTUALS_GONE_MESSAGE, gone } from "@/lib/api-error";
 import { aggregate, type Granularity, type RecordWithPeriod } from "@/lib/aggregate";
-import { resolvePeriod, requireAccountByCode } from "@/lib/period";
-
-const FinancialRecordSchema = z.object({
-  accountCode: z.string(),
-  departmentId: z.number().int().optional(),
-  fiscalYear: z.number().int(),
-  month: z.number().int().min(1).max(12),
-  amount: z.number(),
-});
+import { ACTUAL_WHERE } from "@/lib/actuals";
 
 // GET /api/financials?granularity=month&accountCode=4000
 export const GET = withApi({
@@ -27,6 +19,7 @@ export const GET = withApi({
     const records = await db.financialRecord.findMany({
       where: {
         tenantId,
+        ...ACTUAL_WHERE,
         ...(query.accountCode ? { account: { code: query.accountCode } } : {}),
       },
       include: { period: true },
@@ -43,26 +36,11 @@ export const GET = withApi({
   },
 });
 
-// POST /api/financials … 実績データの登録（手入力）
+// POST /api/financials … 実績データの登録（科目×月への手入力）。
+// 実績は明細（現金・銀行・カード）に科目を付けると入るようにしたため、直接の登録はやめた（410）。
 export const POST = withApi({
   role: "editor",
-  schema: FinancialRecordSchema,
-  handler: async ({ user, db, body, audit }) => {
-    const { accountCode, departmentId, fiscalYear, month, amount } = body;
-    const { tenantId } = user;
-
-    const account = await requireAccountByCode(db, tenantId, accountCode);
-    const period = await resolvePeriod(db, tenantId, fiscalYear, month);
-    await assertActualsPeriodsEditable(db, [period.id]);
-
-    const record = await db.financialRecord.create({
-      data: { tenantId, accountId: account.id, departmentId, periodId: period.id, amount },
-    });
-    await db.financialRecordHistory.create({
-      data: { recordId: record.id, userId: user.id, action: "create", amount },
-    });
-    await audit("create", `financial_record:${record.id}`);
-
-    return NextResponse.json({ data: record }, { status: 201 });
+  handler: async () => {
+    throw gone(DIRECT_ACTUALS_GONE_MESSAGE);
   },
 });

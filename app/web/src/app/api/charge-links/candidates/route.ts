@@ -11,7 +11,7 @@ import { CARD, cardSpend } from "@/lib/ledger-entries";
 // チャージ先に入った明細の候補を返す。金額と日付が近いものから並べるだけで確定はせず、
 // 実際にどれと対にするかは画面で人が選ぶ（銀行の振替候補と同じ考え方）。
 //
-// 対象はチャージ先カードの明細のうち、まだ転記もチャージ指定も紐付けもされていないもの。
+// 対象はチャージ先カードの明細のうち、まだチャージ指定も紐付けもされておらず、実績を確定済みの月でないもの。
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({
@@ -33,11 +33,12 @@ export const GET = withApi({
     const chargeDate = new Date(query.date);
     if (Number.isNaN(chargeDate.getTime())) throw notFound("日付が不正です");
 
-    const rows = await db.ledgerEntry.findMany({
+    const rows = await db.financialRecord.findMany({
       where: {
         ...CARD,
         cardAccountId: target.id,
-        postedRecordId: null,
+        // 対にすると科目が外れて実績から抜けるので、実績を確定済みの月の明細は出さない
+        period: { actualsConfirmation: { is: null } },
         chargeGroupId: null,
         chargeToCardId: null,
       },
@@ -45,9 +46,9 @@ export const GET = withApi({
         id: true,
         date: true,
         description: true,
-        amount: true,
-        categoryAccountId: true,
-        categoryAccount: { select: { id: true, code: true, name: true } },
+        flow: true,
+        accountId: true,
+        account: { select: { id: true, code: true, name: true } },
       },
       orderBy: { date: "desc" },
       // 期間で絞るのは rankChargeCandidates 側（日付のずれ）に任せるが、
@@ -57,7 +58,14 @@ export const GET = withApi({
 
     const ranked = rankChargeCandidates(
       // 候補の照合はカードの符号（+利用 / −入金）で行う
-      rows.map((r) => ({ ...r, amount: cardSpend(r.amount) })),
+      rows.map((r) => ({
+        id: r.id,
+        date: r.date!,
+        description: r.description!,
+        amount: cardSpend(r.flow),
+        categoryAccountId: r.accountId,
+        categoryAccount: r.account,
+      })),
       { amount: query.amount, date: chargeDate },
       { maxDayGap: query.maxDayGap },
     );

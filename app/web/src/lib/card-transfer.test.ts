@@ -30,7 +30,7 @@ describe("resolveTransferTarget", () => {
 });
 
 describe("validateCardTransferTarget", () => {
-  const txn = { id: 1, accountId: 9, description: "[信] ＪＡＬ　Ｐａｙ", postedRecordId: null };
+  const txn = { id: 1, accountId: 9, description: "[信] ＪＡＬ　Ｐａｙ" };
 
   it("別カードへのチャージなら null", () => {
     expect(validateCardTransferTarget(txn, 7)).toBeNull();
@@ -38,9 +38,5 @@ describe("validateCardTransferTarget", () => {
 
   it("自分自身へのチャージは弾く", () => {
     expect(validateCardTransferTarget(txn, 9)).toContain("同じカード");
-  });
-
-  it("転記済みは弾く", () => {
-    expect(validateCardTransferTarget({ ...txn, postedRecordId: 5 }, 7)).toContain("転記済み");
   });
 });

@@ -56,7 +56,7 @@ export function LedgerBadge({
   tone = "slate",
   children,
 }: {
-  tone?: "slate" | "emerald" | "sky" | "indigo";
+  tone?: "slate" | "emerald" | "sky" | "indigo" | "amber";
   children: ReactNode;
 }) {
   return <Text style={[s.badge, badgeTone[tone]]}>{children}</Text>;
@@ -86,6 +86,7 @@ const badgeTone = StyleSheet.create({
   emerald: { backgroundColor: "#ecfdf5", color: "#047857" },
   sky: { backgroundColor: "#f0f9ff", color: "#0369a1" },
   indigo: { backgroundColor: "#eef2ff", color: "#4f46e5" },
+  amber: { backgroundColor: "#fffbeb", color: "#b45309" },
 });
 
 const s = StyleSheet.create({

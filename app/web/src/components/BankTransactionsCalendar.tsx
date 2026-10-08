@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import { SectionLead } from "@/components/Explain";
 import { Notice } from "@/components/ui";
 import { BANK_HELP } from "@/lib/help-texts";
+import { invalidateActuals } from "@/lib/invalidate-actuals";
 
 type BankAccount = { id: number; name: string; bankName: string };
 type Txn = {
@@ -124,9 +125,10 @@ export function BankTransactionsCalendar({ accountId }: Props) {
   // 明細が変わると残高を使う表示（残高の推移・ダッシュボードのサマリ）も変わる
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["bank-txns"] });
-    for (const key of ["bank-accounts", "funding-plan", "cash-outlook", "bank-summary"]) {
+    for (const key of ["bank-accounts", "funding-plan", "bank-summary"]) {
       qc.invalidateQueries({ queryKey: [key] });
     }
+    invalidateActuals(qc);
   };
 
   async function submit(e: React.FormEvent) {
@@ -168,9 +170,13 @@ export function BankTransactionsCalendar({ accountId }: Props) {
       ? `「${t.description}」を削除してよいですか？振替の相手の口座の明細も一緒に削除されます。`
       : `「${t.description}」を削除してよいですか？`;
     if (!confirm(message)) return;
-    await fetch(`/api/bank-accounts/${t.accountId}/transactions?txnId=${t.id}`, {
+    const res = await fetch(`/api/bank-accounts/${t.accountId}/transactions?txnId=${t.id}`, {
       method: "DELETE",
     });
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      setError(j?.error ?? "削除に失敗しました");
+    }
     refresh();
   }
 

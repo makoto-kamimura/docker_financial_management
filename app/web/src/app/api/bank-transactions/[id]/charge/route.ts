@@ -7,12 +7,13 @@ import { BANK, CARD, ENTRY_REFS_INCLUDE, toBankTxn } from "@/lib/ledger-entries"
 import { validateChargePair } from "@/lib/charge-link";
 import { isChargeableType } from "@/lib/linked-account-type";
 import { invalidateCache } from "@/lib/redis";
+import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 
 // PATCH /api/bank-transactions/[id]/charge … 銀行明細のチャージ指定・解除（editor 以上）
 //
 // 銀行口座からデビット・プリペイド・電子マネーへチャージした出金は、それ自体が支出ではなく
 // 資金の移動で、実際の支出はチャージ先の利用明細で計上される。両方を科目に紐付けると
-// 二重計上になるため、チャージ先を指定した明細は科目紐付け・実績転記の対象外にする
+// 二重計上になるため、チャージ先を指定した明細は科目を外し、実績に入れない
 // （カード明細の transferToAccountId と同じ扱い）。口座残高には従来どおり反映される。
 //
 // pairTxnId を添えると、チャージ先に入った明細と対にする（共通の chargeGroupId を与える）。
@@ -27,11 +28,11 @@ export const PATCH = withApi({
   handler: async ({ user, db, id, body, audit }) => {
     const { tenantId } = user;
 
-    const txn = await db.ledgerEntry.findFirst({
+    const txn = await db.financialRecord.findFirst({
       where: { id, ...BANK },
       select: {
         id: true,
-        postedRecordId: true,
+        periodId: true,
         transferGroupId: true,
         chargeToCardId: true,
         chargeGroupId: true,
@@ -44,13 +45,8 @@ export const PATCH = withApi({
     }
 
     let pairTxnId: number | null = null;
+    let pairPeriodId: number | null = null;
     if (body.chargeToAccountId !== null) {
-      // 転記済みは実績が既に立っており、対象外にしても実績は消えないため先に取り消しが要る
-      if (txn.postedRecordId !== null) {
-        throw badRequest(
-          "実績へ転記済みの明細はチャージにできません（先に転記を取り消してください）",
-        );
-      }
       if (txn.transferGroupId !== null) {
         throw badRequest("口座間振替として紐付け済みの明細はチャージにできません");
       }
@@ -67,12 +63,12 @@ export const PATCH = withApi({
       }
 
       if (body.pairTxnId) {
-        const pair = await db.ledgerEntry.findFirst({
+        const pair = await db.financialRecord.findFirst({
           where: { id: body.pairTxnId, ...CARD },
           select: {
             id: true,
             cardAccountId: true,
-            postedRecordId: true,
+            periodId: true,
             chargeGroupId: true,
             chargeToCardId: true,
           },
@@ -82,7 +78,6 @@ export const PATCH = withApi({
           {
             id: pair.id,
             accountId: pair.cardAccountId!,
-            postedRecordId: pair.postedRecordId,
             chargeGroupId: pair.chargeGroupId,
             transferToAccountId: pair.chargeToCardId,
           },
@@ -90,41 +85,48 @@ export const PATCH = withApi({
         );
         if (pairError) throw badRequest(pairError);
         pairTxnId = pair.id;
+        pairPeriodId = pair.periodId;
       }
     }
 
     // 既に対になっているチャージ先の明細（解除・付け替えのときに一緒に外す）
     const previousPairIds = txn.chargeGroupId
       ? (
-          await db.ledgerEntry.findMany({
+          await db.financialRecord.findMany({
             where: { chargeGroupId: txn.chargeGroupId, ...CARD },
             select: { id: true },
           })
         ).map((t) => t.id)
       : [];
 
+    // チャージにすると科目が外れて実績から抜けるので、実績を確定済みの月の明細は変えられない
+    await assertActualsPeriodsEditable(db, [
+      txn.periodId,
+      ...(pairPeriodId === null ? [] : [pairPeriodId]),
+    ]);
+
     const chargeGroupId = pairTxnId === null ? null : randomUUID();
 
     const updated = await db.$transaction(async (tx) => {
       if (previousPairIds.length > 0) {
-        await tx.ledgerEntry.updateMany({
+        await tx.financialRecord.updateMany({
           where: { id: { in: previousPairIds } },
           data: { chargeGroupId: null },
         });
       }
       if (pairTxnId !== null) {
-        await tx.ledgerEntry.update({
+        await tx.financialRecord.update({
           where: { id: pairTxnId },
-          data: { chargeGroupId, categoryAccountId: null },
+          data: { chargeGroupId, accountId: null, amount: 0 },
         });
       }
-      return tx.ledgerEntry.update({
+      return tx.financialRecord.update({
         where: { id },
         // チャージは支出ではないので、付いていた科目はここで外す
         data: {
           chargeToCardId: body.chargeToAccountId,
           chargeGroupId,
-          ...(body.chargeToAccountId !== null ? { categoryAccountId: null } : {}),
+          ...(body.chargeToAccountId !== null ? { accountId: null, amount: 0 } : {}),
         },
         include: ENTRY_REFS_INCLUDE,
       });

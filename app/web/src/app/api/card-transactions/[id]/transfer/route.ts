@@ -8,6 +8,7 @@ import { validateCardTransferTarget } from "@/lib/card-transfer";
 import { validateChargePair } from "@/lib/charge-link";
 import { isChargeableType } from "@/lib/linked-account-type";
 import { invalidateCache } from "@/lib/redis";
+import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 
 // PATCH /api/card-transactions/[id]/transfer … 明細 1 件のチャージ指定・解除（editor 以上）
 //
@@ -15,7 +16,7 @@ import { invalidateCache } from "@/lib/redis";
 // null を渡すと解除して通常の利用明細に戻す。銀行明細の振替紐付け／解除に対応する操作。
 //
 // pairTxnId を添えると、チャージ先に入った明細と対にする（共通の chargeGroupId を与える）。
-// 対にした入金明細も科目紐付け・実績転記の対象外になり、チャージが二重計上されなくなる。
+// 対にした入金明細も科目を外して実績に入れず、チャージが二重計上されなくなる。
 // チャージ先に入金の記録が無い場合（利用明細しか出てこない CSV）は省略できる。
 const Schema = z.object({
   transferToAccountId: z.number().int().positive().nullable(),
@@ -28,14 +29,13 @@ export const PATCH = withApi({
   handler: async ({ user, db, id, body, audit }) => {
     const { tenantId } = user;
 
-    const entry = await db.ledgerEntry.findFirst({
+    const entry = await db.financialRecord.findFirst({
       where: { id, ...CARD },
       select: {
         id: true,
         cardAccountId: true,
         description: true,
-        categoryAccountId: true,
-        postedRecordId: true,
+        periodId: true,
         chargeToCardId: true,
         chargeGroupId: true,
       },
@@ -44,6 +44,7 @@ export const PATCH = withApi({
     const txn = {
       ...entry,
       accountId: entry.cardAccountId!,
+      description: entry.description ?? "",
       transferToAccountId: entry.chargeToCardId,
     };
 
@@ -52,6 +53,7 @@ export const PATCH = withApi({
     }
 
     let pairTxnId: number | null = null;
+    let pairPeriodId: number | null = null;
     if (body.transferToAccountId !== null) {
       const error = validateCardTransferTarget(txn, body.transferToAccountId);
       if (error) throw badRequest(error);
@@ -70,12 +72,12 @@ export const PATCH = withApi({
 
       if (body.pairTxnId) {
         if (body.pairTxnId === id) throw badRequest("同じ明細どうしは紐付けできません");
-        const pair = await db.ledgerEntry.findFirst({
+        const pair = await db.financialRecord.findFirst({
           where: { id: body.pairTxnId, ...CARD },
           select: {
             id: true,
             cardAccountId: true,
-            postedRecordId: true,
+            periodId: true,
             chargeGroupId: true,
             chargeToCardId: true,
           },
@@ -85,7 +87,6 @@ export const PATCH = withApi({
           {
             id: pair.id,
             accountId: pair.cardAccountId!,
-            postedRecordId: pair.postedRecordId,
             chargeGroupId: pair.chargeGroupId,
             transferToAccountId: pair.chargeToCardId,
           },
@@ -93,6 +94,7 @@ export const PATCH = withApi({
         );
         if (pairError) throw badRequest(pairError);
         pairTxnId = pair.id;
+        pairPeriodId = pair.periodId;
       }
     }
 
@@ -101,44 +103,50 @@ export const PATCH = withApi({
     const previousGroupId = txn.chargeGroupId;
     const previousPairIds = previousGroupId
       ? (
-          await db.ledgerEntry.findMany({
+          await db.financialRecord.findMany({
             where: { chargeGroupId: previousGroupId, id: { not: id }, ...CARD },
             select: { id: true },
           })
         ).map((t) => t.id)
       : [];
 
+    // チャージにすると科目が外れて実績から抜けるので、実績を確定済みの月の明細は変えられない
+    await assertActualsPeriodsEditable(db, [
+      txn.periodId,
+      ...(pairPeriodId === null ? [] : [pairPeriodId]),
+    ]);
+
     const chargeGroupId = pairTxnId === null ? null : randomUUID();
 
     // 対の片側だけが更新されて壊れることが無いよう、1 トランザクションでまとめて更新する
     const updated = await db.$transaction(async (tx) => {
       if (previousPairIds.length > 0) {
-        await tx.ledgerEntry.updateMany({
+        await tx.financialRecord.updateMany({
           where: { id: { in: previousPairIds } },
           data: { chargeGroupId: null },
         });
       }
       if (previousGroupId) {
-        await tx.ledgerEntry.updateMany({
+        await tx.financialRecord.updateMany({
           where: { chargeGroupId: previousGroupId, kind: "BANK" },
           data: { chargeGroupId: null },
         });
       }
       if (pairTxnId !== null) {
         // 入金側も収支の対象外にする（付いていた科目は外す）
-        await tx.ledgerEntry.update({
+        await tx.financialRecord.update({
           where: { id: pairTxnId },
-          data: { chargeGroupId, categoryAccountId: null },
+          data: { chargeGroupId, accountId: null, amount: 0 },
         });
       }
-      return tx.ledgerEntry.update({
+      return tx.financialRecord.update({
         where: { id },
         // チャージにするときは支出ではないので科目を外す。解除時は未紐付けのまま残し、
         // どの科目だったかは覚えていないので改めて選び直してもらう
         data: {
           chargeToCardId: body.transferToAccountId,
           chargeGroupId,
-          ...(body.transferToAccountId !== null ? { categoryAccountId: null } : {}),
+          ...(body.transferToAccountId !== null ? { accountId: null, amount: 0 } : {}),
         },
         include: ENTRY_REFS_INCLUDE,
       });

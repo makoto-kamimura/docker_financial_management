@@ -25,6 +25,7 @@ vi.mock("@/lib/authz", () => ({
 }));
 
 import { prisma } from "@/lib/prisma";
+import { createTestEntry } from "@/lib/test-entries";
 import { emptyRouteContext } from "@/lib/api-handler";
 import { GET as fundingGet } from "./funding/route";
 import { GET as flowGet } from "./flow/route";
@@ -70,7 +71,15 @@ async function suggestions() {
 }
 
 beforeAll(async () => {
-  for (const t of ["tenants", "users", "bank_accounts", "ledger_entries", "loans", "transfers"]) {
+  for (const t of [
+    "tenants",
+    "users",
+    "bank_accounts",
+    "financial_records",
+    "periods",
+    "loans",
+    "transfers",
+  ]) {
     await prisma.$executeRawUnsafe(
       `SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 1))`,
     );
@@ -91,16 +100,17 @@ beforeAll(async () => {
   });
   bankId = bank.id;
   // 直近 4 か月、毎月 27 日に家賃 8 万円の引き落とし（今月は除く）
-  await prisma.ledgerEntry.createMany({
-    data: [1, 2, 3, 4].map((i) => ({
+  for (const i of [1, 2, 3, 4]) {
+    await createTestEntry(
       tenantId,
-      kind: "BANK" as const,
-      bankAccountId: bankId,
-      date: new Date(now.getFullYear(), now.getMonth() - i, 27),
-      description: `家賃 ${i}`,
-      amount: -80_000,
-    })),
-  });
+      { kind: "BANK", accountId: bankId },
+      {
+        date: new Date(now.getFullYear(), now.getMonth() - i, 27),
+        description: `家賃 ${i}`,
+        flow: -80_000,
+      },
+    );
+  }
   await prisma.loan.create({
     data: {
       tenantId,
@@ -123,7 +133,8 @@ afterAll(async () => {
   await prisma.recurringSuggestionDismissal.deleteMany({ where });
   await prisma.transfer.deleteMany({ where });
   await prisma.loan.deleteMany({ where });
-  await prisma.ledgerEntry.deleteMany({ where: { tenantId } });
+  await prisma.financialRecord.deleteMany({ where: { tenantId } });
+  await prisma.period.deleteMany({ where: { tenantId } });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.tenant.delete({ where: { id: tenantId } });

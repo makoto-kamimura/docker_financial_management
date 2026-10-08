@@ -10,6 +10,7 @@ import {
   type BudgetCycleCategory,
 } from "@/lib/budget-cycle";
 import { loadCycleStatus } from "@/lib/cycle-status";
+import { ACTUAL_WHERE } from "@/lib/actuals";
 
 // GET /api/budgets/variance?year=&month= … 予実対比（科目別）と翌月の予算・確定状況（読み取り専用）
 //   当月の予算（自動反映を含む）と実績の差、翌月に登録済みの予算、両月の確定状況、
@@ -57,7 +58,7 @@ export const GET = withApi({
         periodId
           ? db.financialRecord.groupBy({
               by: ["accountId"],
-              where: { tenantId, periodId },
+              where: { tenantId, periodId, ...ACTUAL_WHERE },
               _sum: { amount: true },
             })
           : [],

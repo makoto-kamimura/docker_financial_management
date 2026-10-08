@@ -30,9 +30,9 @@ export const GET = withApi({
         orderBy: { id: "asc" },
         select: { id: true, name: true, bankName: true, balanceAdjustment: true, createdAt: true },
       }),
-      db.ledgerEntry.groupBy({
+      db.financialRecord.groupBy({
         by: ["bankAccountId"],
-        _sum: { amount: true },
+        _sum: { flow: true },
         _max: { createdAt: true },
         where: { kind: "BANK", date: { lt: nextMonthStart } },
       }),
@@ -40,7 +40,7 @@ export const GET = withApi({
 
     const balanceMap = buildBankBalanceMap(
       accounts,
-      sums.map((s) => ({ accountId: s.bankAccountId!, sum: s._sum.amount?.toNumber() ?? 0 })),
+      sums.map((s) => ({ accountId: s.bankAccountId!, sum: s._sum.flow?.toNumber() ?? 0 })),
     );
     // 明細を最後に登録した日時（どの口座も含めた最新。明細が無ければ口座の登録日時）
     const lastUpdatedAt = accounts.reduce<Date | null>((latest, a) => {

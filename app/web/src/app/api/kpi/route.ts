@@ -10,6 +10,7 @@ import {
 } from "@/lib/kpi";
 import { forecast } from "@/lib/forecast";
 import { loadLastActualsConfirmed } from "@/lib/cycle-status";
+import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
 
 // GET /api/kpi?period=YYYY-MM … 指定月（既定は現在月以前の最新月）の主要 KPI を返す。
 // periods は実データのある月の昇順リストで、ダッシュボードの対象月セレクタが使う。
@@ -29,10 +30,12 @@ export const GET = withApi({
 
     // 対象月を切り替えられるよう、未来月を含む全期間を取得する（既定値の決定は下の defaultKey で行う）
     const [records, budgets, tenant, lastConfirmed] = await Promise.all([
-      db.financialRecord.findMany({
-        where: { tenantId },
-        include: { period: true, account: true },
-      }),
+      db.financialRecord
+        .findMany({
+          where: { tenantId, ...ACTUAL_WHERE },
+          include: { period: true, account: true },
+        })
+        .then(actualRows),
       db.budget.findMany({
         where: { tenantId },
         include: { period: true, account: true },

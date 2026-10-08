@@ -24,6 +24,7 @@ vi.mock("@/lib/authz", () => ({
 }));
 
 import { prisma } from "@/lib/prisma";
+import { createTestEntry } from "@/lib/test-entries";
 import { emptyRouteContext } from "@/lib/api-handler";
 import { GET as summaryGet } from "./summary/route";
 import { GET as outlookGet } from "./cash-outlook/route";
@@ -63,7 +64,7 @@ beforeAll(async () => {
     "tenants",
     "users",
     "bank_accounts",
-    "ledger_entries",
+
     "accounts",
     "periods",
     "budgets",
@@ -95,14 +96,14 @@ beforeAll(async () => {
   });
   bankA = a.id;
   bankB = b.id;
-  const bank = (bankAccountId: number) => ({ tenantId, kind: "BANK" as const, bankAccountId });
-  await prisma.ledgerEntry.createMany({
-    data: [
-      { ...bank(bankA), date: utcDate(-1, 15), description: "入金", amount: 50_000 },
-      { ...bank(bankA), date: utcDate(0, 1), description: "出金", amount: -20_000 },
-      { ...bank(bankB), date: utcDate(-2, 10), description: "入金", amount: 30_000 },
-    ],
-  });
+  const bank = (accountId: number) => ({ kind: "BANK" as const, accountId });
+  for (const [id, date, description, flow] of [
+    [bankA, utcDate(-1, 15), "入金", 50_000],
+    [bankA, utcDate(0, 1), "出金", -20_000],
+    [bankB, utcDate(-2, 10), "入金", 30_000],
+  ] as const) {
+    await createTestEntry(tenantId, bank(id), { date, description, flow });
+  }
 
   // 資金移動ルール: 口座 A は毎月 +200,000 − 150,000 = +50,000
   await prisma.transfer.createMany({
@@ -121,8 +122,11 @@ beforeAll(async () => {
   });
   const period = async (delta: number) => {
     const { year, month } = shift(delta);
-    return prisma.period.create({
-      data: { tenantId, fiscalYear: year, month, quarter: Math.ceil(month / 3) },
+    // 明細を入れたときに期間ができていることがあるので upsert
+    return prisma.period.upsert({
+      where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
+      update: {},
+      create: { tenantId, fiscalYear: year, month, quarter: Math.ceil(month / 3) },
     });
   };
   const p0 = await period(0);
@@ -147,7 +151,6 @@ afterAll(async () => {
   await prisma.period.deleteMany({ where });
   await prisma.account.deleteMany({ where });
   await prisma.transfer.deleteMany({ where });
-  await prisma.ledgerEntry.deleteMany({ where: { bankAccountId: { in: [bankA, bankB] } } });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.tenant.delete({ where: { id: tenantId } });

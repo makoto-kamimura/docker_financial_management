@@ -73,12 +73,11 @@ describe("validateChargePair", () => {
   const base: LinkableChargeTxn = {
     id: 1,
     accountId: 7,
-    postedRecordId: null,
     chargeGroupId: null,
     transferToAccountId: null,
   };
 
-  it("チャージ先の未転記・未紐付けの明細は選べる", () => {
+  it("チャージ先の未紐付けの明細は選べる", () => {
     expect(validateChargePair(base, 7)).toBeNull();
   });
 
@@ -86,8 +85,7 @@ describe("validateChargePair", () => {
     expect(validateChargePair(base, 9)).toMatch(/チャージ先/);
   });
 
-  it("転記済み・紐付け済み・チャージ指定済みの明細は選べない", () => {
-    expect(validateChargePair({ ...base, postedRecordId: 100 }, 7)).toMatch(/転記/);
+  it("紐付け済み・チャージ指定済みの明細は選べない", () => {
     expect(validateChargePair({ ...base, chargeGroupId: "uuid" }, 7)).toMatch(/既に/);
     expect(validateChargePair({ ...base, transferToAccountId: 8 }, 7)).toMatch(/チャージ/);
   });

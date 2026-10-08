@@ -47,7 +47,7 @@ export async function loadCycleStatus(
         monthEnd: coverage.monthEnd,
         sources: coverage.sources,
         lagging: coverage.lagging,
-        unposted: coverage.unposted,
+        unassigned: coverage.unassigned,
         /** 確定時点の記録（口座・カードごとの最終日と「当月末まで変動なし」の印） */
         confirmedCoverage:
           (period?.actualsConfirmation?.coverage as CoverageSnapshot | null | undefined) ?? null,

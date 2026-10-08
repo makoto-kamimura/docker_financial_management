@@ -26,13 +26,19 @@ test.describe("収支マイナス警告", () => {
 
   test("赤字月は KPI カードに赤字警告が表示される", async ({ page, baseURL }) => {
     const now = new Date();
-    const fiscalYear = now.getFullYear();
-    const month = now.getMonth() + 1;
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
+    // 実績は明細に科目を付けると入るので、当月 1 日に現金の大きな支出を 1 件入れる。
     // ミューテーション API は CSRF 検証（Origin 一致）が必要（middleware.ts 参照）。
-    const postRes = await page.request.post("/api/financials", {
+    const postRes = await page.request.post("/api/actuals", {
       headers: { origin: baseURL ?? "http://localhost:3000" },
-      data: { accountCode: "H3000", fiscalYear, month, amount: 99_000_000 },
+      data: {
+        date,
+        description: "E2E 赤字確認",
+        accountCode: "H3000",
+        amount: 99_000_000,
+        direction: "expense",
+      },
     });
     expect(postRes.ok()).toBeTruthy();
     const created = await postRes.json();
@@ -44,7 +50,7 @@ test.describe("収支マイナス警告", () => {
       await expect(page.getByRole("group", { name: "貯蓄額", exact: true })).toBeVisible();
     } finally {
       // テストデータの後始末（他のテストへ影響させない）
-      const delRes = await page.request.delete(`/api/financials/${recordId}`, {
+      const delRes = await page.request.delete(`/api/actuals?id=${recordId}`, {
         headers: { origin: baseURL ?? "http://localhost:3000" },
       });
       expect(delRes.ok()).toBeTruthy();

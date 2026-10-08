@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
+import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
 
 // GET /api/closing/etax?fiscalYear=&type= … e-Tax / eLTAX 向け XML 生成（accountant 以上）
 export const GET = withApi({
@@ -23,10 +24,12 @@ export const GET = withApi({
       }),
     ]);
 
-    const records = await db.financialRecord.findMany({
-      where: { tenantId, period: { fiscalYear } },
-      include: { account: true, period: true },
-    });
+    const records = actualRows(
+      await db.financialRecord.findMany({
+        where: { tenantId, ...ACTUAL_WHERE, period: { fiscalYear } },
+        include: { account: true, period: true },
+      }),
+    );
 
     const totals: Record<string, number> = {};
     for (const r of records) {

@@ -3,14 +3,14 @@ import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
 import { BankTransferCreateSchema, buildTransferPair } from "@/lib/bank-transfer";
-import { toBankTxn } from "@/lib/ledger-entries";
+import { createEntry, toBankTxn } from "@/lib/ledger-entries";
 import { invalidateCache } from "@/lib/redis";
 
 // POST /api/bank-transfers … 銀行から銀行への振替を 1 操作で登録する（editor 以上）
 //
 // 出金元に −amount、入金先に +amount の明細を 1 トランザクションで 2 行作り、
 // transferGroupId で対にする。振替は収入・支出ではないので科目は紐付けない
-// （明細一覧では「振替」バッジを出し、科目セレクタと転記ボタンを抑止する）。
+// （明細一覧では「振替」バッジを出し、科目セレクタを抑止する）。
 export const POST = withApi({
   role: "editor",
   schema: BankTransferCreateSchema,
@@ -33,18 +33,20 @@ export const POST = withApi({
     });
 
     // 片側だけ登録されて残高がずれることが無いよう、2 行は必ず同一トランザクションで作る
+    // 実績を確定済みの月の日付では作らない（createEntry が 409 を返す）
     const created = await db.$transaction(async (tx) => {
-      const [out, income] = rows.map(({ accountId, ...row }) => ({
-        ...row,
-        tenantId,
-        kind: "BANK" as const,
-        bankAccountId: accountId,
-        source: "MANUAL" as const,
-      }));
-      return [
-        await tx.ledgerEntry.create({ data: out }),
-        await tx.ledgerEntry.create({ data: income }),
-      ];
+      const out = [];
+      for (const { accountId, amount, ...row } of rows) {
+        out.push(
+          await createEntry(
+            tx,
+            tenantId,
+            { kind: "BANK", accountId },
+            { ...row, flow: amount, source: "MANUAL" },
+          ),
+        );
+      }
+      return out;
     });
 
     await audit("create_bank_transfer", `bank_transfer:${transferGroupId}`);
