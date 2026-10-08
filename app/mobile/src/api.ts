@@ -1046,53 +1046,7 @@ export async function setBankTransactionCharge(
   );
 }
 
-// ── 口座間振替（都度）と取込済み明細の振替紐付け ───────────────────────
-export async function postBankTransfer(data: {
-  date: string;
-  fromAccountId: number;
-  toAccountId: number;
-  amount: number;
-  description: string | null;
-}): Promise<void> {
-  await request("/bank-transfers", "振替の登録に失敗しました", jsonInit("POST", data));
-}
-
-export type TransferCandidateSide = {
-  id: number;
-  accountId: number;
-  accountName: string;
-  bankName: string;
-  date: string;
-  description: string;
-  amount: number;
-  categoryAccountId: number | null;
-};
-
-export type TransferCandidate = {
-  out: TransferCandidateSide;
-  in: TransferCandidateSide;
-  amount: number;
-  dayGap: number;
-};
-
-export async function fetchTransferCandidates(
-  maxDayGap: number,
-): Promise<{ data: TransferCandidate[]; total: number }> {
-  const json = await request<{ data?: TransferCandidate[]; total?: number }>(
-    `/bank-transfers/candidates?maxDayGap=${maxDayGap}`,
-    "振替候補の取得に失敗しました",
-  );
-  return { data: json.data ?? [], total: json.total ?? 0 };
-}
-
-export async function linkBankTransfer(outTxnId: number, inTxnId: number): Promise<void> {
-  await request(
-    "/bank-transfers/link",
-    "紐付けに失敗しました",
-    jsonInit("POST", { outTxnId, inTxnId }),
-  );
-}
-
+// ── 振替の解除（同じ日・同じ金額の組は自動で振替になる）───────────────────
 export async function unlinkBankTransfer(transferGroupId: string): Promise<void> {
   await request(
     `/bank-transfers/link?transferGroupId=${encodeURIComponent(transferGroupId)}`,
@@ -1486,39 +1440,6 @@ export async function postTransfer(data: TransferInput): Promise<void> {
   await request("/transfers", "追加に失敗しました", jsonInit("POST", { kind: "AUTO", ...data }));
 }
 
-/** 明細から見つけた「毎月の入出金」の候補（GET /transfers/suggestions。資金移動ルールの候補） */
-export type RecurringSuggestion = {
-  accountId: number;
-  accountName: string;
-  signature: string;
-  direction: "in" | "out";
-  label: string;
-  amount: number;
-  day: number;
-  months: number;
-  lastDate: string;
-};
-
-export async function fetchTransferSuggestions(): Promise<RecurringSuggestion[]> {
-  const json = await request<{ data?: RecurringSuggestion[] }>(
-    "/transfers/suggestions",
-    "候補の取得に失敗しました",
-  );
-  return json.data ?? [];
-}
-
-/** 候補を非表示にする（記録して、以後はどの端末でも出さない） */
-export async function dismissTransferSuggestion(
-  bankAccountId: number,
-  signature: string,
-): Promise<void> {
-  await request(
-    "/transfers/suggestions/dismiss",
-    "非表示にできませんでした",
-    jsonInit("POST", { bankAccountId, signature }),
-  );
-}
-
 export async function patchTransfer(
   id: number,
   data: Partial<Pick<TransferInput, "day" | "amount" | "label">>,
@@ -1528,37 +1449,6 @@ export async function patchTransfer(
 
 export async function deleteTransfer(id: number): Promise<void> {
   await request(`/transfers/${id}`, "削除に失敗しました", { method: "DELETE" });
-}
-
-// 登録済みの資金移動ルール（毎月の入出金）の一覧
-export type TransferFlowRow = {
-  id: number;
-  from: string | null;
-  to: string | null;
-  amount: number;
-  kind: string;
-  channel: string;
-  channelLabel: string;
-  label: string | null;
-  day: number;
-  note: string | null;
-  /** 銀行管理の「表示する銀行」で絞るための口座 id（外部は null） */
-  fromAccountId: number | null;
-  toAccountId: number | null;
-};
-
-export type TransferFlowResponse = {
-  transfers: TransferFlowRow[];
-};
-
-export async function fetchTransferFlow(): Promise<TransferFlowResponse> {
-  const json = await request<Partial<TransferFlowResponse>>(
-    "/transfers/flow",
-    "毎月の入出金の取得に失敗しました",
-  );
-  return {
-    transfers: (json.transfers ?? []).map((t) => ({ ...t, amount: Number(t.amount) })),
-  };
 }
 
 // ── 借入金 ────────────────────────────────────────────────────────────

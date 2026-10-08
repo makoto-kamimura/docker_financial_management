@@ -259,7 +259,7 @@ flowchart LR
 | `/dashboard` | ダッシュボード | 予算と実績の確定の状況、KPI、総資産サマリ、総借入サマリ、口座残高サマリ、予算と実績のグラフ |
 | `/budget` | 予算管理 | 一覧 / カレンダー / 予実差確認 / 予算の確定 / CSV インポート / 履歴 / 設定（予算配分）。`?tab=variance&month=YYYY-MM`（比べる月）・`?tab=confirm&month=YYYY-MM`（予算の月）で開ける |
 | `/entry` | 実績管理 | 一覧 / カレンダー / 実績の確定 / CSV インポート / 履歴。カレンダー・履歴・CSV インポートは出どころ（現金・実績 / 銀行 / カード・電子マネー）と口座を選んで切り替える（`?tab=history&source=bank&account=ID` で開ける）。CSV インポートは実績・銀行・カードを 1 か所にまとめ、登録先の列（target・account）があれば行ごとに振り分ける。履歴は 3 つとも共通の表。予算管理と同じ一覧（科目×月。区分のバッジ・月ごとの収入計・支出計・差引・確定済みの月の鍵）。`?tab=confirm&month=YYYY-MM` で実績の確定を開ける |
-| `/bank-accounts` | 銀行管理 | 残高の推移・銀行口座（タブなし）。明細・CSV インポート・毎月の入出金・振替は実績管理で扱う（旧 `?tab=csv` は実績管理の CSV インポートへ移る） |
+| `/bank-accounts` | 銀行管理 | 残高の推移・銀行口座（タブなし）。明細・CSV インポートは実績管理で扱う（旧 `?tab=csv` は実績管理の CSV インポートへ移る） |
 | `/bank-transactions` | — | `/bank-accounts?tab=transactions` へ転送する（以前の URL） |
 | `/card-transactions` | カード・電子マネー管理 | 利用額の推移・カード・電子マネーの一覧（タブなし）。明細と CSV インポートは実績管理で扱う |
 | `/assets` | 資産管理 | 実物資産の評価額の推移（合計と資産ごと）、実物資産（内訳つきで登録できる） |
@@ -298,7 +298,7 @@ flowchart LR
 | ホーム | ダッシュボードと同じ内容（確定の状況と予算と実績のグラフを含む） | 対象月は前後の矢印で送る。確定の状況の各段を押すと、予算・実績のタブの確定画面へ移る |
 | 予算 | 一覧（1か月ずつ。セルの内訳を開ける） / カレンダー / 予実差確認 / 予算の確定 / 履歴 / 設定（予算配分） | CSV インポートなし。予算の確定は、前月の差・差額の扱い・予算案を科目ごとに 1 つのブロックにまとめて表示する。確定済みの月の予算はモバイルからも変えられない |
 | 実績 | 一覧 / カレンダー / 実績の確定 / 履歴（カレンダー・履歴は出どころと口座を選ぶ。履歴は 3 つとも共通の行） | CSV インポートなし。仕訳と連動する実績は仕訳帳から直す。実績の確定は web と同じ |
-| 銀行管理 | キャッシュフロー（残高の推移・銀行口座と差額） | CSV インポートなし。明細・毎月の入出金・振替は実績の画面で扱う |
+| 銀行管理 | キャッシュフロー（残高の推移・銀行口座と差額） | CSV インポートなし。明細は実績の画面で扱う |
 | カード・電子マネー管理 | サマリ（利用額の推移・一覧。カードの登録・編集） | CSV インポートなし。明細（チャージ先・固定決済の登録を含む）は実績の画面で扱う |
 | 資産管理 | 実物資産の評価額の推移、実物資産 | 同じ（総資産サマリはホームに出す） |
 | 借入金管理 | 借入残高の推移、金利変更、返済 | 同じ |
@@ -566,16 +566,15 @@ KPI の下に、次の順で置く。
 |---|---|
 | 科目を付ける | 取り込み時は摘要のキーワードから、学習したルールで科目を補う。履歴で選んでも付けられる。科目を付けた明細がそのまま実績になる |
 | チャージにする | チャージ先（デビット・プリペイド・電子マネー）を選ぶ。収支から除く |
-| 振替にする | 別の口座の明細と組にする。収支から除く |
+| 振替の解除 | 自動で組になった振替を外し、別々の明細に戻す。以後それぞれ科目を付けられる |
 | 固定入出金にする | 毎月の資金移動ルールとして登録する |
 
 ### 10.3 振替と資金移動ルール
 
 - **資金移動ルール**：毎月の決まった日のお金の動きを、種類（給与・収入 / 支出 / 銀行振込 / 銀行引き落とし / カード引き落とし）・日・金額・出金元・入金先で登録する。出金元・入金先は「外部」にできる（給与は外部から入金、支出は外部へ出金）。
-- ルールは、実績管理の履歴（出どころは銀行）で扱う。明細の「固定入出金」から登録・書き換え・解除し、「毎月の入出金」の一覧で確かめて解除する（`DELETE /api/transfers/[id]`）。残高の推移の見込みと、カード・電子マネー管理の引き落としの表示に使う。
-- **振替の登録**：一度きりの口座間の振替を、実績管理の履歴の「振替を登録（銀行 → 銀行）」から登録する。
-- **振替紐付け**：取り込んだ明細の中から振替らしい組の候補を出して組にする（実績管理の履歴）。
-- **毎月の入出金の候補**：直近 6 か月の明細から、毎月同じころ（前後 3 日）に同じくらい（±10%）の金額で 3 か月以上ある入出金を見つけ、実績管理の履歴に資金移動ルールの候補として出す（`src/lib/recurring-suggestions.ts`、`GET /api/transfers/suggestions`）。「登録」で資金移動ルールになり、「非表示」は `recurring_suggestion_dismissals` に記録して以後は出さない。近いルールがあるもの、振替・チャージにした明細は出さない。
+- ルールは、実績管理の履歴（出どころは銀行）の明細の「その他」→「固定入出金」から登録・書き換え・解除する（`POST /api/transfers`・`PATCH / DELETE /api/transfers/[id]`）。登録済みの明細には「毎月の入出金」のバッジが付く。残高の推移の見込みと、カード・電子マネー管理の引き落としの表示に使う。
+- **振替**：同じ日・同じ金額の出金と入金の組が 1 組だけなら、自動で振替の組にする（[20.4節](#204-振替とチャージ)）。組は明細の「解除」で外せる（`DELETE /api/bank-transfers/link`）。
+- 以前あった「毎月の入出金」の一覧・振替の登録（銀行 → 銀行）・振替紐付け・毎月の入出金の候補は、2026-10 に画面と API を削除した。
 
 ### 10.4 残高の推移
 
@@ -590,7 +589,7 @@ KPI の下に、次の順で置く。
 
 借入金管理で引き落とし口座と日を入れた借入の返済は、借入日の月から完済予定の月まで、月々の返済額をその口座からの引き落としとして、残高の推移の見込みに自動で並べる（`src/lib/loan-funding.ts`）。同じ口座・日・金額（±1%）の資金移動ルールがあれば、そちらを使い借入からは入れない（二重に数えない）。
 
-資金繰り（日ごとの残高と入金の期限）と資金フロー図（Sankey）は、画面から消したあと（2026-10）、API と計算も削除した。`GET /api/transfers/flow` は資金移動ルールの一覧（実績管理の履歴の「毎月の入出金」）、`GET /api/linked-accounts/flow` はカードごとの引き落としと固定決済（カード・電子マネー管理の一覧）だけを返す。
+資金繰り（日ごとの残高と入金の期限）と資金フロー図（Sankey）は、画面から消したあと（2026-10）、API と計算も削除した。`GET /api/linked-accounts/flow` はカードごとの引き落としと固定決済（カード・電子マネー管理の一覧）だけを返す。
 
 ## 11. カード・電子マネー
 
@@ -1057,7 +1056,7 @@ npm run typecheck && npm run format:check
 ### 20.4 振替とチャージ
 
 - **自動相殺**：明細の登録・CSV の取り込み・自動取得のあと、その日付の明細で、同じ日・同じ金額の出金と入金の組が 1 組だけ（出金側にも入金側にもほかの候補が無い）なら、振替・チャージの組にする（`src/lib/auto-offset.ts`）。銀行 → 銀行は振替、銀行・カード → デビット・プリペイド・電子マネーはチャージ。確定済みの月の明細は対象にしない。
-- **振替**：2つの口座の明細に同じ `transferGroupId` を付ける。自動相殺にかからなかったものの候補は、取り込み後に金額と日付から探す（`transfer-match.ts`）。
+- **振替**：2つの口座の明細に同じ `transferGroupId` を付ける。組は自動相殺だけで作り、明細の「解除」で外せる。
 - **チャージ**：チャージ元の明細（銀行・カードとも `financial_records.chargeToCardId`）と、チャージ先の入金の明細に、同じ `chargeGroupId` を付ける。`chargeGroupId` は銀行とカードの明細で共通の番号を使う。候補の順位付けと組の検査は `charge-link.ts`。
 - `transferGroupId`・チャージ先・`chargeGroupId` のいずれかを持つ明細は、科目を持たない（実績に入らない）。組にするときは付いていた科目を外す（CHECK 制約 `financial_records_pair_no_account_check`）。
 
@@ -1171,7 +1170,7 @@ npm run typecheck && npm run format:check
 | `personal_asset_parts` | assetId, name, category, acquisitionCost, currentValue, valuationMethod, valuationRate, usefulLifeYears, buildingStructure, sortOrder | 実物資産の内訳（土地と建物など）。資産を消すと一緒に消える |
 | `personal_asset_valuations` | assetId, partId, valuedOn, value, rule | 評価額の記録（手で入れた値と、価値の変わり方を変えたときの見積もり）。rule はその日から効く変わり方で、null は今の設定。partId が null の行は資産そのもの。同じ日に入れ直すと置き換える |
 | `loans` | lenderName, amount, interestRate, borrowedOn, repaymentDate, remainingAmount, status, loanType, linkedAccountId, monthlyPayment, residualValue, monthlyPaymentIsManual, debitBankAccountId, debitDay | debit* は返済の引き落とし口座と日（残高の推移の見込みに自動で並べる） |
-| `recurring_suggestion_dismissals` | bankAccountId, signature | 明細からの「毎月の入出金」の候補で非表示にしたもの。`[tenantId, bankAccountId, signature]` 一意 |
+| `recurring_suggestion_dismissals` | bankAccountId, signature | 使っていない（「毎月の入出金」の候補で非表示にしたもの。候補の機能は削除した）。`[tenantId, bankAccountId, signature]` 一意 |
 | `loan_interest_rate_changes` | loanId, effectiveOn, interestRate, previousRate, monthlyPayment, previousMonthlyPayment, calculatedMonthlyPayment, note | `[loanId, effectiveOn]` 一意 |
 | `loan_repayments` | loanId, repaidOn, principal, interest, totalAmount | |
 
@@ -1310,12 +1309,9 @@ npm run typecheck && npm run format:check
 | POST | `/bank-accounts/[id]/sync` | E |
 | GET | `/bank-accounts/balance-trend` | V |
 | PATCH | `/bank-transactions/[id]/categorize` `/bank-transactions/[id]/charge` | E |
-| POST | `/bank-transfers` | E |
-| GET | `/bank-transfers/candidates` | V |
-| POST / DELETE | `/bank-transfers/link` | E |
+| DELETE | `/bank-transfers/link` | E |
 | GET / POST | `/transfers` | V / E |
 | PATCH / DELETE | `/transfers/[id]` | E |
-| GET | `/transfers/flow` | V |
 
 ### 22.6 カード・電子マネー
 
@@ -1341,8 +1337,6 @@ npm run typecheck && npm run format:check
 | PATCH / DELETE | `/personal-assets/[id]` | E |
 | GET / POST | `/loans` | V / E（POST は `asset` で資産をその場で作る・既存にひも付ける） |
 | GET | `/loans/summary` | V |
-| GET | `/transfers/suggestions` | V |
-| POST | `/transfers/suggestions/dismiss` | E |
 | PATCH | `/loans/[id]` | E |
 | POST | `/loans/[id]/repay` | E |
 | GET / POST | `/loans/[id]/interest-rates` | V / E |

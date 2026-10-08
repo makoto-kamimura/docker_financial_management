@@ -31,8 +31,6 @@ import {
 import { ActualsCalendar } from "../components/ActualsCalendar";
 import { BankTransactionsCalendar } from "../components/bank/BankTransactionsCalendar";
 import { BankTransactionsList } from "../components/bank/BankTransactionsList";
-import { TransferRules } from "../components/bank/TransferRules";
-import { RecurringSuggestions } from "../components/RecurringSuggestions";
 import { CardCalendar } from "../components/card/CardCalendar";
 import { CardTransactionsList } from "../components/card/CardTransactionsList";
 import { CategoryPickerModal } from "../components/CategoryPickerModal";
@@ -134,12 +132,6 @@ export function EntryScreen({
   useEffect(() => {
     if (sourceTab) loadSourceAccounts();
   }, [sourceTab, loadSourceAccounts]);
-  // 候補の登録・ルールの解除・振替のあとに、銀行の履歴の各ブロックを取り直す
-  const [sourceReloadKey, setSourceReloadKey] = useState(0);
-  const reloadSource = useCallback(() => {
-    setSourceReloadKey((k) => k + 1);
-    loadSourceAccounts();
-  }, [loadSourceAccounts]);
   const selectedCard = cardAccounts.find((a) => a.id === cardAccountId) ?? cardAccounts[0] ?? null;
 
   // ── 明細一覧 ────────────────────────────────────────────────
@@ -312,25 +304,9 @@ export function EntryScreen({
             categoryAccounts={accounts}
           />
         )}
-        {/* 銀行の履歴: 毎月の入出金の候補 → 毎月の入出金（ルール・振替・振替紐付け）→ 明細の一覧 */}
-        {tab === "history" && source === "bank" && (
-          <>
-            <RecurringSuggestions
-              reloadKey={sourceReloadKey}
-              onChanged={reloadSource}
-              accountId={bankAccountId}
-            />
-            <TransferRules
-              key={`rules-${sourceReloadKey}`}
-              accounts={bankAccounts}
-              accountId={bankAccountId}
-              onBalanceChanged={reloadSource}
-            />
-          </>
-        )}
+        {/* 銀行の履歴: 明細の一覧 */}
         {tab === "history" && source === "bank" && (
           <BankTransactionsList
-            key={`list-${sourceReloadKey}`}
             accounts={bankAccounts}
             accountId={bankAccountId}
             categoryAccounts={accounts}

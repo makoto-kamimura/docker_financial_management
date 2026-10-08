@@ -5,11 +5,20 @@
 // 記録とは結び付いていなかった。チャージ先の CSV に入金行が含まれる場合、どの入金がどの
 // チャージなのかが分からず、入金行を科目に紐付けて収入として二重計上する余地が残る。
 //
-// そこで銀行の振替紐付け（lib/transfer-match.ts）と同じ考え方で、チャージ先の明細を
-// 人が 1 件選んで対にする。機械的に確定させず候補の並べ替えだけを行うのは、チャージ先の
-// 摘要が「チャージ」「入金」などカードごとにまちまちで、金額と日付しか手掛かりが無いため。
+// そこでチャージ先の明細を人が 1 件選んで対にする。機械的に確定させず候補の並べ替えだけを
+// 行うのは、チャージ先の摘要が「チャージ」「入金」などカードごとにまちまちで、金額と日付しか手掛かりが無いため。
 
-import { dayGap } from "@/lib/transfer-match";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 2 つの日付の暦日単位のずれ。明細の日付は UTC 0 時で保持しているため UTC で切り出す
+ * （lib/balance-trend.ts と同じ扱い）。
+ */
+export function dayGap(a: Date, b: Date): number {
+  const da = Date.UTC(a.getUTCFullYear(), a.getUTCMonth(), a.getUTCDate());
+  const db = Date.UTC(b.getUTCFullYear(), b.getUTCMonth(), b.getUTCDate());
+  return Math.round(Math.abs(da - db) / DAY_MS);
+}
 
 /** チャージ先の候補となる明細（カードの符号: +利用（支出） / -返金・入金。明細の表の金額は cardSpend で直して渡す） */
 export type ChargeCandidateTxn = {
