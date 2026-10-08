@@ -6,9 +6,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { SectionLead } from "@/components/Explain";
+import { SectionCard } from "@/components/SectionCard";
 import { summaryAsOfLabel } from "@/components/NetWorthSummaryCard";
 import { DASHBOARD_HELP } from "@/lib/help-texts";
+import { yenShort } from "@/lib/format";
 
 type BankSummary = {
   asOf: string;
@@ -18,10 +19,6 @@ type BankSummary = {
   accounts: { id: number; name: string; bankName: string; balance: number }[];
 };
 
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : v.toLocaleString("ja-JP") + "円";
 const dateTimeLabel = (v: string | null) =>
   v
     ? new Date(v).toLocaleString("ja-JP", {
@@ -45,21 +42,20 @@ export function BankSummaryCard({ period }: { period: string | null }) {
   if (!enabled || !data || data.accounts.length === 0) return null;
 
   return (
-    <section aria-labelledby="bank-summary-title" className="card mb-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 id="bank-summary-title" className="section-title">
-          口座残高サマリ（{summaryAsOfLabel(data)}）
-        </h2>
+    <SectionCard
+      title={<>口座残高サマリ（{summaryAsOfLabel(data)}）</>}
+      lead={DASHBOARD_HELP.bankSummary}
+      actions={
         <Link href={"/bank-accounts" as never} className="text-xs text-indigo-600 underline">
           銀行管理で見る
         </Link>
-      </div>
-      <SectionLead className="mb-4">{DASHBOARD_HELP.bankSummary}</SectionLead>
+      }
+    >
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div>
           <p className="text-xs text-slate-500 mb-1">総残高</p>
           <p className="text-2xl font-bold text-indigo-600 tabular-nums">
-            {yen(data.totalBalance)}
+            {yenShort(data.totalBalance)}
           </p>
         </div>
         <div>
@@ -77,10 +73,10 @@ export function BankSummaryCard({ period }: { period: string | null }) {
         {data.accounts.map((a) => (
           <span key={a.id}>
             {a.name}（{a.bankName}）:{" "}
-            <span className="font-medium text-slate-700 tabular-nums">{yen(a.balance)}</span>
+            <span className="font-medium text-slate-700 tabular-nums">{yenShort(a.balance)}</span>
           </span>
         ))}
       </div>
-    </section>
+    </SectionCard>
   );
 }

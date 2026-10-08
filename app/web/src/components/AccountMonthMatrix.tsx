@@ -12,6 +12,7 @@ import { Check, Lock, Pencil, Trash2 } from "lucide-react";
 import { useMonthColumnScroll } from "@/hooks/useMonthColumnScroll";
 import { displayName, type ViewMode } from "@/lib/display-name";
 import { CATEGORY_LABEL, categoryRank } from "@/lib/labels";
+import { amountText } from "@/lib/format";
 
 export type MatrixAccount = {
   code: string;
@@ -45,7 +46,6 @@ export const CATEGORY_BADGE: Record<string, string> = {
   OTHER: "bg-slate-100 text-slate-600",
 };
 
-const yen = (v: number) => Math.round(v).toLocaleString("ja-JP");
 const INCOME = new Set(["REVENUE"]);
 const SPENDING = new Set(["COGS", "EXPENSE"]);
 
@@ -173,13 +173,13 @@ export function AccountMonthMatrix({
           key={i}
           className={`px-3 py-2 text-right tabular-nums font-medium ${tone && v < 0 ? "text-red-600" : "text-slate-700"}`}
         >
-          {v === 0 ? "—" : yen(v)}
+          {v === 0 ? "—" : amountText(v)}
         </td>
       ))}
       <td
         className={`px-3 py-2 text-right tabular-nums font-semibold ${tone && total < 0 ? "text-red-600" : "text-slate-800"}`}
       >
-        {total === 0 ? "—" : yen(total)}
+        {total === 0 ? "—" : amountText(total)}
       </td>
     </tr>
   );
@@ -201,7 +201,7 @@ export function AccountMonthMatrix({
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="sticky left-0 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-600 min-w-44">
-                  勘定科目
+                  勘定科目（単位: 円）
                 </th>
                 {MONTHS.map((m) => (
                   <th
@@ -260,7 +260,7 @@ export function AccountMonthMatrix({
                           ) : cell ? (
                             <div>
                               <div className="flex items-center justify-end gap-1 group/cell">
-                                <span>{yen(cell.amount)}</span>
+                                <span>{amountText(cell.amount)}</span>
                                 {cell.action ??
                                   (cell.editable && !locked && onDelete && (
                                     <>
@@ -320,7 +320,7 @@ export function AccountMonthMatrix({
                       );
                     })}
                     <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700">
-                      {annual === 0 ? "—" : yen(annual)}
+                      {annual === 0 ? "—" : amountText(annual)}
                     </td>
                   </tr>
                 );

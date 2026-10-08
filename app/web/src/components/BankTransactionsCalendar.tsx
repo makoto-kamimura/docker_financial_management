@@ -13,6 +13,7 @@ import { Notice } from "@/components/ui";
 import { BANK_HELP } from "@/lib/help-texts";
 import { invalidateActuals } from "@/lib/invalidate-actuals";
 import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
+import { yen } from "@/lib/format";
 
 type BankAccount = { id: number; name: string; bankName: string };
 type Txn = {
@@ -28,7 +29,6 @@ type Txn = {
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const now = new Date();
-const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 const pad = (n: number) => String(n).padStart(2, "0");
 const BLANK_FORM = {
   type: "expense" as "income" | "expense",

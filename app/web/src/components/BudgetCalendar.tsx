@@ -10,6 +10,7 @@ import { SectionLead } from "@/components/Explain";
 import { displayName, type ViewMode } from "@/lib/display-name";
 import { BUDGET_HELP } from "@/lib/help-texts";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
+import { yen } from "@/lib/format";
 
 type CategoryAccount = {
   id: number;
@@ -29,7 +30,6 @@ type BudgetItem = {
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const now = new Date();
-const yen = (v: number) => `${Math.round(v).toLocaleString("ja-JP")}円`;
 const pad = (n: number) => String(n).padStart(2, "0");
 const INCOME_CATS = ["REVENUE"];
 const EXPENSE_CATS = ["EXPENSE", "COGS"];

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Home, CreditCard } from "lucide-react";
+import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner, EmptyState } from "@/components/StateViews";
 import { BudgetAllocationPanel } from "@/components/BudgetAllocationPanel";
@@ -28,6 +29,7 @@ import {
   buildBudgetCellDetail,
   type BudgetCellItem,
 } from "@/lib/budget-cell-detail";
+import { amountText, yen } from "@/lib/format";
 
 type AccountRef = {
   id: number;
@@ -132,12 +134,10 @@ const fmtDateTime = (iso: string) => {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
-const yen = (v: number) => Math.round(v).toLocaleString("ja-JP");
-
 const now = new Date();
 const THIS_YEAR = now.getFullYear();
 
-// 「適正 ¥…」の説明（セルの title と表の注記で共用）
+// 「適正 …」の説明（セルの title と表の注記で共用）
 const GUIDE_HELP = BUDGET_HELP.guide;
 
 function groupByAccount(
@@ -350,17 +350,17 @@ function BudgetContent() {
         <>
           {auto > 0 && (
             <div className="text-[10px] text-indigo-500">
-              {cell ? "内 " : ""}ローン返済 {cell ? yen(auto) : "自動反映"}
+              {cell ? "内 " : ""}ローン返済 {cell ? amountText(auto) : "自動反映"}
             </div>
           )}
           {debtAuto > 0 && (
             <div className="text-[10px] text-amber-600">
-              {cell ? "内 " : ""}負債返済分 {cell ? yen(debtAuto) : "自動反映"}
+              {cell ? "内 " : ""}負債返済分 {cell ? amountText(debtAuto) : "自動反映"}
             </div>
           )}
           {guideAmount > 0 && (
             <div className="text-[10px] text-emerald-600" title={GUIDE_HELP}>
-              適正 {yen(guideAmount)}
+              適正 {amountText(guideAmount)}
             </div>
           )}
         </>
@@ -472,7 +472,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
       )}
 
       {/* ── 設定タブ（予算配分のルール。旧「設定 › 予算配分ルール」から移設）──
-          ルールの割合は一覧の「適正 ¥…」にも反映される。 */}
+          ルールの割合は一覧の「適正 …」にも反映される。 */}
       {tab === "allocation" && <BudgetAllocationPanel />}
 
       {/* ── 予実差確認タブ（選んだ月の予算と実績を見比べる）── */}
@@ -583,7 +583,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                       <td className="py-2 pr-4 text-slate-600 whitespace-nowrap">
                         {h.period.fiscalYear}年 {h.period.month}月
                       </td>
-                      <td className="py-2 text-right font-mono text-slate-800">¥{yen(h.amount)}</td>
+                      <td className="py-2 text-right font-mono text-slate-800">{yen(h.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -600,7 +600,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
         ))}
 
       {/* 配分提案（収入からの推奨配分）は「設定」タブに集約した。
-          ここでは下の表に「適正 ¥…」として推奨額を重ねて表示する。 */}
+          ここでは下の表に「適正 …」として推奨額を重ねて表示する。 */}
 
       {/* ── 予算テーブル（一覧タブのみ）── */}
       {tab === "manual" && (
@@ -623,7 +623,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                 emptyCellLabel={(code, m) => {
                   const g = guideMap.get(`${code}:${m}`) ?? 0;
                   return g > 0 ? (
-                    <span className="text-[10px] text-emerald-600">適正 {yen(g)}</span>
+                    <span className="text-[10px] text-emerald-600">適正 {amountText(g)}</span>
                   ) : undefined;
                 }}
                 rowBadges={(code) => (
@@ -658,7 +658,7 @@ H3000,${THIS_YEAR},1,115000`}</pre>
                       <ul className="space-y-0.5">
                         {(guide ?? []).length > 0 && (
                           <li>
-                            <span className="font-medium text-emerald-700">適正 ¥…</span>：
+                            <span className="font-medium text-emerald-700">適正 …</span>：
                             {GUIDE_HELP}
                             割合は
                             <button
@@ -712,101 +712,99 @@ H3000,${THIS_YEAR},1,115000`}</pre>
           const account = accounts?.find((a) => a.code === cellDetail.code);
           const locked = confirmedMonths.has(cellDetail.month);
           return (
-            <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-              <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-2xl my-auto">
-                <div className="flex items-start justify-between gap-4 mb-1">
-                  <h2 className="text-lg font-bold text-slate-800">
-                    {account ? displayName(account, sysMode) : "予算の内訳"}
-                    <span className="ml-2 text-sm font-normal text-slate-500">
-                      {year}年{cellDetail.month}月
-                    </span>
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => setCellDetail(null)}
-                    className="text-sm text-slate-400 hover:text-slate-600"
-                  >
-                    閉じる
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 mb-4">
-                  {BUDGET_HELP.cellDetail} 合計 {yen(detail.total)}（{detail.rows.length} 件）
-                </p>
-                {detail.rows.length === 0 ? (
-                  <p className="text-sm text-slate-400">このセルの予算はありません。</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-xs text-slate-500 border-b border-slate-200">
-                          <th className="text-left py-2 pr-4 font-medium">登録日時</th>
-                          <th className="text-left py-2 pr-4 font-medium">出どころ</th>
-                          <th className="text-left py-2 pr-4 font-medium">内容</th>
-                          <th className="text-right py-2 pr-2 font-medium">金額</th>
-                          <th className="py-2"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {detail.rows.map((r, i) => (
-                          <tr key={r.kind === "calendar" ? `c${r.id}` : `${r.kind}${i}`}>
-                            <td className="py-2 pr-4 text-xs font-mono text-slate-500 whitespace-nowrap">
-                              {r.kind === "calendar"
-                                ? new Date(r.createdAt).toLocaleString("ja-JP", {
-                                    year: "numeric",
-                                    month: "2-digit",
-                                    day: "2-digit",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })
-                                : "—"}
-                            </td>
-                            <td className="py-2 pr-4 whitespace-nowrap">
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                                {BUDGET_SOURCE_LABEL[r.kind]}
-                              </span>
-                            </td>
-                            <td className="py-2 pr-4 text-xs text-slate-600">
-                              {r.kind === "calendar" ? (
-                                <>
-                                  {new Date(`${r.date}T00:00:00`).toLocaleDateString("ja-JP")} ·{" "}
-                                  {r.description}
-                                </>
-                              ) : r.kind === "assetDebt" && r.assetNames.length > 0 ? (
-                                r.assetNames.join("・")
-                              ) : (
-                                <span className="text-slate-400">—</span>
-                              )}
-                            </td>
-                            <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
-                              {yen(r.amount)}
-                            </td>
-                            <td className="py-2 text-right whitespace-nowrap">
-                              {r.kind === "calendar" && !locked && (
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!confirm(`「${r.description}」を削除してよいですか？`))
-                                      return;
-                                    await fetch(`/api/budget-items/${r.id}`, { method: "DELETE" });
-                                    for (const key of ["budgets", "budget-items", "budget-history"])
-                                      qc.invalidateQueries({ queryKey: [key] });
-                                  }}
-                                  className="text-xs text-slate-300 hover:text-red-500"
-                                  aria-label={`${r.description} を削除`}
-                                  title="削除"
-                                >
-                                  ✕
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+            <Modal size="xl">
+              <div className="flex items-start justify-between gap-4 mb-1">
+                <h2 className="text-lg font-bold text-slate-800">
+                  {account ? displayName(account, sysMode) : "予算の内訳"}
+                  <span className="ml-2 text-sm font-normal text-slate-500">
+                    {year}年{cellDetail.month}月
+                  </span>
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setCellDetail(null)}
+                  className="text-sm text-slate-400 hover:text-slate-600"
+                >
+                  閉じる
+                </button>
               </div>
-            </div>
+              <p className="text-xs text-slate-500 mb-4">
+                {BUDGET_HELP.cellDetail} 合計 {yen(detail.total)}（{detail.rows.length} 件）
+              </p>
+              {detail.rows.length === 0 ? (
+                <p className="text-sm text-slate-400">このセルの予算はありません。</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-slate-500 border-b border-slate-200">
+                        <th className="text-left py-2 pr-4 font-medium">登録日時</th>
+                        <th className="text-left py-2 pr-4 font-medium">出どころ</th>
+                        <th className="text-left py-2 pr-4 font-medium">内容</th>
+                        <th className="text-right py-2 pr-2 font-medium">金額</th>
+                        <th className="py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {detail.rows.map((r, i) => (
+                        <tr key={r.kind === "calendar" ? `c${r.id}` : `${r.kind}${i}`}>
+                          <td className="py-2 pr-4 text-xs font-mono text-slate-500 whitespace-nowrap">
+                            {r.kind === "calendar"
+                              ? new Date(r.createdAt).toLocaleString("ja-JP", {
+                                  year: "numeric",
+                                  month: "2-digit",
+                                  day: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : "—"}
+                          </td>
+                          <td className="py-2 pr-4 whitespace-nowrap">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                              {BUDGET_SOURCE_LABEL[r.kind]}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-xs text-slate-600">
+                            {r.kind === "calendar" ? (
+                              <>
+                                {new Date(`${r.date}T00:00:00`).toLocaleDateString("ja-JP")} ·{" "}
+                                {r.description}
+                              </>
+                            ) : r.kind === "assetDebt" && r.assetNames.length > 0 ? (
+                              r.assetNames.join("・")
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
+                            {yen(r.amount)}
+                          </td>
+                          <td className="py-2 text-right whitespace-nowrap">
+                            {r.kind === "calendar" && !locked && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!confirm(`「${r.description}」を削除してよいですか？`))
+                                    return;
+                                  await fetch(`/api/budget-items/${r.id}`, { method: "DELETE" });
+                                  for (const key of ["budgets", "budget-items", "budget-history"])
+                                    qc.invalidateQueries({ queryKey: [key] });
+                                }}
+                                className="text-xs text-slate-300 hover:text-red-500"
+                                aria-label={`${r.description} を削除`}
+                                title="削除"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Modal>
           );
         })()}
     </AppShell>

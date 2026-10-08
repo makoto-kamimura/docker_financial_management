@@ -13,7 +13,7 @@ import {
 } from "../api";
 import { displayName } from "../shared/display-name";
 import { BUDGET_HELP } from "../shared/help-texts";
-import { digitsOnly, isoDate, yenJa } from "../format";
+import { digitsOnly, isoDate, yen } from "../format";
 import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, Field, Input, Lead, Notice, Pills } from "./ui";
 
@@ -136,7 +136,7 @@ export function BudgetCalendar({
   function confirmDelete(i: BudgetItemRow) {
     Alert.alert(
       "予算を削除",
-      `「${i.description}」を削除し、この月の予算から ${yenJa(i.amount)} を引きます。`,
+      `「${i.description}」を削除し、この月の予算から ${yen(i.amount)} を引きます。`,
       [
         { text: "キャンセル", style: "cancel" },
         {
@@ -173,14 +173,13 @@ export function BudgetCalendar({
         </View>
         <View style={s.totals}>
           <Text style={s.totalItem}>
-            収入合計 <Text style={s.income}>{yenJa(monthTotals.income)}</Text>
+            収入合計 <Text style={s.income}>{yen(monthTotals.income)}</Text>
           </Text>
           <Text style={s.totalItem}>
-            支出合計 <Text style={s.expense}>{yenJa(monthTotals.expense)}</Text>
+            支出合計 <Text style={s.expense}>{yen(monthTotals.expense)}</Text>
           </Text>
           <Text style={s.totalItem}>
-            差引{" "}
-            <Text style={monthTotals.net < 0 ? s.expense : s.net}>{yenJa(monthTotals.net)}</Text>
+            差引 <Text style={monthTotals.net < 0 ? s.expense : s.net}>{yen(monthTotals.net)}</Text>
           </Text>
           <Text style={s.count}>{monthTotals.count} 件の予算</Text>
         </View>
@@ -263,7 +262,7 @@ export function BudgetCalendar({
                 </View>
                 <Text style={isIncome(i) ? s.income : s.expense}>
                   {isIncome(i) ? "+" : "−"}
-                  {yenJa(i.amount)}
+                  {yen(i.amount)}
                 </Text>
                 {!locked && (
                   <TouchableOpacity onPress={() => confirmDelete(i)} hitSlop={8}>

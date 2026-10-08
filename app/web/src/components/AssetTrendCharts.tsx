@@ -7,6 +7,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
+import { SectionCard } from "@/components/SectionCard";
 import { LoadingSpinner } from "@/components/StateViews";
 import {
   OTHER_COLOR,
@@ -14,10 +15,10 @@ import {
   ValueLineChart,
   type ChartSeries,
 } from "@/components/ValueLineChart";
-import { SectionLead } from "@/components/Explain";
 import { ASSETS_HELP } from "@/lib/help-texts";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/labels";
 import { asOfDateLabel, TREND_LABEL, type ValueTrend } from "@/lib/asset-valuation";
+import { yenShort } from "@/lib/format";
 
 type TrendSeries = {
   id: number;
@@ -36,11 +37,6 @@ type TrendResponse = {
   total: (number | null)[];
   assets: TrendAsset[];
 };
-
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : `${Math.round(v).toLocaleString("ja-JP")}円`;
 
 /** 1 年後の見積もりと今を比べた向き（グラフの右肩の印） */
 function trendOfSeries(
@@ -108,18 +104,14 @@ export function AssetTrendCharts() {
     counted.length === 0 ? null : counted.reduce((s, a) => s + (a.estimatedValue ?? 0), 0);
 
   return (
-    <section aria-labelledby="asset-trend-title" className="card mb-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 id="asset-trend-title" className="section-title">
-          実物資産の評価額の推移
-        </h2>
-        <TrendBadge trend={trendOfSeries(months, currentKey, data.total)} />
-      </div>
-      <SectionLead className="mb-3">{ASSETS_HELP.trend}</SectionLead>
-
+    <SectionCard
+      title="実物資産の評価額の推移"
+      lead={ASSETS_HELP.trend}
+      badge={<TrendBadge trend={trendOfSeries(months, currentKey, data.total)} />}
+    >
       <p className="text-xs text-slate-500">合計（資産計上の資産・{asOf}）</p>
       <p className="text-2xl font-bold text-slate-800 tabular-nums mb-2">
-        {totalNow === null ? "—" : yen(totalNow)}
+        {totalNow === null ? "—" : yenShort(totalNow)}
       </p>
       <ValueLineChart
         months={months}
@@ -152,7 +144,7 @@ export function AssetTrendCharts() {
               <p className="text-xs text-slate-500 mb-1">
                 {asOf}の見積もり{" "}
                 <span className="font-medium text-slate-700 tabular-nums">
-                  {a.estimatedValue === null ? "—" : yen(a.estimatedValue)}
+                  {a.estimatedValue === null ? "—" : yenShort(a.estimatedValue)}
                 </span>
               </p>
               <ValueLineChart
@@ -175,7 +167,7 @@ export function AssetTrendCharts() {
                         />
                         {s.label}
                         <span className="tabular-nums text-slate-700">
-                          {v === null || v === undefined ? "—" : yen(v)}
+                          {v === null || v === undefined ? "—" : yenShort(v)}
                         </span>
                       </li>
                     );
@@ -186,6 +178,6 @@ export function AssetTrendCharts() {
           );
         })}
       </div>
-    </section>
+    </SectionCard>
   );
 }

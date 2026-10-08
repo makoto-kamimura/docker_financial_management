@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
+import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { EmptyState, LoadingSpinner } from "@/components/StateViews";
 import { AccountMonthMatrix, type MatrixCell } from "@/components/AccountMonthMatrix";
@@ -27,6 +28,7 @@ import {
   CATEGORY_ORDER as GROUP_ORDER,
   categoryRank,
 } from "@/lib/labels";
+import { yen } from "@/lib/format";
 
 // ── 型定義 ─────────────────────────────────────────────────────────
 type Account = {
@@ -113,8 +115,6 @@ const BLANK_CAL_FORM = {
   amount: "",
   direction: "expense" as "income" | "expense",
 };
-
-const yen = (v: number) => v.toLocaleString("ja-JP") + "円";
 
 // セル内訳モーダルに出す「どこから入った実績か」のラベル
 const SOURCE_LABEL: Record<RecordSource["kind"], string> = {
@@ -1168,124 +1168,120 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
 
       {/* 取り込み先の確認（銀行・カードに、登録先の列が無い CSV を入れるとき） */}
       {pendingImport && (
-        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
-            <h2 className="text-lg font-bold text-slate-800 mb-1">CSV 取込先の確認</h2>
-            <p className="text-xs text-slate-500 mb-4">
-              CSV の中身から取込先は判別できません。下記の明細として登録します。
-            </p>
-            <dl className="text-sm border border-slate-200 rounded-lg divide-y divide-slate-100 mb-4">
-              <div className="flex gap-3 px-3 py-2">
-                <dt className="w-20 shrink-0 text-slate-500">ファイル</dt>
-                <dd className="text-slate-700 break-all">{pendingImport.file.name}</dd>
-              </div>
-              <div className="flex gap-3 px-3 py-2 bg-amber-50">
-                <dt className="w-20 shrink-0 text-slate-500">取込先</dt>
-                <dd className="font-semibold text-slate-800">{pendingImport.label}</dd>
-              </div>
-            </dl>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingImport(null)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={() => runImport(pendingImport.file)}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
-              >
-                取り込む
-              </button>
+        <Modal size="md">
+          <h2 className="text-lg font-bold text-slate-800 mb-1">CSV 取込先の確認</h2>
+          <p className="text-xs text-slate-500 mb-4">
+            CSV の中身から取込先は判別できません。下記の明細として登録します。
+          </p>
+          <dl className="text-sm border border-slate-200 rounded-lg divide-y divide-slate-100 mb-4">
+            <div className="flex gap-3 px-3 py-2">
+              <dt className="w-20 shrink-0 text-slate-500">ファイル</dt>
+              <dd className="text-slate-700 break-all">{pendingImport.file.name}</dd>
             </div>
+            <div className="flex gap-3 px-3 py-2 bg-amber-50">
+              <dt className="w-20 shrink-0 text-slate-500">取込先</dt>
+              <dd className="font-semibold text-slate-800">{pendingImport.label}</dd>
+            </div>
+          </dl>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPendingImport(null)}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={() => runImport(pendingImport.file)}
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+            >
+              取り込む
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── セル内訳モーダル（「◯件」を押したとき）─────────────────
           同じ科目・月に複数の実績があるセルは合計しか出せないため、
           1 件ずつの金額・登録日時・出どころをここで確認し、編集・削除もできるようにする。 */}
       {cellDetail && (
-        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-2xl my-auto">
-            <div className="flex items-start justify-between gap-4 mb-1">
-              <h2 className="text-lg font-bold text-slate-800">
-                {detailAccount
-                  ? displayName(
-                      accounts?.find((a) => a.code === detailAccount.code) ?? detailAccount,
-                      sysMode,
-                    )
-                  : "実績の内訳"}
-                <span className="ml-2 text-sm font-normal text-slate-500">
-                  {matrixCurrentYear}年{cellDetail.month}月
-                </span>
-              </h2>
-              <button
-                type="button"
-                onClick={() => setCellDetail(null)}
-                className="text-sm text-slate-400 hover:text-slate-600"
-              >
-                閉じる
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-4">
-              このセルの実績の一覧です。合計 {yen(detailCell?.total ?? 0)}（
-              {detailCell?.records.length ?? 0} 件）。明細の科目は履歴から変えられます。
-            </p>
-
-            {detailCell && detailCell.records.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-slate-500 border-b border-slate-200">
-                      <th className="text-left py-2 pr-4 font-medium">登録日時</th>
-                      <th className="text-left py-2 pr-4 font-medium">出どころ</th>
-                      <th className="text-left py-2 pr-4 font-medium">内容</th>
-                      <th className="text-right py-2 pr-2 font-medium">金額</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {detailCell.records.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50">
-                        <td className="py-2 pr-4 text-xs font-mono text-slate-500 whitespace-nowrap">
-                          {fmtDate(r.createdAt)}
-                        </td>
-                        <td className="py-2 pr-4 whitespace-nowrap">
-                          <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded ${SOURCE_BADGE[r.source.kind]}`}
-                          >
-                            {SOURCE_LABEL[r.source.kind]}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-4 text-xs text-slate-600">
-                          {r.source.description ? (
-                            <>
-                              {r.source.date &&
-                                `${new Date(r.source.date).toLocaleDateString("ja-JP")} · `}
-                              {r.source.description}
-                              {r.source.accountName && (
-                                <span className="text-slate-400">（{r.source.accountName}）</span>
-                              )}
-                            </>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
-                          {yen(Number(r.amount))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">このセルの実績はありません。</p>
-            )}
+        <Modal size="xl">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <h2 className="text-lg font-bold text-slate-800">
+              {detailAccount
+                ? displayName(
+                    accounts?.find((a) => a.code === detailAccount.code) ?? detailAccount,
+                    sysMode,
+                  )
+                : "実績の内訳"}
+              <span className="ml-2 text-sm font-normal text-slate-500">
+                {matrixCurrentYear}年{cellDetail.month}月
+              </span>
+            </h2>
+            <button
+              type="button"
+              onClick={() => setCellDetail(null)}
+              className="text-sm text-slate-400 hover:text-slate-600"
+            >
+              閉じる
+            </button>
           </div>
-        </div>
+          <p className="text-xs text-slate-500 mb-4">
+            このセルの実績の一覧です。合計 {yen(detailCell?.total ?? 0)}（
+            {detailCell?.records.length ?? 0} 件）。明細の科目は履歴から変えられます。
+          </p>
+
+          {detailCell && detailCell.records.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-500 border-b border-slate-200">
+                    <th className="text-left py-2 pr-4 font-medium">登録日時</th>
+                    <th className="text-left py-2 pr-4 font-medium">出どころ</th>
+                    <th className="text-left py-2 pr-4 font-medium">内容</th>
+                    <th className="text-right py-2 pr-2 font-medium">金額</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {detailCell.records.map((r) => (
+                    <tr key={r.id} className="hover:bg-slate-50">
+                      <td className="py-2 pr-4 text-xs font-mono text-slate-500 whitespace-nowrap">
+                        {fmtDate(r.createdAt)}
+                      </td>
+                      <td className="py-2 pr-4 whitespace-nowrap">
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded ${SOURCE_BADGE[r.source.kind]}`}
+                        >
+                          {SOURCE_LABEL[r.source.kind]}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-xs text-slate-600">
+                        {r.source.description ? (
+                          <>
+                            {r.source.date &&
+                              `${new Date(r.source.date).toLocaleDateString("ja-JP")} · `}
+                            {r.source.description}
+                            {r.source.accountName && (
+                              <span className="text-slate-400">（{r.source.accountName}）</span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
+                        {yen(Number(r.amount))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">このセルの実績はありません。</p>
+          )}
+        </Modal>
       )}
 
       {/* 勘定科目・部門のマスタ管理は「設定 › 科目名設定 / 部門・担当」へ移設した。 */}

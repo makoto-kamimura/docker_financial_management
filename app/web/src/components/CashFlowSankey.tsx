@@ -1,6 +1,7 @@
 "use client";
 
-const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
+import { yen } from "@/lib/format";
+
 const pct = (v: number, total: number) =>
   total > 0 ? `${Math.round((Math.abs(v) / total) * 100)}%` : "0%";
 

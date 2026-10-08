@@ -4,12 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { CashFlowTrendCharts } from "@/components/CashFlowTrendCharts";
 import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
 import { PageHeader } from "@/components/ui";
+import { yen } from "@/lib/format";
 
 type BankAccount = {
   id: number;
@@ -36,7 +38,6 @@ type BankAccount = {
   _count: { transactions: number };
 };
 
-const yen = (v: number) => (v ?? 0).toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 // 最終更新日時（明細を最後に登録した日時）の表示。分まで出す
 const dateTimeLabel = (v?: string | null) =>
   v
@@ -336,212 +337,206 @@ function BankAccountsContent() {
 
       {/* 口座登録モーダル（設定「口座・カード管理」の新規登録から移設）*/}
       {showAccountForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-bold text-slate-800 mb-1">銀行追加</h2>
-            <p className="text-xs text-slate-500 mb-4">
-              クレジットカード・電子マネーの登録は「カード・電子マネー管理」で行います。
-            </p>
-            <div className="space-y-3">
+        <Modal size="md">
+          <h2 className="text-lg font-bold text-slate-800 mb-1">銀行追加</h2>
+          <p className="text-xs text-slate-500 mb-4">
+            クレジットカード・電子マネーの登録は「カード・電子マネー管理」で行います。
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">名称 *</label>
+              <input
+                placeholder="例: 住信SBI普通"
+                value={accountForm.name}
+                onChange={(e) => setAccountForm((f) => ({ ...f, name: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">金融機関 *</label>
+              <input
+                placeholder="例: 住信SBIネット銀行"
+                value={accountForm.bankName}
+                onChange={(e) => setAccountForm((f) => ({ ...f, bankName: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">名称 *</label>
+                <label className="block text-sm font-medium text-slate-600 mb-1">支店名</label>
                 <input
-                  placeholder="例: 住信SBI普通"
-                  value={accountForm.name}
-                  onChange={(e) => setAccountForm((f) => ({ ...f, name: e.target.value }))}
+                  value={accountForm.branchName}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, branchName: e.target.value }))}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">金融機関 *</label>
-                <input
-                  placeholder="例: 住信SBIネット銀行"
-                  value={accountForm.bankName}
-                  onChange={(e) => setAccountForm((f) => ({ ...f, bankName: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">支店名</label>
-                  <input
-                    value={accountForm.branchName}
-                    onChange={(e) => setAccountForm((f) => ({ ...f, branchName: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">口座種別</label>
-                  <select
-                    value={accountForm.accountType}
-                    onChange={(e) => setAccountForm((f) => ({ ...f, accountType: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  >
-                    {Object.entries(TYPE_LABEL).map(([v, label]) => (
-                      <option key={v} value={v}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">口座番号</label>
-                  <input
-                    value={accountForm.accountNumber}
-                    onChange={(e) =>
-                      setAccountForm((f) => ({ ...f, accountNumber: e.target.value }))
-                    }
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">下4桁</label>
-                  <input
-                    placeholder="1234"
-                    maxLength={4}
-                    value={accountForm.lastFour}
-                    onChange={(e) => setAccountForm((f) => ({ ...f, lastFour: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  紐付き勘定科目
-                </label>
+                <label className="block text-sm font-medium text-slate-600 mb-1">口座種別</label>
                 <select
-                  value={accountForm.accountCode}
-                  onChange={(e) => setAccountForm((f) => ({ ...f, accountCode: e.target.value }))}
+                  value={accountForm.accountType}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, accountType: e.target.value }))}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 >
-                  <option value="">なし</option>
-                  {assetAccounts.map((a) => (
-                    <option key={a.code} value={a.code}>
-                      {a.code} {a.name}
+                  {Object.entries(TYPE_LABEL).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
                     </option>
                   ))}
                 </select>
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">メモ</label>
+                <label className="block text-sm font-medium text-slate-600 mb-1">口座番号</label>
                 <input
-                  placeholder="任意"
-                  value={accountForm.note}
-                  onChange={(e) => setAccountForm((f) => ({ ...f, note: e.target.value }))}
+                  value={accountForm.accountNumber}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, accountNumber: e.target.value }))}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
-              {accountError && <p className="text-xs text-red-600">{accountError}</p>}
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">下4桁</label>
+                <input
+                  placeholder="1234"
+                  maxLength={4}
+                  value={accountForm.lastFour}
+                  onChange={(e) => setAccountForm((f) => ({ ...f, lastFour: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
             </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                onClick={() => setShowAccountForm(false)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                紐付き勘定科目
+              </label>
+              <select
+                value={accountForm.accountCode}
+                onChange={(e) => setAccountForm((f) => ({ ...f, accountCode: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
               >
-                キャンセル
-              </button>
-              <button
-                onClick={saveAccount}
-                disabled={!accountForm.name || !accountForm.bankName}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
-              >
-                登録
-              </button>
+                <option value="">なし</option>
+                {assetAccounts.map((a) => (
+                  <option key={a.code} value={a.code}>
+                    {a.code} {a.name}
+                  </option>
+                ))}
+              </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">メモ</label>
+              <input
+                placeholder="任意"
+                value={accountForm.note}
+                onChange={(e) => setAccountForm((f) => ({ ...f, note: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            {accountError && <p className="text-xs text-red-600">{accountError}</p>}
           </div>
-        </div>
+          <div className="flex justify-end gap-2 mt-5">
+            <button
+              onClick={() => setShowAccountForm(false)}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={saveAccount}
+              disabled={!accountForm.name || !accountForm.bankName}
+              className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+            >
+              登録
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* 口座編集モーダル（設定「口座・カード管理」から移設）*/}
       {editAccount && (
-        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">銀行口座を編集</h2>
-            <div className="space-y-3">
-              {(
-                [
-                  ["name", "名称", "例: 住信SBI普通"],
-                  ["bankName", "金融機関", "例: 住信SBIネット銀行"],
-                  ["lastFour", "下4桁", "1234"],
-                  ["note", "メモ", "任意"],
-                ] as ["name" | "bankName" | "lastFour" | "note", string, string][]
-              ).map(([k, label, placeholder]) => (
-                <div key={k}>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
-                  <input
-                    placeholder={placeholder}
-                    maxLength={k === "lastFour" ? 4 : undefined}
-                    value={editAccount[k]}
-                    onChange={(e) => setEditAccount({ ...editAccount, [k]: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-              ))}
-
-              {/* 残高の差額。明細に現れない期首残高などを吸収し、サマリの残高に加算される */}
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  残高の差額（円）
-                </label>
-                <p className="text-xs text-slate-500 mb-2">
-                  取得できる明細を登録したのに現在の残高と差異がある場合は、差額を入力してください。
-                  取込開始前から口座にあった残高（期首残高）などが該当します。
-                </p>
+        <Modal size="md">
+          <h2 className="text-lg font-bold text-slate-800 mb-4">銀行口座を編集</h2>
+          <div className="space-y-3">
+            {(
+              [
+                ["name", "名称", "例: 住信SBI普通"],
+                ["bankName", "金融機関", "例: 住信SBIネット銀行"],
+                ["lastFour", "下4桁", "1234"],
+                ["note", "メモ", "任意"],
+              ] as ["name" | "bankName" | "lastFour" | "note", string, string][]
+            ).map(([k, label, placeholder]) => (
+              <div key={k}>
+                <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
                 <input
-                  type="number"
-                  placeholder="例: 554929"
-                  value={editAccount.balanceAdjustment}
-                  onChange={(e) =>
-                    setEditAccount({ ...editAccount, balanceAdjustment: e.target.value })
-                  }
+                  placeholder={placeholder}
+                  maxLength={k === "lastFour" ? 4 : undefined}
+                  value={editAccount[k]}
+                  onChange={(e) => setEditAccount({ ...editAccount, [k]: e.target.value })}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 />
-                <p className="text-xs text-slate-500 mt-2">
-                  明細合計 {yen(editAccount.transactionSum)} ＋ 差額{" "}
-                  {yen(Number(editAccount.balanceAdjustment || 0))} ＝{" "}
-                  <span className="font-semibold text-indigo-600">
-                    {yen(editAccount.transactionSum + Number(editAccount.balanceAdjustment || 0))}
-                  </span>
-                </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  紐付き勘定科目
-                </label>
-                <select
-                  value={editAccount.accountCode}
-                  onChange={(e) => setEditAccount({ ...editAccount, accountCode: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">なし</option>
-                  {assetAccounts.map((a) => (
-                    <option key={a.code} value={a.code}>
-                      {a.code} {a.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {accountError && <p className="text-xs text-red-600">{accountError}</p>}
+            ))}
+
+            {/* 残高の差額。明細に現れない期首残高などを吸収し、サマリの残高に加算される */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                残高の差額（円）
+              </label>
+              <p className="text-xs text-slate-500 mb-2">
+                取得できる明細を登録したのに現在の残高と差異がある場合は、差額を入力してください。
+                取込開始前から口座にあった残高（期首残高）などが該当します。
+              </p>
+              <input
+                type="number"
+                placeholder="例: 554929"
+                value={editAccount.balanceAdjustment}
+                onChange={(e) =>
+                  setEditAccount({ ...editAccount, balanceAdjustment: e.target.value })
+                }
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                明細合計 {yen(editAccount.transactionSum)} ＋ 差額{" "}
+                {yen(Number(editAccount.balanceAdjustment || 0))} ＝{" "}
+                <span className="font-semibold text-indigo-600">
+                  {yen(editAccount.transactionSum + Number(editAccount.balanceAdjustment || 0))}
+                </span>
+              </p>
             </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                onClick={() => setEditAccount(null)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                紐付き勘定科目
+              </label>
+              <select
+                value={editAccount.accountCode}
+                onChange={(e) => setEditAccount({ ...editAccount, accountCode: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
               >
-                キャンセル
-              </button>
-              <button
-                onClick={saveEditAccount}
-                disabled={!editAccount.name || !editAccount.bankName}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
-              >
-                保存
-              </button>
+                <option value="">なし</option>
+                {assetAccounts.map((a) => (
+                  <option key={a.code} value={a.code}>
+                    {a.code} {a.name}
+                  </option>
+                ))}
+              </select>
             </div>
+            {accountError && <p className="text-xs text-red-600">{accountError}</p>}
           </div>
-        </div>
+          <div className="flex justify-end gap-2 mt-5">
+            <button
+              onClick={() => setEditAccount(null)}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={saveEditAccount}
+              disabled={!editAccount.name || !editAccount.bankName}
+              className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+            >
+              保存
+            </button>
+          </div>
+        </Modal>
       )}
     </AppShell>
   );

@@ -17,13 +17,8 @@ import { LoadingSpinner } from "@/components/StateViews";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
 import { actualsConfirmHref, CycleSteps, type CycleStatus } from "@/components/CycleSteps";
 import { MonthPicker } from "@/components/MonthPicker";
-import {
-  diffClass,
-  diffLabel,
-  signedYen,
-  yen,
-  type VarianceResponse,
-} from "@/components/BudgetVariancePanel";
+import { diffClass, diffLabel, type VarianceResponse } from "@/components/BudgetVariancePanel";
+import { yen, yenSigned } from "@/lib/format";
 import { BUDGET_HELP, textFor } from "@/lib/help-texts";
 import { displayName, type ViewMode } from "@/lib/display-name";
 import {
@@ -383,8 +378,8 @@ export function BudgetConfirmPanel({
                               {item.notes
                                 .map((n) =>
                                   n.kind === "timing"
-                                    ? `期ズレ ${signedYen(n.amount)}`
-                                    : `${nameOf(n.fromAccountId)}の余り ${signedYen(n.amount)}`,
+                                    ? `期ズレ ${yenSigned(n.amount)}`
+                                    : `${nameOf(n.fromAccountId)}の余り ${yenSigned(n.amount)}`,
                                 )
                                 .join("、")}
                             </div>
@@ -400,7 +395,7 @@ export function BudgetConfirmPanel({
                         >
                           {row ? (
                             <>
-                              {signedYen(row.difference)}
+                              {yenSigned(row.difference)}
                               <div className="text-[10px]">{diffLabel(row)}</div>
                             </>
                           ) : (
@@ -439,7 +434,7 @@ export function BudgetConfirmPanel({
                           {item ? yen(item.base) : "—"}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {!item || item.adjustment === 0 ? "—" : signedYen(item.adjustment)}
+                          {!item || item.adjustment === 0 ? "—" : yenSigned(item.adjustment)}
                         </td>
                         <td className="px-3 py-2 text-right">
                           {item ? (
@@ -491,7 +486,7 @@ export function BudgetConfirmPanel({
                       <td
                         className={`px-3 py-2 text-right font-semibold tabular-nums ${totals.revenue - totals.expense < 0 ? "text-red-600" : "text-slate-800"}`}
                       >
-                        {signedYen(totals.revenue - totals.expense)}
+                        {yenSigned(totals.revenue - totals.expense)}
                       </td>
                     </tr>
                   </tfoot>

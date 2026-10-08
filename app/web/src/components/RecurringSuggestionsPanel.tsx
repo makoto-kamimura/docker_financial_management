@@ -9,6 +9,7 @@ import { useState } from "react";
 import { SectionLead } from "@/components/Explain";
 import { Notice } from "@/components/ui";
 import { BANK_HELP } from "@/lib/help-texts";
+import { yen } from "@/lib/format";
 
 export type RecurringSuggestion = {
   accountId: number;
@@ -21,8 +22,6 @@ export type RecurringSuggestion = {
   months: number;
   lastDate: string;
 };
-
-const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 export function useRecurringSuggestions() {
   return useQuery({

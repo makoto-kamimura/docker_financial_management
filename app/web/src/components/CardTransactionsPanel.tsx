@@ -28,6 +28,7 @@ import {
   LedgerMoreSection,
   LedgerTable,
 } from "@/components/LedgerTable";
+import { yen } from "@/lib/format";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -71,7 +72,6 @@ type CardTransferRule = {
 };
 // ── 定数 ────────────────────────────────────────────────────────
 const now = new Date();
-const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 // 明細一覧のページング（実績管理の履歴・銀行管理の一覧と同じ 30 件単位）
 const TXN_PAGE_SIZE = 30;

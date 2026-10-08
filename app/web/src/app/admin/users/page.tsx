@@ -5,6 +5,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
@@ -205,7 +206,7 @@ export default function AdminUsersPage() {
 
       {/* ユーザー追加 */}
       {create && (
-        <Modal
+        <UserModal
           title="ユーザー追加"
           onClose={() => setCreate(null)}
           onSave={saveCreate}
@@ -263,12 +264,12 @@ export default function AdminUsersPage() {
             </span>
           </label>
           {error && <Notice tone="error">{error}</Notice>}
-        </Modal>
+        </UserModal>
       )}
 
       {/* ユーザーの編集（表示名・ロール・パスワード） */}
       {edit && (
-        <Modal
+        <UserModal
           title={`${edit.user.name} を編集`}
           subtitle={edit.user.email}
           onClose={() => setEdit(null)}
@@ -306,7 +307,7 @@ export default function AdminUsersPage() {
             />
           </Field>
           {error && <Notice tone="error">{error}</Notice>}
-        </Modal>
+        </UserModal>
       )}
     </AppShell>
   );
@@ -321,8 +322,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-// 銀行追加・借入追加と同じ形のモーダル
-function Modal({
+// 銀行追加・借入追加と同じ形のモーダル（枠は components/Modal.tsx）
+function UserModal({
   title,
   subtitle,
   onClose,
@@ -338,24 +339,22 @@ function Modal({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg font-bold text-slate-800 mb-1">{title}</h2>
-        {subtitle && <p className="text-xs text-slate-500 mb-4">{subtitle}</p>}
-        <div className="space-y-3 mt-3">{children}</div>
-        <div className="flex justify-end gap-2 mt-5">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
-          >
-            キャンセル
-          </button>
-          <button type="button" onClick={onSave} className="btn-primary">
-            {saveLabel}
-          </button>
-        </div>
+    <Modal size="md" onClose={onClose}>
+      <h2 className="text-lg font-bold text-slate-800 mb-1">{title}</h2>
+      {subtitle && <p className="text-xs text-slate-500 mb-4">{subtitle}</p>}
+      <div className="space-y-3 mt-3">{children}</div>
+      <div className="flex justify-end gap-2 mt-5">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+        >
+          キャンセル
+        </button>
+        <button type="button" onClick={onSave} className="btn-primary">
+          {saveLabel}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

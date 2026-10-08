@@ -5,10 +5,11 @@
 // 固定決済の合計で見込む（GET /api/linked-accounts/usage-trend。計算は lib/card-usage.ts）。
 
 import { useQuery } from "@tanstack/react-query";
-import { SectionLead } from "@/components/Explain";
+import { SectionCard } from "@/components/SectionCard";
 import { SERIES_COLORS, ValueLineChart } from "@/components/ValueLineChart";
 import { asOfDateLabel } from "@/lib/asset-valuation";
 import { CARD_HELP } from "@/lib/help-texts";
+import { yenShort } from "@/lib/format";
 
 export type CardUsageTrend = {
   months: string[];
@@ -16,11 +17,6 @@ export type CardUsageTrend = {
   total: number[];
   cards: { id: number; name: string; values: number[] }[];
 };
-
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : `${Math.round(v).toLocaleString("ja-JP")}円`;
 
 /** 利用額の推移（サマリの一覧でも今月の利用額に使う。キャッシュを共有する） */
 export function useCardUsageTrend() {
@@ -42,23 +38,18 @@ export function CardUsageTrendCharts() {
   const nextIndex = currentIndex + 1 < data.months.length ? currentIndex + 1 : null;
 
   return (
-    <section aria-labelledby="card-usage-title" className="card mb-6">
-      <h2 id="card-usage-title" className="section-title mb-1">
-        利用額の推移
-      </h2>
-      <SectionLead className="mb-3">{CARD_HELP.usageTrend}</SectionLead>
-
+    <SectionCard title="利用額の推移" lead={CARD_HELP.usageTrend}>
       <div className="flex flex-wrap items-end gap-x-8 gap-y-1 mb-2">
         <div>
           <p className="text-xs text-slate-500">今月の利用額（{asOfDateLabel(new Date())}）</p>
           <p className="text-2xl font-bold text-rose-600 tabular-nums">
-            {yen(data.total[currentIndex] ?? 0)}
+            {yenShort(data.total[currentIndex] ?? 0)}
           </p>
         </div>
         {nextIndex !== null && (
           <p className="text-xs text-slate-500">
             来月の固定決済{" "}
-            <span className="font-medium text-slate-700">{yen(data.total[nextIndex])}</span>
+            <span className="font-medium text-slate-700">{yenShort(data.total[nextIndex])}</span>
           </p>
         )}
       </div>
@@ -77,7 +68,7 @@ export function CardUsageTrendCharts() {
             <p className="text-xs text-slate-500 mb-1">
               今月の利用額{" "}
               <span className="font-medium text-slate-700 tabular-nums">
-                {yen(c.values[currentIndex] ?? 0)}
+                {yenShort(c.values[currentIndex] ?? 0)}
               </span>
             </p>
             <ValueLineChart
@@ -92,6 +83,6 @@ export function CardUsageTrendCharts() {
           </div>
         ))}
       </div>
-    </section>
+    </SectionCard>
   );
 }

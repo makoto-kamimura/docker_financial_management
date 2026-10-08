@@ -6,17 +6,14 @@
 // 先は登録済みの改定と履歴の傾向からの予測（lib/loan-schedule.ts）。今月より先は破線。
 // 単位の違う残高と金利は、同じグラフに重ねず別のグラフにする。
 
-import { SectionLead } from "@/components/Explain";
+import { SectionCard } from "@/components/SectionCard";
 import { SERIES_COLORS, ValueLineChart } from "@/components/ValueLineChart";
 import { asOfDateLabel } from "@/lib/asset-valuation";
 import { LOANS_HELP } from "@/lib/help-texts";
 import { LOAN_TYPE_LABEL } from "@/lib/labels";
 import { loanTrendSeries, type Loan } from "@/lib/loan-schedule";
+import { yenShort } from "@/lib/format";
 
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : `${Math.round(v).toLocaleString("ja-JP")}円`;
 const percent = (v: number) => `${v.toFixed(3)}%`;
 const percentAxis = (v: number) => `${Number(v).toFixed(2)}%`;
 
@@ -36,19 +33,16 @@ export function LoanTrendCharts({ loans }: { loans: Loan[] }) {
   const totalBorrowed = loans.reduce((s, l) => s + Number(l.amount), 0);
 
   return (
-    <section aria-labelledby="loan-trend-title" className="card mb-6">
-      <h2 id="loan-trend-title" className="section-title mb-1">
-        借入残高の推移
-      </h2>
-      <SectionLead className="mb-3">{LOANS_HELP.schedule}</SectionLead>
-
+    <SectionCard title="借入残高の推移" lead={LOANS_HELP.schedule}>
       <div className="flex flex-wrap items-end gap-x-8 gap-y-1 mb-2">
         <div>
           <p className="text-xs text-slate-500">借入残高合計（{asOf}）</p>
-          <p className="text-2xl font-bold text-rose-600 tabular-nums">{yen(totalRemaining)}</p>
+          <p className="text-2xl font-bold text-rose-600 tabular-nums">
+            {yenShort(totalRemaining)}
+          </p>
         </div>
         <p className="text-xs text-slate-500">
-          借入総額 <span className="font-medium text-slate-700">{yen(totalBorrowed)}</span>
+          借入総額 <span className="font-medium text-slate-700">{yenShort(totalBorrowed)}</span>
         </p>
       </div>
       <ValueLineChart
@@ -79,7 +73,7 @@ export function LoanTrendCharts({ loans }: { loans: Loan[] }) {
               <p className="text-xs text-slate-500 mb-1">
                 {asOf}の残高{" "}
                 <span className="font-medium text-slate-700 tabular-nums">
-                  {yen(Number(l.remainingAmount))}
+                  {yenShort(Number(l.remainingAmount))}
                 </span>{" "}
                 ・ 完済予定 {l.repaymentDate.slice(0, 7)} ・ {repaidPercent(l)}% 返済済
                 {l.personalAsset && <> ・ 資産: {l.personalAsset.name}</>}
@@ -113,6 +107,6 @@ export function LoanTrendCharts({ loans }: { loans: Loan[] }) {
           );
         })}
       </div>
-    </section>
+    </SectionCard>
   );
 }

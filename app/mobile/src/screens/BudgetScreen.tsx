@@ -323,7 +323,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
               {(guide.length > 0 || loanMap.size > 0 || debtMap.size > 0) && (
                 <Notice>
                   {[
-                    guide.length > 0 ? `適正 ¥…：${BUDGET_HELP.guide}` : null,
+                    guide.length > 0 ? `適正 …：${BUDGET_HELP.guide}` : null,
                     loanMap.size > 0 ? `自動反映：${BUDGET_HELP.autoLoan}` : null,
                     debtMap.size > 0 ? `負債返済分：${BUDGET_HELP.autoDebt}` : null,
                   ]

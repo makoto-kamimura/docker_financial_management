@@ -15,6 +15,7 @@ import { displayName, type ViewMode } from "@/lib/display-name";
 import { isExpenseCategory, nextYearMonth, type VarianceRow } from "@/lib/budget-cycle";
 import { cycleKey } from "@/lib/cycle-month";
 import { useCycleMonth } from "@/lib/use-cycle-month";
+import { yen, yenSigned } from "@/lib/format";
 
 export type VarianceRowWithNames = VarianceRow & {
   soleName: string | null;
@@ -30,9 +31,6 @@ export type VarianceResponse = CycleStatus & {
     overrunTotal: number;
   };
 };
-
-export const yen = (v: number) => `¥${Math.round(v).toLocaleString("ja-JP")}`;
-export const signedYen = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${yen(Math.abs(v))}`;
 
 /** 差の色（有利なら緑、不利なら赤） */
 export const diffClass = (r: VarianceRow) =>
@@ -150,7 +148,7 @@ export function BudgetVariancePanel({
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{yen(r.actual)}</td>
                       <td className={`px-3 py-2 text-right tabular-nums ${diffClass(r)}`}>
-                        {signedYen(r.difference)}
+                        {yenSigned(r.difference)}
                         <div className="text-[10px]">{diffLabel(r)}</div>
                       </td>
                     </tr>

@@ -6,10 +6,11 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { SectionLead } from "@/components/Explain";
+import { SectionCard } from "@/components/SectionCard";
 import { summaryAsOfLabel } from "@/components/NetWorthSummaryCard";
 import { DASHBOARD_HELP } from "@/lib/help-texts";
 import { LOAN_TYPE_LABEL } from "@/lib/labels";
+import { yenShort } from "@/lib/format";
 
 type LoanSummary = {
   asOf: string;
@@ -30,11 +31,6 @@ type LoanSummary = {
   }[];
 };
 
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : v.toLocaleString("ja-JP") + "円";
-
 export function LoanSummaryCard({ period }: { period: string | null }) {
   const [year, month] = (period ?? "").split("-").map(Number);
   const enabled = Number.isInteger(year) && Number.isInteger(month);
@@ -48,31 +44,32 @@ export function LoanSummaryCard({ period }: { period: string | null }) {
   if (!enabled || !data || data.loans.length === 0) return null;
 
   return (
-    <section aria-labelledby="loan-summary-title" className="card mb-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 id="loan-summary-title" className="section-title">
-          総借入サマリ（{summaryAsOfLabel(data)}）
-        </h2>
+    <SectionCard
+      title={<>総借入サマリ（{summaryAsOfLabel(data)}）</>}
+      lead={DASHBOARD_HELP.loanSummary}
+      actions={
         <Link href={"/loans" as never} className="text-xs text-indigo-600 underline">
           借入金管理で見る
         </Link>
-      </div>
-      <SectionLead className="mb-4">{DASHBOARD_HELP.loanSummary}</SectionLead>
+      }
+    >
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div>
           <p className="text-xs text-slate-500 mb-1">借入残高</p>
-          <p className="text-2xl font-bold text-rose-600 tabular-nums">{yen(data.totalBalance)}</p>
+          <p className="text-2xl font-bold text-rose-600 tabular-nums">
+            {yenShort(data.totalBalance)}
+          </p>
         </div>
         <div>
           <p className="text-xs text-slate-500 mb-1">月々の返済額</p>
           <p className="text-2xl font-bold text-slate-800 tabular-nums">
-            {yen(data.totalMonthlyPayment)}
+            {yenShort(data.totalMonthlyPayment)}
           </p>
         </div>
         <div>
           <p className="text-xs text-slate-500 mb-1">借入総額</p>
           <p className="text-2xl font-bold text-slate-800 tabular-nums">
-            {yen(data.totalBorrowed)}
+            {yenShort(data.totalBorrowed)}
           </p>
         </div>
       </div>
@@ -87,16 +84,17 @@ export function LoanSummaryCard({ period }: { period: string | null }) {
               {l.assetName && <span className="text-slate-400">（{l.assetName}）</span>}
             </span>
             <span className="text-slate-500">
-              残高 <span className="font-medium text-slate-700 tabular-nums">{yen(l.balance)}</span>
+              残高{" "}
+              <span className="font-medium text-slate-700 tabular-nums">{yenShort(l.balance)}</span>
             </span>
             <span className="text-slate-500">
-              月々 <span className="tabular-nums">{yen(l.monthlyPayment)}</span>
+              月々 <span className="tabular-nums">{yenShort(l.monthlyPayment)}</span>
             </span>
             <span className="text-slate-500">金利 {(l.interestRate * 100).toFixed(3)}%</span>
             <span className="text-slate-500">完済予定 {l.repaymentDate.slice(0, 7)}</span>
           </li>
         ))}
       </ul>
-    </section>
+    </SectionCard>
   );
 }
