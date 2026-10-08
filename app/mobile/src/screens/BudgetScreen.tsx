@@ -446,6 +446,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
           {tab === "history" && <Lead>{BUDGET_HELP.history}</Lead>}
           {tab === "history" && (
             <ChangeHistoryList
+              sourceLabel="予算"
               rows={history.data}
               total={history.total}
               query={histQuery}

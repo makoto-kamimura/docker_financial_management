@@ -5,7 +5,6 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { CardUsageTrendCharts, useCardUsageTrend } from "@/components/CardUsageTrendCharts";
-import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
 import { SectionLead } from "@/components/Explain";
 import { CARD_HELP } from "@/lib/help-texts";
 import type { FlowGraph } from "@/components/AccountFlowDiagram";
@@ -15,7 +14,7 @@ import {
   isChargeableType,
   type LinkedAccountType,
 } from "@/lib/linked-account-type";
-import { CsvDropzone, Notice, PageHeader, Tabs } from "@/components/ui";
+import { Notice, PageHeader } from "@/components/ui";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -52,21 +51,12 @@ const BLANK_CARD: CardForm = {
 };
 type CategoryAccount = { id: number; code: string; name: string; category: string };
 // チャージの自動判定ルール（card_transfer_rules）
-type ImportResult = {
-  inserted: number;
-  /** 既に取り込み済みで重複していた行数 */
-  skipped?: number;
-  errors: { row: number; message: string }[];
-};
 
 // ── 定数 ────────────────────────────────────────────────────────
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 // 電子マネー・プリペイドはカード番号が無く、明細も「チャージ残高からの支払い」なので文言を切り替える
 const ACCOUNT_TYPE_LABEL = LINKED_ACCOUNT_TYPE_LABELS;
-
-// 明細一覧・カレンダーは実績管理の「履歴」「カレンダー」へ移した（components/CardTransactionsPanel.tsx）
-type Tab = "summary" | "csv";
 
 // サマリタブのフロー図（GET /api/linked-accounts/flow）。
 // 引き落とし・チャージ・固定決済のどれにも現れないカードは線を引けないため unlinked として案内する。
@@ -117,14 +107,7 @@ const EMPTY_CARD_FLOW: CardFlowResponse = {
 // この画面ではチャージ先の指定と、そのカードでの固定決済の登録だけを行う。
 export default function CardTransactionsPage() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>("summary");
-  const [accountId, setAccountId] = useState<number | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
-  // 取込先の取り違え防止。選択中のカードを確認してから取り込む（毎回表示する）
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
   // カード・電子マネー台帳の登録／編集モーダル（設定「口座・カード管理」から移設）
   const [cardForm, setCardForm] = useState<CardForm | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
@@ -132,12 +115,8 @@ export default function CardTransactionsPage() {
   // ── データ取得 ──────────────────────────────────────────────
   const { data: accounts } = useQuery({
     queryKey: ["linked-accounts"],
-    queryFn: async (): Promise<CardAccount[]> => {
-      const list = ((await (await fetch("/api/linked-accounts")).json()).data ??
-        []) as CardAccount[];
-      if (list.length && accountId === null) setAccountId(list[0].id);
-      return list;
-    },
+    queryFn: async (): Promise<CardAccount[]> =>
+      ((await (await fetch("/api/linked-accounts")).json()).data ?? []) as CardAccount[],
   });
 
   const { data: categoryAccounts } = useQuery({
@@ -149,7 +128,6 @@ export default function CardTransactionsPage() {
   // サマリタブのフロー図（銀行口座 → カード、カード → チャージ先、カード → 固定決済）
   const { data: cardFlow } = useQuery({
     queryKey: ["card-flow"],
-    enabled: tab === "summary",
     queryFn: async (): Promise<CardFlowResponse> => {
       const res = await fetch("/api/linked-accounts/flow");
       if (!res.ok) return EMPTY_CARD_FLOW;
@@ -162,9 +140,6 @@ export default function CardTransactionsPage() {
     () => (categoryAccounts ?? []).filter((a) => ["ASSET", "LIABILITY"].includes(a.category)),
     [categoryAccounts],
   );
-
-  const selectedAccount = (accounts ?? []).find((a) => a.id === accountId) ?? null;
-  const isEMoney = selectedAccount?.type === "E_MONEY";
 
   // 今月の利用額（利用額の推移と同じ問い合わせ。null は全カードの合計）
   const { data: usage } = useCardUsageTrend();
@@ -220,13 +195,8 @@ export default function CardTransactionsPage() {
       setCardError(j?.error ?? "保存に失敗しました");
       return;
     }
-    const created = cardForm.id === null ? await res.json().catch(() => null) : null;
     setCardForm(null);
     await qc.invalidateQueries({ queryKey: ["linked-accounts"] });
-    // 新規登録したカードをそのまま表示対象にする
-    if (created?.data?.id) {
-      setAccountId(created.data.id);
-    }
   }
 
   async function deleteCard(a: CardAccount) {
@@ -237,61 +207,7 @@ export default function CardTransactionsPage() {
       alert(j?.error ?? `削除に失敗しました。(HTTP ${res.status})`);
       return;
     }
-    if (accountId === a.id) setAccountId(null);
     qc.invalidateQueries({ queryKey: ["linked-accounts"] });
-  }
-
-  // ファイルを受け取った時点では取り込まず、取込先カードの確認モーダルを開く。
-  // CSV は明細の中身から取込先を判別できないため（カード会社ごとに書式が異なる）、
-  // 選択中のカードへ黙って登録すると取り違えに気付けない。
-  function requestImport(file: File) {
-    setImportResult(null);
-    setImportError(null);
-    if (accountId === null) {
-      setImportError("カード・電子マネーを登録してください。");
-      resetFileInput();
-      return;
-    }
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      setImportError("CSV ファイル (.csv) のみ対応しています。");
-      resetFileInput();
-      return;
-    }
-    setPendingFile(file);
-  }
-
-  function cancelImport() {
-    setPendingFile(null);
-    resetFileInput();
-  }
-
-  // 同じファイルを選び直しても change が発火するようにクリアする
-  function resetFileInput() {}
-
-  async function importFile(file: File) {
-    if (accountId === null) return;
-    setPendingFile(null);
-    setImporting(true);
-    setImportResult(null);
-    setImportError(null);
-    try {
-      const res = await fetch(`/api/linked-accounts/${accountId}/transactions`, {
-        method: "POST",
-        headers: { "Content-Type": "text/csv" },
-        body: file,
-      });
-      if (res.ok) {
-        setImportResult((await res.json()) as ImportResult);
-        qc.invalidateQueries({ queryKey: ["card-txns", accountId] });
-      } else {
-        setImportError(await importErrorMessage(res));
-      }
-    } catch {
-      setImportError(importNetworkErrorMessage);
-    } finally {
-      setImporting(false);
-      resetFileInput();
-    }
   }
 
   // 編集中のカードをチャージ先に指定している明細の件数（種別をクレジットへ戻すときの警告用）
@@ -299,10 +215,6 @@ export default function CardTransactionsPage() {
     cardForm?.id != null
       ? ((accounts ?? []).find((a) => a.id === cardForm.id)?.chargeSourceCount ?? 0)
       : 0;
-  const TABS: [Tab, string][] = [
-    ["summary", "サマリ"],
-    ["csv", "CSV インポート"],
-  ];
 
   return (
     <AppShell>
@@ -327,88 +239,6 @@ export default function CardTransactionsPage() {
             </button>
           </div>
         </Notice>
-      )}
-
-      {/* タブ */}
-      <Tabs
-        tabs={TABS}
-        value={tab}
-        onChange={(t) => {
-          setTab(t);
-          setMsg(null);
-        }}
-        className="mb-4"
-      />
-
-      {/* CSV の取込先のカード・電子マネー（取り込む前に確認のモーダルも出す） */}
-      {tab === "csv" && accounts && accounts.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <label htmlFor="card-account" className="text-xs font-medium text-slate-600">
-            取込先
-          </label>
-          <select
-            id="card-account"
-            className="input-field w-72"
-            value={accountId ?? ""}
-            onChange={(e) => setAccountId(Number(e.target.value))}
-          >
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                [{ACCOUNT_TYPE_LABEL[a.type] ?? "カード"}] {a.name}（{a.institution}
-                {a.lastFour ? ` ****${a.lastFour}` : ""}）
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* CSV 取込先の確認モーダル。取り違え防止のため取込のたびに表示する */}
-      {pendingFile && selectedAccount && (
-        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
-            <h2 className="text-lg font-bold text-slate-800 mb-1">CSV 取込先の確認</h2>
-            <p className="text-xs text-slate-500 mb-4">
-              CSV の中身から取込先は判別できません。下記の
-              {isEMoney ? "電子マネー" : "カード"}の利用明細として登録します。
-            </p>
-            <dl className="text-sm border border-slate-200 rounded-lg divide-y divide-slate-100 mb-4">
-              <div className="flex gap-3 px-3 py-2">
-                <dt className="w-20 shrink-0 text-slate-500">ファイル</dt>
-                <dd className="text-slate-700 break-all">{pendingFile.name}</dd>
-              </div>
-              <div className="flex gap-3 px-3 py-2 bg-amber-50">
-                <dt className="w-20 shrink-0 text-slate-500">取込先</dt>
-                <dd className="font-semibold text-slate-800">
-                  [{ACCOUNT_TYPE_LABEL[selectedAccount.type] ?? "カード"}] {selectedAccount.name}
-                  <span className="block text-xs font-normal text-slate-500">
-                    {selectedAccount.institution}
-                    {selectedAccount.lastFour ? ` ****${selectedAccount.lastFour}` : ""}
-                  </span>
-                </dd>
-              </div>
-            </dl>
-            <p className="text-xs text-amber-700 mb-4">
-              取込先が違う場合はキャンセルし、画面上部の 「{isEMoney ? "電子マネー" : "カード"}
-              」で選び直してから取り込んでください。
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={cancelImport}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={() => importFile(pendingFile)}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
-              >
-                この{isEMoney ? "電子マネー" : "カード"}に取り込む
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* カード・電子マネーの登録／編集モーダル（設定「口座・カード管理」から移設）*/}
@@ -553,219 +383,137 @@ export default function CardTransactionsPage() {
         </Notice>
       )}
 
-      {/* ── サマリタブ（借入金管理と同じ並び: 推移 → 一覧）──────────────────── */}
-      {tab === "summary" && (
-        <>
-          <CardUsageTrendCharts />
+      {/* ── 借入金管理と同じ並び: 推移 → 一覧 ──────────────────── */}
+      <>
+        <CardUsageTrendCharts />
 
-          {/* ── カード・電子マネー（借入金管理の「借入金」と同じく 1 枚のカードにまとめる）── */}
-          <div className="card mb-6">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-              <div>
-                <h2 className="section-title mb-1">カード・電子マネー</h2>
-                <SectionLead className="mb-1">{CARD_HELP.cards}</SectionLead>
-                {(accounts ?? []).length > 0 && (
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    今月の利用額の合計: {yen(usageThisMonth(null))} ・ {(accounts ?? []).length} 件
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setCardError(null);
-                  setCardForm(BLANK_CARD);
-                }}
-                className="btn-primary shrink-0"
-              >
-                カード・電子マネー追加
-              </button>
+        {/* ── カード・電子マネー（借入金管理の「借入金」と同じく 1 枚のカードにまとめる）── */}
+        <div className="card mb-6">
+          {/* 説明が長くても「カード・電子マネー追加」が右端に残るよう、折り返さない並びにする */}
+          <div className="flex items-start gap-3 mb-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="section-title mb-1">カード・電子マネー</h2>
+              <SectionLead className="mb-1">{CARD_HELP.cards}</SectionLead>
+              {(accounts ?? []).length > 0 && (
+                <p className="text-xs text-slate-400 mt-0.5">
+                  今月の利用額の合計: {yen(usageThisMonth(null))} ・ {(accounts ?? []).length} 件
+                </p>
+              )}
             </div>
-            {!accounts ? (
-              <p className="text-slate-400 text-sm">読み込み中…</p>
-            ) : accounts.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                カード・電子マネーが登録されていません。右上の「カード・電子マネー追加」から登録してください。
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {accounts.map((a) => {
-                  const debits = (cardFlow?.transfers ?? []).filter(
-                    (t) => t.linkedAccountId === a.id,
-                  );
-                  const recurring = (cardFlow?.recurring ?? []).filter((r) => r.accountId === a.id);
-                  const recurringTotal = recurring.reduce((sum, r) => sum + r.amount, 0);
-                  return (
-                    <div key={a.id} className="border border-slate-100 rounded-lg px-3 py-3">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                              {ACCOUNT_TYPE_LABEL[a.type] ?? "カード"}
-                            </span>
-                            <h3 className="font-medium text-slate-800 text-sm">{a.name}</h3>
-                            <span className="text-xs text-slate-500">
-                              {a.institution}
-                              {a.lastFour ? ` ****${a.lastFour}` : ""}
-                            </span>
-                          </div>
-                          <div className="text-xs text-slate-500 mt-1">
-                            {debits.length > 0 ? (
-                              debits.map((t) => (
-                                <span key={t.id} className="mr-3">
-                                  引き落とし: {t.from ?? "口座未設定"} ・ 毎月{t.day}日 ・{" "}
-                                  {yen(t.amount)}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-slate-400">
-                                引き落としは未登録（実績管理の履歴で、銀行の引き落としの明細から登録します）
+            <button
+              type="button"
+              onClick={() => {
+                setCardError(null);
+                setCardForm(BLANK_CARD);
+              }}
+              className="btn-primary shrink-0"
+            >
+              カード・電子マネー追加
+            </button>
+          </div>
+          {!accounts ? (
+            <p className="text-slate-400 text-sm">読み込み中…</p>
+          ) : accounts.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              カード・電子マネーが登録されていません。右上の「カード・電子マネー追加」から登録してください。
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {accounts.map((a) => {
+                const debits = (cardFlow?.transfers ?? []).filter(
+                  (t) => t.linkedAccountId === a.id,
+                );
+                const recurring = (cardFlow?.recurring ?? []).filter((r) => r.accountId === a.id);
+                const recurringTotal = recurring.reduce((sum, r) => sum + r.amount, 0);
+                return (
+                  <div key={a.id} className="border border-slate-100 rounded-lg px-3 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                            {ACCOUNT_TYPE_LABEL[a.type] ?? "カード"}
+                          </span>
+                          <h3 className="font-medium text-slate-800 text-sm">{a.name}</h3>
+                          <span className="text-xs text-slate-500">
+                            {a.institution}
+                            {a.lastFour ? ` ****${a.lastFour}` : ""}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          {debits.length > 0 ? (
+                            debits.map((t) => (
+                              <span key={t.id} className="mr-3">
+                                引き落とし: {t.from ?? "口座未設定"} ・ 毎月{t.day}日 ・{" "}
+                                {yen(t.amount)}
                               </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-slate-500 mt-0.5">
-                            {recurring.length > 0
-                              ? `固定決済: ${recurring.length} 件 ・ 月 ${yen(recurringTotal)}`
-                              : "固定決済はありません"}
-                          </div>
-                          {a.account && (
-                            <div className="text-xs text-indigo-600 mt-0.5">
-                              紐付く科目: {a.account.code} {a.account.name}
-                            </div>
+                            ))
+                          ) : (
+                            <span className="text-slate-400">
+                              引き落としは未登録（実績管理の履歴で、銀行の引き落としの明細から登録します）
+                            </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <p className="text-[10px] text-slate-400">今月の利用額</p>
-                            <p className="font-bold text-rose-600 text-sm tabular-nums">
-                              {yen(usageThisMonth(a.id))}
-                            </p>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {recurring.length > 0
+                            ? `固定決済: ${recurring.length} 件 ・ 月 ${yen(recurringTotal)}`
+                            : "固定決済はありません"}
+                        </div>
+                        {a.account && (
+                          <div className="text-xs text-indigo-600 mt-0.5">
+                            紐付く科目: {a.account.code} {a.account.name}
                           </div>
-                          <div className="flex flex-col items-end gap-1">
-                            {/* 明細の一覧・登録は実績管理の履歴・カレンダーで行う */}
-                            <Link
-                              href={`/entry?tab=history&source=card&account=${a.id}` as never}
-                              className="text-xs text-indigo-500 hover:text-indigo-700"
-                            >
-                              明細を見る
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCardError(null);
-                                setCardForm({
-                                  id: a.id,
-                                  name: a.name,
-                                  type: a.type,
-                                  institution: a.institution,
-                                  lastFour: a.lastFour ?? "",
-                                  accountCode: a.account?.code ?? "",
-                                  note: a.note ?? "",
-                                });
-                              }}
-                              className="text-xs text-indigo-500 hover:text-indigo-700"
-                            >
-                              編集
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteCard(a)}
-                              className="text-xs text-red-400 hover:text-red-600"
-                            >
-                              削除
-                            </button>
-                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-[10px] text-slate-400">今月の利用額</p>
+                          <p className="font-bold text-rose-600 text-sm tabular-nums">
+                            {yen(usageThisMonth(a.id))}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          {/* 明細の一覧・登録は実績管理の履歴・カレンダーで行う */}
+                          <Link
+                            href={`/entry?tab=history&source=card&account=${a.id}` as never}
+                            className="text-xs text-indigo-500 hover:text-indigo-700"
+                          >
+                            明細を見る
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCardError(null);
+                              setCardForm({
+                                id: a.id,
+                                name: a.name,
+                                type: a.type,
+                                institution: a.institution,
+                                lastFour: a.lastFour ?? "",
+                                accountCode: a.account?.code ?? "",
+                                note: a.note ?? "",
+                              });
+                            }}
+                            className="text-xs text-indigo-500 hover:text-indigo-700"
+                          >
+                            編集
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteCard(a)}
+                            className="text-xs text-red-400 hover:text-red-600"
+                          >
+                            削除
+                          </button>
                         </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* ── CSV インポートタブ ───────────────────────────────── */}
-      {tab === "csv" && (
-        <div className="max-w-2xl space-y-6">
-          <SectionLead className="-mb-3">{CARD_HELP.csv}</SectionLead>
-          <CsvDropzone busy={importing} onFile={requestImport} />
-
-          {importResult && (
-            <div
-              className={`card border ${importResult.errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}
-            >
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-2xl">{importResult.errors.length === 0 ? "✅" : "⚠️"}</span>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {importResult.inserted.toLocaleString()} 件を登録しました
-                  </p>
-                  {(importResult.skipped ?? 0) > 0 && (
-                    <p className="text-xs text-slate-600">
-                      {importResult.skipped!.toLocaleString()}{" "}
-                      件は既に取り込み済みのためスキップしました
-                    </p>
-                  )}
-                  {importResult.errors.length > 0 && (
-                    <p className="text-xs text-amber-700">
-                      {importResult.errors.length} 件のエラーがあります
-                    </p>
-                  )}
-                </div>
-              </div>
-              {importResult.errors.length > 0 && (
-                <div className="mt-3 max-h-48 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-slate-500 border-b border-amber-200">
-                        <th className="text-left pb-1 w-16">行番号</th>
-                        <th className="text-left pb-1">エラー内容</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-amber-100">
-                      {importResult.errors.map((err, i) => (
-                        <tr key={i} className="text-slate-600">
-                          <td className="py-1 font-mono">{err.row}</td>
-                          <td className="py-1">{err.message}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                  </div>
+                );
+              })}
             </div>
           )}
-
-          {importError && (
-            <div className="card border border-red-200 bg-red-50">
-              <p className="text-sm text-red-700">{importError}</p>
-            </div>
-          )}
-
-          <div className="card bg-slate-50">
-            <h3 className="text-xs font-semibold text-slate-700 mb-2">CSV フォーマット</h3>
-            <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`date,description,amount
-2026-06-25,AMAZON.CO.JP,-3980
-2026-06-28,STARBUCKS COFFEE JAPAN,70
-2026-06-30,楽天市場,-12000`}</pre>
-            <ul className="mt-3 space-y-1 text-xs text-slate-500">
-              <li>
-                <span className="font-medium">date</span>：利用日（YYYY-MM-DD）
-              </li>
-              <li>
-                <span className="font-medium">description</span>：摘要（利用先）
-              </li>
-              <li>
-                <span className="font-medium">amount</span>
-                ：金額（カード会社・ウォレットの明細そのままの形式＝支出は負、入金は正。
-                取込時に自動で符号反転され、一覧では利用＝正、返金＝負として表示されます）
-              </li>
-            </ul>
-          </div>
         </div>
-      )}
+      </>
     </AppShell>
   );
 }

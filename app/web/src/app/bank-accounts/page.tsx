@@ -1,16 +1,15 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { CashFlowTrendCharts } from "@/components/CashFlowTrendCharts";
 import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
-import { PageHeader, Tabs } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 
 type BankAccount = {
   id: number;
@@ -54,16 +53,9 @@ const dateLabel = (v?: string | null) =>
     ? new Date(v).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })
     : "—";
 
-// 銀行まわりの機能はこのページに集約する（入出金管理・残高シミュレーションを統合）。
-// 既定の「キャッシュフロー」タブは資産管理・借入金管理と同じ並びで、残高の推移 → 資金繰り →
-// 毎月の入出金（資金移動）→ 資金フロー図 → 銀行口座（登録・編集・差額）の順に置く。
-// 口座残高のサマリはダッシュボードへ移した。明細の一覧と手入力の登録は、実績管理の「履歴」「カレンダー」
-// （出どころに銀行を選ぶ）へまとめた。
-const TABS = [
-  ["cashflow", "キャッシュフロー"],
-  ["csv", "CSV インポート"],
-] as const;
-type Tab = (typeof TABS)[number][0];
+// 銀行管理。資産管理・借入金管理と同じ並びで、残高の推移 → 銀行口座（登録・編集・差額）を置く。
+// 口座残高のサマリはダッシュボード、明細の一覧・手入力の登録・毎月の入出金・振替・CSV インポートは
+// 実績管理（出どころに銀行を選ぶ）へまとめた。
 
 // 口座の新規登録フォーム（設定「口座・カード管理」から移設）
 type NewAccountForm = {
@@ -107,15 +99,12 @@ type EditAccountForm = {
 function BankAccountsContent() {
   const qc = useQueryClient();
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab") ?? "";
-  const initialTab = (TABS.map(([t]) => t) as readonly string[]).includes(tabParam)
-    ? (tabParam as Tab)
-    : // 旧タブ（サマリ / 振替 / 一覧 / カレンダー / 残高シミュレーション / 入出金）へのリンクは
-      // キャッシュフローへ寄せる（明細は実績管理の履歴で見る）
-      "cashflow";
-  const [tab, setTab] = useState<Tab>(initialTab);
-  // 「表示する銀行」カードで選んだ口座の id。null はすべての銀行（既定）
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const router = useRouter();
+  // 旧タブのリンク: CSV インポートは実績管理へ移した。ほかのタブ（サマリ・振替・一覧など）はこの画面のまま
+  const tabParam = searchParams.get("tab");
+  useEffect(() => {
+    if (tabParam === "csv") router.replace("/entry?tab=csv&source=bank" as never);
+  }, [tabParam, router]);
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [accountForm, setAccountForm] = useState<NewAccountForm>(BLANK_ACCOUNT);
   const [accountError, setAccountError] = useState<string | null>(null);
@@ -128,10 +117,8 @@ function BankAccountsContent() {
   });
 
   // 選んだ口座（削除などで見つからなくなったら、すべての銀行として扱う）
-  const selected = accounts.find((a) => a.id === selectedId) ?? null;
-  const shownAccounts = selected ? [selected] : accounts;
-  // 「表示する銀行」カードと銀行口座カードに出す残高合計（選んだ範囲）
-  const totalBalance = shownAccounts.reduce((s, a) => s + (a.balance ?? 0), 0);
+  // 銀行口座カードの見出しに出す残高合計
+  const totalBalance = accounts.reduce((s, a) => s + (a.balance ?? 0), 0);
 
   // 紐付き勘定科目の選択肢（設定の登録フォームと同じく資産・負債のみ）
   const { data: accountRefs = [] } = useQuery({
@@ -205,7 +192,6 @@ function BankAccountsContent() {
       alert(j?.error ?? `削除に失敗しました。(HTTP ${r.status})`);
       return;
     }
-    if (selectedId === a.id) setSelectedId(null);
     qc.invalidateQueries({ queryKey: ["bank-accounts"] });
   };
 
@@ -213,175 +199,140 @@ function BankAccountsContent() {
     <AppShell>
       <PageHeader title="銀行管理" lead={BANK_HELP.page} />
 
-      {/* ── 表示する銀行（全タブ共通。指定なしはすべての銀行をまとめて表示する）── */}
-      <div className="card mb-4 py-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <label htmlFor="bank-selector" className="text-sm font-semibold text-slate-700">
-            表示する銀行
-          </label>
-          <select
-            id="bank-selector"
-            className="input-field w-64"
-            value={selectedId ?? ""}
-            onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : null)}
-          >
-            <option value="">すべての銀行</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}（{a.bankName}）
-              </option>
-            ))}
-          </select>
-          {accounts.length > 0 && (
-            <span className="text-xs text-slate-500">
-              残高 <span className="font-medium text-slate-700">{yen(totalBalance)}</span> ・{" "}
-              {shownAccounts.length} 口座
-            </span>
-          )}
-        </div>
-        <p className="text-[11px] text-slate-400 mt-1.5">{BANK_HELP.selector}</p>
-      </div>
+      <>
+        {/* ── 残高の推移（借入金管理の「借入残高の推移」と同じ形。先は予算と実績から見込む）── */}
+        <CashFlowTrendCharts />
 
-      <Tabs tabs={TABS} value={tab} onChange={setTab} />
-
-      {tab === "cashflow" && (
-        <>
-          {/* ── 残高の推移（借入金管理の「借入残高の推移」と同じ形。先は予算と実績から見込む）── */}
-          <CashFlowTrendCharts accountId={selectedId} />
-
-          {/* ── 銀行口座（資産管理の「実物資産」・借入金管理の「借入金」と同じく 1 枚のカードにまとめる）──
+        {/* ── 銀行口座（資産管理の「実物資産」・借入金管理の「借入金」と同じく 1 枚のカードにまとめる）──
               「明細を見る」で、その口座の明細を実績管理の履歴で開く。 */}
-          <div className="card mb-6">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-              <div>
-                <h2 className="section-title mb-1">銀行口座</h2>
-                {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
-                <SectionLead className="mb-1">{BANK_HELP.balance}</SectionLead>
-                {accounts.length > 0 && (
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    残高合計: {yen(totalBalance)} ・ {shownAccounts.length} 口座
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={() => {
-                  setAccountError(null);
-                  setShowAccountForm(true);
-                }}
-                className="btn-primary shrink-0"
-              >
-                銀行追加
-              </button>
+        <div className="card mb-6">
+          {/* 説明が長くても「銀行追加」が右端に残るよう、折り返さない並びにする */}
+          <div className="flex items-start gap-3 mb-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="section-title mb-1">銀行口座</h2>
+              {/* 残高の定義と、実残高と差異があるときの対処（差額入力）を案内する */}
+              <SectionLead className="mb-1">{BANK_HELP.balance}</SectionLead>
+              {accounts.length > 0 && (
+                <p className="text-xs text-slate-400 mt-0.5">
+                  残高合計: {yen(totalBalance)} ・ {accounts.length} 口座
+                </p>
+              )}
             </div>
-            {isLoading ? (
-              <p className="text-slate-400 text-sm">読み込み中…</p>
-            ) : accounts.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                口座が登録されていません。右上の「銀行追加」から追加してください。
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {shownAccounts.map((a) => (
-                  <div key={a.id} className="border border-slate-100 rounded-lg px-3 py-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                            {TYPE_LABEL[a.accountType] ?? a.accountType}
-                          </span>
-                          <h3 className="font-medium text-slate-800 text-sm">{a.name}</h3>
-                          <span className="text-xs text-slate-500">
-                            {a.bankName}
-                            {a.branchName ? " " + a.branchName : ""}
-                          </span>
-                        </div>
-                        <div className="text-xs text-slate-400 mt-1">
-                          {a._count.transactions}件の取引
-                          {a._count.transactions > 0 && (
-                            <> ・ 最新 {dateLabel(a.lastTransactionDate)}</>
-                          )}{" "}
-                          {/* 口座ごとの最終更新日時（この口座の明細を最後に登録した日時） */}・
-                          最終更新 {dateTimeLabel(a.lastUpdatedAt)}
-                        </div>
-                        {/* 差額を入れている口座はその内訳を明示する。差額 0 円を確かめて保存した口座は
-                            「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
-                        {a.balanceAdjustment ? (
-                          <div className="text-xs text-slate-500 mt-0.5">
-                            明細合計 {yen(a.transactionSum ?? 0)} ＋ 差額 {yen(a.balanceAdjustment)}
-                          </div>
-                        ) : a.balanceCheckedAt ? (
-                          <div className="text-xs text-slate-400 mt-0.5">
-                            明細合計どおり（差額なし）
-                          </div>
-                        ) : (
-                          a._count.transactions > 0 && (
-                            <div className="text-xs text-amber-600 mt-0.5">
-                              実際の残高と違う場合は「編集」から差額を入力
-                            </div>
-                          )
-                        )}
-                        {a.account && (
-                          <div className="text-xs text-indigo-600 mt-0.5">
-                            紐付く科目: {a.account.code} {a.account.name}
-                          </div>
-                        )}
+            <button
+              onClick={() => {
+                setAccountError(null);
+                setShowAccountForm(true);
+              }}
+              className="btn-primary shrink-0"
+            >
+              銀行追加
+            </button>
+          </div>
+          {isLoading ? (
+            <p className="text-slate-400 text-sm">読み込み中…</p>
+          ) : accounts.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              口座が登録されていません。右上の「銀行追加」から追加してください。
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {accounts.map((a) => (
+                <div key={a.id} className="border border-slate-100 rounded-lg px-3 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                          {TYPE_LABEL[a.accountType] ?? a.accountType}
+                        </span>
+                        <h3 className="font-medium text-slate-800 text-sm">{a.name}</h3>
+                        <span className="text-xs text-slate-500">
+                          {a.bankName}
+                          {a.branchName ? " " + a.branchName : ""}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <p className="text-[10px] text-slate-400">残高</p>
-                          <p className="font-bold text-indigo-600 text-sm tabular-nums">
-                            {yen(a.balance ?? 0)}
-                          </p>
+                      <div className="text-xs text-slate-400 mt-1">
+                        {a._count.transactions}件の取引
+                        {a._count.transactions > 0 && (
+                          <> ・ 最新 {dateLabel(a.lastTransactionDate)}</>
+                        )}{" "}
+                        {/* 口座ごとの最終更新日時（この口座の明細を最後に登録した日時） */}・
+                        最終更新 {dateTimeLabel(a.lastUpdatedAt)}
+                      </div>
+                      {/* 差額を入れている口座はその内訳を明示する。差額 0 円を確かめて保存した口座は
+                            「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
+                      {a.balanceAdjustment ? (
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          明細合計 {yen(a.transactionSum ?? 0)} ＋ 差額 {yen(a.balanceAdjustment)}
                         </div>
-                        <div className="flex flex-col items-end gap-1">
-                          {/* 実績管理の履歴で、この口座の明細を開く */}
-                          <Link
-                            href={`/entry?tab=history&source=bank&account=${a.id}` as never}
-                            className="text-xs text-indigo-500 hover:text-indigo-700"
-                          >
-                            明細を見る
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAccountError(null);
-                              setEditAccount({
-                                id: a.id,
-                                name: a.name,
-                                bankName: a.bankName,
-                                lastFour: a.lastFour ?? "",
-                                accountCode: a.account?.code ?? "",
-                                note: a.note ?? "",
-                                balanceAdjustment: a.balanceAdjustment
-                                  ? String(a.balanceAdjustment)
-                                  : "",
-                                transactionSum: a.transactionSum ?? 0,
-                              });
-                            }}
-                            className="text-xs text-indigo-500 hover:text-indigo-700"
-                          >
-                            編集
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteAccount(a)}
-                            className="text-xs text-red-400 hover:text-red-600"
-                          >
-                            削除
-                          </button>
+                      ) : a.balanceCheckedAt ? (
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          明細合計どおり（差額なし）
                         </div>
+                      ) : (
+                        a._count.transactions > 0 && (
+                          <div className="text-xs text-amber-600 mt-0.5">
+                            実際の残高と違う場合は「編集」から差額を入力
+                          </div>
+                        )
+                      )}
+                      {a.account && (
+                        <div className="text-xs text-indigo-600 mt-0.5">
+                          紐付く科目: {a.account.code} {a.account.name}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-[10px] text-slate-400">残高</p>
+                        <p className="font-bold text-indigo-600 text-sm tabular-nums">
+                          {yen(a.balance ?? 0)}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        {/* 実績管理の履歴で、この口座の明細を開く */}
+                        <Link
+                          href={`/entry?tab=history&source=bank&account=${a.id}` as never}
+                          className="text-xs text-indigo-500 hover:text-indigo-700"
+                        >
+                          明細を見る
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAccountError(null);
+                            setEditAccount({
+                              id: a.id,
+                              name: a.name,
+                              bankName: a.bankName,
+                              lastFour: a.lastFour ?? "",
+                              accountCode: a.account?.code ?? "",
+                              note: a.note ?? "",
+                              balanceAdjustment: a.balanceAdjustment
+                                ? String(a.balanceAdjustment)
+                                : "",
+                              transactionSum: a.transactionSum ?? 0,
+                            });
+                          }}
+                          className="text-xs text-indigo-500 hover:text-indigo-700"
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteAccount(a)}
+                          className="text-xs text-red-400 hover:text-red-600"
+                        >
+                          削除
+                        </button>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* ── CSV インポート（取り込み先は「表示する銀行」。すべてのときは中で選ぶ）──────────── */}
-      {tab === "csv" && <BankTransactionsPanel view="csv" accountId={selected?.id ?? null} />}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </>
 
       {/* 口座登録モーダル（設定「口座・カード管理」の新規登録から移設）*/}
       {showAccountForm && (

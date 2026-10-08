@@ -34,7 +34,6 @@ import {
   Notice,
   Pills,
   SectionTitle,
-  SelectField,
   SheetModal,
 } from "../components/ui";
 import { displayName } from "../shared/display-name";
@@ -83,8 +82,6 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
   const now = new Date();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountRefs, setAccountRefs] = useState<Account[]>([]);
-  // 「表示する銀行」で選んだ口座の id。null はすべての銀行（既定）
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,8 +97,6 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
       const [accs, refs] = await Promise.all([fetchBankAccounts(), fetchAccounts()]);
       setAccounts(accs);
       setAccountRefs(refs);
-      // 選んでいた口座が無くなったら、すべての銀行に戻す
-      setSelectedId((id) => (id !== null && accs.some((a) => a.id === id) ? id : null));
     } catch (e) {
       setError(e instanceof Error ? e.message : "取得に失敗しました");
     } finally {
@@ -126,9 +121,7 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
     setReloadKey((k) => k + 1);
   }, [load]);
 
-  const shownAccounts =
-    selectedId === null ? accounts : accounts.filter((a) => a.id === selectedId);
-  const totalBalance = shownAccounts.reduce((sum, a) => sum + (a.balance ?? 0), 0);
+  const totalBalance = accounts.reduce((sum, a) => sum + (a.balance ?? 0), 0);
 
   function openEdit(a: BankAccount) {
     setFormError(null);
@@ -188,7 +181,6 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
         onPress: async () => {
           try {
             await deleteBankAccount(a.id);
-            if (selectedId === a.id) setSelectedId(null);
             onBalanceChanged();
           } catch (e) {
             Alert.alert("削除エラー", e instanceof Error ? e.message : "削除に失敗しました");
@@ -213,23 +205,6 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
 
   return (
     <View style={s.root}>
-      {/* 表示する銀行（全タブ共通。指定なしはすべての銀行をまとめて表示する。web 版と同じ） */}
-      <View style={s.selectorCard}>
-        <SelectField<number | "all">
-          label="表示する銀行"
-          value={selectedId ?? "all"}
-          options={[
-            { value: "all", label: "すべての銀行" },
-            ...accounts.map((a) => ({ value: a.id, label: `${a.name}（${a.bankName}）` })),
-          ]}
-          onChange={(v) => setSelectedId(v === "all" ? null : v)}
-        />
-        {accounts.length > 0 && (
-          <Text style={s.muted}>
-            残高 {yen(totalBalance)} ・ {shownAccounts.length} 口座 ・ {BANK_HELP.selector}
-          </Text>
-        )}
-      </View>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={s.content}
@@ -241,7 +216,7 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
 
         <>
           {/* 残高の推移（web 版と同じ。合計の先は予算と実績、口座ごとの先は毎月の入出金から見込む） */}
-          <CashFlowTrend reloadKey={reloadKey} accountId={selectedId} />
+          <CashFlowTrend reloadKey={reloadKey} />
 
           {/* 銀行口座（資産・借入金の画面と同じく 1 枚のカードにまとめる） */}
           <Card>
@@ -266,9 +241,9 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
             ) : (
               <>
                 <Text style={s.muted}>
-                  残高合計 {yen(totalBalance)} ・ {shownAccounts.length} 口座
+                  残高合計 {yen(totalBalance)} ・ {accounts.length} 口座
                 </Text>
-                {shownAccounts.map((a) => (
+                {accounts.map((a) => (
                   <View key={a.id} style={s.accountCard}>
                     <Text style={s.muted}>
                       {a.bankName}
@@ -477,14 +452,6 @@ const s = StyleSheet.create({
   link: { fontSize: 12, color: "#4f46e5", fontWeight: "600" },
   danger: { fontSize: 12, color: "#dc2626", fontWeight: "600" },
   periodRow: { gap: 4, marginBottom: 10 },
-  selectorCard: {
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 6,
-  },
   adjustBox: {
     borderWidth: 1,
     borderColor: "#e2e8f0",

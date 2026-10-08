@@ -178,9 +178,7 @@ export function BankTransactionsCalendar({ accountId }: Props) {
     return (
       <Notice tone="warn" className="mb-4">
         <div className="flex items-center justify-between gap-3">
-          <span>
-            口座が登録されていません。キャッシュフロータブの「銀行口座」から口座を登録してください。
-          </span>
+          <span>口座が登録されていません。銀行管理の「銀行口座」から口座を登録してください。</span>
           <Link
             href={"/bank-accounts?tab=cashflow" as never}
             className="shrink-0 text-amber-900 font-medium underline underline-offset-2 hover:text-amber-700"

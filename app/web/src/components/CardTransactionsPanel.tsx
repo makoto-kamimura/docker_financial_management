@@ -19,7 +19,13 @@ import {
 } from "@/lib/linked-account-type";
 import { TXN_SOURCE_LABEL as SOURCE_LABELS } from "@/lib/labels";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
-import { Notice, Pager } from "@/components/ui";
+import { Notice } from "@/components/ui";
+import {
+  LedgerBadge,
+  LedgerFilter,
+  LedgerMoreSection,
+  LedgerTable,
+} from "@/components/LedgerTable";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -462,35 +468,6 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
             </div>
           )}
 
-          {/* 表示切替 */}
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs h-8">
-              {POST_FILTERS.map(([f, label]) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => {
-                    setPostFilter(f);
-                    setTxnPage(0);
-                  }}
-                  className={`px-3 font-medium transition-colors ${postFilter === f ? "bg-indigo-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <span className="text-xs text-slate-400">
-              {filteredTxns.length} 件
-              {filteredTxns.length > 0 && (
-                <>
-                  （{txnOffset + 1}〜{Math.min(txnOffset + TXN_PAGE_SIZE, filteredTxns.length)}{" "}
-                  件を表示）
-                </>
-              )}
-              {postFilter === "unposted" && "・チャージを除く"}
-            </span>
-          </div>
-
           {/* チャージを「実績未転記」から外している理由も、ここで示す */}
           <InfoNote className="mb-2">
             {CARD_HELP.list}
@@ -498,253 +475,229 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
           </InfoNote>
           <TermDetails terms={CARD_TERMS} className="mb-3" />
 
-          {/* 明細テーブル（列が多いので横スクロールさせる） */}
-          <div className="card overflow-hidden p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[56rem]">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    {[
-                      "日付",
-                      "摘要",
-                      "金額",
-                      "科目",
-                      "取得元",
-                      "実績",
-                      "チャージ先",
-                      "固定決済",
-                      "",
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-xs font-semibold text-slate-600"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {pagedTxns.map((t) => {
-                    // 摘要が一致する固定決済があれば「登録済み」表示に切り替える
-                    const registered = matchedRecurring(t);
-                    return (
-                      <tr key={t.id} className="hover:bg-slate-50 group">
-                        <td className="px-4 py-2.5 whitespace-nowrap text-slate-500">
-                          {new Date(t.date).toLocaleDateString("ja-JP")}
-                        </td>
-                        <td className="px-4 py-2.5">{t.description}</td>
-                        <td
-                          className={`px-4 py-2.5 text-right tabular-nums ${t.amount > 0 ? "text-red-600" : "text-emerald-600"}`}
-                        >
-                          {yen(t.amount)}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {/* チャージは資金の移動なので科目に紐付けない（二重計上の防止） */}
-                          {t.transferToAccountId ? (
-                            <span className="inline-flex items-center gap-1">
-                              <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                チャージ
-                              </span>
-                              {t.transferToAccount && (
-                                <span className="text-xs text-slate-500 whitespace-nowrap">
-                                  → {t.transferToAccount.name}
-                                </span>
-                              )}
-                            </span>
-                          ) : t.chargeGroupId ? (
-                            // チャージ元の明細と対にした入金側。こちらも収支には計上しない
-                            <span className="inline-flex items-center gap-1">
-                              <span className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                チャージ入金
-                              </span>
-                              <button
-                                onClick={() => setTxnTransfer(t.id, null)}
-                                className="text-xs text-slate-400 hover:text-red-600 whitespace-nowrap"
-                              >
-                                解除
-                              </button>
-                            </span>
-                          ) : (
-                            <select
-                              value={t.categoryAccountId ?? ""}
-                              disabled={t.postedRecordId !== null}
-                              onChange={(e) =>
-                                setTxnCategory(
-                                  t.id,
-                                  e.target.value === "" ? null : Number(e.target.value),
-                                )
-                              }
-                              className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white disabled:bg-slate-50 disabled:text-slate-400 min-w-32"
-                            >
-                              <option value="">未紐付け</option>
-                              {categorizableAccounts.map((a) => (
-                                <option key={a.id} value={a.id}>
-                                  {a.code} {a.name}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-slate-400">
-                          {SOURCE_LABELS[t.source] ?? t.source}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {t.transferToAccountId || t.chargeGroupId ? (
-                            <span className="text-xs text-slate-400">対象外</span>
-                          ) : t.postedRecordId !== null ? (
-                            <span className="text-xs bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded">
-                              転記済み
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => postTxnToActuals(t.id)}
-                              disabled={t.categoryAccountId === null}
-                              className="text-xs text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
-                            >
-                              転記する
-                            </button>
-                          )}
-                        </td>
-                        {/* チャージ先の指定・解除。デビット・プリペイド・電子マネーだけを選べる */}
-                        <td className="px-4 py-2.5">
-                          {t.transferToAccountId ? (
-                            <div className="flex flex-col gap-1">
-                              <span className="text-xs text-slate-600 whitespace-nowrap">
-                                {t.transferToAccount?.name ?? "指定済み"}
-                              </span>
-                              {/* チャージ先の入金明細と対になっているかを示す */}
-                              <span
-                                className={`text-[10px] whitespace-nowrap ${t.chargeGroupId ? "text-emerald-600" : "text-slate-400"}`}
-                                title={
-                                  t.chargeGroupId
-                                    ? "チャージ先の明細と紐付け済みです"
-                                    : "チャージ先の入金明細とは紐付いていません（チャージ先に入金の記録が無い場合はこのままで構いません）"
-                                }
-                              >
-                                {t.chargeGroupId ? "履歴と紐付け済み" : "履歴と未紐付け"}
-                              </span>
-                              <button
-                                onClick={() => setTxnTransfer(t.id, null)}
-                                className="text-xs text-slate-400 hover:text-red-600 text-left whitespace-nowrap"
-                              >
-                                解除
-                              </button>
-                            </div>
-                          ) : t.chargeGroupId ? (
-                            // 入金側は自分ではチャージ先を持たない（相手のチャージ元が持つ）
-                            <span className="text-xs text-slate-400">対象外</span>
-                          ) : t.postedRecordId !== null ? (
-                            // 転記済みは実績が立っているため、先に転記の取り消しが要る
-                            <span className="text-xs text-slate-400">対象外</span>
-                          ) : chargeTargets.length === 0 ? (
-                            <span className="text-xs text-slate-300 whitespace-nowrap">
-                              チャージ先未登録
-                            </span>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              <select
-                                value={txnChargeTarget[t.id] ?? ""}
-                                onChange={(e) =>
-                                  setTxnChargeTarget((m) => ({ ...m, [t.id]: e.target.value }))
-                                }
-                                className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-32"
-                              >
-                                <option value="">チャージ先を選ぶ</option>
-                                {chargeTargets.map((a) => (
-                                  <option key={a.id} value={a.id}>
-                                    {a.name}（{ACCOUNT_TYPE_LABEL[a.type]}）
-                                  </option>
-                                ))}
-                              </select>
-                              {/* チャージ先の履歴から対になる明細を選べるようモーダルを挟む */}
-                              <button
-                                onClick={() => {
-                                  const target = chargeTargets.find(
-                                    (a) => a.id === Number(txnChargeTarget[t.id]),
-                                  );
-                                  if (target) setChargeLink({ txn: t, target });
-                                }}
-                                disabled={!txnChargeTarget[t.id]}
-                                className="text-xs text-indigo-600 hover:text-indigo-700 text-left disabled:text-slate-300 disabled:cursor-not-allowed"
-                              >
-                                指定
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        {/* 固定決済（毎月このカードで決済される支払い）の登録 */}
-                        <td className="px-4 py-2.5">
-                          {t.transferToAccountId || t.chargeGroupId ? (
-                            // チャージは資金の移動なので毎月の支払い項目にはしない
-                            <span className="text-xs text-slate-400">対象外</span>
-                          ) : registered ? (
-                            <div className="flex flex-col gap-1">
-                              <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded whitespace-nowrap w-fit">
-                                登録済み
-                              </span>
-                              {differsFromTxn(registered, t) && (
-                                <>
-                                  <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                                    毎月{registered.day}日 · {yen(Number(registered.amount))}
-                                  </span>
-                                  <button
-                                    onClick={() => rewriteRecurringFromTxn(registered, t)}
-                                    className="text-xs text-amber-600 hover:text-amber-700 text-left whitespace-nowrap"
-                                  >
-                                    この明細で書き換える
-                                  </button>
-                                </>
-                              )}
-                              <button
-                                onClick={() => deleteRecurring(registered)}
-                                className="text-xs text-slate-400 hover:text-red-600 text-left whitespace-nowrap"
-                              >
-                                解除
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => registerRecurringFromTxn(t)}
-                              className="text-xs text-indigo-600 hover:text-indigo-700 text-left"
-                            >
-                              登録する
-                            </button>
-                          )}
-                        </td>
-                        <td className="px-2 py-2.5 text-right">
-                          <button
-                            onClick={() => deleteTxn(t.id)}
-                            className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 transition-opacity"
-                          >
-                            削除
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {filteredTxns.length === 0 && (
-                    <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-slate-400 text-sm">
-                        {(txns ?? []).length === 0
-                          ? "明細がありません"
-                          : "この条件に一致する明細はありません"}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {filteredTxns.length > TXN_PAGE_SIZE && (
-              <Pager
-                offset={currentTxnPage * TXN_PAGE_SIZE}
-                pageSize={TXN_PAGE_SIZE}
-                total={filteredTxns.length}
-                onChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
-                className="px-4 py-3 border-t border-slate-100"
+          {/* 明細（実績管理の履歴の共通の表: components/LedgerTable.tsx） */}
+          <LedgerTable
+            total={filteredTxns.length}
+            offset={txnOffset}
+            pageSize={TXN_PAGE_SIZE}
+            onPageChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
+            toolbar={
+              <LedgerFilter
+                options={POST_FILTERS}
+                value={postFilter}
+                onChange={(f) => {
+                  setPostFilter(f);
+                  setTxnPage(0);
+                }}
               />
-            )}
-          </div>
+            }
+            emptyText={
+              (txns ?? []).length === 0 ? "明細がありません" : "この条件に一致する明細はありません"
+            }
+            rows={pagedTxns.map((t) => {
+              // 摘要が一致する固定決済があれば「登録済み」表示に切り替える
+              const registered = matchedRecurring(t);
+              const excluded = Boolean(t.transferToAccountId || t.chargeGroupId);
+              return {
+                key: t.id,
+                date: new Date(t.date).toLocaleDateString("ja-JP"),
+                account: selectedAccount?.name ?? "",
+                description: t.description,
+                amount: yen(t.amount),
+                // カードは利用＝正（支出）、返金＝負
+                tone: t.amount > 0 ? "out" : "in",
+                category: (
+                  <>
+                    {/* チャージは資金の移動なので科目に紐付けない（二重計上の防止） */}
+                    {t.transferToAccountId ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                          チャージ
+                        </span>
+                        {t.transferToAccount && (
+                          <span className="text-xs text-slate-500 whitespace-nowrap">
+                            → {t.transferToAccount.name}
+                          </span>
+                        )}
+                      </span>
+                    ) : t.chargeGroupId ? (
+                      // チャージ元の明細と対にした入金側。こちらも収支には計上しない
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                          チャージ入金
+                        </span>
+                        <button
+                          onClick={() => setTxnTransfer(t.id, null)}
+                          className="text-xs text-slate-400 hover:text-red-600 whitespace-nowrap"
+                        >
+                          解除
+                        </button>
+                      </span>
+                    ) : (
+                      <select
+                        value={t.categoryAccountId ?? ""}
+                        disabled={t.postedRecordId !== null}
+                        onChange={(e) =>
+                          setTxnCategory(
+                            t.id,
+                            e.target.value === "" ? null : Number(e.target.value),
+                          )
+                        }
+                        className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white disabled:bg-slate-50 disabled:text-slate-400 min-w-32"
+                      >
+                        <option value="">未紐付け</option>
+                        {categorizableAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </>
+                ),
+                status: (
+                  <>
+                    <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
+                    {t.postedRecordId !== null && (
+                      <LedgerBadge tone="emerald">転記済み</LedgerBadge>
+                    )}
+                    {t.transferToAccountId && (
+                      <LedgerBadge tone={t.chargeGroupId ? "emerald" : "slate"}>
+                        {t.chargeGroupId
+                          ? "チャージ（履歴と紐付け済み）"
+                          : "チャージ（履歴と未紐付け）"}
+                      </LedgerBadge>
+                    )}
+                    {registered && <LedgerBadge tone="indigo">固定決済</LedgerBadge>}
+                  </>
+                ),
+                actions:
+                  !excluded && t.postedRecordId === null ? (
+                    <button
+                      onClick={() => postTxnToActuals(t.id)}
+                      disabled={t.categoryAccountId === null}
+                      className="text-xs text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
+                    >
+                      転記する
+                    </button>
+                  ) : null,
+                more: (
+                  <>
+                    <LedgerMoreSection title="チャージ先">
+                      {t.transferToAccountId ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-slate-600 whitespace-nowrap">
+                            {t.transferToAccount?.name ?? "指定済み"}
+                          </span>
+                          {/* チャージ先の入金明細と対になっているかを示す */}
+                          <span
+                            className={`text-[10px] whitespace-nowrap ${t.chargeGroupId ? "text-emerald-600" : "text-slate-400"}`}
+                            title={
+                              t.chargeGroupId
+                                ? "チャージ先の明細と紐付け済みです"
+                                : "チャージ先の入金明細とは紐付いていません（チャージ先に入金の記録が無い場合はこのままで構いません）"
+                            }
+                          >
+                            {t.chargeGroupId ? "履歴と紐付け済み" : "履歴と未紐付け"}
+                          </span>
+                          <button
+                            onClick={() => setTxnTransfer(t.id, null)}
+                            className="text-xs text-slate-400 hover:text-red-600 text-left whitespace-nowrap"
+                          >
+                            解除
+                          </button>
+                        </div>
+                      ) : t.chargeGroupId ? (
+                        // 入金側は自分ではチャージ先を持たない（相手のチャージ元が持つ）
+                        <span className="text-xs text-slate-400">対象外</span>
+                      ) : t.postedRecordId !== null ? (
+                        // 転記済みは実績が立っているため、先に転記の取り消しが要る
+                        <span className="text-xs text-slate-400">対象外</span>
+                      ) : chargeTargets.length === 0 ? (
+                        <span className="text-xs text-slate-300 whitespace-nowrap">
+                          チャージ先未登録
+                        </span>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <select
+                            value={txnChargeTarget[t.id] ?? ""}
+                            onChange={(e) =>
+                              setTxnChargeTarget((m) => ({ ...m, [t.id]: e.target.value }))
+                            }
+                            className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-32"
+                          >
+                            <option value="">チャージ先を選ぶ</option>
+                            {chargeTargets.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.name}（{ACCOUNT_TYPE_LABEL[a.type]}）
+                              </option>
+                            ))}
+                          </select>
+                          {/* チャージ先の履歴から対になる明細を選べるようモーダルを挟む */}
+                          <button
+                            onClick={() => {
+                              const target = chargeTargets.find(
+                                (a) => a.id === Number(txnChargeTarget[t.id]),
+                              );
+                              if (target) setChargeLink({ txn: t, target });
+                            }}
+                            disabled={!txnChargeTarget[t.id]}
+                            className="text-xs text-indigo-600 hover:text-indigo-700 text-left disabled:text-slate-300 disabled:cursor-not-allowed"
+                          >
+                            指定
+                          </button>
+                        </div>
+                      )}
+                    </LedgerMoreSection>
+                    <LedgerMoreSection title="固定決済">
+                      {t.transferToAccountId || t.chargeGroupId ? (
+                        // チャージは資金の移動なので毎月の支払い項目にはしない
+                        <span className="text-xs text-slate-400">対象外</span>
+                      ) : registered ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded whitespace-nowrap w-fit">
+                            登録済み
+                          </span>
+                          {differsFromTxn(registered, t) && (
+                            <>
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                                毎月{registered.day}日 · {yen(Number(registered.amount))}
+                              </span>
+                              <button
+                                onClick={() => rewriteRecurringFromTxn(registered, t)}
+                                className="text-xs text-amber-600 hover:text-amber-700 text-left whitespace-nowrap"
+                              >
+                                この明細で書き換える
+                              </button>
+                            </>
+                          )}
+                          <button
+                            onClick={() => deleteRecurring(registered)}
+                            className="text-xs text-slate-400 hover:text-red-600 text-left whitespace-nowrap"
+                          >
+                            解除
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => registerRecurringFromTxn(t)}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 text-left"
+                        >
+                          登録する
+                        </button>
+                      )}
+                    </LedgerMoreSection>
+                    <button
+                      onClick={() => deleteTxn(t.id)}
+                      className="text-xs text-slate-400 hover:text-red-500 text-left"
+                    >
+                      この明細を削除
+                    </button>
+                  </>
+                ),
+              };
+            })}
+          />
         </>
       )}
 
