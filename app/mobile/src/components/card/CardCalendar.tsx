@@ -1,7 +1,7 @@
 // カード・電子マネーのカレンダー（日ごとの利用・返金の合計と、その日の明細・支払いの追加）。
 // カード・電子マネー管理から、実績の画面の「カレンダー」（出どころにカード・電子マネーを選んだとき）へ移した。
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   deleteCardTransaction,
   fetchCardTransactions,
@@ -15,8 +15,7 @@ import { Button, Card, EmptyText, Field, Input, Notice, Pills } from "../ui";
 import { categoryPayload, EntryCategoryField } from "../EntryCategoryField";
 import { displayName } from "../../shared/display-name";
 import { digitsOnly, isoDate, yen } from "../../format";
-
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+import { DayAmounts, MonthCalendar } from "../MonthCalendar";
 
 export function CardCalendar({
   account,
@@ -65,9 +64,6 @@ export function CardCalendar({
     return m;
   }, [txns, year, month]);
 
-  const firstWeekday = new Date(year, month - 1, 1).getDay();
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
   const entries = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
 
   function moveMonth(delta: number) {
@@ -122,58 +118,23 @@ export function CardCalendar({
   return (
     <View>
       {msg && <Notice tone="error">{msg}</Notice>}
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        <View style={s.monthNav}>
-          <TouchableOpacity onPress={() => moveMonth(-1)} style={s.navBtn}>
-            <Text style={s.navTxt}>◀</Text>
-          </TouchableOpacity>
-          <Text style={s.monthLabel}>
-            {year}年{month}月
-          </Text>
-          <TouchableOpacity onPress={() => moveMonth(1)} style={s.navBtn}>
-            <Text style={s.navTxt}>▶</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={s.weekRow}>
-          {WEEKDAYS.map((w, i) => (
-            <Text key={w} style={[s.weekCell, i === 0 && s.sun, i === 6 && s.sat]}>
-              {w}
-            </Text>
-          ))}
-        </View>
-        {txns === null ? (
-          <ActivityIndicator color="#4f46e5" style={{ marginVertical: 32 }} />
-        ) : (
-          <View style={s.grid}>
-            {Array.from({ length: totalCells }, (_, i) => {
-              const day = i - firstWeekday + 1;
-              if (day < 1 || day > daysInMonth) return <View key={i} style={[s.cell, s.blank]} />;
-              const list = byDay.get(day) ?? [];
-              const charge = list.filter((t) => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
-              const refund = list.filter((t) => t.amount < 0).reduce((sum, t) => sum - t.amount, 0);
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={[s.cell, day === selectedDay && s.cellSelected]}
-                  onPress={() => setSelectedDay(day)}
-                >
-                  <Text style={[s.dayNum, i % 7 === 0 && s.sun, i % 7 === 6 && s.sat]}>{day}</Text>
-                  {charge > 0 && (
-                    <Text style={s.charge} numberOfLines={1}>
-                      {Math.round(charge).toLocaleString("ja-JP")}
-                    </Text>
-                  )}
-                  {refund > 0 && (
-                    <Text style={s.refund} numberOfLines={1}>
-                      −{Math.round(refund).toLocaleString("ja-JP")}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-      </Card>
+      <MonthCalendar
+        year={year}
+        month={month}
+        onMove={moveMonth}
+        loading={txns === null}
+        selectedDay={selectedDay}
+        onSelectDay={setSelectedDay}
+        renderDay={(day) => {
+          const dayEntries = byDay.get(day) ?? [];
+          return (
+            <DayAmounts
+              income={dayEntries.filter((t) => t.amount < 0).reduce((sum, t) => sum - t.amount, 0)}
+              expense={dayEntries.filter((t) => t.amount > 0).reduce((sum, t) => sum + t.amount, 0)}
+            />
+          );
+        }}
+      />
 
       {selectedDay === null ? (
         <EmptyText>カレンダーの日付をタップして支払いを入力してください</EmptyText>
@@ -242,51 +203,7 @@ export function CardCalendar({
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#f8fafc" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { padding: 14, paddingBottom: 32 },
-  cardActions: { flexDirection: "row", gap: 16, marginBottom: 10, marginTop: -4 },
-  link: { fontSize: 12, color: "#4f46e5", fontWeight: "600" },
-  danger: { fontSize: 12, color: "#dc2626", fontWeight: "600" },
   muted: { fontSize: 11, color: "#94a3b8", lineHeight: 16 },
-  warn: { fontSize: 11, color: "#b45309", lineHeight: 16, marginTop: 4 },
-  picker: {
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "#fff",
-  },
-  pickerText: { fontSize: 14, color: "#1e293b" },
-  monthNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-  },
-  navBtn: { padding: 8 },
-  navTxt: { fontSize: 14, color: "#4f46e5" },
-  monthLabel: { fontSize: 15, fontWeight: "700", color: "#1e293b" },
-  weekRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
-  weekCell: { flex: 1, textAlign: "center", fontSize: 11, color: "#64748b", paddingVertical: 6 },
-  sun: { color: "#ef4444" },
-  sat: { color: "#3b82f6" },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
-  cell: {
-    width: `${100 / 7}%`,
-    minHeight: 56,
-    padding: 3,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#f1f5f9",
-  },
-  cellSelected: { backgroundColor: "#eef2ff" },
-  blank: { backgroundColor: "#fafafa" },
-  dayNum: { fontSize: 12, fontWeight: "600", color: "#334155" },
   charge: { fontSize: 9, color: "#dc2626" },
   refund: { fontSize: 9, color: "#059669" },
   dayTitle: { fontSize: 14, fontWeight: "700", color: "#1e293b" },
