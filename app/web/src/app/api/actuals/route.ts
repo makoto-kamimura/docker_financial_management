@@ -14,7 +14,8 @@ const ActualSchema = z.object({
   date: z.string().min(1),
   description: z.string().min(1),
   accountCode: z.string().min(1),
-  counterAccountCode: z.string().min(1),
+  /** 支払元・入金先の科目。省略すると現金（家計の実績のカレンダーは現金だけを扱う） */
+  counterAccountCode: z.string().min(1).optional(),
   amount: z.number().positive(),
   direction: z.enum(["income", "expense"]),
   paymentMethod: z.string().optional(),
@@ -44,6 +45,15 @@ export const GET = withApi({
   },
 });
 
+// 現金の科目（資産の区分で名前が「現金」のもの。家計の既定は HA102、事業用は 1000）。
+// 同じ名前が複数あるときは、コードの若いものを使う
+function findCashAccount(db: Parameters<typeof findAccountByCode>[0]) {
+  return db.account.findFirst({
+    where: { category: "ASSET", name: "現金" },
+    orderBy: { code: "asc" },
+  });
+}
+
 // POST /api/actuals … 日次実績の登録（内部的に複式仕訳を自動生成）
 export const POST = withApi({
   role: "editor",
@@ -53,10 +63,18 @@ export const POST = withApi({
 
     const [account, counter] = await Promise.all([
       findAccountByCode(db, tenantId, body.accountCode),
-      findAccountByCode(db, tenantId, body.counterAccountCode),
+      body.counterAccountCode
+        ? findAccountByCode(db, tenantId, body.counterAccountCode)
+        : findCashAccount(db),
     ]);
     if (!account) throw badRequest(`勘定科目 "${body.accountCode}" が見つかりません`);
-    if (!counter) throw badRequest(`対当科目 "${body.counterAccountCode}" が見つかりません`);
+    if (!counter) {
+      throw badRequest(
+        body.counterAccountCode
+          ? `対当科目 "${body.counterAccountCode}" が見つかりません`
+          : "現金の科目がありません。設定の科目名設定で、資産の区分に「現金」を追加してください",
+      );
+    }
 
     const [debitId, creditId] =
       body.direction === "income" ? [counter.id, account.id] : [account.id, counter.id];
@@ -68,7 +86,8 @@ export const POST = withApi({
         tenantId,
         transactionDate: new Date(body.date),
         description: body.description,
-        paymentMethod: body.paymentMethod ?? "cash",
+        // 対当科目を省いた登録（実績のカレンダーの「現金」）は現金払い
+        paymentMethod: body.counterAccountCode ? (body.paymentMethod ?? "cash") : "cash",
         details: {
           create: [
             { side: "debit", accountId: debitId, amount: body.amount },

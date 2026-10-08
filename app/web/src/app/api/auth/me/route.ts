@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi } from "@/lib/api-handler";
 import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 // GET /api/auth/me … 現在のログインユーザーを返す。
 //
@@ -24,3 +27,26 @@ export async function GET() {
     },
   });
 }
+
+// PATCH /api/auth/me … 自分の表示名を変える（ログインしていれば誰でも、自分の分だけ）。
+// 表示名は画面の右上・ユーザー管理・監査ログに出る。ログインに使うメールアドレスは変えない。
+export const PATCH = withApi({
+  role: "viewer",
+  schema: z.object({ name: z.string().trim().min(1).max(50) }),
+  handler: async ({ user, body, audit }) => {
+    const before = await prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { name: true },
+    });
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { name: body.name },
+      select: { id: true, name: true },
+    });
+    await audit("update_profile", `user:${user.id}`, {
+      before: { name: before.name },
+      after: { name: updated.name },
+    });
+    return NextResponse.json({ data: updated });
+  },
+});

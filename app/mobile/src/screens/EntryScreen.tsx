@@ -66,11 +66,11 @@ const TABS = [
   ["history", "履歴"],
 ] as const;
 
-// カレンダー・履歴で見る出どころ（web 版と同じ）。手動＝実績（支出・収入）、銀行＝入出金の明細、
+// カレンダー・履歴で見る出どころ（web 版と同じ）。現金＝実績（現金での支出・収入）、銀行＝入出金の明細、
 // カード・電子マネー＝利用・返金の明細（銀行・カードの画面の一覧とカレンダーをここへまとめた）
 type Source = "manual" | "bank" | "card";
 const SOURCES: { value: Source; label: string }[] = [
-  { value: "manual", label: "手動" },
+  { value: "manual", label: "現金" },
   { value: "bank", label: "銀行" },
   { value: "card", label: "カード・電子マネー" },
 ];

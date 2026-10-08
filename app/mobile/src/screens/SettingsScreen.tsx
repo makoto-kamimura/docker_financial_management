@@ -1,4 +1,4 @@
-// 設定（web 版 /settings と同じ 5 区分を閲覧のみで表示する。変更は web 版で行う）。
+// 設定（web 版 /settings と同じ区分を表示する。表示名はここでも変えられ、ほかの変更は web 版で行う）。
 // 予算配分ルールの編集は web 版と同じく予算画面の「設定」タブへ移した。
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -9,18 +9,23 @@ import {
   Text,
   View,
 } from "react-native";
-import { fetchAccounts, fetchSettingsSnapshot, type Account, type SettingsSnapshot } from "../api";
-import { Card, EmptyText, Notice, SectionTitle, TabBar } from "../components/ui";
+import {
+  fetchAccounts,
+  fetchSettingsSnapshot,
+  patchMe,
+  type Account,
+  type SettingsSnapshot,
+} from "../api";
+import { Button, Card, EmptyText, Input, Notice, SectionTitle, TabBar } from "../components/ui";
 import { SETTINGS_HELP } from "../shared/help-texts";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 
-type Tab = "profile" | "tax" | "security" | "accountNames" | "departments";
+type Tab = "profile" | "tax" | "security" | "accountNames";
 const TABS = [
-  ["profile", "事業者情報"],
+  ["profile", "基本設定"],
   ["tax", "消費税設定"],
   ["security", "セキュリティ"],
   ["accountNames", "科目名設定"],
-  ["departments", "部門・担当"],
 ] as const;
 
 // 課税方式（web 版の TAX_TYPE_LABELS / PAYMENT_METHODS と同じ）
@@ -41,6 +46,52 @@ function Row({ label, value }: { label: string; value: string }) {
       <Text style={s.rowLabel}>{label}</Text>
       <Text style={s.rowValue}>{value || "—"}</Text>
     </View>
+  );
+}
+
+// 自分の表示名（web 版の設定の「あなたの表示名」と同じ。PATCH /auth/me）
+function DisplayNameCard({
+  initialName,
+  email,
+  onSaved,
+}: {
+  initialName: string;
+  email: string;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => setName(initialName), [initialName]);
+
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    try {
+      await patchMe(name.trim());
+      setMsg({ ok: true, text: "表示名を変更しました" });
+      onSaved();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "変更に失敗しました" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <SectionTitle note={SETTINGS_HELP.displayName}>あなたの表示名</SectionTitle>
+      <Input value={name} maxLength={50} onChangeText={setName} />
+      <Text style={s.rowLabel}>ログイン: {email}</Text>
+      <Button
+        label={saving ? "保存中…" : "保存"}
+        onPress={save}
+        loading={saving}
+        disabled={name.trim() === "" || name.trim() === initialName}
+        style={{ marginTop: 8 }}
+      />
+      {msg && <Notice tone={msg.ok ? "info" : "error"}>{msg.text}</Notice>}
+    </Card>
   );
 }
 
@@ -87,15 +138,20 @@ export function SettingsScreen() {
           />
         }
       >
-        <Notice>設定の変更は Web 版から行ってください（モバイルでは閲覧のみ）。</Notice>
+        <Notice>
+          表示名のほかの設定の変更は、Web 版から行ってください（モバイルでは閲覧のみ）。
+        </Notice>
         {error && <Notice tone="error">{error}</Notice>}
         {!data ? (
           <ActivityIndicator color="#4f46e5" style={{ marginTop: 32 }} />
         ) : (
           <>
             {tab === "profile" && (
+              <DisplayNameCard initialName={data.userName} email={data.email} onSaved={load} />
+            )}
+            {tab === "profile" && (
               <Card>
-                <SectionTitle>事業者情報（F001）</SectionTitle>
+                <SectionTitle note={SETTINGS_HELP.businessProfile}>事業者情報</SectionTitle>
                 <Row label="屋号" value={profile?.tradeName ?? ""} />
                 <Row label="氏名" value={profile?.ownerName ?? ""} />
                 <Row label="開業日" value={profile?.openedOn?.slice(0, 10) ?? ""} />
@@ -117,7 +173,7 @@ export function SettingsScreen() {
 
             {tab === "tax" && (
               <Card>
-                <SectionTitle>消費税設定（F012）</SectionTitle>
+                <SectionTitle note={SETTINGS_HELP.tax}>消費税設定</SectionTitle>
                 {data.taxSettings.length === 0 ? (
                   <EmptyText>
                     年度別の設定はありません（事業者情報の既定の課税方式を使います）。
@@ -164,19 +220,6 @@ export function SettingsScreen() {
                     </Text>
                   </View>
                 ))}
-              </Card>
-            )}
-
-            {tab === "departments" && (
-              <Card>
-                <SectionTitle>部門・担当</SectionTitle>
-                {data.departments.length === 0 ? (
-                  <EmptyText>部門は登録されていません。</EmptyText>
-                ) : (
-                  data.departments.map((d) => (
-                    <Row key={d.id} label={d.name} value={d.manager ?? ""} />
-                  ))
-                )}
               </Card>
             )}
           </>

@@ -11,7 +11,7 @@ const UpdateSchema = z.object({
   password: z.string().min(8).optional(),
 });
 
-// PATCH /api/admin/users/[id] … ロール変更・パスワードリセット（admin のみ）
+// PATCH /api/admin/users/[id] … 表示名・ロールの変更、パスワードリセット（admin のみ）
 export const PATCH = withApi({
   role: "admin",
   schema: UpdateSchema,
@@ -37,7 +37,14 @@ export const PATCH = withApi({
       await audit("session_revoked_all", `user:${id}`);
     }
 
-    await audit("update", `user:${id}`);
+    // 表示名を変えたときは、監査ログに変更前と変更後の名前を残す
+    await audit(
+      "update",
+      `user:${id}`,
+      fields.name !== undefined && fields.name !== target.name
+        ? { before: { name: target.name }, after: { name: fields.name } }
+        : undefined,
+    );
     return NextResponse.json({ data: user });
   },
 });
