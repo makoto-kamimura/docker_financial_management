@@ -1484,15 +1484,24 @@ export async function categorizeEntry(
   return { updatedSiblingCount: json?.updatedSiblingCount ?? 0 };
 }
 
-/** まとめて自動処理（学習ルールで科目を付け、同じ日・同じ金額の組を振替・チャージにする） */
-export async function autoProcessEntries(): Promise<{
+export type AutoProcessResult = {
   categorized: number;
+  /** 未割り当てに戻した件数（reset のときだけ） */
+  cleared: number;
   offsetPairs: number;
   lockedSkipped: number;
-}> {
-  const json = await request<{
-    data: { categorized: number; offsetPairs: number; lockedSkipped: number };
-  }>("/ledger/auto-process", "自動処理に失敗しました", { method: "POST" });
+};
+
+/**
+ * まとめて自動処理（学習ルールで科目を付け、同じ日・同じ金額の組を振替・チャージにする）。
+ * reset=true は「科目を付け直す」（付いている科目も付け直し、ルールに当たらなければ未割り当てに戻す）
+ */
+export async function autoProcessEntries(reset = false): Promise<AutoProcessResult> {
+  const json = await request<{ data: AutoProcessResult }>(
+    `/ledger/auto-process?reset=${reset ? 1 : 0}`,
+    "自動処理に失敗しました",
+    { method: "POST" },
+  );
   return json.data;
 }
 

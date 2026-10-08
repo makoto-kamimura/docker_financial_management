@@ -441,22 +441,39 @@ function UnassignedCard({
     refresh();
   }
 
-  async function autoProcess() {
+  // reset: 「科目を付け直す」（付いている科目も学習ルールで付け直し、当たらなければ未割り当てに戻す）
+  async function autoProcess(reset: boolean) {
+    if (
+      reset &&
+      !window.confirm(
+        "実績を確定していない月のすべての明細の科目を、学習ルールで付け直します。ルールに当たらない明細は未割り当てに戻ります（手で選んだ科目も外れます）。よろしいですか？",
+      )
+    )
+      return;
     setProcessing(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/ledger/auto-process", { method: "POST" });
+      const res = await fetch(`/api/ledger/auto-process?reset=${reset ? 1 : 0}`, {
+        method: "POST",
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMsg({ ok: false, text: `自動処理に失敗しました: ${json.error ?? "エラー"}` });
       } else {
-        const r = json.data as { categorized: number; offsetPairs: number; lockedSkipped: number };
+        const r = json.data as {
+          categorized: number;
+          cleared: number;
+          offsetPairs: number;
+          lockedSkipped: number;
+        };
         setMsg({
           ok: true,
           text:
-            `学習ルールで ${r.categorized} 件に科目を付け、${r.offsetPairs} 組を振替・チャージにしました。` +
+            `学習ルールで ${r.categorized} 件に科目を付け` +
+            (reset ? `、${r.cleared} 件を未割り当てに戻し` : "") +
+            `、${r.offsetPairs} 組を振替・チャージにしました。` +
             (r.lockedSkipped > 0
-              ? `（実績を確定済みの月の未割り当て ${r.lockedSkipped} 件はそのままです）`
+              ? `（実績を確定済みの月の明細 ${r.lockedSkipped} 件はそのままです）`
               : ""),
         });
       }
@@ -475,15 +492,26 @@ function UnassignedCard({
           </h3>
           <SectionLead className="mb-3">{ENTRY_HELP.unassigned}</SectionLead>
         </div>
-        <button
-          type="button"
-          disabled={processing}
-          onClick={autoProcess}
-          className="btn-secondary shrink-0"
-          title={ENTRY_HELP.autoProcess}
-        >
-          {processing ? "処理中…" : "まとめて自動処理"}
-        </button>
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <button
+            type="button"
+            disabled={processing}
+            onClick={() => autoProcess(false)}
+            className="btn-secondary"
+            title={ENTRY_HELP.autoProcess}
+          >
+            {processing ? "処理中…" : "まとめて自動処理"}
+          </button>
+          <button
+            type="button"
+            disabled={processing}
+            onClick={() => autoProcess(true)}
+            className="btn-secondary"
+            title={ENTRY_HELP.recategorize}
+          >
+            科目を付け直す
+          </button>
+        </div>
       </div>
       {msg && (
         <div className="px-4 pb-3">
