@@ -98,7 +98,7 @@ afterAll(async () => {
     where: { record: { tenantId } },
   });
   await prisma.financialRecord.deleteMany({ where: { tenantId } });
-  await prisma.bankTransaction.deleteMany({ where: { account: { tenantId } } });
+  await prisma.ledgerEntry.deleteMany({ where: { tenantId } });
   await prisma.bankAccount.deleteMany({ where: { tenantId } });
   await prisma.journalDetail.deleteMany({ where: { journalEntry: { tenantId } } });
   await prisma.journalEntry.deleteMany({ where: { tenantId } });
@@ -111,9 +111,11 @@ afterAll(async () => {
 
 describe("D-5d-1: 銀行口座に勘定科目が紐付いている場合は複式仕訳化する", () => {
   it("支出（負の金額）: Dr 分類科目(EXPENSE) / Cr 口座科目(ASSET) の仕訳を作り、EXPENSE 側だけが FinancialRecord に正の符号で同期される", async () => {
-    const txn = await prisma.bankTransaction.create({
+    const txn = await prisma.ledgerEntry.create({
       data: {
-        accountId: linkedBankAccountId,
+        tenantId,
+        kind: "BANK",
+        bankAccountId: linkedBankAccountId,
         date: new Date("2026-07-01"),
         description: "D-5d-1 支出検証",
         amount: -3000,
@@ -146,14 +148,16 @@ describe("D-5d-1: 銀行口座に勘定科目が紐付いている場合は複�
     expect(records[0].accountId).toBe(expenseAccountId);
     expect(Number(records[0].amount)).toBe(3000);
 
-    const updated = await prisma.bankTransaction.findUnique({ where: { id: txn.id } });
+    const updated = await prisma.ledgerEntry.findUnique({ where: { id: txn.id } });
     expect(updated?.postedRecordId).toBe(records[0].id);
   });
 
   it("収入（正の金額）: Dr 口座科目(ASSET) / Cr 分類科目(REVENUE) の仕訳を作り、REVENUE 側だけが正の符号で同期される", async () => {
-    const txn = await prisma.bankTransaction.create({
+    const txn = await prisma.ledgerEntry.create({
       data: {
-        accountId: linkedBankAccountId,
+        tenantId,
+        kind: "BANK",
+        bankAccountId: linkedBankAccountId,
         date: new Date("2026-07-02"),
         description: "D-5d-1 収入検証",
         amount: 5000,
@@ -176,9 +180,11 @@ describe("D-5d-1: 銀行口座に勘定科目が紐付いている場合は複�
   });
 
   it("口座に勘定科目が未紐付けの場合は仕訳を作らず、従来どおり単側直接書き込みにフォールバックする", async () => {
-    const txn = await prisma.bankTransaction.create({
+    const txn = await prisma.ledgerEntry.create({
       data: {
-        accountId: unlinkedBankAccountId,
+        tenantId,
+        kind: "BANK",
+        bankAccountId: unlinkedBankAccountId,
         date: new Date("2026-07-03"),
         description: "D-5d-1 未紐付け検証",
         amount: -1000,
@@ -196,7 +202,7 @@ describe("D-5d-1: 銀行口座に勘定科目が紐付いている場合は複�
     });
     expect(entry).toBeNull();
 
-    const updated = await prisma.bankTransaction.findUnique({ where: { id: txn.id } });
+    const updated = await prisma.ledgerEntry.findUnique({ where: { id: txn.id } });
     const record = await prisma.financialRecord.findUnique({
       where: { id: updated!.postedRecordId! },
     });

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
 import { BankTransferCreateSchema, buildTransferPair } from "@/lib/bank-transfer";
-import { serializeBankTransaction } from "@/lib/bank-transactions";
+import { toBankTxn } from "@/lib/ledger-entries";
 import { invalidateCache } from "@/lib/redis";
 
 // POST /api/bank-transfers … 銀行から銀行への振替を 1 操作で登録する（editor 以上）
@@ -34,17 +34,22 @@ export const POST = withApi({
 
     // 片側だけ登録されて残高がずれることが無いよう、2 行は必ず同一トランザクションで作る
     const created = await db.$transaction(async (tx) => {
-      const out = await tx.bankTransaction.create({ data: { ...rows[0], source: "MANUAL" } });
-      const income = await tx.bankTransaction.create({ data: { ...rows[1], source: "MANUAL" } });
-      return [out, income];
+      const [out, income] = rows.map(({ accountId, ...row }) => ({
+        ...row,
+        tenantId,
+        kind: "BANK" as const,
+        bankAccountId: accountId,
+        source: "MANUAL" as const,
+      }));
+      return [
+        await tx.ledgerEntry.create({ data: out }),
+        await tx.ledgerEntry.create({ data: income }),
+      ];
     });
 
     await audit("create_bank_transfer", `bank_transfer:${transferGroupId}`);
     await invalidateCache(`assets:summary:${tenantId}:*`);
 
-    return NextResponse.json(
-      { data: created.map(serializeBankTransaction), transferGroupId },
-      { status: 201 },
-    );
+    return NextResponse.json({ data: created.map(toBankTxn), transferGroupId }, { status: 201 });
   },
 });

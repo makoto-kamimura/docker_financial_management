@@ -11,7 +11,7 @@
 
 import { dayGap } from "@/lib/transfer-match";
 
-/** チャージ先の候補となる明細（card_transactions の符号規約: +利用（支出） / -返金・入金） */
+/** チャージ先の候補となる明細（カードの符号: +利用（支出） / -返金・入金。明細の表の金額は cardSpend で直して渡す） */
 export type ChargeCandidateTxn = {
   id: number;
   date: Date;

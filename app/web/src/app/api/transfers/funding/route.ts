@@ -25,10 +25,10 @@ export const GET = withApi({
     // 起点残高は口座一覧と同じ定義（明細合計 + 差額 = 現在残高。lib/bank-balance.ts）
     const [bankAccounts, balances, transfers, loans] = await Promise.all([
       db.bankAccount.findMany({ where: { tenantId }, orderBy: { id: "asc" } }),
-      db.bankTransaction.groupBy({
-        by: ["accountId"],
+      db.ledgerEntry.groupBy({
+        by: ["bankAccountId"],
         _sum: { amount: true },
-        where: { account: { tenantId } },
+        where: { kind: "BANK" },
       }),
       db.transfer.findMany({ where: { tenantId } }),
       // 引き落とし口座と日を入れた借入（返済を自動で並べる。lib/loan-funding.ts）
@@ -36,7 +36,7 @@ export const GET = withApi({
     ]);
     const balanceMap = buildBankBalanceMap(
       bankAccounts,
-      balances.map((b) => ({ accountId: b.accountId, sum: b._sum.amount?.toNumber() ?? 0 })),
+      balances.map((b) => ({ accountId: b.bankAccountId!, sum: b._sum.amount?.toNumber() ?? 0 })),
     );
 
     const accounts: FundingAccount[] = bankAccounts.map((a) => ({

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import type { LedgerKind } from "@prisma/client";
 import { withApi } from "@/lib/api-handler";
 
 // GET /api/financials/matrix?year=YYYY
@@ -10,35 +11,26 @@ import { withApi } from "@/lib/api-handler";
 // 銀行・カード明細からの転記は元の明細（日付・摘要・口座名）、仕訳連動は仕訳の摘要を添える。
 type SourceRecord = {
   journalEntry: { id: number; transactionDate: Date; description: string } | null;
-  postedFromTxn: {
+  postedFromEntry: {
     id: number;
+    kind: LedgerKind;
     date: Date;
     description: string;
-    account: { name: string };
-  } | null;
-  postedFromCardTxn: {
-    id: number;
-    date: Date;
-    description: string;
-    account: { name: string };
+    bankAccount: { name: string } | null;
+    cardAccount: { name: string } | null;
   } | null;
 };
 
+const ENTRY_SOURCE_KIND = { CASH: "cash", BANK: "bank", CARD: "card" } as const;
+
 function recordSource(r: SourceRecord) {
-  if (r.postedFromTxn) {
+  const e = r.postedFromEntry;
+  if (e) {
     return {
-      kind: "bank" as const,
-      date: r.postedFromTxn.date,
-      description: r.postedFromTxn.description,
-      accountName: r.postedFromTxn.account.name,
-    };
-  }
-  if (r.postedFromCardTxn) {
-    return {
-      kind: "card" as const,
-      date: r.postedFromCardTxn.date,
-      description: r.postedFromCardTxn.description,
-      accountName: r.postedFromCardTxn.account.name,
+      kind: ENTRY_SOURCE_KIND[e.kind],
+      date: e.date,
+      description: e.description,
+      accountName: e.bankAccount?.name ?? e.cardAccount?.name ?? "現金",
     };
   }
   if (r.journalEntry) {
@@ -68,20 +60,14 @@ export const GET = withApi({
         // 同じ科目・月に複数行あるセルは「◯件」を押すと内訳モーダルを出す。
         // どこから入った実績なのかが分かるよう、転記元の明細と仕訳を添える。
         journalEntry: { select: { id: true, transactionDate: true, description: true } },
-        postedFromTxn: {
+        postedFromEntry: {
           select: {
             id: true,
+            kind: true,
             date: true,
             description: true,
-            account: { select: { name: true } },
-          },
-        },
-        postedFromCardTxn: {
-          select: {
-            id: true,
-            date: true,
-            description: true,
-            account: { select: { name: true } },
+            bankAccount: { select: { name: true } },
+            cardAccount: { select: { name: true } },
           },
         },
       },

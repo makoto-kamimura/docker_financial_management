@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
-import { serializeBankTransaction } from "@/lib/bank-transactions";
+import { BANK, toBankTxn } from "@/lib/ledger-entries";
 import { validateTransferLink } from "@/lib/transfer-match";
 import { invalidateCache } from "@/lib/redis";
 
@@ -27,19 +27,24 @@ export const POST = withApi({
     const { tenantId } = user;
     if (body.outTxnId === body.inTxnId) throw badRequest("同じ明細どうしは紐付けできません");
 
-    // 明細は親口座（BankAccount）経由でテナント所有を確認する
-    const txns = await db.bankTransaction.findMany({
-      where: { id: { in: [body.outTxnId, body.inTxnId] }, account: { tenantId } },
-      select: {
-        id: true,
-        accountId: true,
-        amount: true,
-        categoryAccountId: true,
-        transferGroupId: true,
-        postedRecordId: true,
-        chargeToAccountId: true,
-      },
-    });
+    const txns = (
+      await db.ledgerEntry.findMany({
+        where: { id: { in: [body.outTxnId, body.inTxnId] }, ...BANK },
+        select: {
+          id: true,
+          bankAccountId: true,
+          amount: true,
+          categoryAccountId: true,
+          transferGroupId: true,
+          postedRecordId: true,
+          chargeToCardId: true,
+        },
+      })
+    ).map(({ bankAccountId, chargeToCardId, ...t }) => ({
+      ...t,
+      accountId: bankAccountId!,
+      chargeToAccountId: chargeToCardId,
+    }));
     const outTxn = txns.find((t) => t.id === body.outTxnId);
     const inTxn = txns.find((t) => t.id === body.inTxnId);
     if (!outTxn || !inTxn) throw notFound("明細が見つかりません");
@@ -54,11 +59,11 @@ export const POST = withApi({
     // 片側だけ更新されて対が壊れることが無いよう、2 行は同一トランザクションで更新する。
     // 振替は収入・支出ではないので、付いていた科目はここで外す
     const updated = await db.$transaction(async (tx) => {
-      await tx.bankTransaction.updateMany({
+      await tx.ledgerEntry.updateMany({
         where: { id: { in: [outTxn.id, inTxn.id] } },
         data: { transferGroupId, categoryAccountId: null },
       });
-      return tx.bankTransaction.findMany({
+      return tx.ledgerEntry.findMany({
         where: { transferGroupId },
         orderBy: { amount: "asc" },
       });
@@ -70,7 +75,7 @@ export const POST = withApi({
     });
     await invalidateCache(`assets:summary:${tenantId}:*`);
 
-    return NextResponse.json({ data: updated.map(serializeBankTransaction), transferGroupId });
+    return NextResponse.json({ data: updated.map(toBankTxn), transferGroupId });
   },
 });
 
@@ -81,15 +86,15 @@ export const DELETE = withApi({
     const { tenantId } = user;
     const { transferGroupId } = query;
 
-    const txns = await db.bankTransaction.findMany({
-      where: { transferGroupId, account: { tenantId } },
+    const txns = await db.ledgerEntry.findMany({
+      where: { transferGroupId, ...BANK },
       select: { id: true },
     });
     if (txns.length === 0) throw notFound("振替が見つかりません");
 
     // 明細は残したまま対だけ外す。以後それぞれ科目の紐付け・実績転記ができるようになり、
     // 削除も 1 行ずつになる（紐付いている間は片方を消すと相手も一緒に消える）
-    await db.bankTransaction.updateMany({
+    await db.ledgerEntry.updateMany({
       where: { id: { in: txns.map((t) => t.id) } },
       data: { transferGroupId: null },
     });

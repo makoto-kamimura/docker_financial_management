@@ -4,8 +4,8 @@
 // 銀行側は口座どうしの資金移動を描くが、こちらはカードを中心に 3 種類の線を 1 枚にまとめる。
 //
 //   1. 銀行口座 → カード       … 毎月の引き落とし（Transfer の linkedAccountId 付き）
-//   2. 銀行口座 → カード       … チャージ（BankTransaction.chargeToAccountId）
-//   3. カード → カード         … チャージ（CardTransaction.transferToAccountId）
+//   2. 銀行口座 → カード       … チャージ（銀行明細の LedgerEntry.chargeToCardId）
+//   3. カード → カード         … チャージ（カード明細の LedgerEntry.chargeToCardId）
 //   4. カード → 外部（摘要）   … そのカードで毎月固定決済される支払い（CardRecurringPayment）
 //
 // 銀行側のフロー図では 1 の同じルールが「口座 → 外部（カード名）」になり、カードは

@@ -24,18 +24,18 @@ export const GET = withApi({
       }),
       // 紐付け済み（transferGroupId あり）と転記済みは対象外。転記済みは実績が既に立っており、
       // 後から振替に変えても FinancialRecord が残るため、先に転記の取り消しが要る
-      db.bankTransaction.findMany({
+      db.ledgerEntry.findMany({
         where: {
-          account: { tenantId },
+          kind: "BANK",
           transferGroupId: null,
           postedRecordId: null,
           // チャージ（カード・電子マネーへの資金移動）として指定済みの明細は口座間振替ではない
-          chargeToAccountId: null,
+          chargeToCardId: null,
           chargeGroupId: null,
         },
         select: {
           id: true,
-          accountId: true,
+          bankAccountId: true,
           date: true,
           description: true,
           amount: true,
@@ -48,7 +48,7 @@ export const GET = withApi({
     const accountMap = new Map(accounts.map((a) => [a.id, a]));
     const txns: (MatchableTxn & { categoryAccountId: number | null })[] = rows.map((r) => ({
       id: r.id,
-      accountId: r.accountId,
+      accountId: r.bankAccountId!,
       date: r.date,
       description: r.description,
       amount: Number(r.amount),

@@ -13,7 +13,7 @@ const OPENBANKING_API_BASE = process.env.OPENBANKING_API_BASE ?? "https://api.op
 // 登録済み銀行口座一覧を返す。
 //
 // GET /api/integrations/openbanking?action=transactions&accountId=XXX&from=YYYY-MM-DD&to=YYYY-MM-DD
-// 指定口座の入出金履歴を外部 API から取得して BankTransaction 形式で返す。
+// 指定口座の入出金履歴を外部 API から取得して、銀行明細（ledger_entries の kind = BANK）の形式で返す。
 export const GET = withApi({
   role: "editor",
   querySchema: z.object({
@@ -34,14 +34,14 @@ export const GET = withApi({
       });
 
       // 口座ごとの最新残高：最新トランザクションの balance or 取引合計
-      const latestTxns = await db.bankTransaction.findMany({
-        where: { accountId: { in: accounts.map((a) => a.id) } },
+      const latestTxns = await db.ledgerEntry.findMany({
+        where: { bankAccountId: { in: accounts.map((a) => a.id) } },
         orderBy: [{ date: "desc" }, { id: "desc" }],
-        distinct: ["accountId"],
-        select: { accountId: true, balance: true },
+        distinct: ["bankAccountId"],
+        select: { bankAccountId: true, balance: true },
       });
       const balanceMap = new Map(
-        latestTxns.map((t) => [t.accountId, t.balance != null ? Number(t.balance) : null]),
+        latestTxns.map((t) => [t.bankAccountId, t.balance != null ? Number(t.balance) : null]),
       );
 
       return NextResponse.json({
@@ -123,7 +123,7 @@ const SyncSchema = z.object({
   ),
 });
 
-// POST /api/integrations/openbanking … 取引データを bank_transactions テーブルに同期保存する。
+// POST /api/integrations/openbanking … 取引データを明細の表（ledger_entries）に銀行明細として同期保存する。
 export const POST = withApi({
   role: "editor",
   schema: SyncSchema,
@@ -137,17 +137,19 @@ export const POST = withApi({
     let skipped = 0;
 
     for (const tx of body.transactions) {
-      const existing = await db.bankTransaction.findFirst({
-        where: { accountId: account.id, externalId: tx.id },
+      const existing = await db.ledgerEntry.findFirst({
+        where: { bankAccountId: account.id, externalId: tx.id },
       });
       if (existing) {
         skipped++;
         continue;
       }
 
-      await db.bankTransaction.create({
+      await db.ledgerEntry.create({
         data: {
-          account: { connect: { id: account.id } },
+          tenantId: user.tenantId,
+          kind: "BANK",
+          bankAccountId: account.id,
           date: new Date(tx.date),
           amount: tx.amount,
           description: tx.description,

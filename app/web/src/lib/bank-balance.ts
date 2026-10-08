@@ -1,6 +1,6 @@
 // 口座残高の定義を 1 か所に集約する。
 //
-// 残高 = 明細の増減合計（SUM(bank_transactions.amount)）+ 差額（BankAccount.balanceAdjustment）。
+// 残高 = 明細の増減合計（SUM(ledger_entries.amount)。kind = BANK のその口座の行）+ 差額（BankAccount.balanceAdjustment）。
 // 差額は CSV の取込開始前から口座にあった残高（期首残高）など、明細に現れない分を吸収するための
 // 手入力値。以前は明細合計だけを残高としていたため、口座サマリ・総資産サマリ・資金繰り・
 // 残高推移グラフのすべてが同じ額だけ実残高とずれていた。

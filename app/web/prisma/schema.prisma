@@ -64,8 +64,7 @@ model Account {
   loans                 Loan[]
   personalAssets        PersonalAsset[]
   allocationAssignment  AllocationAccountAssignment?
-  categorizedTxns       BankTransaction[]
-  categorizedCardTxns   CardTransaction[]
+  categorizedEntries    LedgerEntry[]
   txnCategoryRules      TxnCategoryRule[]
   bankAccounts          BankAccount[]
   cardRecurringPayments CardRecurringPayment[]
@@ -266,9 +265,8 @@ model FinancialRecord {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  history           FinancialRecordHistory[]
-  postedFromTxn     BankTransaction?
-  postedFromCardTxn CardTransaction?
+  history         FinancialRecordHistory[]
+  postedFromEntry LedgerEntry?
 
   @@index([tenantId, accountId, periodId])
   @@index([journalEntryId])
@@ -322,56 +320,16 @@ model LinkedAccount {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  transactions            CardTransaction[]
+  transactions            LedgerEntry[]          @relation("LedgerCard")
   transfers               Transfer[]
-  // このカード・電子マネーへのチャージとして扱われている他カードの明細（CardTransaction.transferToAccount の逆側）
-  chargedFrom             CardTransaction[]      @relation("CardTransferTo")
-  // このカード・電子マネーへのチャージとして扱われている銀行明細（BankTransaction.chargeToAccount の逆側）
-  bankCharges             BankTransaction[]      @relation("BankCharge")
+  // このカード・電子マネーへのチャージとして扱われている明細（銀行・他カードとも。LedgerEntry.chargeToCard の逆側）
+  chargedEntries          LedgerEntry[]          @relation("LedgerChargeTo")
   cardTransferRules       CardTransferRule[]     @relation("CardTransferRuleTarget")
   cardTransferRulesOnCard CardTransferRule[]     @relation("CardTransferRuleSource")
   recurringPayments       CardRecurringPayment[]
 
   @@index([tenantId])
   @@map("linked_accounts")
-}
-
-// クレジットカード利用明細（取込・入力したトランザクション）。
-// BankTransaction と同構造・同機能を維持する（銀行側の仕様はそのまま。カード側を新規追加するのみ）。
-// amount は +利用（支出） / -返金。account(LinkedAccount) は LIABILITY 科目に紐づく。
-model CardTransaction {
-  id                  Int              @id @default(autoincrement())
-  account             LinkedAccount    @relation(fields: [accountId], references: [id])
-  accountId           Int
-  date                DateTime // 利用日
-  description         String // 摘要（利用先）
-  amount              Decimal          @db.Decimal(18, 2) // +利用（支出） / -返金
-  source              TxnSource        @default(MANUAL)
-  externalId          String? // 重複取込防止用の外部ID
-  categoryAccountId   Int? // 紐付けた費目科目（Account、通常 EXPENSE）
-  categoryAccount     Account?         @relation(fields: [categoryAccountId], references: [id])
-  postedRecordId      Int?             @unique // 転記済み FinancialRecord（unique で二重転記を DB 層でも防止）
-  postedRecord        FinancialRecord? @relation(fields: [postedRecordId], references: [id])
-  // 他のカード・電子マネーへのチャージ（資金移動）である場合のチャージ先。
-  // 例: 三井住友カードの「[信] ＪＡＬ Ｐａｙ」は JAL Global Wallet へのチャージであり、
-  // 実際の支出は JAL 側の利用明細で計上される。両方を科目に紐付けると二重計上になるため、
-  // この値を持つ行は銀行の transferGroupId と同じく科目紐付け・実績転記の対象外にする。
-  transferToAccountId Int?
-  transferToAccount   LinkedAccount?   @relation("CardTransferTo", fields: [transferToAccountId], references: [id])
-  // チャージ元の明細と、チャージ先に入った明細を対にする識別子（銀行の transferGroupId と同じ考え方）。
-  // チャージ先の CSV に入金行が出てくる場合、両方を持ったままだと「どのチャージがどの入金か」が
-  // 分からず、入金行を科目に紐付けて収入として二重計上してしまう。対にした行はどちら側も
-  // 科目紐付け・実績転記の対象外にする。bank_transactions.chargeGroupId と同じ ID 空間
-  // （銀行 → プリペイド・デビットのチャージは銀行明細とカード明細の組になる）。
-  chargeGroupId       String?
-  createdAt           DateTime         @default(now())
-
-  @@unique([accountId, externalId])
-  @@index([accountId, date])
-  @@index([categoryAccountId])
-  @@index([transferToAccountId])
-  @@index([chargeGroupId])
-  @@map("card_transactions")
 }
 
 // カード明細の摘要キーワードから「チャージ（資金移動）」を自動判定するルール。
@@ -1002,7 +960,7 @@ model BankAccount {
   loanDebits                    Loan[]                         @relation("loanDebit")
   // 明細からの「毎月の入出金」の候補で、非表示にしたもの
   recurringSuggestionDismissals RecurringSuggestionDismissal[]
-  transactions                  BankTransaction[]
+  transactions                  LedgerEntry[]                  @relation("LedgerBank")
 
   @@index([tenantId])
   @@index([accountId])
@@ -1037,41 +995,54 @@ model Transfer {
   @@map("transfers")
 }
 
-// 銀行入出金明細（取込・同期したトランザクション）
-model BankTransaction {
+// 明細（現金・銀行口座・カード・電子マネー）。実績はこの表から作る（postedRecordId → financial_records）。
+// kind で台帳の種別を分け、口座は kind に合う列だけを持つ（CHECK 制約 ledger_entries_kind_account_check）。
+// amount は種別によらず +入金 / −出金。カードの利用は負、返金・チャージによる入金は正。
+model LedgerEntry {
   id                Int              @id @default(autoincrement())
-  account           BankAccount      @relation(fields: [accountId], references: [id])
-  accountId         Int
-  date              DateTime // 取引日
+  tenantId          Int
+  kind              LedgerKind
+  bankAccountId     Int? // kind = BANK のときの口座
+  bankAccount       BankAccount?     @relation("LedgerBank", fields: [bankAccountId], references: [id], onDelete: Restrict)
+  cardAccountId     Int? // kind = CARD のときのカード・電子マネー
+  cardAccount       LinkedAccount?   @relation("LedgerCard", fields: [cardAccountId], references: [id], onDelete: Restrict)
+  date              DateTime // 取引日・利用日
   description       String // 摘要
-  amount            Decimal          @db.Decimal(18, 2) // +入金 / -出金
-  balance           Decimal?         @db.Decimal(18, 2) // 取引後残高（取得できた場合）
+  amount            Decimal          @db.Decimal(18, 2) // +入金 / −出金
+  balance           Decimal?         @db.Decimal(18, 2) // 取引後残高（銀行で取得できた場合）
   source            TxnSource        @default(MANUAL)
   externalId        String? // 重複取込防止用の外部ID
-  categoryAccountId Int? // 紐付けた収入・支払項目科目（Account）
+  categoryAccountId Int? // 紐付けた収入・支出の科目（Account）
   categoryAccount   Account?         @relation(fields: [categoryAccountId], references: [id])
-  postedRecordId    Int?             @unique // 転記済み FinancialRecord（unique で二重転記を DB 層でも防止）
+  postedRecordId    Int?             @unique // 計上した FinancialRecord（unique で二重計上を DB 層でも防止）
   postedRecord      FinancialRecord? @relation(fields: [postedRecordId], references: [id])
   // 口座間振替で対になる 2 行（出金元の −amount と入金先の +amount）を結ぶ ID。
-  // 自己口座間の移動は収入でも支出でもないため、この値を持つ行は科目紐付け・実績転記の対象外にする
-  // （集計は categoryAccountId を起点にしているので、未紐付けのままなら二重計上されない）。
+  // 自己口座間の移動は収入でも支出でもないため、この値を持つ行は科目紐付け・実績計上の対象外にする。
   transferGroupId   String?
-  // デビット・プリペイド・電子マネーへのチャージ（銀行 → カード台帳の資金移動）の場合のチャージ先。
-  // 口座間振替（transferGroupId）と同じく自己資金の移動なので科目紐付け・実績転記の対象外にする
-  // （実際の支出はチャージ先の利用明細で計上される）。card_transactions.transferToAccountId の銀行版。
-  chargeToAccountId Int?
-  chargeToAccount   LinkedAccount?   @relation("BankCharge", fields: [chargeToAccountId], references: [id])
-  // チャージ先の明細（CardTransaction）と対にする識別子。card_transactions.chargeGroupId と同じ ID 空間
+  // デビット・プリペイド・電子マネーへのチャージ（銀行・カードからの資金移動）の場合のチャージ先。
+  // 自己資金の移動なので科目紐付け・実績計上の対象外にする（実際の支出はチャージ先の利用明細で計上される）。
+  chargeToCardId    Int?
+  chargeToCard      LinkedAccount?   @relation("LedgerChargeTo", fields: [chargeToCardId], references: [id])
+  // チャージ元の明細と、チャージ先に入った明細を対にする識別子。対にした行はどちら側も対象外にする
   chargeGroupId     String?
   createdAt         DateTime         @default(now())
 
-  @@unique([accountId, externalId])
-  @@index([accountId, date])
+  @@unique([bankAccountId, externalId])
+  @@unique([cardAccountId, externalId])
+  @@index([tenantId, date])
+  @@index([bankAccountId, date])
+  @@index([cardAccountId, date])
   @@index([categoryAccountId])
   @@index([transferGroupId])
-  @@index([chargeToAccountId])
+  @@index([chargeToCardId])
   @@index([chargeGroupId])
-  @@map("bank_transactions")
+  @@map("ledger_entries")
+}
+
+enum LedgerKind {
+  CASH // 現金
+  BANK // 銀行口座
+  CARD // カード・電子マネー
 }
 
 // 明細の摘要キーワードから科目を自動分類するためのルール（取込時に categoryAccountId を埋めるだけで転記はしない）

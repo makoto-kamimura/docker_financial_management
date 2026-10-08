@@ -478,7 +478,7 @@ KPI の下に、次の順で置く。
 
 - **CSV インポート**は、実績・銀行・カード・電子マネーを 1 か所にまとめた（銀行管理・カード管理の CSV インポートは削除した）。`POST /api/imports?target=actual|bank|card&accountId=`、振り分けは `src/lib/ledger-import.ts`。
   - 上で取り込み先（実績 / 銀行 + 口座 / カード + カード）を選ぶと、今までの各画面の書式のまま取り込む（実績: `accountCode,fiscalYear,month,amount`、銀行・カード: `date,description,amount[,balance]`）。銀行・カードのときは取込先の確認を出す。銀行のときは自動取得（同期）も置く。
-  - CSV に登録先の列（`target,account,date,description,amount,accountCode,fiscalYear,month,balance`）があれば、行ごとに振り分ける。`target` は 実績 / 銀行 / カード（電子マネーも可。英語の actual / bank / card も可）、`account` は口座・カードの名前。実績の行の年月は fiscalYear・month が無ければ date から補う。カードの金額は明細そのまま（支出は負）で、保存時に符号を反転する。
+  - CSV に登録先の列（`target,account,date,description,amount,accountCode,fiscalYear,month,balance`）があれば、行ごとに振り分ける。`target` は 実績 / 銀行 / カード（電子マネーも可。英語の actual / bank / card も可）、`account` は口座・カードの名前。実績の行の年月は fiscalYear・month が無ければ date から補う。カードの金額は明細そのまま（支出は負）で、明細の表にもそのまま入る。
   - 誤りのある行が 1 つでもあれば、どの行も取り込まない（行番号つきで返す）。銀行・カードの同じ明細は重複として飛ばす。
 - 実績の登録・変更・削除は履歴に残る。
 - **履歴は共通の表**（`src/components/LedgerTable.tsx`。モバイルは `components/LedgerRow.tsx`）にした。列は 日付 / 口座 / 摘要 / 金額 / 科目 / 状態 / 操作 で、件数・絞り込み・ページ送り（30 件ずつ）の位置も同じ。
@@ -998,12 +998,12 @@ npm run typecheck && npm run format:check
 
 ### 20.3 口座の残高
 
-残高の定義は `src/lib/bank-balance.ts` の1か所だけに置く：`SUM(bank_transactions.amount) + bank_accounts.balanceAdjustment`。総資産サマリ・資金繰りはすべてこれを使う。
+残高の定義は `src/lib/bank-balance.ts` の1か所だけに置く：`SUM(ledger_entries.amount)`（その口座の銀行明細）`+ bank_accounts.balanceAdjustment`。総資産サマリ・資金繰りはすべてこれを使う。
 
 ### 20.4 振替とチャージ
 
 - **振替**：2つの口座の明細に同じ `transferGroupId` を付ける。候補は、取り込み後に金額と日付から探す（`transfer-match.ts`）。
-- **チャージ**：チャージ元の明細（`bank_transactions.chargeToAccountId` か `card_transactions.transferToAccountId`）と、チャージ先の入金の明細に、同じ `chargeGroupId` を付ける。`chargeGroupId` は銀行とカードの明細で共通の番号を使う。候補の順位付けと組の検査は `charge-link.ts`。
+- **チャージ**：チャージ元の明細（銀行・カードとも `ledger_entries.chargeToCardId`）と、チャージ先の入金の明細に、同じ `chargeGroupId` を付ける。`chargeGroupId` は銀行とカードの明細で共通の番号を使う。候補の順位付けと組の検査は `charge-link.ts`。
 - `transferGroupId`・チャージ先・`chargeGroupId` のいずれかを持つ明細は、科目付けと実績への転記の対象から除く。
 
 ### 20.5 カード払いの固定決済
@@ -1101,11 +1101,10 @@ npm run typecheck && npm run format:check
 | テーブル | 主な列 | 補足 |
 |---|---|---|
 | `bank_accounts` | name, bankName, branchName, accountType, role, accountId, balanceAdjustment, balanceCheckedAt | 銀行口座の唯一の台帳。balanceCheckedAt は差額を確かめて保存した日時（0 円でも） |
-| `bank_transactions` | accountId, date, description, amount, balance, source, externalId, categoryAccountId, postedRecordId, transferGroupId, chargeToAccountId, chargeGroupId | `[accountId, externalId]` 一意 |
+| `ledger_entries` | kind（CASH / BANK / CARD）, bankAccountId, cardAccountId, date, description, amount, balance, source, externalId, categoryAccountId, postedRecordId, transferGroupId, chargeToCardId, chargeGroupId | 現金・銀行・カードの明細を 1 つにまとめた表。金額は種別によらず +入金 / −出金（カードの利用は負）。口座は kind に合う列だけを持つ（CHECK 制約）。`[bankAccountId, externalId]`・`[cardAccountId, externalId]` 一意 |
 | `transfers` | fromAccountId, toAccountId, linkedAccountId, amount, kind, channel, label, day | 資金移動ルール |
 | `txn_category_rules` | keyword, categoryAccountId, priority | 科目付けの学習ルール |
 | `linked_accounts` | name, type（CREDIT_CARD / DEBIT_CARD / PREPAID_CARD / E_MONEY）, institution, lastFour, accountId | カード・電子マネー |
-| `card_transactions` | accountId, date, description, amount, source, externalId, categoryAccountId, postedRecordId, transferToAccountId, chargeGroupId | `[accountId, externalId]` 一意 |
 | `card_transfer_rules` | accountId, keyword, transferToAccountId | チャージの自動判定 |
 | `card_recurring_payments` | accountId, label, amount, day, categoryAccountId, note | カード払いの固定決済 |
 

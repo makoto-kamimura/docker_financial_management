@@ -71,7 +71,7 @@ beforeAll(async () => {
     "personal_asset_parts",
     "personal_asset_valuations",
     "bank_accounts",
-    "bank_transactions",
+    "ledger_entries",
   ]) {
     await prisma.$executeRawUnsafe(
       `SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 1))`,
@@ -94,11 +94,20 @@ beforeAll(async () => {
     data: { tenantId, name: "給与口座", bankName: "テスト銀行" },
   });
   const now = new Date();
-  await prisma.bankTransaction.createMany({
+  await prisma.ledgerEntry.createMany({
     data: [
-      { accountId: bank.id, date: new Date(2015, 0, 10), description: "入金", amount: 1_000_000 },
       {
-        accountId: bank.id,
+        tenantId,
+        kind: "BANK",
+        bankAccountId: bank.id,
+        date: new Date(2015, 0, 10),
+        description: "入金",
+        amount: 1_000_000,
+      },
+      {
+        tenantId,
+        kind: "BANK",
+        bankAccountId: bank.id,
         date: new Date(now.getFullYear(), now.getMonth(), 1),
         description: "入金",
         amount: 500_000,
@@ -113,7 +122,7 @@ afterAll(async () => {
   await prisma.personalAssetPart.deleteMany({ where });
   await prisma.personalAsset.deleteMany({ where });
   await prisma.loan.deleteMany({ where });
-  await prisma.bankTransaction.deleteMany({ where: { account: { tenantId } } });
+  await prisma.ledgerEntry.deleteMany({ where: { tenantId } });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.tenant.delete({ where: { id: tenantId } });

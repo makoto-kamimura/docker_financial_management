@@ -4,8 +4,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
 import { parseBankCsv, type ParsedTxn } from "@/lib/banktxn-import";
-import { upsertExternalTransactions } from "@/lib/bank-transactions";
-import { upsertExternalCardTransactions } from "@/lib/card-transactions";
+import { insertExternalEntries } from "@/lib/ledger-entries";
 import { importRows, MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/import";
 import { hasTargetColumn, routeLedgerRows } from "@/lib/ledger-import";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
@@ -84,12 +83,24 @@ export const POST = withApi({
       list.find((a) => a.id === id)?.name ?? "";
     const bank: Counted[] = [];
     for (const [id, rows] of bankRows) {
-      const inserted = await upsertExternalTransactions(db, id, rows, "CSV");
+      const inserted = await insertExternalEntries(
+        db,
+        user.tenantId,
+        { kind: "BANK", accountId: id },
+        rows,
+        "CSV",
+      );
       bank.push({ id, name: nameOf(bankAccounts, id), inserted, skipped: rows.length - inserted });
     }
     const card: Counted[] = [];
     for (const [id, rows] of cardRows) {
-      const inserted = await upsertExternalCardTransactions(db, id, rows, "CSV");
+      const inserted = await insertExternalEntries(
+        db,
+        user.tenantId,
+        { kind: "CARD", accountId: id },
+        rows,
+        "CSV",
+      );
       card.push({ id, name: nameOf(cards, id), inserted, skipped: rows.length - inserted });
     }
     if (bank.length > 0) await invalidateCache(`assets:summary:${tenantId}:*`);

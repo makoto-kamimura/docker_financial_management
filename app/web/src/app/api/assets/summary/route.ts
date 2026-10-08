@@ -47,10 +47,10 @@ export const GET = withApi({
           where: { tenantId },
           include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
         }),
-        db.bankTransaction.groupBy({
-          by: ["accountId"],
+        db.ledgerEntry.groupBy({
+          by: ["bankAccountId"],
           _sum: { amount: true },
-          where: { account: { tenantId }, date: { lt: nextMonthStart } },
+          where: { kind: "BANK", date: { lt: nextMonthStart } },
         }),
         db.financialRecord.findMany({
           where: {
@@ -95,7 +95,7 @@ export const GET = withApi({
       // 口座残高は口座サマリと同じ定義（明細合計 + 差額）で算出する
       const bankBalanceMap = buildBankBalanceMap(
         bankAccounts,
-        bankSums.map((b) => ({ accountId: b.accountId, sum: b._sum.amount?.toNumber() ?? 0 })),
+        bankSums.map((b) => ({ accountId: b.bankAccountId!, sum: b._sum.amount?.toNumber() ?? 0 })),
       );
 
       // 科目ごとに「指定した月以前で最も新しい月」のスナップショットを残高として採用する

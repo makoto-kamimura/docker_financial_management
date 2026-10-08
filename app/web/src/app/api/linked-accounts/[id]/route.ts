@@ -51,7 +51,7 @@ export const DELETE = withApi({
     const existing = await db.linkedAccount.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!existing) throw notFound();
 
-    const txnCount = await db.cardTransaction.count({ where: { accountId: id } });
+    const txnCount = await db.ledgerEntry.count({ where: { cardAccountId: id } });
     if (txnCount > 0) {
       throw conflict("利用明細が紐付いているため削除できません。先に明細を削除してください。");
     }

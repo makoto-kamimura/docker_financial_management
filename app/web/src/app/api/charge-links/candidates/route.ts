@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
 import { DEFAULT_CHARGE_DAY_GAP, rankChargeCandidates } from "@/lib/charge-link";
+import { CARD, cardSpend } from "@/lib/ledger-entries";
 
 // GET /api/charge-links/candidates?targetAccountId=&amount=&date=&maxDayGap=&limit=
 //
@@ -32,12 +33,13 @@ export const GET = withApi({
     const chargeDate = new Date(query.date);
     if (Number.isNaN(chargeDate.getTime())) throw notFound("日付が不正です");
 
-    const rows = await db.cardTransaction.findMany({
+    const rows = await db.ledgerEntry.findMany({
       where: {
-        accountId: target.id,
+        ...CARD,
+        cardAccountId: target.id,
         postedRecordId: null,
         chargeGroupId: null,
-        transferToAccountId: null,
+        chargeToCardId: null,
       },
       select: {
         id: true,
@@ -54,7 +56,8 @@ export const GET = withApi({
     });
 
     const ranked = rankChargeCandidates(
-      rows.map((r) => ({ ...r, amount: Number(r.amount) })),
+      // 候補の照合はカードの符号（+利用 / −入金）で行う
+      rows.map((r) => ({ ...r, amount: cardSpend(r.amount) })),
       { amount: query.amount, date: chargeDate },
       { maxDayGap: query.maxDayGap },
     );

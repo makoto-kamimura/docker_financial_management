@@ -5,7 +5,7 @@
 //   - 実績: accountCode・amount と、fiscalYear・month（無ければ date の年月）
 //   - 銀行: account（口座の名前）・date・description・amount（入金は正）・balance
 //   - カード: account（カード・電子マネーの名前）・date・description・amount（明細そのまま。支出は負。
-//     保存時に符号を反転する: lib/card-transactions.ts）
+//     明細の表も +入金 / −出金なので、そのまま保存する: lib/ledger-entries.ts）
 // 登録先の列が無い CSV は、画面で選んだ登録先と口座にそのまま入れる（今までの各画面の CSV と同じ書式）。
 // 誤りが 1 行でもあれば、どの行も取り込まない（実績の取込と同じ扱い）。
 
@@ -41,7 +41,7 @@ export type RoutedLedger = {
   actual: Record<string, unknown>[];
   /** 口座 id -> 銀行の明細 */
   bank: Map<number, ParsedTxn[]>;
-  /** カード id -> カードの明細（符号は CSV のまま。保存時に反転する） */
+  /** カード id -> カードの明細（符号は CSV のまま。明細の表にもそのまま入る） */
   card: Map<number, ParsedTxn[]>;
   errors: LedgerImportError[];
 };

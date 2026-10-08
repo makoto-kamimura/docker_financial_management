@@ -30,23 +30,27 @@ export const GET = withApi({
           account: { select: { id: true, code: true, name: true, category: true } },
         },
       }),
-      db.bankTransaction.groupBy({
-        by: ["accountId"],
+      db.ledgerEntry.groupBy({
+        by: ["bankAccountId"],
         _sum: { amount: true },
         // 最終更新日時（取込・手入力した日時）と、明細上の最新取引日をサマリに出す
         _max: { createdAt: true, date: true },
-        where: { account: { tenantId } },
+        where: { kind: "BANK" },
       }),
     ]);
 
     const transactionSumMap = new Map(
-      balances.map((b) => [b.accountId, b._sum.amount?.toNumber() ?? 0]),
+      balances.map((b) => [b.bankAccountId, b._sum.amount?.toNumber() ?? 0]),
     );
-    const lastUpdatedMap = new Map(balances.map((b) => [b.accountId, b._max.createdAt ?? null]));
-    const lastTransactionDateMap = new Map(balances.map((b) => [b.accountId, b._max.date ?? null]));
+    const lastUpdatedMap = new Map(
+      balances.map((b) => [b.bankAccountId, b._max.createdAt ?? null]),
+    );
+    const lastTransactionDateMap = new Map(
+      balances.map((b) => [b.bankAccountId, b._max.date ?? null]),
+    );
     const balanceMap = buildBankBalanceMap(
       accounts,
-      balances.map((b) => ({ accountId: b.accountId, sum: b._sum.amount?.toNumber() ?? 0 })),
+      balances.map((b) => ({ accountId: b.bankAccountId!, sum: b._sum.amount?.toNumber() ?? 0 })),
     );
 
     return NextResponse.json({

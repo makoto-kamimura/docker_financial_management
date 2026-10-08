@@ -16,15 +16,15 @@ export const GET = withApi({
 
     const [accounts, txns, transfers, loans, dismissals] = await Promise.all([
       db.bankAccount.findMany({ where: { tenantId }, select: { id: true, name: true } }),
-      db.bankTransaction.findMany({
+      db.ledgerEntry.findMany({
         where: {
-          account: { tenantId },
+          kind: "BANK",
           date: { gte: since },
           transferGroupId: null,
-          chargeToAccountId: null,
+          chargeToCardId: null,
           chargeGroupId: null,
         },
-        select: { accountId: true, date: true, description: true, amount: true },
+        select: { bankAccountId: true, date: true, description: true, amount: true },
       }),
       db.transfer.findMany({ where: { tenantId } }),
       db.loan.findMany({ where: { tenantId, debitBankAccountId: { not: null } } }),
@@ -46,7 +46,7 @@ export const GET = withApi({
     }));
     const candidates = findRecurringCandidates(
       txns.map((t) => ({
-        accountId: t.accountId,
+        accountId: t.bankAccountId!,
         date: t.date,
         description: t.description,
         amount: Number(t.amount),

@@ -648,7 +648,7 @@ async function main() {
   }
 
   // ── 8. 入出金明細（直近3か月）──────────────────────────────────────────
-  const existingTxns = await prisma.bankTransaction.count();
+  const existingTxns = await prisma.ledgerEntry.count({ where: { kind: "BANK" } });
   if (existingTxns === 0) {
     // 給与口座: 初期残高 150,000
     const salaryTxns = [
@@ -775,14 +775,16 @@ async function main() {
     ];
 
     const toCreate = [
-      ...salaryTxns.map((t) => ({ ...t, accountId: salaryAcc.id })),
-      ...withdrawalTxns.map((t) => ({ ...t, accountId: withdrawalAcc.id })),
-      ...savingsTxns.map((t) => ({ ...t, accountId: savingsAcc.id })),
+      ...salaryTxns.map((t) => ({ ...t, acc: salaryAcc })),
+      ...withdrawalTxns.map((t) => ({ ...t, acc: withdrawalAcc })),
+      ...savingsTxns.map((t) => ({ ...t, acc: savingsAcc })),
     ];
     for (const t of toCreate) {
-      await prisma.bankTransaction.create({
+      await prisma.ledgerEntry.create({
         data: {
-          accountId: t.accountId,
+          tenantId: t.acc.tenantId,
+          kind: "BANK",
+          bankAccountId: t.acc.id,
           date: new Date(t.date),
           description: t.description,
           amount: t.amount,
@@ -950,7 +952,7 @@ async function main() {
     },
   });
 
-  const soleTxnCount = await prisma.bankTransaction.count({ where: { accountId: { in: [4, 5] } } });
+  const soleTxnCount = await prisma.ledgerEntry.count({ where: { bankAccountId: { in: [4, 5] } } });
   if (soleTxnCount === 0) {
     const soleBusinessTxns = [
       { date: "2026-04-10", description: "A社 案件入金", amount: 1_200_000, balance: 2_850_000 },
@@ -1009,9 +1011,11 @@ async function main() {
       },
     ];
     for (const t of soleBusinessTxns) {
-      await prisma.bankTransaction.create({
+      await prisma.ledgerEntry.create({
         data: {
-          accountId: soleBusinessAcc.id,
+          tenantId: soleBusinessAcc.tenantId,
+          kind: "BANK",
+          bankAccountId: soleBusinessAcc.id,
           date: new Date(t.date),
           description: t.description,
           amount: t.amount,
@@ -1021,9 +1025,11 @@ async function main() {
       });
     }
     for (const t of soleTaxTxns) {
-      await prisma.bankTransaction.create({
+      await prisma.ledgerEntry.create({
         data: {
-          accountId: soleTaxAcc.id,
+          tenantId: soleTaxAcc.tenantId,
+          kind: "BANK",
+          bankAccountId: soleTaxAcc.id,
           date: new Date(t.date),
           description: t.description,
           amount: t.amount,
@@ -2328,7 +2334,7 @@ async function main() {
     },
   });
 
-  const corpTxnCount = await prisma.bankTransaction.count({ where: { accountId: { in: [6, 7] } } });
+  const corpTxnCount = await prisma.ledgerEntry.count({ where: { bankAccountId: { in: [6, 7] } } });
   if (corpTxnCount === 0) {
     const corpMainTxns = [
       { date: "2026-04-05", description: "X社 売掛入金", amount: 3_200_000, balance: 12_800_000 },
@@ -2423,9 +2429,11 @@ async function main() {
       },
     ];
     for (const t of corpMainTxns) {
-      await prisma.bankTransaction.create({
+      await prisma.ledgerEntry.create({
         data: {
-          accountId: corpMainAcc.id,
+          tenantId: corpMainAcc.tenantId,
+          kind: "BANK",
+          bankAccountId: corpMainAcc.id,
           date: new Date(t.date),
           description: t.description,
           amount: t.amount,
@@ -2435,9 +2443,11 @@ async function main() {
       });
     }
     for (const t of corpSavingsTxns) {
-      await prisma.bankTransaction.create({
+      await prisma.ledgerEntry.create({
         data: {
-          accountId: corpSavingsAcc.id,
+          tenantId: corpSavingsAcc.tenantId,
+          kind: "BANK",
+          bankAccountId: corpSavingsAcc.id,
           date: new Date(t.date),
           description: t.description,
           amount: t.amount,

@@ -11,7 +11,7 @@ const UpdateSchema = z.object({
 
 // PATCH /api/financials/[id] … 実績の金額・勘定科目の更新（履歴付き、editor 以上）
 // 勘定科目を変更した場合、この実績が銀行/カード明細の「転記する」から作られたもの
-// （BankTransaction.postedRecordId / CardTransaction.postedRecordId が指す行）であれば、
+// （LedgerEntry.postedRecordId が指す行）であれば、
 // 転記元明細側の categoryAccountId も追随して更新する（表示上の不整合を防ぐ）。
 // journalEntryId が設定されている（複式仕訳から同期された）実績は、仕訳側の
 // JournalDetail.accountId と食い違う・符号規約が崩れるおそれがあるため対象外とする。
@@ -51,22 +51,10 @@ export const PATCH = withApi({
       });
 
       if (newAccount) {
-        const [bankTxn, cardTxn] = await Promise.all([
-          tx.bankTransaction.findUnique({ where: { postedRecordId: id } }),
-          tx.cardTransaction.findUnique({ where: { postedRecordId: id } }),
-        ]);
-        if (bankTxn) {
-          await tx.bankTransaction.update({
-            where: { id: bankTxn.id },
-            data: { categoryAccountId: newAccount.id },
-          });
-        }
-        if (cardTxn) {
-          await tx.cardTransaction.update({
-            where: { id: cardTxn.id },
-            data: { categoryAccountId: newAccount.id },
-          });
-        }
+        await tx.ledgerEntry.updateMany({
+          where: { postedRecordId: id },
+          data: { categoryAccountId: newAccount.id },
+        });
       }
 
       await tx.financialRecordHistory.create({
