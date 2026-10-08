@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { TOPIC_KEYS } from "@/lib/learning-content";
+import { withApi } from "@/lib/server/api-handler";
+import { TOPIC_KEYS } from "@/lib/common/learning-content";
 
 const BodySchema = z.object({ topicKey: z.enum(TOPIC_KEYS) });
 

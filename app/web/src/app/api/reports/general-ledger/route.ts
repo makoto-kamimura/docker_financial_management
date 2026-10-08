@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { withCache } from "@/lib/redis";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { withCache } from "@/lib/server/redis";
 
 // GET /api/reports/general-ledger?accountId=&year=&format= … 総勘定元帳（JSON は Redis キャッシュ）
 export const GET = withApi({

@@ -5,7 +5,7 @@
 // マスの中身（その日の収入・支出など）と、選んだ日の一覧・登録フォームは呼び出し側が持つ。
 
 import type { ReactNode } from "react";
-import { yen } from "@/lib/format";
+import { yen } from "@/lib/common/format";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 

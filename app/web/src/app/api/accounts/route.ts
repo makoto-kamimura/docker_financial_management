@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { ACCOUNT_CATEGORIES } from "@/lib/account-category";
-import { badRequest, conflict } from "@/lib/api-error";
-import { findAccountByCode } from "@/lib/period";
-import { nextAccountCode } from "@/lib/next-account-code";
+import { withApi } from "@/lib/server/api-handler";
+import { ACCOUNT_CATEGORIES } from "@/lib/accounting/account-category";
+import { badRequest, conflict } from "@/lib/server/api-error";
+import { findAccountByCode } from "@/lib/accounting/period";
+import { nextAccountCode } from "@/lib/accounting/next-account-code";
 
 const AccountSchema = z.object({
   // 省略時は同じ区分の既存コードから自動採番する（設定「科目名設定」の追加ボタン）

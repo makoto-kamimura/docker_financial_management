@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { zDate } from "@/lib/zod-helpers";
-import { AP_ACCOUNT_CODE, createSettlementJournal } from "@/lib/settlement";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { zDate } from "@/lib/common/zod-helpers";
+import { AP_ACCOUNT_CODE, createSettlementJournal } from "@/lib/accounting/settlement";
 
 const PaySchema = z.object({
   paidOn: zDate,

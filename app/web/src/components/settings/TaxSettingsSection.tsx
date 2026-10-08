@@ -3,7 +3,7 @@
 // 設定の「消費税設定」タブ。
 
 import { useEffect, useState } from "react";
-import { SETTINGS_HELP } from "@/lib/help-texts";
+import { SETTINGS_HELP } from "@/lib/shared/help-texts";
 import { SaveNotice, SectionCard, type SaveMessage } from "@/components/SectionCard";
 
 type TaxSetting = { taxYear: number; taxationType: string; simplifiedRate: string };

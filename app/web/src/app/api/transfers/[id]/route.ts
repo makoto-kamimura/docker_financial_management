@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { TransferPatchSchema } from "@/lib/transfer-schema";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import { TransferPatchSchema } from "@/lib/ledger/transfer-schema";
 
 // PATCH /api/transfers/[id] … 資金移動ルールの更新（editor 以上）
 export const PATCH = withApi({

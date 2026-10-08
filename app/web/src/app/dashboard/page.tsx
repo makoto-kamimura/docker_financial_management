@@ -10,8 +10,8 @@ import { BankSummaryCard } from "@/components/BankSummaryCard";
 import { PageHeader } from "@/components/ui";
 import { AppShell } from "@/components/AppShell";
 import { SectionLead } from "@/components/Explain";
-import { useViewMode } from "@/lib/use-view-mode";
-import { DASHBOARD_HELP, textFor } from "@/lib/help-texts";
+import { useViewMode } from "@/lib/client/use-view-mode";
+import { DASHBOARD_HELP, textFor } from "@/lib/shared/help-texts";
 
 // ダッシュボードは 予算と実績の確定の状況・KPI・総資産サマリ・総借入サマリ・口座残高サマリ・予算と実績のグラフの順に置く。
 // どれも KPI カードで選んだ対象月の内容を出す（総資産サマリはその月末、今月なら今日の時点）。

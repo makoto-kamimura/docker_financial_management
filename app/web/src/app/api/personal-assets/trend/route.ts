@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { monthKeysBetween } from "@/lib/asset-valuation";
+import { withApi } from "@/lib/server/api-handler";
+import { monthKeysBetween } from "@/lib/shared/asset-valuation";
 import {
   assetMonthlySeries,
   estimateAssetValue,
   VALUATION_INCLUDE,
-} from "@/lib/personal-asset-valuation";
+} from "@/lib/assets/personal-asset-valuation";
 
 const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
 // GET /api/personal-assets/trend?back=36&forward=60 … 実物資産の評価額の推移（月末ごと。読み取り専用）
 //   今月の back か月前から forward か月先まで。評価額を手で入れた点（と取得日の取得価格）を通り、
-//   最後の点から先は価値の変わり方で見積もる（lib/asset-valuation.ts）。資産管理の推移グラフが使う。
+//   最後の点から先は価値の変わり方で見積もる（lib/shared/asset-valuation.ts）。資産管理の推移グラフが使う。
 //   total は「資産計上」の資産の合計（総資産サマリと同じ範囲）。持っていない月は null
 export const GET = withApi({
   role: "viewer",

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { getCurrentUser } from "@/lib/server/auth";
+import { prisma } from "@/lib/server/prisma";
 
 // GET /api/auth/me … 現在のログインユーザーを返す。
 //

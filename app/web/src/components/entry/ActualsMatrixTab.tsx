@@ -6,12 +6,12 @@ import { useState, useMemo } from "react";
 import { Modal } from "@/components/Modal";
 import { EmptyState, LoadingSpinner } from "@/components/StateViews";
 import { AccountMonthMatrix, type MatrixCell } from "@/components/AccountMonthMatrix";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
-import { ENTRY_HELP } from "@/lib/help-texts";
-import { displayName, type ViewMode } from "@/lib/display-name";
-import { buildFinancialMatrix, type MatrixRecord } from "@/lib/financial-matrix";
-import { categoryRank } from "@/lib/labels";
-import { yen } from "@/lib/format";
+import { useFiscalYear } from "@/lib/client/use-fiscal-year";
+import { ENTRY_HELP } from "@/lib/shared/help-texts";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
+import { buildFinancialMatrix, type MatrixRecord } from "@/lib/shared/financial-matrix";
+import { categoryRank } from "@/lib/shared/labels";
+import { yen } from "@/lib/common/format";
 import { type Account } from "@/components/entry/types";
 
 // 実績 1 行の出どころ（GET /api/financials/matrix）。セルの内訳モーダルで表示する

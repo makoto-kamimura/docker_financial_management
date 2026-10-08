@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useLocale } from "@/hooks/useLocale";
-import type { Locale } from "@/lib/i18n";
+import type { Locale } from "@/lib/client/i18n";
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
@@ -37,8 +37,8 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import type { ViewMode } from "@/lib/display-name";
-import { VIEW_MODES } from "@/lib/mode-labels";
+import type { ViewMode } from "@/lib/shared/display-name";
+import { VIEW_MODES } from "@/lib/shared/mode-labels";
 import { FiscalYearSwitcher } from "@/components/FiscalYearSwitcher";
 
 type NavItem = { href: string; label: string; icon: LucideIcon; modes: ViewMode[] };

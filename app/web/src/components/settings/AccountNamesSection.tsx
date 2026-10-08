@@ -4,9 +4,9 @@
 
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { SETTINGS_HELP } from "@/lib/help-texts";
-// 区分名は予算管理・実績管理と同じ（lib/labels.ts）
-import { CATEGORY_LABEL } from "@/lib/labels";
+import { SETTINGS_HELP } from "@/lib/shared/help-texts";
+// 区分名は予算管理・実績管理と同じ（lib/shared/labels.ts）
+import { CATEGORY_LABEL } from "@/lib/shared/labels";
 import { SaveNotice, SectionCard, type SaveMessage } from "@/components/SectionCard";
 
 // ── 科目名設定セクション（モード別表示名の管理）──────────────────

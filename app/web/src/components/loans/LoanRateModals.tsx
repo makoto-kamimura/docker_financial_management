@@ -10,9 +10,9 @@ import {
   pendingPaymentChoices,
   type Loan,
   type PaymentChoice,
-} from "@/lib/loan-schedule";
+} from "@/lib/shared/loan-schedule";
 import { VariableRateHelp } from "@/components/HelpTip";
-import { yen } from "@/lib/format";
+import { yen } from "@/lib/common/format";
 import { type PendingChange } from "@/components/loans/types";
 
 // 金利変更の登録。改定後の返済額（実額）は、通知が届いていれば一緒に入れる
@@ -176,7 +176,7 @@ export function RateChangeModal({
 }
 
 // 金利改定後の実額を後から入力する（改定登録時に通知が届いていなかった場合）。
-// 据え置き（5 年ルール）・再計算された額・通知額の入力から選ぶ（lib/loan-schedule.ts の pendingPaymentChoices）
+// 据え置き（5 年ルール）・再計算された額・通知額の入力から選ぶ（lib/shared/loan-schedule.ts の pendingPaymentChoices）
 export function PendingPaymentModal({
   loan,
   change,

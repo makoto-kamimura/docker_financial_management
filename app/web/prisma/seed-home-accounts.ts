@@ -1,12 +1,12 @@
 /**
  * 家庭モード 勘定科目 seed（デモテナント用）
- * 実データは src/lib/default-accounts.ts の HOME_ACCOUNTS_SEED を参照。
+ * 実データは src/lib/accounting/default-accounts.ts の HOME_ACCOUNTS_SEED を参照。
  * 新規テナントには API 側（POST /api/admin/users の newTenant / POST /api/tenants）で
  * 自動登録される。このスクリプトはデモテナント（id=1）への投入・再投入用。
  */
 import { PrismaClient } from "@prisma/client";
 import { ACCOUNT_DISPLAY_NAMES } from "./account-display-names";
-import { HOME_ACCOUNTS_SEED } from "../src/lib/default-accounts";
+import { HOME_ACCOUNTS_SEED } from "../src/lib/accounting/default-accounts";
 
 const prisma = new PrismaClient();
 

@@ -7,20 +7,20 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
-import { invalidateActuals } from "@/lib/invalidate-actuals";
+import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
 import { useState, useMemo } from "react";
 import { Trash2 } from "lucide-react";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
-import { CARD_HELP, CARD_TERMS } from "@/lib/help-texts";
+import { CARD_HELP, CARD_TERMS } from "@/lib/shared/help-texts";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
 import {
   LINKED_ACCOUNT_TYPE_LABELS,
   isChargeableType,
   type LinkedAccountType,
-} from "@/lib/linked-account-type";
-import { TXN_SOURCE_LABEL as SOURCE_LABELS } from "@/lib/labels";
-import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
+} from "@/lib/shared/linked-account-type";
+import { TXN_SOURCE_LABEL as SOURCE_LABELS } from "@/lib/shared/labels";
+import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { Notice } from "@/components/ui";
 import {
   LedgerBadge,
@@ -28,13 +28,13 @@ import {
   LedgerMoreSection,
   LedgerTable,
 } from "@/components/LedgerTable";
-import { yen } from "@/lib/format";
+import { yen } from "@/lib/common/format";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
   id: number;
   name: string;
-  /** クレジット / デビット / プリペイド / 電子マネー（lib/linked-account-type.ts） */
+  /** クレジット / デビット / プリペイド / 電子マネー（lib/shared/linked-account-type.ts） */
   type: LinkedAccountType;
   institution: string;
   lastFour: string | null;

@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import Papa from "papaparse";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, DIRECT_ACTUALS_GONE_MESSAGE, gone, notFound } from "@/lib/api-error";
-import { insertExternalEntries } from "@/lib/ledger-entries";
-import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/import";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, DIRECT_ACTUALS_GONE_MESSAGE, gone, notFound } from "@/lib/server/api-error";
+import { insertExternalEntries } from "@/lib/ledger/ledger-entries";
+import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/server/import";
 import {
   CASH_DESTINATION,
   hasDestinationColumn,
   routeLedgerRows,
   type LedgerDestination,
-} from "@/lib/ledger-import";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { invalidateCache } from "@/lib/redis";
+} from "@/lib/ledger/ledger-import";
+import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
+import { invalidateCache } from "@/lib/server/redis";
 
 // 取り込み先ごとの結果。skipped は重複で飛ばした件数、locked は実績を確定済みの月のため飛ばした件数、
 // offset は自動相殺で振替・チャージの組にした数
@@ -28,7 +28,7 @@ type Counted = {
 
 // POST /api/imports?target=cash|bank|card&accountId= … 実績管理の CSV インポート（現金・銀行・カードの明細）。
 //   CSV に取り込み先の列（取り込み先 / account）があれば、行ごとに現金・銀行・カードへ振り分ける
-//   （lib/ledger-import.ts）。無ければ、画面で選んだ取り込み先（target）と口座（accountId）に入れる。
+//   （lib/ledger/ledger-import.ts）。無ければ、画面で選んだ取り込み先（target）と口座（accountId）に入れる。
 //   誤りが 1 行でもあれば何も取り込まない。同じ明細は重複として飛ばし、実績を確定済みの月の行も飛ばす。
 //   学習ルールで科目が付いた行は、そのまま実績になる。取り込んだ日付の明細に自動相殺をかける。
 //   target=actual（科目×月への直接の取り込み）は 410。

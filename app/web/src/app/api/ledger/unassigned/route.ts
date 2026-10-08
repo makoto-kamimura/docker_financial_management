@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { UNPAIRED } from "@/lib/ledger-entries";
+import { withApi } from "@/lib/server/api-handler";
+import { UNPAIRED } from "@/lib/ledger/ledger-entries";
 
 // GET /api/ledger/unassigned?year=&month= … その月の未割り当て（科目が付いていない）明細の一覧。
 // 実績管理の「実績の確定」タブで、行ごとに科目を付けるために使う。振替・チャージの組は含めない

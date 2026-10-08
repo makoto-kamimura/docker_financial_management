@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
-import { badRequest } from "@/lib/api-error";
-import { zYearMonth } from "@/lib/zod-helpers";
-import { computeDebtSchedule } from "@/lib/debt-schedule";
+import { withApi } from "@/lib/server/api-handler";
+import { PERSONAL_ASSET_CATEGORIES } from "@/lib/assets/personal-asset";
+import { badRequest } from "@/lib/server/api-error";
+import { zYearMonth } from "@/lib/common/zod-helpers";
+import { computeDebtSchedule } from "@/lib/shared/debt-schedule";
 import {
   buildDebtLoanData,
   ratePercentOf,
   manualMonthlyPaymentOf,
-} from "@/lib/personal-asset-debt";
-import { invalidateCache } from "@/lib/redis";
+} from "@/lib/assets/personal-asset-debt";
+import { invalidateCache } from "@/lib/server/redis";
 import {
   PartInputSchema,
   recordValuation,
@@ -20,7 +20,7 @@ import {
   VALUATION_INCLUDE,
   valuationData,
   valuationFields,
-} from "@/lib/personal-asset-valuation";
+} from "@/lib/assets/personal-asset-valuation";
 
 const CreateSchema = z
   .object({
@@ -58,7 +58,7 @@ const CreateSchema = z
 
 // GET /api/personal-assets … 実物資産一覧（負債スケジュール・内訳・評価額の見積もり付き）
 // D-4: 負債の実体は Loan（personal_assets.loanId）。レスポンスは旧フィールド名を維持する
-// 評価額の見積もり（estimatedValue）と向き（trend）は lib/asset-valuation.ts で今日の時点を出す
+// 評価額の見積もり（estimatedValue）と向き（trend）は lib/shared/asset-valuation.ts で今日の時点を出す
 export const GET = withApi({
   role: "viewer",
   handler: async ({ user, db }) => {

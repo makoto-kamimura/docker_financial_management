@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { useViewMode } from "@/lib/use-view-mode";
-import { displayName } from "@/lib/display-name";
+import { useViewMode } from "@/lib/client/use-view-mode";
+import { displayName } from "@/lib/shared/display-name";
 import { YearBadge } from "@/components/YearBadge";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
+import { useFiscalYear } from "@/lib/client/use-fiscal-year";
 
 type Account = {
   id: number;

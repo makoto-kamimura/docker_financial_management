@@ -11,7 +11,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
-import { yen } from "@/lib/format";
+import { yen } from "@/lib/common/format";
 
 export type ChargeCandidate = {
   id: number;

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { recordBudgetHistory } from "@/lib/budget-history";
-import { assertBudgetPeriodEditable } from "@/lib/budget-lock";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import { recordBudgetHistory } from "@/lib/budget/budget-history";
+import { assertBudgetPeriodEditable } from "@/lib/budget/budget-lock";
 
 const UpdateSchema = z.object({ amount: z.number() });
 

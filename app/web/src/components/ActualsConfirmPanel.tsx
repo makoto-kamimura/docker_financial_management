@@ -2,12 +2,12 @@
 
 // 実績管理の「実績の確定」タブ。月ごとの流れ ① → ② → ③（順番は API が強制）のうち ② を受け持つ。
 //   銀行・カード・電子マネーの明細の最終日が月末日までそろうと「実績入力済み」になるので、
-//   ボタンで実績を確定する（POST /api/actuals/confirm。判定は lib/actuals-coverage.ts）。
+//   ボタンで実績を確定する（POST /api/actuals/confirm。判定は lib/ledger/actuals-coverage.ts）。
 //   科目が付いていない（未割り当ての）明細が残っている月は確定できない。下の一覧で行ごとに科目を付ける。
 //   明細が月末まで届かない口座・カードは、行ごとの「当月末まで変動なし」で、そろったものとして扱える。
 //   その印と確定時点の最終日は、確定の記録として残す（確定後はその記録を表示する）。
 //   前提の ① と、あとに続く ③ は予算管理の「予算の確定」タブ（components/BudgetConfirmPanel.tsx）で行う。
-//   年は左のメニュー、月は上のボタンで選ぶ（lib/use-cycle-month.ts）。
+//   年は左のメニュー、月は上のボタンで選ぶ（lib/client/use-cycle-month.ts）。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -23,12 +23,12 @@ import {
   type CycleStatus,
 } from "@/components/CycleSteps";
 import { MonthPicker } from "@/components/MonthPicker";
-import { useCycleMonth } from "@/lib/use-cycle-month";
-import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "@/lib/help-texts";
-import { displayName, type ViewMode } from "@/lib/display-name";
-import { invalidateActuals } from "@/lib/invalidate-actuals";
+import { useCycleMonth } from "@/lib/client/use-cycle-month";
+import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "@/lib/shared/help-texts";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
+import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { Notice } from "@/components/ui";
-import { yenSigned } from "@/lib/format";
+import { yenSigned } from "@/lib/common/format";
 
 export function ActualsConfirmPanel({
   mode,

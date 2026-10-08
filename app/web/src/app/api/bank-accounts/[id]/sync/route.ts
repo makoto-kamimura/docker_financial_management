@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { getBankSyncProvider } from "@/lib/banksync";
-import { insertExternalEntries } from "@/lib/ledger-entries";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import { getBankSyncProvider } from "@/lib/ledger/banksync";
+import { insertExternalEntries } from "@/lib/ledger/ledger-entries";
+import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
 
 // POST /api/bank-accounts/[id]/sync … アグリゲーション自動同期（既定モック）
 export const POST = withApi({

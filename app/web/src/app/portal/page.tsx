@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { YearBadge } from "@/components/YearBadge";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
+import { useFiscalYear } from "@/lib/client/use-fiscal-year";
 
 type TenantSummary = {
   tenantId: number;

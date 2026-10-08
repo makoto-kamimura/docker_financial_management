@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { destroySession } from "@/lib/auth";
+import { destroySession } from "@/lib/server/auth";
 
 // POST /api/auth/logout … セッションを破棄する。
 export async function POST() {

@@ -4,11 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { HelpTip } from "@/components/HelpTip";
 import { MonthPicker } from "@/components/MonthPicker";
-import type { ViewMode } from "@/lib/display-name";
-import { KPI_LABELS } from "@/lib/mode-labels";
-import { kpiTermHelp } from "@/lib/help-texts";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
-import { yen } from "@/lib/format";
+import type { ViewMode } from "@/lib/shared/display-name";
+import { KPI_LABELS } from "@/lib/shared/mode-labels";
+import { kpiTermHelp } from "@/lib/shared/help-texts";
+import { useFiscalYear } from "@/lib/client/use-fiscal-year";
+import { yen } from "@/lib/common/format";
 
 type Kpi = {
   period: string;

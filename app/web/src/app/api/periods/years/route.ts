@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
+import { withApi } from "@/lib/server/api-handler";
 
 // GET /api/periods/years … 対象年度の候補（左のメニューの年度切替が使う）。
 //   予算か実績のある年（periods.fiscalYear）と今年を、新しい順に返す。

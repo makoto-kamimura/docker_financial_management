@@ -1,12 +1,12 @@
 // Web の lib（正本）をモバイル（app/mobile/src/shared/）へ複製する。
-// 対象は src/lib/shared-with-mobile.ts の SHARED_WITH_MOBILE。
+// 対象は src/lib/shared/shared-with-mobile.ts の SHARED_WITH_MOBILE。
 // 使い方: app/web で `npm run sync:mobile`
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MOBILE_SHARED_DIR, SHARED_WITH_MOBILE } from "../src/lib/shared-with-mobile";
+import { MOBILE_SHARED_DIR, SHARED_WITH_MOBILE } from "../src/lib/shared/shared-with-mobile";
 
-const libDir = resolve(dirname(fileURLToPath(import.meta.url)), "../src/lib");
+const libDir = resolve(dirname(fileURLToPath(import.meta.url)), "../src/lib/shared");
 const mobileDir = resolve(libDir, MOBILE_SHARED_DIR);
 
 mkdirSync(mobileDir, { recursive: true });

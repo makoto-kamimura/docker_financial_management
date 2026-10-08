@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
 
 // GET /api/account-conversion/history … 過去の変換セッション一覧（自分が実行したもののみ）
 export const GET = withApi({

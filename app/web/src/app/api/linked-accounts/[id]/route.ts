@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { conflict, notFound } from "@/lib/api-error";
-import { requireAccountByCode } from "@/lib/period";
-import { LINKED_ACCOUNT_TYPES } from "@/lib/linked-account-type";
+import { withApi } from "@/lib/server/api-handler";
+import { conflict, notFound } from "@/lib/server/api-error";
+import { requireAccountByCode } from "@/lib/accounting/period";
+import { LINKED_ACCOUNT_TYPES } from "@/lib/shared/linked-account-type";
 
 // D-1: 銀行口座は /api/bank-accounts に一本化。本 API はカード・電子マネーを扱う
 const UpdateSchema = z.object({

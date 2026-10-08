@@ -196,7 +196,7 @@ model ActualsConfirmation {
   confirmedById Int? // 確定したユーザー
   confirmedAt   DateTime @default(now())
   // 確定時点の明細の状況（口座・カードごとの最終日と「当月末まで変動なし」の印）。
-  // 形は lib/actuals-coverage.ts の CoverageSnapshot。この列を足す前に確定した月は null
+  // 形は lib/ledger/actuals-coverage.ts の CoverageSnapshot。この列を足す前に確定した月は null
   coverage      Json?
 
   @@index([tenantId])
@@ -214,7 +214,7 @@ model AllocationRule {
   minPercent       Decimal          @db.Decimal(5, 2) // 推奨割合の下限（%）
   maxPercent       Decimal?         @db.Decimal(5, 2) // 推奨割合の上限（%）。null = 上限なし
   note             String? // 補足（「理想は25%以内」など）
-  // 科目の振り分け（lib/allocation-assign.ts）。科目名にこのキーワードを含む科目をこのルールに入れる
+  // 科目の振り分け（lib/shared/allocation-assign.ts）。科目名にこのキーワードを含む科目をこのルールに入れる
   keywords         String[]         @default([])
   // 受け皿にする区分。キーワードに当たらなかったこの区分の科目をこのルールに入れる（null = 受け皿ではない）
   fallbackCategory AccountCategory?
@@ -752,7 +752,7 @@ model PersonalAsset {
   linkedAccount     Account?              @relation(fields: [linkedAccountId], references: [id])
   loanId            Int?                  @unique // 紐付け負債の実体（Loan）。null = 負債なし
   loan              Loan?                 @relation(fields: [loanId], references: [id])
-  // 価値の変わり方（lib/asset-valuation.ts）。内訳（parts）があるときは内訳ごとの設定を使う。
+  // 価値の変わり方（lib/shared/asset-valuation.ts）。内訳（parts）があるときは内訳ごとの設定を使う。
   //   auto = 種別から自動（建物は構造の年数で定額、車は定率、土地・金・投資は年率、ほかは変わらない）
   //   fixed = 変わらない / rate = 年率で増減 / straight_line = 耐用年数で 0 円へ定額 / declining = 定率で減る
   valuationMethod   String                @default("auto")
@@ -808,7 +808,7 @@ model PersonalAssetValuation {
   partId    Int?
   valuedOn  DateTime           @db.Date
   value     Decimal            @db.Decimal(18, 2)
-  // この記録の日から次の記録の前日までに使う価値の変わり方（lib/asset-valuation.ts の ResolvedRule）。
+  // この記録の日から次の記録の前日までに使う価値の変わり方（lib/shared/asset-valuation.ts の ResolvedRule）。
   // 記録した時点の設定を残し、あとで設定を変えても過ぎた区間の見積もりを変えないため。null は今の設定を使う
   rule      Json?
   createdAt DateTime           @default(now())
@@ -1392,7 +1392,7 @@ model AiConversionUsage {
 // ============================================================
 
 // 明細から見つけた「毎月の入出金」の候補（資金移動ルールの候補）のうち、利用者が非表示にしたもの。
-// signature は候補の見分け（入出金の向き＋摘要を正規化したもの。lib/recurring-suggestions.ts）
+// signature は候補の見分け（入出金の向き＋摘要を正規化したもの）。候補の機能は削除し、このテーブルは使っていない
 model RecurringSuggestionDismissal {
   id            Int         @id @default(autoincrement())
   tenantId      Int

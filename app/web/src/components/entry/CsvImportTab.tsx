@@ -5,9 +5,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { CsvDropzone, Notice } from "@/components/ui";
-import { ENTRY_HELP } from "@/lib/help-texts";
-import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
-import { invalidateActuals } from "@/lib/invalidate-actuals";
+import { ENTRY_HELP } from "@/lib/shared/help-texts";
+import { importErrorMessage, importNetworkErrorMessage } from "@/lib/client/import-error";
+import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { type Source, type SourceAccount } from "@/components/entry/types";
 
 // CSV インポートの結果（POST /api/imports）。取り込み先ごとの登録件数と、重複・確定済みの月で飛ばした件数

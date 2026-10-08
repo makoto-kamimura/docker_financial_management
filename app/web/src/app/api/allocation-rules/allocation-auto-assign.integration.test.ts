@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
-vi.mock("@/lib/redis", () => ({
+vi.mock("@/lib/server/redis", () => ({
   withCache: vi
     .fn()
     .mockImplementation(async (_key: string, _ttl: number, fn: () => unknown) => fn()),
@@ -18,15 +18,15 @@ vi.mock("@/lib/redis", () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let actingUser: any = null;
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/server/authz", () => ({
   requireRole: vi.fn(async () =>
     actingUser ? { user: actingUser } : { error: new Response("unauthorized", { status: 401 }) },
   ),
 }));
 
-import { prisma } from "@/lib/prisma";
-import { emptyRouteContext } from "@/lib/api-handler";
-import { seedDefaultAllocationRulesForTenant } from "@/lib/default-allocation-rules";
+import { prisma } from "@/lib/server/prisma";
+import { emptyRouteContext } from "@/lib/server/api-handler";
+import { seedDefaultAllocationRulesForTenant } from "@/lib/budget/default-allocation-rules";
 import { GET as rulesGet } from "./route";
 import { PUT as assignPut } from "./assignments/route";
 import { GET as guideGet } from "../budgets/allocation-guide/route";

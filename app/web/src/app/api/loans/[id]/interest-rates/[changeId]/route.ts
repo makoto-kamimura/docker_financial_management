@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { invalidateCache } from "@/lib/redis";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { invalidateCache } from "@/lib/server/redis";
 
 const UpdateSchema = z.object({
   // 金融機関から通知された、改定後の実際の月々返済額

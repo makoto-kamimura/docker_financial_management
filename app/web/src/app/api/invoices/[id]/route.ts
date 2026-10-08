@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { postIssueRecord } from "@/lib/settlement";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { postIssueRecord } from "@/lib/accounting/settlement";
 
 const UpdateSchema = z.object({
   status: z.string().optional(),

@@ -3,8 +3,8 @@ import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
 import {
   classifyFileType,
   matchesMagicBytes,
@@ -12,7 +12,7 @@ import {
   resolveReceiptFileUrl,
   resolveUploadExtension,
   tenantUploadDir,
-} from "@/lib/upload";
+} from "@/lib/server/upload";
 
 // GET /api/journals/[id]/receipts … 証憑一覧
 export const GET = withApi({

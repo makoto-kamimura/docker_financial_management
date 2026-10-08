@@ -1,16 +1,16 @@
 "use client";
 
 // 総借入サマリ（ダッシュボード）。総資産サマリと同じく、KPI の対象月の時点（月末、今月なら今日）で出す。
-// データは GET /api/loans/summary?year=&month=。残高は借入金管理と同じ計算（lib/loan-balance.ts）。
+// データは GET /api/loans/summary?year=&month=。残高は借入金管理と同じ計算（lib/assets/loan-balance.ts）。
 // 借入の入力・内訳は借入金管理で見る。
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { SectionCard } from "@/components/SectionCard";
 import { summaryAsOfLabel } from "@/components/NetWorthSummaryCard";
-import { DASHBOARD_HELP } from "@/lib/help-texts";
-import { LOAN_TYPE_LABEL } from "@/lib/labels";
-import { yenShort } from "@/lib/format";
+import { DASHBOARD_HELP } from "@/lib/shared/help-texts";
+import { LOAN_TYPE_LABEL } from "@/lib/shared/labels";
+import { yenShort } from "@/lib/common/format";
 
 type LoanSummary = {
   asOf: string;

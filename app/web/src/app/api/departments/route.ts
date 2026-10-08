@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
+import { withApi } from "@/lib/server/api-handler";
 
 const DepartmentSchema = z.object({
   name: z.string().min(1),

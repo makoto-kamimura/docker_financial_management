@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { ApiError, badRequest, notFound } from "@/lib/api-error";
-import { insertExternalEntries } from "@/lib/ledger-entries";
+import { withApi } from "@/lib/server/api-handler";
+import { ApiError, badRequest, notFound } from "@/lib/server/api-error";
+import { insertExternalEntries } from "@/lib/ledger/ledger-entries";
 
 // 全銀 API / オープンバンキング API 設定（環境変数から取得）
 // OPENBANKING_API_KEY, OPENBANKING_API_BASE を .env で設定する

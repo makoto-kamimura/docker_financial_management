@@ -7,21 +7,21 @@ import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { CardUsageTrendCharts, useCardUsageTrend } from "@/components/CardUsageTrendCharts";
 import { SectionLead } from "@/components/Explain";
-import { CARD_HELP } from "@/lib/help-texts";
+import { CARD_HELP } from "@/lib/shared/help-texts";
 import {
   LINKED_ACCOUNT_TYPES,
   LINKED_ACCOUNT_TYPE_LABELS,
   isChargeableType,
   type LinkedAccountType,
-} from "@/lib/linked-account-type";
+} from "@/lib/shared/linked-account-type";
 import { Notice, PageHeader } from "@/components/ui";
-import { yen } from "@/lib/format";
+import { yen } from "@/lib/common/format";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
   id: number;
   name: string;
-  /** クレジット / デビット / プリペイド / 電子マネー（lib/linked-account-type.ts） */
+  /** クレジット / デビット / プリペイド / 電子マネー（lib/shared/linked-account-type.ts） */
   type: LinkedAccountType;
   institution: string;
   lastFour: string | null;

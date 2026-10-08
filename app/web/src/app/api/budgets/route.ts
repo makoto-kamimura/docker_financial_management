@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { recordBudgetHistory } from "@/lib/budget-history";
-import { resolvePeriod, requireAccountByCode } from "@/lib/period";
-import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
-import { assertBudgetPeriodEditable, confirmedBudgetMonths } from "@/lib/budget-lock";
+import { withApi } from "@/lib/server/api-handler";
+import { recordBudgetHistory } from "@/lib/budget/budget-history";
+import { resolvePeriod, requireAccountByCode } from "@/lib/accounting/period";
+import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget/budget-overlay";
+import { assertBudgetPeriodEditable, confirmedBudgetMonths } from "@/lib/budget/budget-lock";
 
 const BudgetSchema = z.object({
   accountCode: z.string().min(1),

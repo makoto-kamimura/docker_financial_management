@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { zDate } from "@/lib/zod-helpers";
+import { withApi } from "@/lib/server/api-handler";
+import { zDate } from "@/lib/common/zod-helpers";
 
 const FixedAssetSchema = z.object({
   name: z.string().min(1),

@@ -3,16 +3,16 @@
 // 借入金管理の「借入残高の推移」（資産管理の「実物資産の評価額の推移」と同じ形）。
 // 上に日付つきの借入残高合計と合計のグラフ、下にローンごとの残高と金利の小さなグラフを並べる。
 // 残高は今日までは返済の実績、先は償還の予定から計算した見込み。金利は今日までは履歴どおり、
-// 先は登録済みの改定と履歴の傾向からの予測（lib/loan-schedule.ts）。今月より先は破線。
+// 先は登録済みの改定と履歴の傾向からの予測（lib/shared/loan-schedule.ts）。今月より先は破線。
 // 単位の違う残高と金利は、同じグラフに重ねず別のグラフにする。
 
 import { SectionCard } from "@/components/SectionCard";
 import { SERIES_COLORS, ValueLineChart } from "@/components/ValueLineChart";
-import { asOfDateLabel } from "@/lib/asset-valuation";
-import { LOANS_HELP } from "@/lib/help-texts";
-import { LOAN_TYPE_LABEL } from "@/lib/labels";
-import { loanTrendSeries, type Loan } from "@/lib/loan-schedule";
-import { yenShort } from "@/lib/format";
+import { asOfDateLabel } from "@/lib/shared/asset-valuation";
+import { LOANS_HELP } from "@/lib/shared/help-texts";
+import { LOAN_TYPE_LABEL } from "@/lib/shared/labels";
+import { loanTrendSeries, type Loan } from "@/lib/shared/loan-schedule";
+import { yenShort } from "@/lib/common/format";
 
 const percent = (v: number) => `${v.toFixed(3)}%`;
 const percentAxis = (v: number) => `${Number(v).toFixed(2)}%`;

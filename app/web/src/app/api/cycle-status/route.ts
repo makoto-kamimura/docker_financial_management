@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { loadCycleStatus } from "@/lib/cycle-status";
+import { withApi } from "@/lib/server/api-handler";
+import { loadCycleStatus } from "@/lib/budget/cycle-status";
 
 // GET /api/cycle-status?year=&month= … 月ごとの流れ（① 予算確定 → ② 実績確定 → ③ 翌月の予算確定）の
 //   状況と、実績の入力状況（明細の最終日）を返す（読み取り専用）。

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { saveManualMappingRule } from "@/lib/account-conversion";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { saveManualMappingRule } from "@/lib/accounting/account-conversion";
 
 const MappingSchema = z.object({
   homeCode: z.string().min(1),

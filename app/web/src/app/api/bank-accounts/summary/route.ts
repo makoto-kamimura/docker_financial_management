@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { buildBankBalanceMap } from "@/lib/bank-balance";
+import { withApi } from "@/lib/server/api-handler";
+import { buildBankBalanceMap } from "@/lib/ledger/bank-balance";
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // GET /api/bank-accounts/summary?year=&month= … 口座残高サマリ（ダッシュボードの KPI の対象月の時点。読み取り専用）
 //   時点は総資産サマリ・総借入サマリと同じ（月末、今月なら今日）。残高は口座一覧と同じ定義
-//   （明細の合計 + 差額。lib/bank-balance.ts）で、明細はその月の終わりまでを数える（総資産サマリと同じ範囲）。
+//   （明細の合計 + 差額。lib/ledger/bank-balance.ts）で、明細はその月の終わりまでを数える（総資産サマリと同じ範囲）。
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({

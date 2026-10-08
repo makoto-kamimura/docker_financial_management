@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { assertBudgetPeriodEditable } from "@/lib/budget-lock";
-import { recordBudgetHistory } from "@/lib/budget-history";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import { assertBudgetPeriodEditable } from "@/lib/budget/budget-lock";
+import { recordBudgetHistory } from "@/lib/budget/budget-history";
 
 // DELETE /api/budget-items/[id] … カレンダーで登録した予算を 1 件削除する（editor 以上）。
 //   同じ科目・月の予算（budgets.amount）から金額を引き、変更履歴を残す。予算を確定した月は 409。

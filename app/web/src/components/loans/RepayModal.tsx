@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
-import { type Loan } from "@/lib/loan-schedule";
+import { type Loan } from "@/lib/shared/loan-schedule";
 
 // 返済の登録（元金・利息）
 export function RepayModal({

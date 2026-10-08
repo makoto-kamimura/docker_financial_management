@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { TEMPLATE_INCLUDE, TemplateLineSchema, toTemplateLineData } from "@/lib/journal-template";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import {
+  TEMPLATE_INCLUDE,
+  TemplateLineSchema,
+  toTemplateLineData,
+} from "@/lib/accounting/journal-template";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),

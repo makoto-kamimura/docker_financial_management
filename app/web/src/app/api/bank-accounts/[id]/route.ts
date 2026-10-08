@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { notFound, conflict } from "@/lib/api-error";
-import { requireAccountByCode } from "@/lib/period";
-import { invalidateCache } from "@/lib/redis";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound, conflict } from "@/lib/server/api-error";
+import { requireAccountByCode } from "@/lib/accounting/period";
+import { invalidateCache } from "@/lib/server/redis";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -14,7 +14,7 @@ const UpdateSchema = z.object({
   lastFour: z.string().max(4).optional().nullable(),
   accountCode: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
-  // 明細合計と実際の残高との差額（期首残高相当）。残高算出は lib/bank-balance.ts を参照
+  // 明細合計と実際の残高との差額（期首残高相当）。残高算出は lib/ledger/bank-balance.ts を参照
   balanceAdjustment: z.number().optional(),
 });
 

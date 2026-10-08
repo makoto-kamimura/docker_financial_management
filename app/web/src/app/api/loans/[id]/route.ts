@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { findAccountByCode } from "@/lib/period";
-import { invalidateCache } from "@/lib/redis";
-import { LOAN_INCLUDE, loanBalanceAt } from "@/lib/loan-balance";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { findAccountByCode } from "@/lib/accounting/period";
+import { invalidateCache } from "@/lib/server/redis";
+import { LOAN_INCLUDE, loanBalanceAt } from "@/lib/assets/loan-balance";
 
 const UpdateSchema = z.object({
   lenderName: z.string().min(1).optional(),

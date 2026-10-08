@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { categorizeEntry } from "@/lib/ledger-categorize";
+import { withApi } from "@/lib/server/api-handler";
+import { categorizeEntry } from "@/lib/ledger/ledger-categorize";
 
 const Schema = z.object({
   categoryAccountId: z.number().int().positive().nullable().optional(),
@@ -9,7 +9,7 @@ const Schema = z.object({
 });
 
 // PATCH /api/actuals/[id]/categorize … 現金の明細の科目の変更（editor 以上）。
-// 処理は lib/ledger-categorize.ts（銀行・カードと共通）。科目を付けた明細がそのまま実績になる。
+// 処理は lib/ledger/ledger-categorize.ts（銀行・カードと共通）。科目を付けた明細がそのまま実績になる。
 export const PATCH = withApi({
   role: "editor",
   schema: Schema,

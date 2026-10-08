@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
 
 // GET /api/audit-logs … 監査ログ一覧（admin 限定、自分のテナントの直近 100 件）。
 // 操作したユーザーは、今の表示名（userName）を添えて返す。削除されたユーザーは

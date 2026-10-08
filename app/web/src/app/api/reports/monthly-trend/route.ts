@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import type { ForecastMethod } from "@/lib/forecast";
+import { withApi } from "@/lib/server/api-handler";
+import type { ForecastMethod } from "@/lib/budget/forecast";
 import {
   buildAccountTrend,
   buildMonthlyTrend,
@@ -9,8 +9,8 @@ import {
   TREND_CATEGORIES,
   type CategoryAmounts,
   type TrendCategory,
-} from "@/lib/monthly-trend";
-import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
+} from "@/lib/budget/monthly-trend";
+import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
 
 // GET /api/reports/monthly-trend?period=YYYY-MM&back=6&forward=6&accountCode=&method=
 //   … 対象月を中心とした前後の推移。対象月以前は実績、後ろは予測。

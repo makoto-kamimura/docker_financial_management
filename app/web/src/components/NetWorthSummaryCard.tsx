@@ -7,8 +7,8 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { SectionCard } from "@/components/SectionCard";
-import { ASSETS_HELP } from "@/lib/help-texts";
-import { yenShort } from "@/lib/format";
+import { ASSETS_HELP } from "@/lib/shared/help-texts";
+import { yenShort } from "@/lib/common/format";
 
 type NetWorthBreakdownItem = { key: string; label: string; amount: number };
 type NetWorthSummary = {

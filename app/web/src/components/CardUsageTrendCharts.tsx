@@ -2,14 +2,14 @@
 
 // カード・電子マネー管理のサマリ「利用額の推移」（借入金管理の「借入残高の推移」と同じ形）。
 // 上に今月の利用額の合計と合計のグラフ、下にカードごとの小さなグラフを並べる。今月より先は破線で、
-// 固定決済の合計で見込む（GET /api/linked-accounts/usage-trend。計算は lib/card-usage.ts）。
+// 固定決済の合計で見込む（GET /api/linked-accounts/usage-trend。計算は lib/ledger/card-usage.ts）。
 
 import { useQuery } from "@tanstack/react-query";
 import { SectionCard } from "@/components/SectionCard";
 import { SERIES_COLORS, ValueLineChart } from "@/components/ValueLineChart";
-import { asOfDateLabel } from "@/lib/asset-valuation";
-import { CARD_HELP } from "@/lib/help-texts";
-import { yenShort } from "@/lib/format";
+import { asOfDateLabel } from "@/lib/shared/asset-valuation";
+import { CARD_HELP } from "@/lib/shared/help-texts";
+import { yenShort } from "@/lib/common/format";
 
 export type CardUsageTrend = {
   months: string[];

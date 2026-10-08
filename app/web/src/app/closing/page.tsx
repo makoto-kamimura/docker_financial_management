@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
-import { useViewMode } from "@/lib/use-view-mode";
-import { displayName, type ViewMode } from "@/lib/display-name";
+import { useViewMode } from "@/lib/client/use-view-mode";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { YearBadge } from "@/components/YearBadge";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
+import { useFiscalYear } from "@/lib/client/use-fiscal-year";
 
 // ── 型定義 ──────────────────────────────────────────────────────────────
 type AccountRow = {

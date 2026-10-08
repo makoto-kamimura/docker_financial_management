@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
 
 const ApproveSchema = z.object({
   journalEntryId: z.number().int().positive(),

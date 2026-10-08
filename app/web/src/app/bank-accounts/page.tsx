@@ -8,10 +8,10 @@ import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { CashFlowTrendCharts } from "@/components/CashFlowTrendCharts";
 import { SectionLead } from "@/components/Explain";
-import { BANK_HELP } from "@/lib/help-texts";
-import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/labels";
+import { BANK_HELP } from "@/lib/shared/help-texts";
+import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/shared/labels";
 import { PageHeader } from "@/components/ui";
-import { yen } from "@/lib/format";
+import { yen } from "@/lib/common/format";
 
 type BankAccount = {
   id: number;
@@ -23,7 +23,7 @@ type BankAccount = {
   lastFour?: string | null;
   note?: string | null;
   account?: { id: number; code: string; name: string } | null;
-  /** 明細合計 + 差額（lib/bank-balance.ts の定義） */
+  /** 明細合計 + 差額（lib/ledger/bank-balance.ts の定義） */
   balance: number;
   /** 明細の増減合計だけの残高（差額入力の案内に使う） */
   transactionSum?: number;

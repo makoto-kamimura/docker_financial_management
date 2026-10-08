@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { zDate } from "@/lib/zod-helpers";
-import { postIssueRecord } from "@/lib/settlement";
-import { assertActualsDateEditable } from "@/lib/budget-lock";
+import { withApi } from "@/lib/server/api-handler";
+import { zDate } from "@/lib/common/zod-helpers";
+import { postIssueRecord } from "@/lib/accounting/settlement";
+import { assertActualsDateEditable } from "@/lib/budget/budget-lock";
 
 const PayableSchema = z.object({
   supplierName: z.string().min(1),

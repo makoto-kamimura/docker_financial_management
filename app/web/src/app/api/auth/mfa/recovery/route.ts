@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { ApiError, badRequest, notFound } from "@/lib/api-error";
-import { verifyTotpWithReplayGuard } from "@/lib/totp-replay-guard";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { ApiError, badRequest, notFound } from "@/lib/server/api-error";
+import { verifyTotpWithReplayGuard } from "@/lib/server/totp-replay-guard";
 
 const RECOVERY_CODE_COUNT = 8;
 

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { assertActualsDateEditable } from "@/lib/budget-lock";
-import { badRequest, notFound } from "@/lib/api-error";
-import { resolvePeriodForDate } from "@/lib/period";
+import { withApi } from "@/lib/server/api-handler";
+import { assertActualsDateEditable } from "@/lib/budget/budget-lock";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { resolvePeriodForDate } from "@/lib/accounting/period";
 
 // D-5d-4: 棚卸資産科目。従来は "1200"（当座預金）を誤って参照しており、棚卸確定のたびに
 // 棚卸資産ではなく当座預金の残高へ計上してしまう既存バグがあった（調査で判明・修正）。

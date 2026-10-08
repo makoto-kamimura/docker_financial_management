@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { recordBudgetHistory } from "@/lib/budget-history";
-import { isBudgetPeriodConfirmed } from "@/lib/budget-lock";
-import { badRequest } from "@/lib/api-error";
-import { resolvePeriod, findAccountByCode } from "@/lib/period";
-import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { withApi } from "@/lib/server/api-handler";
+import { recordBudgetHistory } from "@/lib/budget/budget-history";
+import { isBudgetPeriodConfirmed } from "@/lib/budget/budget-lock";
+import { badRequest } from "@/lib/server/api-error";
+import { resolvePeriod, findAccountByCode } from "@/lib/accounting/period";
+import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
 
 // POST /api/budgets/import … 予算 CSV 一括取込（accountCode,fiscalYear,month,amount）
 export const POST = withApi({

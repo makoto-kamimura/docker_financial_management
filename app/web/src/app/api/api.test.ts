@@ -3,10 +3,10 @@
  * DB に接続せず、Route Handler のビジネスロジック・バリデーション・レスポンス形式を検証する。
  */
 import { describe, it, expect, vi } from "vitest";
-import { emptyRouteContext } from "@/lib/api-handler";
+import { emptyRouteContext } from "@/lib/server/api-handler";
 
 // ── Prisma モック ─────────────────────────────────────────────────────────
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/server/prisma", () => ({
   prisma: {
     account: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -80,20 +80,20 @@ vi.mock("@/lib/prisma", () => ({
 
 // tenantDb() は本来 prisma.$extends() でテナント自動スコープを行うが、
 // ここではモック済み prisma をそのまま返す（拡張ロジック自体の検証は tenant-db.ts 側で行う）。
-vi.mock("@/lib/tenant-db", async () => {
-  const { prisma } = await import("@/lib/prisma");
+vi.mock("@/lib/server/tenant-db", async () => {
+  const { prisma } = await import("@/lib/server/prisma");
   return { tenantDb: () => prisma };
 });
 
 // ── 認証モック（常に admin として通過）────────────────────────────────────
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/server/authz", () => ({
   requireRole: vi.fn().mockResolvedValue({
     user: { id: 1, email: "admin@example.com", name: "Admin", role: "admin", tenantId: 1 },
   }),
 }));
 
 // ── Redis モック（キャッシュ無効化）──────────────────────────────────────
-vi.mock("@/lib/redis", () => ({
+vi.mock("@/lib/server/redis", () => ({
   withCache: vi
     .fn()
     .mockImplementation(async (_key: string, _ttl: number, fn: () => unknown) => fn()),
@@ -136,7 +136,7 @@ describe("PUT /api/tax-settings", () => {
   });
 
   it("有効なボディで upsert を呼ぶ", async () => {
-    const { prisma } = await import("@/lib/prisma");
+    const { prisma } = await import("@/lib/server/prisma");
     (prisma.taxSetting.upsert as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 1,
       taxYear: 2026,
@@ -174,7 +174,7 @@ describe("POST /api/inventories", () => {
   });
 
   it("valuationMethod が保存される", async () => {
-    const { prisma } = await import("@/lib/prisma");
+    const { prisma } = await import("@/lib/server/prisma");
     (prisma.inventory.create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 1,
       name: "test",
@@ -227,7 +227,7 @@ describe("POST /api/journals/approve", () => {
   });
 
   it("無効な action は 400 を返す", async () => {
-    const { prisma } = await import("@/lib/prisma");
+    const { prisma } = await import("@/lib/server/prisma");
     (prisma.journalEntry.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 1,
       tenantId: 1,
@@ -242,7 +242,7 @@ describe("POST /api/journals/approve", () => {
   });
 
   it("submit アクションで approvalStatus が pending になる", async () => {
-    const { prisma } = await import("@/lib/prisma");
+    const { prisma } = await import("@/lib/server/prisma");
     (prisma.journalEntry.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 1,
       tenantId: 1,
@@ -312,7 +312,7 @@ describe("GET /api/business-profile", () => {
 // BusinessProfile.taxationType（既定値）へフォールバックすることを検証する。
 describe("GET /api/closing/etax（課税方式の優先順位）", () => {
   it("対象年度の TaxSetting がある場合は BusinessProfile と異なっていてもそちらを使う", async () => {
-    const { prisma } = await import("@/lib/prisma");
+    const { prisma } = await import("@/lib/server/prisma");
     (prisma.businessProfile.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       tenantId: 1,
       ownerName: "山田太郎",
@@ -345,7 +345,7 @@ describe("GET /api/closing/etax（課税方式の優先順位）", () => {
   });
 
   it("対象年度の TaxSetting が無い場合は BusinessProfile.taxationType へフォールバックする", async () => {
-    const { prisma } = await import("@/lib/prisma");
+    const { prisma } = await import("@/lib/server/prisma");
     (prisma.businessProfile.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       tenantId: 1,
       ownerName: "山田太郎",

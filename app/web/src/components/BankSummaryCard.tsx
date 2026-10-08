@@ -8,8 +8,8 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { SectionCard } from "@/components/SectionCard";
 import { summaryAsOfLabel } from "@/components/NetWorthSummaryCard";
-import { DASHBOARD_HELP } from "@/lib/help-texts";
-import { yenShort } from "@/lib/format";
+import { DASHBOARD_HELP } from "@/lib/shared/help-texts";
+import { yenShort } from "@/lib/common/format";
 
 type BankSummary = {
   asOf: string;

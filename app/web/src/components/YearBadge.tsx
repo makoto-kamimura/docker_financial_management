@@ -4,7 +4,7 @@
 // 年度は左のメニュー（FiscalYearSwitcher）で変える。
 
 import { CalendarDays } from "lucide-react";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
+import { useFiscalYear } from "@/lib/client/use-fiscal-year";
 
 export function YearBadge({ year }: { year?: number }) {
   const current = useFiscalYear();

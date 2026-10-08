@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { AccountConversionMode, AccountMappingMatchType } from "@prisma/client";
-import { withApi } from "@/lib/api-handler";
-import { forbidden } from "@/lib/api-error";
-import { saveManualMappingRule } from "@/lib/account-conversion";
+import { withApi } from "@/lib/server/api-handler";
+import { forbidden } from "@/lib/server/api-error";
+import { saveManualMappingRule } from "@/lib/accounting/account-conversion";
 
 const MODES = ["HOME", "CORPORATE"] as const;
 const MATCH_TYPES = ["TABLE", "KEYWORD", "FUZZY", "AI_FREE", "AI_PAID", "MANUAL"] as const;

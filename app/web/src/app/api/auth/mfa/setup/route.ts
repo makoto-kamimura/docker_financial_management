@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { generateTotpSecret, otpauthUri } from "@/lib/totp";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { generateTotpSecret, otpauthUri } from "@/lib/server/totp";
 
 // POST /api/auth/mfa/setup … TOTP シークレットを生成して返す（未有効化）。
 // 認証アプリに otpauth URI を登録し、/enable でコード検証して有効化する。

@@ -10,9 +10,9 @@
 import { useState, type ReactNode } from "react";
 import { Check, Lock, Pencil, Trash2 } from "lucide-react";
 import { useMonthColumnScroll } from "@/hooks/useMonthColumnScroll";
-import { displayName, type ViewMode } from "@/lib/display-name";
-import { CATEGORY_LABEL, categoryRank } from "@/lib/labels";
-import { amountText } from "@/lib/format";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
+import { CATEGORY_LABEL, categoryRank } from "@/lib/shared/labels";
+import { amountText } from "@/lib/common/format";
 
 export type MatrixAccount = {
   code: string;

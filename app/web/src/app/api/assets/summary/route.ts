@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { withCache } from "@/lib/redis";
-import { summarizeNetWorth, type NetWorthAccountBalance } from "@/lib/asset-summary";
-import { buildBankBalanceMap } from "@/lib/bank-balance";
-import { estimateAssetValue, VALUATION_INCLUDE } from "@/lib/personal-asset-valuation";
-import { loanBalanceAt } from "@/lib/loan-balance";
-import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
+import { withApi } from "@/lib/server/api-handler";
+import { withCache } from "@/lib/server/redis";
+import { summarizeNetWorth, type NetWorthAccountBalance } from "@/lib/assets/asset-summary";
+import { buildBankBalanceMap } from "@/lib/ledger/bank-balance";
+import { estimateAssetValue, VALUATION_INCLUDE } from "@/lib/assets/personal-asset-valuation";
+import { loanBalanceAt } from "@/lib/assets/loan-balance";
+import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // GET /api/assets/summary?year=&month= … 総資産（純資産）サマリ（Redis キャッシュ 1 時間）
 //   指定した月の時点で出す（ダッシュボードの KPI の対象月）。時点は月末、今月なら今日（asOf で返す）。
-//   - 実物資産: 評価額の推移の見積もり（lib/asset-valuation.ts）の、その時点の値
+//   - 実物資産: 評価額の推移の見積もり（lib/shared/asset-valuation.ts）の、その時点の値
 //   - 預貯金: その時点までの明細の合計 + 差額
-//   - 借入金: その時点の残高（返済の記録があれば記録から、無ければ返済予定から。lib/loan-balance.ts）
+//   - 借入金: その時点の残高（返済の記録があれば記録から、無ければ返済予定から。lib/assets/loan-balance.ts）
 //   - 資産・負債科目: その月以前でいちばん新しい月の残高
 export const GET = withApi({
   role: "viewer",
@@ -89,7 +89,7 @@ export const GET = withApi({
           where: { tenantId, accountId: { not: null } },
           select: { accountId: true },
         }),
-        // 残高の差額（期首残高相当）を含めるため口座も引く（lib/bank-balance.ts）
+        // 残高の差額（期首残高相当）を含めるため口座も引く（lib/ledger/bank-balance.ts）
         db.bankAccount.findMany({
           where: { tenantId },
           select: { id: true, balanceAdjustment: true },
@@ -119,7 +119,7 @@ export const GET = withApi({
         ([accountId, v]) => ({ accountId, category: v.category, balance: v.amount }),
       );
 
-      // ローンの残高はどれも借入金管理と同じ計算（lib/loan-balance.ts）。まだ借りていなければ 0
+      // ローンの残高はどれも借入金管理と同じ計算（lib/assets/loan-balance.ts）。まだ借りていなければ 0
       const personalAssetDebts = personalAssets
         .filter((a) => a.loan !== null)
         .map((a) => ({ remaining: loanBalanceAt(a.loan!, asOf) }));

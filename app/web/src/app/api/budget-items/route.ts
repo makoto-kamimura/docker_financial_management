@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { assertBudgetPeriodEditable } from "@/lib/budget-lock";
-import { recordBudgetHistory } from "@/lib/budget-history";
-import { resolvePeriod, requireAccountByCode } from "@/lib/period";
+import { withApi } from "@/lib/server/api-handler";
+import { assertBudgetPeriodEditable } from "@/lib/budget/budget-lock";
+import { recordBudgetHistory } from "@/lib/budget/budget-history";
+import { resolvePeriod, requireAccountByCode } from "@/lib/accounting/period";
 
 const ItemSchema = z.object({
   date: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/),

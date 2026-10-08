@@ -18,10 +18,10 @@ import {
   type AssetCategory,
   type BuildingStructure,
   type ValuationMethod,
-} from "@/lib/asset-valuation";
-import { ASSETS_HELP } from "@/lib/help-texts";
-import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/labels";
-import { yenShort } from "@/lib/format";
+} from "@/lib/shared/asset-valuation";
+import { ASSETS_HELP } from "@/lib/shared/help-texts";
+import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/shared/labels";
+import { yenShort } from "@/lib/common/format";
 import { PersonalAsset } from "@/components/assets/types";
 import { useInvalidateAssets } from "@/components/assets/PersonalAssetsSection";
 

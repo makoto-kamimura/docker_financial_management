@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
 
 // GET /api/inventories/[id] … 棚卸 1 件の取得
 export const GET = withApi({

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
 
 // GET /api/tax-credit?year= … 仕入税額控除の集計
 export const GET = withApi({

@@ -17,14 +17,14 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let actingUser: any = null;
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/server/authz", () => ({
   requireRole: vi.fn(async () => {
     if (!actingUser) return { error: new Response("unauthorized", { status: 401 }) };
     return { user: actingUser };
   }),
 }));
 
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/server/prisma";
 import { POST as depreciatePost } from "./[id]/depreciate/route";
 
 const SUFFIX = `d5d4dep_${Date.now()}`;

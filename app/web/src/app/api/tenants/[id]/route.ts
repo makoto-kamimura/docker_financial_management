@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { forbidden, notFound } from "@/lib/api-error";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { forbidden, notFound } from "@/lib/server/api-error";
 
 const UpdateSchema = z.object({
   type: z.string().optional(),

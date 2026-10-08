@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { ApiError, badRequest } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { ApiError, badRequest } from "@/lib/server/api-error";
 
 // マネーフォワード クラウド会計 API 設定（環境変数から取得）
 // MF_CLIENT_ID, MF_CLIENT_SECRET, MF_REDIRECT_URI を .env で設定する

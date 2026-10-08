@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
+import { withApi } from "@/lib/server/api-handler";
 
 // GET /api/assets?year=2025 … 資産・負債の科目別残高（純資産推移）
 export const GET = withApi({

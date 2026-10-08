@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, conflict, notFound } from "@/lib/api-error";
-import { recordBudgetHistory } from "@/lib/budget-history";
-import { prevYearMonth } from "@/lib/budget-cycle";
-import { resolvePeriod } from "@/lib/period";
-import { zMoney } from "@/lib/schemas";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, conflict, notFound } from "@/lib/server/api-error";
+import { recordBudgetHistory } from "@/lib/budget/budget-history";
+import { prevYearMonth } from "@/lib/shared/budget-cycle";
+import { resolvePeriod } from "@/lib/accounting/period";
+import { zMoney } from "@/lib/common/schemas";
 
 const ConfirmSchema = z.object({
   year: z.number().int(),

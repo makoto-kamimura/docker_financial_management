@@ -4,7 +4,7 @@
 // 科目・チャージ先・毎月の入出金（固定入出金）・振替の解除・削除を行ごとに行う。
 
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invalidateActuals } from "@/lib/invalidate-actuals";
+import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
@@ -15,15 +15,15 @@ import {
   LedgerMoreSection,
   LedgerTable,
 } from "@/components/LedgerTable";
-import { BANK_HELP, BANK_TERMS } from "@/lib/help-texts";
-import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "@/lib/linked-account-type";
-import type { LinkedAccountType } from "@/lib/linked-account-type";
+import { BANK_HELP, BANK_TERMS } from "@/lib/shared/help-texts";
+import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "@/lib/shared/linked-account-type";
+import type { LinkedAccountType } from "@/lib/shared/linked-account-type";
 import {
   TRANSFER_CHANNEL_LABELS as CHANNEL_LABELS,
   TXN_SOURCE_LABEL as SOURCE_LABELS,
-} from "@/lib/labels";
+} from "@/lib/shared/labels";
 import { Notice } from "@/components/ui";
-import { yen } from "@/lib/format";
+import { yen } from "@/lib/common/format";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };

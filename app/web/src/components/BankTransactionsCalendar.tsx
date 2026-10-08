@@ -11,10 +11,10 @@ import { useMemo, useState } from "react";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
 import { SectionLead } from "@/components/Explain";
 import { Notice } from "@/components/ui";
-import { BANK_HELP } from "@/lib/help-texts";
-import { invalidateActuals } from "@/lib/invalidate-actuals";
+import { BANK_HELP } from "@/lib/shared/help-texts";
+import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
-import { yen } from "@/lib/format";
+import { yen } from "@/lib/common/format";
 
 type BankAccount = { id: number; name: string; bankName: string };
 type Txn = {

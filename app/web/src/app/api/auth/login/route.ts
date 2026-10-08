@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/server/prisma";
 import {
   createSession,
   verifyPassword,
   hashPassword,
   isLegacyPasswordHash,
   DUMMY_PASSWORD_HASH,
-} from "@/lib/auth";
-import { writeAudit } from "@/lib/audit";
-import { consumeMfaChallenge, issueMfaChallenge } from "@/lib/mfa-challenge";
-import { checkRateLimit, clientIp, rateLimitResponse } from "@/lib/rate-limit";
+} from "@/lib/server/auth";
+import { writeAudit } from "@/lib/server/audit";
+import { consumeMfaChallenge, issueMfaChallenge } from "@/lib/server/mfa-challenge";
+import { checkRateLimit, clientIp, rateLimitResponse } from "@/lib/server/rate-limit";
 
 const LoginSchema = z.object({
   email: z.string().email(),

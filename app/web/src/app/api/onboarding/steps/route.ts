@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
+import { withApi } from "@/lib/server/api-handler";
 
 // GET /api/onboarding/steps … F-10 ステップ進捗チェックリスト用データ。
 // モード切替経験（ステップ6）は client 側の localStorage 由来のため含まない。

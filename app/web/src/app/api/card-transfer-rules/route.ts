@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
 
 // カード明細のチャージ自動判定ルール（card_transfer_rules）の一覧・削除。
 //
 // 作成の口はここにも他にも無い。かつては明細一覧の一括指定フォーム
 // （POST /api/card-transactions/mark-transfers）だけが登録口だったが、フォームはタスク 82 で、
 // API はタスク 93 で削除した。既存ルールは CSV 取込時の自動チャージ判定
-// （lib/card-transfer.ts の resolveTransferTarget()）で今も参照されるため、
+// （lib/ledger/card-transfer.ts の resolveTransferTarget()）で今も参照されるため、
 // 一覧して不要なものを消せる状態だけを残している。
 // 再びルールを増やせるようにする場合は、ここに POST を足したうえで
 // 「ルールだけ作って既存明細に反映されない」状態にならない導線を画面側に用意すること。

@@ -8,10 +8,10 @@ import {
   LOAN_TYPES,
   PERSONAL_ASSET_CATEGORY_LABEL,
   type PersonalAssetCategory,
-} from "@/lib/labels";
-import { type Loan } from "@/lib/loan-schedule";
+} from "@/lib/shared/labels";
+import { type Loan } from "@/lib/shared/loan-schedule";
 import { VariableRateHelp } from "@/components/HelpTip";
-import { LOANS_HELP } from "@/lib/help-texts";
+import { LOANS_HELP } from "@/lib/shared/help-texts";
 import {
   assetCategoryForLoanType,
   type AccountRef,

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { unlink } from "fs/promises";
 import path from "path";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { tenantUploadDir, UPLOAD_DIR } from "@/lib/upload";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { tenantUploadDir, UPLOAD_DIR } from "@/lib/server/upload";
 
 // DELETE /api/journals/[id]/receipts/[receiptId] … 証憑の削除（editor 以上）
 export const DELETE = withApi({

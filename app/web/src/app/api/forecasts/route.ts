@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { aggregate } from "@/lib/aggregate";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import { aggregate } from "@/lib/accounting/aggregate";
 import {
   forecast,
   evaluateForecastAccuracy,
   toDbForecastMethod,
   toDbForecastScenario,
   type ForecastMethod,
-} from "@/lib/forecast";
-import { resolvePeriod } from "@/lib/period";
+} from "@/lib/budget/forecast";
+import { resolvePeriod } from "@/lib/accounting/period";
 
 const METHODS = [
   "moving_average",

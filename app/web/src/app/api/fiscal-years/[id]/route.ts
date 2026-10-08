@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { zDate } from "@/lib/zod-helpers";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import { zDate } from "@/lib/common/zod-helpers";
 
 const UpdateSchema = z.object({
   status: z.string().optional(),

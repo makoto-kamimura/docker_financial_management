@@ -5,7 +5,7 @@
 // サーバーが学習ルール（摘要のキーワード）で科目を決め、当たらなければ未割り当てになる。
 
 import { useQuery } from "@tanstack/react-query";
-import { displayName, type ViewMode } from "@/lib/display-name";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
 
 type CategoryAccount = {
   id: number;

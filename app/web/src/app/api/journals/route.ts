@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest } from "@/lib/server/api-error";
 import {
   assertJournalSyncAllowed,
   JOURNAL_DETAILS_INCLUDE,
   syncJournalToFinancialRecords,
-} from "@/lib/journal";
-import { invalidateCache } from "@/lib/redis";
-import { resolveReceiptFileUrl } from "@/lib/upload";
+} from "@/lib/accounting/journal";
+import { invalidateCache } from "@/lib/server/redis";
+import { resolveReceiptFileUrl } from "@/lib/server/upload";
 
 const INCLUDE_WITH_RECEIPTS = {
   ...JOURNAL_DETAILS_INCLUDE,

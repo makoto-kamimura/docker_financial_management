@@ -4,10 +4,10 @@
 // 月ごとの流れ ① → ② → ③（順番は API が強制）のうち、予算の確定（① と ③）を受け持つ。
 //   - 比べる月 C は B の前月。C の予算と実績の差（GET /api/budgets/variance）について、扱い（何もしない・
 //     期ズレ・回し先へ）を選ぶと B の予算案ができる。「確定」で B の予算を確定する（POST /api/budgets/confirm）
-//     （計算は lib/budget-cycle.ts。案の金額は手で直せる＝流用）。これが C から見た ③
+//     （計算は lib/shared/budget-cycle.ts。案の金額は手で直せる＝流用）。これが C から見た ③
 //   - はじめて使うときなどは、B の予算をいま入っている金額のまま確定できる（B から見た ①）
 //   - C の実績の確定（②）は実績管理の「実績の確定」タブ、C の予算と実績を見比べるのは「予実差確認」タブ
-//   年は左のメニュー、月は上のボタンで選ぶ（lib/use-cycle-month.ts）。
+//   年は左のメニュー、月は上のボタンで選ぶ（lib/client/use-cycle-month.ts）。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -18,18 +18,18 @@ import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
 import { actualsConfirmHref, CycleSteps, type CycleStatus } from "@/components/CycleSteps";
 import { MonthPicker } from "@/components/MonthPicker";
 import { diffClass, diffLabel, type VarianceResponse } from "@/components/BudgetVariancePanel";
-import { yen, yenSigned } from "@/lib/format";
-import { BUDGET_HELP, textFor } from "@/lib/help-texts";
-import { displayName, type ViewMode } from "@/lib/display-name";
+import { yen, yenSigned } from "@/lib/common/format";
+import { BUDGET_HELP, textFor } from "@/lib/shared/help-texts";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import {
   defaultTreatment,
   isTreatmentAllowed,
   planNextBudget,
   prevYearMonth,
   type VarianceTreatment,
-} from "@/lib/budget-cycle";
-import { cycleKey } from "@/lib/cycle-month";
-import { useCycleMonth } from "@/lib/use-cycle-month";
+} from "@/lib/shared/budget-cycle";
+import { cycleKey } from "@/lib/shared/cycle-month";
+import { useCycleMonth } from "@/lib/client/use-cycle-month";
 import { Notice } from "@/components/ui";
 
 type AccountRef = {

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { assertActualsDateEditable } from "@/lib/budget-lock";
-import { badRequest, notFound } from "@/lib/api-error";
-import { resolvePeriod } from "@/lib/period";
+import { withApi } from "@/lib/server/api-handler";
+import { assertActualsDateEditable } from "@/lib/budget/budget-lock";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { resolvePeriod } from "@/lib/accounting/period";
 
 // D-5d-4: 償却費科目。従来は実在しない "H3400" を参照しており実績連動が常に no-op になっていた
 // （調査で判明した既存バグの修正）。モード別の科目コード（個人事業主 7600 / 法人 C7300）に対応する。

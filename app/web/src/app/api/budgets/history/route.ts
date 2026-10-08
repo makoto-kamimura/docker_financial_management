@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
+import { withApi } from "@/lib/server/api-handler";
 
 // GET /api/budgets/history?limit=30&offset=0&sort=changedAt&order=desc&year=YYYY
 //   … 予算の変更履歴。実績の /api/financials/recent と同じ形（data / total / limit / offset）で返し、

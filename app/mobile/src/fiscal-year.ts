@@ -1,5 +1,5 @@
 // 対象年度（暦年。1〜12 月）。画面上部のサブヘッダー（App.tsx）で選び、どの画面も同じ年度を表示する
-// （web 版の lib/use-fiscal-year.ts と同じ役割）。表示モードと同じくメモリ内で持つ。
+// （web 版の lib/client/use-fiscal-year.ts と同じ役割）。表示モードと同じくメモリ内で持つ。
 import { useSyncExternalStore } from "react";
 
 let _year = new Date().getFullYear();
