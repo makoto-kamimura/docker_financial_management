@@ -3,7 +3,7 @@
 // （同じ摘要の未割り当ての明細にも付き、次の取り込みからも自動で付く）。残っている間は確定できない。
 // 「まとめて自動処理」は、学習ルールで科目を付け、同じ日・同じ金額の送金と受金を振替・チャージの組にする。
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   autoProcessEntries,
   categorizeEntry,
@@ -70,17 +70,27 @@ export function UnassignedEntries({
     onChanged();
   }
 
-  function autoProcess() {
+  // reset: 「科目を付け直す」（付いている科目も学習ルールで付け直し、当たらなければ未割り当てに戻す）
+  function autoProcess(reset: boolean) {
     setProcessing(true);
     run(async () => {
-      const r = await autoProcessEntries();
+      const r = await autoProcessEntries(reset);
       return (
-        `学習ルールで ${r.categorized} 件に科目を付け、${r.offsetPairs} 組を振替・チャージにしました。` +
+        `学習ルールで ${r.categorized} 件に科目を付け` +
+        (reset ? `、${r.cleared} 件を未割り当てに戻し` : "") +
+        `、${r.offsetPairs} 組を振替・チャージにしました。` +
         (r.lockedSkipped > 0
-          ? `（実績を確定済みの月の未割り当て ${r.lockedSkipped} 件はそのままです）`
+          ? `（実績を確定済みの月の明細 ${r.lockedSkipped} 件はそのままです）`
           : "")
       );
     }).finally(() => setProcessing(false));
+  }
+
+  function confirmRecategorize() {
+    Alert.alert("科目を付け直す", ENTRY_HELP.recategorize, [
+      { text: "キャンセル", style: "cancel" },
+      { text: "付け直す", style: "destructive", onPress: () => autoProcess(true) },
+    ]);
   }
 
   return (
@@ -89,14 +99,22 @@ export function UnassignedEntries({
         未割り当ての明細（{month}月・{entries?.length ?? 0} 件）
       </Text>
       <Text style={s.note}>{ENTRY_HELP.unassigned}</Text>
-      <Button
-        label={processing ? "処理中…" : "まとめて自動処理"}
-        small
-        variant="secondary"
-        loading={processing}
-        onPress={autoProcess}
-        style={s.btn}
-      />
+      <View style={s.btnRow}>
+        <Button
+          label={processing ? "処理中…" : "まとめて自動処理"}
+          small
+          variant="secondary"
+          loading={processing}
+          onPress={() => autoProcess(false)}
+        />
+        <Button
+          label="科目を付け直す"
+          small
+          variant="secondary"
+          disabled={processing}
+          onPress={confirmRecategorize}
+        />
+      </View>
       {msg && <Notice tone={msg.ok ? "success" : "error"}>{msg.text}</Notice>}
       {entries === null ? (
         <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 12 }} />
@@ -150,7 +168,7 @@ const s = StyleSheet.create({
   },
   title: { fontSize: 12, fontWeight: "600", color: "#374151", marginBottom: 4 },
   note: { fontSize: 11, color: COLORS.sub, lineHeight: 16, marginBottom: 8 },
-  btn: { alignSelf: "flex-start", marginBottom: 8 },
+  btnRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   done: { fontSize: 12, color: "#047857", marginVertical: 6 },
   link: { fontSize: 12, color: COLORS.primary, fontWeight: "600" },
 });

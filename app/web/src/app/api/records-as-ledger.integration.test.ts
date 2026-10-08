@@ -483,4 +483,37 @@ describe("登録時の科目・自動相殺・未割り当て・まとめての�
     ).json();
     expect(after.data).toEqual([]);
   });
+
+  it("科目を付け直す: ルールに当たる明細はルールの科目に、当たらない明細は未割り当てに戻す（確定済みの月はそのまま）", async () => {
+    // 手で選んだ科目（ルールなし）と、ルールと違う科目を手で付けた明細
+    const manual = await postBankTxn(`${YEAR}-09-01`, "手で選んだ店", -400);
+    await bankCategorize(
+      makeReq("PATCH", "http://x", { categoryAccountId: expense.id }),
+      params(manual.id),
+    );
+    const wrong = await postBankTxn(`${YEAR}-09-02`, "ドラッグストア", -600);
+    await bankCategorize(
+      makeReq("PATCH", "http://x", { categoryAccountId: expense.id }),
+      params(wrong.id),
+    );
+    // 7 月は確定済み（「確定前の明細」は未割り当てのまま）。付いた科目も変えない
+    const lockedRow = await prisma.financialRecord.findFirstOrThrow({
+      where: { tenantId, description: "確定前の明細" },
+    });
+
+    const res = await autoProcessPost(
+      makeReq("POST", "http://x/api/ledger/auto-process?reset=1"),
+      emptyRouteContext(),
+    );
+    expect(res.status).toBe(200);
+    const result = (await res.json()).data;
+    expect(result.cleared).toBeGreaterThanOrEqual(1);
+    expect(result.lockedSkipped).toBeGreaterThanOrEqual(1);
+
+    const m = await row(manual.id);
+    expect([m.accountId, Number(m.amount)]).toEqual([null, 0]);
+    const w = await row(wrong.id);
+    expect([w.accountId, Number(w.amount)]).toEqual([other.id, 600]);
+    expect((await row(lockedRow.id)).accountId).toBeNull();
+  });
 });
