@@ -3,7 +3,7 @@
 // 日ごとに並べ、選んだ日の入出金の確認と、手入力での登録・削除ができる
 // （GET/POST/DELETE /bank-accounts/{id}/transactions）。すべての口座のときは、登録する口座を選ぶ。
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   deleteBankTransaction,
   fetchBankTransactions,
@@ -17,8 +17,8 @@ import { categoryPayload, EntryCategoryField } from "../EntryCategoryField";
 import { digitsOnly, isoDate, yen } from "../../format";
 import { BANK_HELP } from "../../shared/help-texts";
 import { Button, Card, Field, Input, Lead, Notice, Pills, SelectField } from "../ui";
+import { CalendarTotals, DayAmounts, MonthCalendar } from "../MonthCalendar";
 
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 type Direction = "income" | "expense";
 const BLANK_FORM = {
   type: "expense" as Direction,
@@ -107,9 +107,6 @@ export function BankTransactionsCalendar({
     setSelectedDay(null);
   }
 
-  const firstWeekday = new Date(year, month - 1, 1).getDay();
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
   const selectedTxns = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
 
   async function submit() {
@@ -176,86 +173,33 @@ export function BankTransactionsCalendar({
   return (
     <View>
       <Lead>{BANK_HELP.calendar}</Lead>
-      <Card style={{ padding: 0, overflow: "hidden" }}>
-        <View style={s.monthNav}>
-          <TouchableOpacity onPress={() => moveMonth(-1)} style={s.navBtn}>
-            <Text style={s.navTxt}>◀</Text>
-          </TouchableOpacity>
-          <Text style={s.monthLabel}>
-            {year}年{month}月
-          </Text>
-          <TouchableOpacity onPress={() => moveMonth(1)} style={s.navBtn}>
-            <Text style={s.navTxt}>▶</Text>
-          </TouchableOpacity>
-        </View>
-        {/* 表示中の月の入出金の合計 */}
-        <View style={s.totals}>
-          <Text style={s.totalItem}>
-            入金合計 <Text style={s.income}>{yen(monthTotals.income)}</Text>
-          </Text>
-          <Text style={s.totalItem}>
-            出金合計 <Text style={s.expense}>{yen(monthTotals.expense)}</Text>
-          </Text>
-          <Text style={s.totalItem}>
-            差引 <Text style={monthTotals.net < 0 ? s.expense : s.net}>{yen(monthTotals.net)}</Text>
-          </Text>
-          <Text style={s.count}>{monthTotals.count} 件の明細</Text>
-        </View>
-        <View style={s.weekRow}>
-          {WEEKDAYS.map((w, i) => (
-            <Text key={w} style={[s.weekCell, i === 0 && s.sun, i === 6 && s.sat]}>
-              {w}
-            </Text>
-          ))}
-        </View>
-        {loading ? (
-          <ActivityIndicator color="#4f46e5" style={{ marginVertical: 32 }} />
-        ) : (
-          <View style={s.grid}>
-            {Array.from({ length: totalCells }, (_, i) => {
-              const day = i - firstWeekday + 1;
-              const valid = day >= 1 && day <= daysInMonth;
-              if (!valid) return <View key={i} style={[s.dayCell, s.dayBlank]} />;
-              const dayTxns = byDay.get(day) ?? [];
-              const inc = dayTxns.reduce((sum, t) => sum + Math.max(t.amount, 0), 0);
-              const exp = dayTxns.reduce((sum, t) => sum + Math.max(-t.amount, 0), 0);
-              const isToday =
-                year === today.getFullYear() &&
-                month === today.getMonth() + 1 &&
-                day === today.getDate();
-              const weekday = i % 7;
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={[s.dayCell, day === selectedDay && s.daySelected]}
-                  onPress={() => setSelectedDay(day)}
-                >
-                  <Text
-                    style={[
-                      s.dayNum,
-                      weekday === 0 && s.sun,
-                      weekday === 6 && s.sat,
-                      isToday && s.today,
-                    ]}
-                  >
-                    {day}
-                  </Text>
-                  {inc > 0 && (
-                    <Text style={s.dayIncome} numberOfLines={1}>
-                      +{Math.round(inc).toLocaleString("ja-JP")}
-                    </Text>
-                  )}
-                  {exp > 0 && (
-                    <Text style={s.dayExpense} numberOfLines={1}>
-                      −{Math.round(exp).toLocaleString("ja-JP")}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-      </Card>
+      <MonthCalendar
+        year={year}
+        month={month}
+        onMove={moveMonth}
+        summary={
+          <CalendarTotals
+            items={[
+              { label: "入金合計", value: monthTotals.income, tone: "in" },
+              { label: "出金合計", value: monthTotals.expense, tone: "out" },
+              { label: "差引", value: monthTotals.net, tone: "net" },
+            ]}
+            note={`${monthTotals.count} 件の明細`}
+          />
+        }
+        loading={loading}
+        selectedDay={selectedDay}
+        onSelectDay={setSelectedDay}
+        renderDay={(day) => {
+          const dayEntries = byDay.get(day) ?? [];
+          return (
+            <DayAmounts
+              income={dayEntries.reduce((sum, t) => sum + Math.max(t.amount, 0), 0)}
+              expense={dayEntries.reduce((sum, t) => sum + Math.max(-t.amount, 0), 0)}
+            />
+          );
+        }}
+      />
 
       {!selectedDay ? (
         <Text style={s.hint}>カレンダーの日付をタップして入出金を確認・追加してください</Text>
@@ -350,59 +294,9 @@ export function BankTransactionsCalendar({
 }
 
 const s = StyleSheet.create({
-  monthNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-  },
-  navBtn: { padding: 8 },
-  navTxt: { fontSize: 14, color: "#4f46e5" },
-  monthLabel: { fontSize: 15, fontWeight: "700", color: "#1e293b" },
-  totals: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "#f8fafc",
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
-  },
-  totalItem: { fontSize: 11, color: "#64748b" },
   income: { color: "#059669", fontWeight: "700" },
   expense: { color: "#e11d48", fontWeight: "700" },
-  net: { color: "#4f46e5", fontWeight: "700" },
   count: { fontSize: 11, color: "#94a3b8" },
-  weekRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#f1f5f9" },
-  weekCell: { flex: 1, textAlign: "center", fontSize: 11, color: "#64748b", paddingVertical: 6 },
-  sun: { color: "#ef4444" },
-  sat: { color: "#3b82f6" },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
-  dayCell: {
-    width: `${100 / 7}%`,
-    minHeight: 58,
-    padding: 3,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#f1f5f9",
-  },
-  dayBlank: { backgroundColor: "#fafafa" },
-  daySelected: { backgroundColor: "#eef2ff" },
-  dayNum: { fontSize: 12, fontWeight: "600", color: "#334155" },
-  today: {
-    color: "#fff",
-    backgroundColor: "#4f46e5",
-    borderRadius: 9,
-    width: 18,
-    textAlign: "center",
-    overflow: "hidden",
-  },
-  dayIncome: { fontSize: 8, color: "#059669" },
-  dayExpense: { fontSize: 8, color: "#e11d48" },
   hint: { textAlign: "center", color: "#94a3b8", fontSize: 13, paddingVertical: 16 },
   dayTitle: { fontSize: 14, fontWeight: "700", color: "#1e293b" },
   entryRow: {

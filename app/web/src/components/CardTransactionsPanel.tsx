@@ -6,11 +6,11 @@
 // 利用・返金の登録ができる（API は /api/linked-accounts/{id}/transactions ほか、移設前と同じ）。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
 import { invalidateActuals } from "@/lib/invalidate-actuals";
 import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
 import { useState, useMemo } from "react";
 import { Trash2 } from "lucide-react";
-import { LoadingSpinner } from "@/components/StateViews";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
 import { CARD_HELP, CARD_TERMS } from "@/lib/help-texts";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
@@ -83,7 +83,6 @@ const BLANK_CAL_FORM = {
   type: "charge" as "charge" | "refund",
   category: "",
 };
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 // 電子マネー・プリペイドはカード番号が無く、明細も「チャージ残高からの支払い」なので文言を切り替える
 const ACCOUNT_TYPE_LABEL = LINKED_ACCOUNT_TYPE_LABELS;
@@ -211,9 +210,6 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
     }
     return map;
   }, [txns, viewYear, viewMonth]);
-  const firstWeekday = new Date(viewYear, viewMonth - 1, 1).getDay();
-  const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
-  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
   const selectedEntries = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
 
   // ── ハンドラ ────────────────────────────────────────────────
@@ -703,119 +699,28 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
         <SectionLead className="-mt-2 mb-4">{CARD_HELP.calendar}</SectionLead>
       )}
       {view === "calendar" && (
-        <div className="flex gap-4 items-start">
-          {/* カレンダー */}
-          <div className="card flex-1 min-w-0 p-0 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-              <button
-                onClick={prevMonth}
-                className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-              <span className="font-semibold text-slate-800">
-                {viewYear}年{viewMonth}月
-              </span>
-              <button
-                onClick={nextMonth}
-                className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            </div>
-            <div className="grid grid-cols-7 border-b border-slate-100">
-              {WEEKDAYS.map((w, i) => (
-                <div
-                  key={w}
-                  className={`py-2 text-center text-xs font-medium ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-slate-500"}`}
-                >
-                  {w}
-                </div>
-              ))}
-            </div>
-            {!txns ? (
-              <div className="p-8">
-                <LoadingSpinner />
-              </div>
-            ) : (
-              <div className="grid grid-cols-7">
-                {Array.from({ length: totalCells }, (_, i) => {
-                  const day = i - firstWeekday + 1;
-                  const isValid = day >= 1 && day <= daysInMonth;
-                  const isToday =
-                    isValid &&
-                    viewYear === now.getFullYear() &&
-                    viewMonth === now.getMonth() + 1 &&
-                    day === now.getDate();
-                  const isSelected = isValid && day === selectedDay;
-                  const dayEntries = isValid ? (byDay.get(day) ?? []) : [];
-                  const totalCharge = dayEntries
-                    .filter((t) => t.amount > 0)
-                    .reduce((s, t) => s + t.amount, 0);
-                  const totalRefund = dayEntries
-                    .filter((t) => t.amount < 0)
-                    .reduce((s, t) => s + -t.amount, 0);
-                  const weekday = i % 7;
-                  return (
-                    <button
-                      key={i}
-                      disabled={!isValid}
-                      onClick={() => isValid && setSelectedDay(day)}
-                      className={[
-                        "min-h-[4.5rem] p-1.5 border-b border-r border-slate-100 text-left transition-colors",
-                        !isValid ? "bg-slate-50/50" : "hover:bg-indigo-50/50 cursor-pointer",
-                        isSelected ? "bg-indigo-50 ring-1 ring-inset ring-indigo-300" : "",
-                      ].join(" ")}
-                    >
-                      {isValid && (
-                        <>
-                          <span
-                            className={[
-                              "inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full mb-0.5",
-                              isToday
-                                ? "bg-indigo-600 text-white"
-                                : weekday === 0
-                                  ? "text-red-500"
-                                  : weekday === 6
-                                    ? "text-blue-500"
-                                    : "text-slate-700",
-                            ].join(" ")}
-                          >
-                            {day}
-                          </span>
-                          {totalCharge > 0 && (
-                            <p className="text-[10px] text-red-600 truncate leading-tight">
-                              {yen(totalCharge)}
-                            </p>
-                          )}
-                          {totalRefund > 0 && (
-                            <p className="text-[10px] text-emerald-600 truncate leading-tight">
-                              −{yen(totalRefund)}
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+        <div className="flex flex-col lg:flex-row gap-4 items-start">
+          {/* カレンダー（components/MonthCalendar.tsx） */}
+          <MonthCalendar
+            year={viewYear}
+            month={viewMonth}
+            onMove={(d) => (d < 0 ? prevMonth() : nextMonth())}
+            loading={!txns}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+            renderDay={(day) => {
+              const dayEntries = byDay.get(day) ?? [];
+              return (
+                <DayAmounts
+                  income={dayEntries.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0)}
+                  expense={dayEntries.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)}
+                />
+              );
+            }}
+          />
 
           {/* サイドパネル */}
-          <div className="w-80 shrink-0 flex flex-col gap-3">
+          <div className="w-full lg:w-80 shrink-0 flex flex-col gap-3">
             {selectedDay ? (
               <>
                 <div className="card py-2 px-4">

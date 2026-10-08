@@ -319,6 +319,7 @@ flowchart LR
 | `src/components/SectionCard.tsx` | 1 つのまとまりのカード（見出し・説明・右上の操作・見出しの横の印）。サマリ・推移のグラフ・設定の各項目。保存の結果は `SaveNotice` |
 | `src/components/LedgerTable.tsx`（モバイルは `LedgerRow`） | 明細の履歴の表（[9.3節](#93-csv-インポートと履歴)） |
 | `src/components/AccountMonthMatrix.tsx` | 予算・実績の科目×月の表 |
+| `src/components/MonthCalendar.tsx`（モバイルも同名） | 月のカレンダー（月の移動・月の合計の帯 `CalendarTotals`・曜日の行・日のマス・今日の印・選んだ日）。マスの中身は `DayAmounts`（その日の入金 + と出金 −）などを呼び出し側が渡す。予算・現金・銀行・カードのカレンダーで使う |
 
 ## 6. 認証とアカウント
 
