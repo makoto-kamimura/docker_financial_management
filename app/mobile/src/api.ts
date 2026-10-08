@@ -1016,7 +1016,8 @@ export async function fetchBankTransactions(accountId: number): Promise<BankTran
 // 手動登録（収入は正、支出は負の金額）
 export async function postBankTransaction(
   accountId: number,
-  data: { date: string; description: string; amount: number },
+  /** categoryAccountId を省くと学習ルールで科目を決める（付けた明細はそのまま実績） */
+  data: { date: string; description: string; amount: number; categoryAccountId?: number },
 ): Promise<void> {
   await request(
     `/bank-accounts/${accountId}/transactions`,
@@ -1259,7 +1260,8 @@ export async function fetchCardTransactions(accountId: number): Promise<CardTran
 // 利用は正、返金は負の金額で登録する（web 版の手動登録と同じ符号）
 export async function postCardTransaction(
   accountId: number,
-  data: { date: string; description: string; amount: number },
+  /** categoryAccountId を省くと学習ルールで科目を決める（付けた明細はそのまま実績） */
+  data: { date: string; description: string; amount: number; categoryAccountId?: number },
 ): Promise<void> {
   await request(
     `/linked-accounts/${accountId}/transactions`,
@@ -1437,6 +1439,61 @@ export async function categorizeTransaction(
     jsonInit("PATCH", { categoryAccountId, learn: categoryAccountId !== null }),
   );
   return { updatedSiblingCount: json?.updatedSiblingCount ?? 0 };
+}
+
+// ── 未割り当ての明細とまとめての処理（実績の確定タブ。web 版と同じ）──────────
+export type UnassignedEntry = {
+  id: number;
+  kind: "CASH" | "BANK" | "CARD";
+  date: string;
+  description: string;
+  /** +入金 / −出金 */
+  amount: number;
+  sourceName: string;
+};
+
+/** その月の未割り当て（科目が付いていない）明細。残っている間は実績を確定できない */
+export async function fetchUnassignedEntries(
+  year: number,
+  month: number,
+): Promise<UnassignedEntry[]> {
+  const json = await request<{ data?: UnassignedEntry[] }>(
+    `/ledger/unassigned?year=${year}&month=${month}`,
+    "未割り当ての明細の取得に失敗しました",
+  );
+  return json.data ?? [];
+}
+
+const ENTRY_CATEGORIZE_PATH: Record<UnassignedEntry["kind"], (id: number) => string> = {
+  CASH: (id) => `/actuals/${id}/categorize`,
+  BANK: (id) => `/bank-transactions/${id}/categorize`,
+  CARD: (id) => `/card-transactions/${id}/categorize`,
+};
+
+/** 明細（現金・銀行・カード）に科目を付ける。学習し、同じ摘要の未割り当ての明細にも付ける */
+export async function categorizeEntry(
+  kind: UnassignedEntry["kind"],
+  id: number,
+  categoryAccountId: number,
+): Promise<{ updatedSiblingCount: number }> {
+  const json = await request<{ updatedSiblingCount?: number }>(
+    ENTRY_CATEGORIZE_PATH[kind](id),
+    "科目の設定に失敗しました",
+    jsonInit("PATCH", { categoryAccountId, learn: true }),
+  );
+  return { updatedSiblingCount: json?.updatedSiblingCount ?? 0 };
+}
+
+/** まとめて自動処理（学習ルールで科目を付け、同じ日・同じ金額の組を振替・チャージにする） */
+export async function autoProcessEntries(): Promise<{
+  categorized: number;
+  offsetPairs: number;
+  lockedSkipped: number;
+}> {
+  const json = await request<{
+    data: { categorized: number; offsetPairs: number; lockedSkipped: number };
+  }>("/ledger/auto-process", "自動処理に失敗しました", { method: "POST" });
+  return json.data;
 }
 
 // ── 資金移動ルール（固定の入出金。毎月の予定）────────────────────────────

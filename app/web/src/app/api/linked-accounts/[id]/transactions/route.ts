@@ -6,6 +6,7 @@ import { parseBankCsv } from "@/lib/banktxn-import";
 import {
   CARD,
   createEntry,
+  entryCategory,
   ENTRY_REFS_INCLUDE,
   insertExternalEntries,
   toCardTxn,
@@ -13,11 +14,14 @@ import {
 import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/import";
+import { applyAutoOffset } from "@/lib/auto-offset";
 
 const TxnSchema = z.object({
   date: z.string().min(1),
   description: z.string().min(1),
   amount: z.number(),
+  /** 科目。省略すると学習ルールで決め、null なら未割り当て（付けた明細はそのまま実績になる） */
+  categoryAccountId: z.number().int().positive().nullable().optional(),
 });
 
 // GET /api/linked-accounts/[id]/transactions … カード利用明細（直近 200 件）
@@ -63,10 +67,23 @@ export const POST = withApi({
           description: body.description,
           flow: -body.amount,
           source: "MANUAL",
+          category: await entryCategory(
+            db,
+            user.tenantId,
+            body.categoryAccountId,
+            body.description,
+          ),
         },
       );
+      // 同じ日・同じ金額の対になる明細が 1 組だけあれば、振替・チャージの組にする
+      await applyAutoOffset(db, [txn.date!]);
+      const saved = await db.financialRecord.findUniqueOrThrow({
+        where: { id: txn.id },
+        include: ENTRY_REFS_INCLUDE,
+      });
+
       await audit("create_card_txn", `linked_account:${id}:${txn.id}`);
-      return NextResponse.json({ data: toCardTxn(txn) }, { status: 201 });
+      return NextResponse.json({ data: toCardTxn(saved) }, { status: 201 });
     }
 
     // S-9 と同様、CSV 取込のみユーザー単位のレート制限を適用（10 回 / 10 分）

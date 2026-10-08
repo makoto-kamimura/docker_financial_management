@@ -22,7 +22,7 @@ export const POST = withApi({
       bankName: account.bankName,
     });
 
-    const { inserted, locked } = await insertExternalEntries(
+    const { inserted, locked, offset } = await insertExternalEntries(
       db,
       user.tenantId,
       { kind: "BANK", accountId: id },
@@ -37,6 +37,7 @@ export const POST = withApi({
       inserted,
       skipped: fetched.length - inserted - locked,
       locked,
+      offset,
     });
   },
 });

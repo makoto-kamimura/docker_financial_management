@@ -3,6 +3,7 @@
 // 実績管理の「実績の確定」タブ。月ごとの流れ ① → ② → ③（順番は API が強制）のうち ② を受け持つ。
 //   銀行・カード・電子マネーの明細の最終日が月末日までそろうと「実績入力済み」になるので、
 //   ボタンで実績を確定する（POST /api/actuals/confirm。判定は lib/actuals-coverage.ts）。
+//   科目が付いていない（未割り当ての）明細が残っている月は確定できない。下の一覧で行ごとに科目を付ける。
 //   明細が月末まで届かない口座・カードは、行ごとの「当月末まで変動なし」で、そろったものとして扱える。
 //   その印と確定時点の最終日は、確定の記録として残す（確定後はその記録を表示する）。
 //   前提の ① と、あとに続く ③ は予算管理の「予算の確定」タブ（components/BudgetConfirmPanel.tsx）で行う。
@@ -24,7 +25,8 @@ import {
 import { MonthPicker } from "@/components/MonthPicker";
 import { useCycleMonth } from "@/lib/use-cycle-month";
 import { ENTRY_HELP, textFor } from "@/lib/help-texts";
-import type { ViewMode } from "@/lib/display-name";
+import { displayName, type ViewMode } from "@/lib/display-name";
+import { invalidateActuals } from "@/lib/invalidate-actuals";
 import { Notice } from "@/components/ui";
 
 export function ActualsConfirmPanel({
@@ -165,6 +167,11 @@ export function ActualsConfirmPanel({
         />
       )}
 
+      {/* 未割り当ての明細（残っている間は確定できない）とまとめての処理 */}
+      {data && month !== null && !data.actuals.confirmedAt && (
+        <UnassignedCard year={year} month={month} mode={mode} onChanged={refresh} />
+      )}
+
       {data?.actuals.confirmedAt && !data.nextConfirmedAt && (
         <p className="text-sm text-slate-600">
           次は、予算管理で{month}月の予算と実績を比べ、{data.next.month}月の予算を確定します（③）。{" "}
@@ -228,7 +235,9 @@ function ActualsCard({
       ? "明細を取り込むと確定できます。"
       : !ready
         ? `明細が月末（${formatYmd(actuals.monthEnd)}）までそろうか、届いていないものに「当月末まで変動なし」を付けると確定できます。`
-        : null;
+        : actuals.unassigned > 0
+          ? `未割り当ての明細（${actuals.unassigned} 件）に科目を付けると確定できます。`
+          : null;
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -340,13 +349,203 @@ function ActualsCard({
         {!locked && blockedReason && (
           <span className="text-xs text-amber-700">{blockedReason}</span>
         )}
-        {!locked && actuals.unassigned > 0 && (
-          <span className="text-xs text-slate-500">
-            {month}月の明細のうち {actuals.unassigned}{" "}
-            件にまだ科目が付いていません（科目を付けると実績に入ります）。
-          </span>
-        )}
       </div>
+    </div>
+  );
+}
+
+type UnassignedEntry = {
+  id: number;
+  kind: "CASH" | "BANK" | "CARD";
+  date: string;
+  description: string;
+  /** +入金 / −出金 */
+  amount: number;
+  sourceName: string;
+};
+type CategoryAccount = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
+
+// 明細の種別ごとの科目の変更先（付けた科目は学習し、同じ摘要の未割り当ての明細にも付く）
+const CATEGORIZE_PATH: Record<UnassignedEntry["kind"], (id: number) => string> = {
+  CASH: (id) => `/api/actuals/${id}/categorize`,
+  BANK: (id) => `/api/bank-transactions/${id}/categorize`,
+  CARD: (id) => `/api/card-transactions/${id}/categorize`,
+};
+const KIND_LABEL: Record<UnassignedEntry["kind"], string> = {
+  CASH: "現金",
+  BANK: "銀行",
+  CARD: "カード",
+};
+const yen = (v: number) => `${v < 0 ? "−" : "+"}${Math.abs(v).toLocaleString("ja-JP")}円`;
+
+// 未割り当て（科目が付いていない）の明細の一覧。行ごとに科目を選ぶと、その明細がそのまま実績になる。
+// 残っている間は、その月の実績を確定できない。「まとめて自動処理」は、学習ルールで科目を付け、
+// 同じ日・同じ金額の送金と受金を振替・チャージの組にする（全期間。確定済みの月は触らない）。
+function UnassignedCard({
+  year,
+  month,
+  mode,
+  onChanged,
+}: {
+  year: number;
+  month: number;
+  mode: ViewMode;
+  onChanged: () => void;
+}) {
+  const qc = useQueryClient();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const { data: entries, isLoading } = useQuery({
+    queryKey: ["ledger-unassigned", year, month],
+    queryFn: async (): Promise<UnassignedEntry[]> =>
+      (await (await fetch(`/api/ledger/unassigned?year=${year}&month=${month}`)).json()).data ?? [],
+  });
+  const { data: accounts } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async (): Promise<CategoryAccount[]> =>
+      (await (await fetch("/api/accounts")).json()).data ?? [],
+  });
+  const categorizable = (accounts ?? []).filter((a) =>
+    ["REVENUE", "COGS", "EXPENSE"].includes(a.category),
+  );
+
+  function refresh() {
+    qc.invalidateQueries({ queryKey: ["ledger-unassigned"] });
+    qc.invalidateQueries({ queryKey: ["bank-txns"] });
+    qc.invalidateQueries({ queryKey: ["card-txns"] });
+    invalidateActuals(qc);
+    onChanged();
+  }
+
+  async function setCategory(e: UnassignedEntry, categoryAccountId: number) {
+    setMsg(null);
+    const res = await fetch(CATEGORIZE_PATH[e.kind](e.id), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoryAccountId, learn: true }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) setMsg({ ok: false, text: `科目の変更に失敗しました: ${json.error ?? "エラー"}` });
+    else if ((json.updatedSiblingCount ?? 0) > 0)
+      setMsg({
+        ok: true,
+        text: `同じ摘要の未割り当ての明細 ${json.updatedSiblingCount} 件にも同じ科目を付けました。`,
+      });
+    refresh();
+  }
+
+  async function autoProcess() {
+    setProcessing(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/ledger/auto-process", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg({ ok: false, text: `自動処理に失敗しました: ${json.error ?? "エラー"}` });
+      } else {
+        const r = json.data as { categorized: number; offsetPairs: number; lockedSkipped: number };
+        setMsg({
+          ok: true,
+          text:
+            `学習ルールで ${r.categorized} 件に科目を付け、${r.offsetPairs} 組を振替・チャージにしました。` +
+            (r.lockedSkipped > 0
+              ? `（実績を確定済みの月の未割り当て ${r.lockedSkipped} 件はそのままです）`
+              : ""),
+        });
+      }
+      refresh();
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-4 pt-4 flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="section-title mb-1">
+            未割り当ての明細（{month}月・{entries?.length ?? 0} 件）
+          </h3>
+          <SectionLead className="mb-3">{ENTRY_HELP.unassigned}</SectionLead>
+        </div>
+        <button
+          type="button"
+          disabled={processing}
+          onClick={autoProcess}
+          className="btn-secondary shrink-0"
+          title={ENTRY_HELP.autoProcess}
+        >
+          {processing ? "処理中…" : "まとめて自動処理"}
+        </button>
+      </div>
+      {msg && (
+        <div className="px-4 pb-3">
+          <Notice tone={msg.ok ? "success" : "error"} onClose={() => setMsg(null)}>
+            {msg.text}
+          </Notice>
+        </div>
+      )}
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : (entries ?? []).length === 0 ? (
+        <p className="px-4 pb-4 text-sm text-emerald-700">
+          {month}月の明細には、すべて科目が付いています。
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-y border-slate-200 text-xs text-slate-600">
+                <th className="px-4 py-2 text-left font-semibold">日付</th>
+                <th className="px-3 py-2 text-left font-semibold">口座</th>
+                <th className="px-3 py-2 text-left font-semibold min-w-44">摘要</th>
+                <th className="px-3 py-2 text-right font-semibold">金額</th>
+                <th className="px-3 py-2 text-left font-semibold">科目</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {(entries ?? []).map((e) => (
+                <tr key={e.id}>
+                  <td className="px-4 py-2 whitespace-nowrap tabular-nums">
+                    {new Date(e.date).toLocaleDateString("ja-JP")}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">
+                    {KIND_LABEL[e.kind]}・{e.sourceName}
+                  </td>
+                  <td className="px-3 py-2">{e.description}</td>
+                  <td
+                    className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${e.amount < 0 ? "text-rose-600" : "text-emerald-600"}`}
+                  >
+                    {yen(e.amount)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <select
+                      value=""
+                      onChange={(ev) => ev.target.value && setCategory(e, Number(ev.target.value))}
+                      aria-label={`${e.description} の科目`}
+                      className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-40"
+                    >
+                      <option value="">科目を選ぶ</option>
+                      {categorizable.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} {displayName(a, mode)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

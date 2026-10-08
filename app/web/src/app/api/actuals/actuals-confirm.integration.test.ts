@@ -258,6 +258,26 @@ describe("実績の確定", () => {
     expect((await res.json()).error).toContain(`${YEAR}-05-20`);
   });
 
+  it("② 未割り当ての明細が残っていると、実績を確定できない（409）。科目を付ければ進める", async () => {
+    actingUser = editor;
+    const res = await confirmActuals(5, [{ kind: "card", id: cardId }]);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("科目が付いていません");
+
+    const categorize = await bankCategorize(
+      makeReq("PATCH", `http://x/api/bank-transactions/${bankTxnId}/categorize`, {
+        categoryAccountId: food.id,
+      }),
+      params(bankTxnId),
+    );
+    expect(categorize.status).toBe(200);
+    await prisma.financialRecord.updateMany({
+      where: { tenantId, kind: "CARD", accountId: null },
+      data: { accountId: food.id, amount: 1_500 },
+    });
+    expect((await variance(5)).actuals.unassigned).toBe(0);
+  });
+
   it("② 当月末まで変動なし: 届いていないソースすべてに付ければ確定でき、確定時点の状況を記録する", async () => {
     actingUser = editor;
     // 月末まで届いている銀行に付けても意味が無く、カードが残るので確定できない
@@ -364,14 +384,13 @@ describe("実績の確定", () => {
 
     const categorize = await bankCategorize(
       makeReq("PATCH", `http://x/api/bank-transactions/${bankTxnId}/categorize`, {
-        categoryAccountId: food.id,
+        categoryAccountId: null,
       }),
       params(bankTxnId),
     );
     expect(categorize.status).toBe(409);
     const txn = await prisma.financialRecord.findUnique({ where: { id: bankTxnId } });
-    expect(txn?.accountId).toBeNull();
-    expect(Number(txn?.amount)).toBe(0);
+    expect([txn?.accountId, Number(txn?.amount)]).toEqual([food.id, 3_000]);
   });
 
   it("③ 当月の実績を確定すると、翌月の予算を確定できる", async () => {
@@ -392,7 +411,7 @@ describe("実績の確定", () => {
       month: 5,
       next: { year: YEAR, month: 6 },
       prevActualsPending: false,
-      actuals: { entered: true, monthEnd: `${YEAR}-05-31`, unassigned: 2 },
+      actuals: { entered: true, monthEnd: `${YEAR}-05-31`, unassigned: 0 },
     });
     expect(data.confirmedAt).not.toBeNull();
     expect(data.actuals.confirmedAt).not.toBeNull();
@@ -426,16 +445,16 @@ describe("実績の確定", () => {
     expect((await unconfirmActuals(5)).status).toBe(204);
     expect((await unconfirmBudget(5)).status).toBe(204);
 
-    // 解除後は明細に科目を付けられる（その明細が実績になる）
+    // 解除後は明細の科目を変えられる（外すと実績から抜ける）
     actingUser = editor;
     const categorize = await bankCategorize(
       makeReq("PATCH", `http://x/api/bank-transactions/${bankTxnId}/categorize`, {
-        categoryAccountId: food.id,
+        categoryAccountId: null,
       }),
       params(bankTxnId),
     );
     expect(categorize.status).toBe(200);
     const txn = await prisma.financialRecord.findUnique({ where: { id: bankTxnId } });
-    expect([txn?.accountId, Number(txn?.amount)]).toEqual([food.id, 3_000]);
+    expect([txn?.accountId, Number(txn?.amount)]).toEqual([null, 0]);
   });
 });

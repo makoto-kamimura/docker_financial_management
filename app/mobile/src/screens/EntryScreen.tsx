@@ -298,6 +298,8 @@ export function EntryScreen({
             accounts={bankAccounts}
             accountId={bankAccountId}
             onBalanceChanged={loadSourceAccounts}
+            categoryAccounts={accounts}
+            viewMode={viewMode}
           />
         )}
         {tab === "calendar" && source === "card" && selectedCard && (

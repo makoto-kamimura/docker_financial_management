@@ -8,9 +8,12 @@ import {
   deleteBankTransaction,
   fetchBankTransactions,
   postBankTransaction,
+  type Account,
   type BankAccount,
   type BankTransaction,
+  type ViewMode,
 } from "../../api";
+import { categoryPayload, EntryCategoryField } from "../EntryCategoryField";
 import { digitsOnly, isoDate, yenJa } from "../../format";
 import { BANK_HELP } from "../../shared/help-texts";
 import { Button, Card, Field, Input, Lead, Notice, Pills, SelectField } from "../ui";
@@ -23,6 +26,8 @@ const BLANK_FORM = {
   amount: "",
   /** すべての口座を表示しているときの登録先 */
   accountId: null as number | null,
+  /** 科目（null = 自動） */
+  category: null as Account | null,
 };
 
 type Props = {
@@ -31,9 +36,18 @@ type Props = {
   accountId: number | null;
   /** 残高が変わったとき（口座の残高・資金繰りを取り直す） */
   onBalanceChanged: () => void;
+  /** 科目の選択肢（fetchAccounts の結果） */
+  categoryAccounts: Account[];
+  viewMode: ViewMode;
 };
 
-export function BankTransactionsCalendar({ accounts, accountId, onBalanceChanged }: Props) {
+export function BankTransactionsCalendar({
+  accounts,
+  accountId,
+  onBalanceChanged,
+  categoryAccounts,
+  viewMode,
+}: Props) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -117,6 +131,7 @@ export function BankTransactionsCalendar({ accounts, accountId, onBalanceChanged
         date: isoDate(year, month, selectedDay),
         description: form.description.trim(),
         amount: form.type === "expense" ? -Math.abs(raw) : Math.abs(raw),
+        ...categoryPayload(form.category),
       });
       setForm((f) => ({ ...BLANK_FORM, type: f.type, accountId: f.accountId }));
       await load();
@@ -290,7 +305,7 @@ export function BankTransactionsCalendar({ accounts, accountId, onBalanceChanged
                 { value: "income" as Direction, label: "入金" },
               ]}
               value={form.type}
-              onChange={(type) => setForm((f) => ({ ...f, type }))}
+              onChange={(type) => setForm((f) => ({ ...f, type, category: null }))}
             />
             {/* すべての銀行を表示しているときは、登録する口座を選ぶ */}
             {accountId === null && (
@@ -319,6 +334,13 @@ export function BankTransactionsCalendar({ accounts, accountId, onBalanceChanged
                 onChangeText={(t) => setForm((f) => ({ ...f, amount: digitsOnly(t) }))}
               />
             </Field>
+            <EntryCategoryField
+              accounts={categoryAccounts}
+              value={form.category}
+              onChange={(category) => setForm((f) => ({ ...f, category }))}
+              direction={form.type}
+              viewMode={viewMode}
+            />
             {error ? <Notice tone="error">{error}</Notice> : null}
             <Button label={saving ? "登録中..." : "登録"} onPress={submit} loading={saving} />
           </Card>
