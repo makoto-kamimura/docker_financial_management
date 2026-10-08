@@ -15,9 +15,9 @@ import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPane
 import { TransferRulesCard } from "@/components/TransferRulesCard";
 import { CsvDropzone, Notice, PageHeader, SegmentedControl, Tabs } from "@/components/ui";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
-import { SectionLead } from "@/components/Explain";
+import { SectionLead, TermDetails } from "@/components/Explain";
 import { useViewMode } from "@/lib/use-view-mode";
-import { ENTRY_HELP, textFor } from "@/lib/help-texts";
+import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "@/lib/help-texts";
 import { displayName } from "@/lib/display-name";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
 import { buildFinancialMatrix, type MatrixRecord } from "@/lib/financial-matrix";
@@ -593,6 +593,14 @@ function EntryContent() {
             }[tab]
           }
         </SectionLead>
+      )}
+      {/* CSV と履歴は科目が学習ルールで付く・学習する場所なので、しくみを開いて読めるようにする */}
+      {(tab === "csv" || tab === "history") && (
+        <TermDetails
+          terms={LEARNING_RULE_TERMS}
+          summary="学習ルールのしくみ"
+          className="-mt-2 mb-4"
+        />
       )}
 
       {/* ── 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ ── */}

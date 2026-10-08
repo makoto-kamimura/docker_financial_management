@@ -12,11 +12,11 @@ import {
   type Account,
   type UnassignedEntry,
 } from "../api";
-import { ENTRY_HELP } from "../shared/help-texts";
+import { ENTRY_HELP, LEARNING_RULE_TERMS } from "../shared/help-texts";
 import { fmtDate, yen } from "../format";
 import { CategoryPickerModal } from "./CategoryPickerModal";
 import { LedgerRow } from "./LedgerRow";
-import { Button, COLORS, Notice } from "./ui";
+import { Button, COLORS, Notice, TermList } from "./ui";
 
 const KIND_LABEL: Record<UnassignedEntry["kind"], string> = {
   CASH: "現金",
@@ -99,6 +99,7 @@ export function UnassignedEntries({
         未割り当ての明細（{month}月・{entries?.length ?? 0} 件）
       </Text>
       <Text style={s.note}>{ENTRY_HELP.unassigned}</Text>
+      <TermList terms={LEARNING_RULE_TERMS} label="学習ルールのしくみ" />
       <View style={s.btnRow}>
         <Button
           label={processing ? "処理中…" : "まとめて自動処理"}
