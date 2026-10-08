@@ -31,20 +31,18 @@ export function resolveTransferTarget(
   return null;
 }
 
-/** 一括操作・ルール適用の対象になりうる明細（転記済みは実績が既に立っているため対象外） */
+/** チャージに指定しうる明細 */
 export type MarkableCardTxn = {
   id: number;
   accountId: number;
   description: string;
-  postedRecordId: number | null;
 };
 
 /**
  * チャージ指定の可否を判定する。問題があればその理由、無ければ null を返す。
  *
  * チャージ先を自分自身にすると資金がどこへ行ったのか表せないので弾く。
- * 転記済みは実績（FinancialRecord）が既に立っており、対象外にしても実績は消えないため、
- * 先に転記の取り消しが要る。
+ * 科目が付いていた明細は、チャージにすると科目が外れて実績から抜ける（呼び出し側で外す）。
  */
 export function validateCardTransferTarget(
   txn: MarkableCardTxn,
@@ -52,9 +50,6 @@ export function validateCardTransferTarget(
 ): string | null {
   if (txn.accountId === transferToAccountId) {
     return "チャージ先が同じカードです。別のカード・電子マネーを選択してください";
-  }
-  if (txn.postedRecordId !== null) {
-    return "実績へ転記済みの明細はチャージにできません（先に転記を取り消してください）";
   }
   return null;
 }

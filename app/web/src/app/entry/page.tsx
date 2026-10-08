@@ -3,7 +3,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import { Pencil, Trash2, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { EmptyState, LoadingSpinner } from "@/components/StateViews";
 import { AccountMonthMatrix, type MatrixCell } from "@/components/AccountMonthMatrix";
@@ -11,7 +10,7 @@ import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
 import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { CardTransactionsPanel } from "@/components/CardTransactionsPanel";
-import { LedgerTable } from "@/components/LedgerTable";
+import { LedgerBadge, LedgerTable } from "@/components/LedgerTable";
 import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPanel";
 import { TransferRulesCard } from "@/components/TransferRulesCard";
 import { CsvDropzone, Notice, PageHeader, SegmentedControl, Tabs } from "@/components/ui";
@@ -21,11 +20,11 @@ import { useViewMode } from "@/lib/use-view-mode";
 import { ENTRY_HELP, textFor } from "@/lib/help-texts";
 import { displayName } from "@/lib/display-name";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
-import { buildFinancialMatrix, editableRecord, type MatrixRecord } from "@/lib/financial-matrix";
+import { buildFinancialMatrix, type MatrixRecord } from "@/lib/financial-matrix";
+import { invalidateActuals } from "@/lib/invalidate-actuals";
 import {
   CATEGORY_LABEL as GROUP_LABELS,
   CATEGORY_ORDER as GROUP_ORDER,
-  CHANGE_ACTION_LABEL as ACTION_LABEL,
   categoryRank,
 } from "@/lib/labels";
 
@@ -40,43 +39,22 @@ type Account = {
   soleName?: string | null;
   corporateName?: string | null;
 };
-// CSV インポートの結果（POST /api/imports）。登録先ごとの登録件数と、重複で飛ばした件数
-type ImportCount = { inserted: number; skipped: number };
+// CSV インポートの結果（POST /api/imports）。登録先ごとの登録件数と、重複・確定済みの月で飛ばした件数
+type ImportCount = { inserted: number; skipped: number; locked: number };
 type ImportResult = {
   results: {
-    actual: ImportCount | null;
     bank: (ImportCount & { id: number; name: string })[];
     card: (ImportCount & { id: number; name: string })[];
   } | null;
   errors: { row: number; message: string }[];
 };
 
-type RecentHistory = {
-  historyId: number;
-  recordId: number;
-  action: "create" | "update" | "delete";
-  amount: number;
-  changedAt: string;
-  userId: number | null;
-  account: {
-    id: number;
-    code: string;
-    name: string;
-    category: string;
-    soleName?: string | null;
-    corporateName?: string | null;
-  };
-  period: { fiscalYear: number; month: number };
-};
-
-// 履歴のページングとソート
+// 現金の履歴のページ送り（銀行・カードの履歴と同じ 30 件ずつ）
 const HISTORY_PAGE_SIZE = 30;
-type HistorySort = "changedAt" | "account" | "amount";
-type HistoryResponse = { data: RecentHistory[]; total: number };
 
 // 実績 1 行の出どころ（GET /api/financials/matrix）。セルの内訳モーダルで表示する
 type RecordSource = {
-  kind: "bank" | "card" | "journal" | "direct";
+  kind: "cash" | "bank" | "card" | "journal" | "direct";
   date: string | null;
   description: string | null;
   accountName: string | null;
@@ -94,34 +72,25 @@ type MatrixResponse = {
   confirmedMonths: number[];
 };
 
-type JournalDetail = {
+// 現金の明細（GET /api/actuals）。科目を付けた明細がそのまま実績になる
+type CashEntry = {
   id: number;
-  side: "debit" | "credit";
+  date: string;
+  description: string;
+  /** +入金 / −出金 */
   amount: number;
-  account: {
+  categoryAccountId: number | null;
+  categoryAccount: {
     id: number;
     code: string;
     name: string;
     category: string;
     soleName?: string | null;
     corporateName?: string | null;
-  };
-};
-type JournalEntry = {
-  id: number;
-  transactionDate: string;
-  description: string;
-  paymentMethod: string;
-  details: JournalDetail[];
+  } | null;
 };
 
 // ── 定数 ───────────────────────────────────────────────────────────
-const ACTION_COLOR: Record<string, string> = {
-  create: "text-green-700 bg-green-50",
-  update: "text-amber-700 bg-amber-50",
-  delete: "text-red-700 bg-red-50",
-};
-
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const INCOME_CATS = ["REVENUE", "PROFIT"];
 const EXPENSE_CATS = ["EXPENSE", "COGS"];
@@ -138,12 +107,14 @@ const yen = (v: number) => v.toLocaleString("ja-JP") + "円";
 
 // セル内訳モーダルに出す「どこから入った実績か」のラベル
 const SOURCE_LABEL: Record<RecordSource["kind"], string> = {
-  bank: "銀行明細から転記",
-  card: "カード明細から転記",
+  cash: "現金の明細",
+  bank: "銀行の明細",
+  card: "カードの明細",
   journal: "仕訳と連動",
-  direct: "手入力・CSV 取込",
+  direct: "過去の直接入力",
 };
 const SOURCE_BADGE: Record<RecordSource["kind"], string> = {
+  cash: "bg-emerald-50 text-emerald-700",
   bank: "bg-sky-50 text-sky-700",
   card: "bg-violet-50 text-violet-700",
   journal: "bg-amber-50 text-amber-700",
@@ -154,19 +125,8 @@ const fmtDate = (iso: string) => {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
-function entryAmount(e: JournalEntry): { income: number; expense: number } {
-  let income = 0,
-    expense = 0;
-  for (const d of e.details) {
-    const amt = Number(d.amount);
-    if (INCOME_CATS.includes(d.account.category)) {
-      if (d.side === "credit") income += amt;
-    }
-    if (EXPENSE_CATS.includes(d.account.category)) {
-      if (d.side === "debit") expense += amt;
-    }
-  }
-  return { income, expense };
+function entryAmount(e: CashEntry): { income: number; expense: number } {
+  return { income: Math.max(e.amount, 0), expense: Math.max(-e.amount, 0) };
 }
 
 const now = new Date();
@@ -232,7 +192,10 @@ function EntryContent() {
   const [tab, setTab] = useState<Tab>(initial.tab);
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
-  const [source, setSource] = useState<Source>(initial.source);
+  // CSV インポートの取り込み先は銀行・カード（現金の CSV は扱わない）
+  const [source, setSource] = useState<Source>(
+    initial.tab === "csv" && initial.source === "manual" ? "bank" : initial.source,
+  );
   // 銀行は null で「すべての銀行」。カードは 1 枚ずつ扱う（null なら最初のカード）
   const [bankAccountId, setBankAccountId] = useState<number | null>(
     initial.source === "bank" ? initial.account : null,
@@ -266,34 +229,47 @@ function EntryContent() {
   });
 
   const [histOffset, setHistOffset] = useState(0);
-  const [histSort, setHistSort] = useState<HistorySort>("changedAt");
-  const [histOrder, setHistOrder] = useState<"asc" | "desc">("desc");
 
-  const { data: history, isLoading: histLoading } = useQuery({
-    queryKey: ["recent-history", histOffset, histSort, histOrder],
-    queryFn: async (): Promise<HistoryResponse> => {
-      const res = await fetch(
-        `/api/financials/recent?limit=${HISTORY_PAGE_SIZE}&offset=${histOffset}` +
-          `&sort=${histSort}&order=${histOrder}`,
-      );
-      const json = await res.json();
-      return { data: json.data ?? [], total: json.total ?? 0 };
-    },
-    // 履歴タブ（出どころが現金）を開いているときだけ取得・更新する
+  // 現金の明細（直近 200 件）。履歴タブ（出どころが現金）を開いているときだけ取得する
+  const { data: cashHistoryData, isLoading: histLoading } = useQuery({
+    queryKey: ["actuals", "recent"],
+    queryFn: async (): Promise<{ data: CashEntry[] }> => (await fetch("/api/actuals")).json(),
     enabled: tab === "history" && source === "manual",
-    refetchInterval: 30_000,
-    placeholderData: (prev) => prev,
   });
-  const recentHistory = history?.data;
-  const histTotal = history?.total ?? 0;
+  const cashHistory = cashHistoryData?.data;
+  const histTotal = cashHistory?.length ?? 0;
+  const [histMsg, setHistMsg] = useState<string | null>(null);
+
+  // 現金の明細の科目を変える（科目を付けた明細がそのまま実績）
+  async function setCashCategory(id: number, categoryAccountId: number | null) {
+    setHistMsg(null);
+    const res = await fetch(`/api/actuals/${id}/categorize`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoryAccountId }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setHistMsg(j.error ?? "科目の変更に失敗しました");
+    }
+    invalidateActuals(queryClient);
+  }
+
+  async function deleteCashEntry(e: CashEntry) {
+    if (!confirm(`「${e.description}」を削除してよいですか？`)) return;
+    setHistMsg(null);
+    const res = await fetch(`/api/actuals?id=${e.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setHistMsg(j.error ?? "削除に失敗しました");
+    }
+    invalidateActuals(queryClient);
+  }
 
   // 対象年度は左のメニューで選ぶ（全画面で共通）
   const matrixYear = useFiscalYear();
-  const [matrixError, setMatrixError] = useState<string | null>(null);
   // 「◯件」を押して開くセル内訳モーダル（同じ科目・月に複数の実績があるセル）
   const [cellDetail, setCellDetail] = useState<{ accountCode: string; month: number } | null>(null);
-  // 内訳モーダル内での金額編集（テーブル本体の matrixEdit とは独立させる）
-  const [detailEdit, setDetailEdit] = useState<{ id: number; amount: string } | null>(null);
 
   const { data: matrixData, isLoading: matrixLoading } = useQuery({
     queryKey: ["financials-matrix", matrixYear],
@@ -328,17 +304,6 @@ function EntryContent() {
     ? (matrixRows.find((r) => r.account.code === cellDetail.accountCode)?.account ?? null)
     : null;
 
-  // ソート列見出しのクリック: 同じ列なら昇順/降順を反転、別の列なら既定の向きから
-  function toggleHistorySort(key: HistorySort) {
-    if (key === histSort) {
-      setHistOrder(histOrder === "desc" ? "asc" : "desc");
-    } else {
-      setHistSort(key);
-      setHistOrder(key === "account" ? "asc" : "desc");
-    }
-    setHistOffset(0);
-  }
-
   // ── CSV インポート ─────────────────────────────────────────────
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -354,20 +319,20 @@ function EntryContent() {
   const [calSaving, setCalSaving] = useState(false);
   const [calError, setCalError] = useState("");
 
-  const { data: journalData, isLoading: calLoading } = useQuery({
+  const { data: cashData, isLoading: calLoading } = useQuery({
     queryKey: ["actuals", viewYear, viewMonth],
-    queryFn: async (): Promise<{ data: JournalEntry[] }> =>
+    queryFn: async (): Promise<{ data: CashEntry[] }> =>
       (await fetch(`/api/actuals?year=${viewYear}&month=${viewMonth}`)).json(),
     enabled: tab === "calendar" && source === "manual",
   });
 
   // 参照が毎回変わると下の useMemo が無駄に再計算されるため、ここで安定させる
-  const calEntries = useMemo(() => journalData?.data ?? [], [journalData]);
+  const calEntries = useMemo(() => cashData?.data ?? [], [cashData]);
 
   const byDay = useMemo(() => {
-    const m = new Map<number, JournalEntry[]>();
+    const m = new Map<number, CashEntry[]>();
     for (const e of calEntries) {
-      const d = new Date(e.transactionDate).getDate();
+      const d = new Date(e.date).getDate();
       if (!m.has(d)) m.set(d, []);
       m.get(d)!.push(e);
     }
@@ -400,104 +365,16 @@ function EntryContent() {
     return acc;
   }, {});
 
-  // 履歴の勘定科目インライン編集。転記元の銀行/カード明細がある場合はサーバ側で
-  // categoryAccountId も追随して更新される（PATCH /api/financials/[id]）。
-  const [historyAcctError, setHistoryAcctError] = useState<Record<number, string>>({});
-  async function updateHistoryAccount(recordId: number, accountId: number) {
-    setHistoryAcctError((m) => ({ ...m, [recordId]: "" }));
-    const res = await fetch(`/api/financials/${recordId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accountId }),
-    });
-    if (res.ok) {
-      queryClient.invalidateQueries({ queryKey: ["recent-history"] });
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setHistoryAcctError((m) => ({
-        ...m,
-        [recordId]: err.error ?? "勘定科目の変更に失敗しました。",
-      }));
-    }
-  }
-
-  // ── テーブル表示モード（勘定科目 × 月）のハンドラ ───────────────
-  function invalidateRecords() {
-    queryClient.invalidateQueries({ queryKey: ["financials-matrix"] });
-    queryClient.invalidateQueries({ queryKey: ["recent-history"] });
-  }
-
-  // 実績 1 行の金額更新。一覧のセル編集とセル内訳モーダルの両方から使う。失敗ならメッセージを返す
-  async function updateRecordAmount(id: number, amount: number): Promise<string | null> {
-    const res = await fetch(`/api/financials/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount }),
-    });
-    if (res.ok) {
-      invalidateRecords();
-      return null;
-    }
-    const err = await res.json().catch(() => ({}));
-    return err.error ?? "更新に失敗しました。";
-  }
-
-  // 内訳モーダルからの更新・削除。削除は取り消せないので確認を挟む
-  async function saveDetailAmount() {
-    if (!detailEdit) return;
-    const message = await updateRecordAmount(detailEdit.id, Number(detailEdit.amount));
-    setMatrixError(message);
-    if (!message) setDetailEdit(null);
-  }
-
-  async function deleteDetailRecord(r: MatrixEntry) {
-    if (!confirm(`${yen(Number(r.amount))} の実績を削除します。よろしいですか？`)) return;
-    if (detailEdit?.id === r.id) setDetailEdit(null);
-    setMatrixError(await deleteMatrixCell(r.id));
-  }
-
-  async function deleteMatrixCell(id: number): Promise<string | null> {
-    const res = await fetch(`/api/financials/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      invalidateRecords();
-      return null;
-    }
-    const err = await res.json().catch(() => ({}));
-    return err.error ?? "削除に失敗しました。";
-  }
-
-  async function addMatrixCell(
-    accountCode: string,
-    month: number,
-    amount: number,
-  ): Promise<string | null> {
-    const res = await fetch("/api/financials", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accountCode, fiscalYear: matrixCurrentYear, month, amount }),
-    });
-    if (res.ok) {
-      invalidateRecords();
-      return null;
-    }
-    const err = await res.json().catch(() => ({}));
-    return err.error ?? "登録に失敗しました。";
-  }
-
-  // 一覧のセル。同じ月に複数件あるセルは内訳から、仕訳と連動した実績は仕訳帳から直す
+  // 一覧のセル（見るだけ）。実績は明細に科目を付けると入るので、ここでは直接変えない。
+  // セルを押すと、どの明細・仕訳から入った実績かの内訳を出す
   function entryCell(code: string, m: number): MatrixCell | null {
     const cell = matrixRows.find((r) => r.account.code === code)?.byMonth.get(m);
     if (!cell) return null;
-    const single = editableRecord(cell);
     return {
       amount: cell.total,
-      editable:
-        single && single.journalEntryId === null
-          ? { id: single.id, amount: Number(single.amount) }
-          : null,
+      editable: null,
       action:
-        cell.records.length > 1 ? (
-          // 複数件のセルはその場で編集できないため、内訳モーダルで 1 行ずつ確認して直す
+        cell.records.length > 0 ? (
           <button
             type="button"
             onClick={() => setCellDetail({ accountCode: code, month: m })}
@@ -506,13 +383,6 @@ function EntryContent() {
           >
             {cell.records.length}件
           </button>
-        ) : single && single.journalEntryId !== null ? (
-          <span
-            className="text-[10px] text-slate-400"
-            title="仕訳と連動した実績のため、金額は仕訳帳から修正してください。"
-          >
-            仕訳
-          </span>
         ) : undefined,
     };
   }
@@ -557,7 +427,7 @@ function EntryContent() {
     setPendingImport(null);
     setImporting(true);
     try {
-      const params = new URLSearchParams({ target: source === "manual" ? "actual" : source });
+      const params = new URLSearchParams({ target: source === "card" ? "card" : "bank" });
       const id = source === "bank" ? bankAccountId : source === "card" ? cardId : null;
       if (id !== null) params.set("accountId", String(id));
       const res = await fetch(`/api/imports?${params}`, {
@@ -574,10 +444,9 @@ function EntryContent() {
       } else if (!res.ok) {
         setImportError(await importErrorMessage(res));
       }
-      // 実績・銀行・カードのどれに入っても表示が変わるので、まとめて取り直す
+      // 学習ルールで科目が付いた明細はそのまま実績になるので、実績もまとめて取り直す
+      invalidateActuals(queryClient);
       for (const key of [
-        "financials-matrix",
-        "recent-history",
         "bank-txns",
         "card-txns",
         "bank-accounts",
@@ -604,14 +473,22 @@ function EntryContent() {
       const name = bankAccounts?.find((a) => a.id === bankAccountId)?.name ?? "";
       setImportResult({
         results: {
-          actual: null,
-          bank: [{ id: bankAccountId, name, inserted: json.fetched ?? 0, skipped: 0 }],
+          bank: [
+            {
+              id: bankAccountId,
+              name,
+              inserted: json.inserted ?? 0,
+              skipped: json.skipped ?? 0,
+              locked: json.locked ?? 0,
+            },
+          ],
           card: [],
         },
         errors: [],
       });
       queryClient.invalidateQueries({ queryKey: ["bank-txns"] });
       queryClient.invalidateQueries({ queryKey: ["bank-accounts"] });
+      invalidateActuals(queryClient);
     } else {
       setImportError("自動取得に失敗しました。");
     }
@@ -646,14 +523,13 @@ function EntryContent() {
         date: dateStr,
         description: calForm.description,
         accountCode: calForm.accountCode,
-        // 対当科目は送らない（API が現金の科目で仕訳を作る）
         amount: Number(calForm.amount),
         direction: calForm.direction,
       }),
     });
     if (res.ok) {
       setCalForm(BLANK_CAL_FORM);
-      queryClient.invalidateQueries({ queryKey: ["actuals", viewYear, viewMonth] });
+      invalidateActuals(queryClient);
     } else {
       const j = (await res.json()) as { error?: string };
       setCalError(j.error ?? "登録に失敗しました");
@@ -662,8 +538,12 @@ function EntryContent() {
   }
 
   async function handleCalDelete(id: number) {
-    await fetch(`/api/actuals?id=${id}`, { method: "DELETE" });
-    queryClient.invalidateQueries({ queryKey: ["actuals", viewYear, viewMonth] });
+    const res = await fetch(`/api/actuals?id=${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setCalError(j.error ?? "削除に失敗しました");
+    }
+    invalidateActuals(queryClient);
   }
 
   return (
@@ -671,7 +551,14 @@ function EntryContent() {
       <PageHeader title="実績管理" lead={textFor(ENTRY_HELP.page, sysMode)} showYear />
 
       {/* タブ（予算管理と同じ並び：一覧 → 確定 → … → 履歴） */}
-      <Tabs tabs={TABS} value={tab} onChange={setTab} />
+      <Tabs
+        tabs={TABS}
+        value={tab}
+        onChange={(t) => {
+          if (t === "csv" && source === "manual") setSource("bank");
+          setTab(t);
+        }}
+      />
 
       {/* 実績の新規登録は下の「科目×月テーブル」のセルから行う（旧「新規登録」フォームは廃止）。
           科目名の変更は「設定 › 科目名設定」に集約した。 */}
@@ -694,9 +581,7 @@ function EntryContent() {
       {sourceTab && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <SegmentedControl
-            options={SOURCES.map(([v, l]) =>
-              tab === "csv" && v === "manual" ? ([v, "実績"] as [Source, string]) : [v, l],
-            )}
+            options={tab === "csv" ? SOURCES.filter(([v]) => v !== "manual") : SOURCES}
             value={source}
             onChange={setSource}
           />
@@ -949,7 +834,9 @@ function EntryContent() {
                                 {e.description}
                               </p>
                               <p className="text-[10px] text-slate-400 mt-0.5">
-                                {e.details.map((d) => displayName(d.account, sysMode)).join(" / ")}
+                                {e.categoryAccount
+                                  ? displayName(e.categoryAccount, sysMode)
+                                  : "未割り当て"}
                               </p>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -1084,23 +971,20 @@ function EntryContent() {
                 <div className="flex items-start gap-3">
                   <span className="text-2xl">✅</span>
                   <ul className="text-sm text-slate-800 space-y-0.5">
-                    {importResult.results.actual && (
-                      <li>
-                        実績: {importResult.results.actual.inserted.toLocaleString()} 件を登録
-                        {importResult.results.actual.skipped > 0 &&
-                          `（${importResult.results.actual.skipped.toLocaleString()} 件は同じ内容が登録済み）`}
-                      </li>
-                    )}
                     {importResult.results.bank.map((r) => (
                       <li key={`b${r.id}`}>
                         銀行 {r.name}: {r.inserted.toLocaleString()} 件を登録
                         {r.skipped > 0 && `（${r.skipped.toLocaleString()} 件は取り込み済み）`}
+                        {r.locked > 0 &&
+                          `（${r.locked.toLocaleString()} 件は実績を確定済みの月のため飛ばしました）`}
                       </li>
                     ))}
                     {importResult.results.card.map((r) => (
                       <li key={`c${r.id}`}>
                         カード・電子マネー {r.name}: {r.inserted.toLocaleString()} 件を登録
                         {r.skipped > 0 && `（${r.skipped.toLocaleString()} 件は取り込み済み）`}
+                        {r.locked > 0 &&
+                          `（${r.locked.toLocaleString()} 件は実績を確定済みの月のため飛ばしました）`}
                       </li>
                     ))}
                   </ul>
@@ -1141,18 +1025,6 @@ function EntryContent() {
           <div className="card bg-slate-50 space-y-4">
             <div>
               <h3 className="text-xs font-semibold text-slate-700 mb-2">
-                実績（取り込み先で「実績」を選んだとき）
-              </h3>
-              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`accountCode,fiscalYear,month,amount
-H1000,${THIS_YEAR},1,350000
-H2000,${THIS_YEAR},1,45000`}</pre>
-              <p className="mt-1 text-xs text-slate-500">
-                accountCode は勘定科目コード、fiscalYear は年度、month は月（1〜12）、amount
-                は金額（円）です。
-              </p>
-            </div>
-            <div>
-              <h3 className="text-xs font-semibold text-slate-700 mb-2">
                 銀行・カード・電子マネー（取り込み先で口座を選んだとき）
               </h3>
               <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`date,description,amount,balance
@@ -1160,52 +1032,18 @@ ${THIS_YEAR}-06-25,給与,300000,512000
 ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
               <p className="mt-1 text-xs text-slate-500">
                 銀行・カード会社のサイトの明細そのままの形式です（入金は正、支出は負。balance
-                は銀行だけで、無くてもかまいません）。
-                カード・電子マネーは取り込み時に符号を反転し、利用＝正、返金＝負として記録します。
+                は銀行だけで、無くてもかまいません）。摘要が学習ルールに当たった明細には科目が付き、そのまま実績になります。
               </p>
             </div>
             <div>
               <h3 className="text-xs font-semibold text-slate-700 mb-2">
-                登録先の列つき（1 つのファイルで、実績・銀行・カードに振り分ける）
+                登録先の列つき（1 つのファイルで、銀行・カードに振り分ける）
               </h3>
-              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`target,account,date,description,amount,accountCode
-実績,,${THIS_YEAR}-06-30,,350000,H1000
-銀行,住信SBI普通,${THIS_YEAR}-06-25,給与,300000,
-カード,楽天カード,${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,`}</pre>
+              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`target,account,date,description,amount
+銀行,住信SBI普通,${THIS_YEAR}-06-25,給与,300000
+カード,楽天カード,${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980`}</pre>
               <p className="mt-1 text-xs text-slate-500">{ENTRY_HELP.csvRouted}</p>
             </div>
-          </div>
-
-          {/* 給与明細の項目は、下の科目コードを使ってこの CSV から登録する
-              （旧「給与明細 CSV の取込」は廃止し、科目マスタ側に項目を用意した） */}
-          <div className="card bg-slate-50">
-            <h3 className="text-xs font-semibold text-slate-700 mb-2">
-              給与明細の内容を登録する場合の科目コード
-            </h3>
-            <p className="text-xs text-slate-500 mb-2">{ENTRY_HELP.payslip}</p>
-            <table className="w-full text-xs">
-              <tbody className="divide-y divide-slate-200">
-                {[
-                  ["総支給額・基本給", "H-1001 給与"],
-                  ["賞与", "H-1002 賞与"],
-                  ["通勤手当", "H-1017 通勤手当"],
-                  ["残業手当", "H-1018 残業手当"],
-                  ["住宅手当・家族手当", "H-1019 住宅手当・家族手当"],
-                  ["健康保険料", "H-3035 健康保険料"],
-                  ["介護保険料", "H-3036 介護保険料"],
-                  ["厚生年金保険料", "H-3037 厚生年金保険料"],
-                  ["雇用保険料", "H-3038 雇用保険料"],
-                  ["社会保険（内訳をまとめる場合）", "H-3009 社会保険"],
-                  ["所得税", "H-3030 所得税"],
-                  ["住民税", "H-3014 住民税"],
-                ].map(([item, code]) => (
-                  <tr key={item}>
-                    <td className="py-1 pr-3 text-slate-600">{item}</td>
-                    <td className="py-1 font-mono text-slate-700">{code}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </div>
       )}
@@ -1222,7 +1060,7 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
                 {matrixRows.length === 0 && (
                   <EmptyState
                     title="実績データがありません"
-                    description={`${matrixCurrentYear}年の実績がありません。CSV インポートかカレンダーから登録するか、下の「科目を追加」から入れてください。`}
+                    description={`${matrixCurrentYear}年の実績がありません。明細（現金・銀行・カード）をカレンダーか CSV インポートで入れ、科目を付けると実績になります。`}
                   />
                 )}
                 <AccountMonthMatrix
@@ -1236,126 +1074,83 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
                   getCell={entryCell}
                   lockedMonths={new Set(matrixData?.confirmedMonths ?? [])}
                   lockedTitle={(m) => `${m}月の実績は確定済みです。${ENTRY_HELP.actualsLocked}`}
-                  onAdd={addMatrixCell}
-                  onSave={updateRecordAmount}
-                  onDelete={deleteMatrixCell}
                 />
               </>
             ))}
 
-          {/* ── 履歴（出どころが現金 = 実績の変更記録）。銀行・カードと同じ共通の表 ── */}
+          {/* ── 履歴（出どころが現金 = 現金の明細）。銀行・カードと同じ共通の表 ── */}
           {tab === "history" &&
             source === "manual" &&
-            (histLoading && !recentHistory ? (
+            (histLoading && !cashHistory ? (
               <LoadingSpinner label="履歴を読み込み中…" />
             ) : (
-              <LedgerTable
-                total={histTotal}
-                offset={histOffset}
-                pageSize={HISTORY_PAGE_SIZE}
-                onPageChange={setHistOffset}
-                emptyText="まだ履歴はありません。"
-                headers={{
-                  date: (
-                    <button
-                      type="button"
-                      onClick={() => toggleHistorySort("changedAt")}
-                      className={`inline-flex items-center gap-1 hover:text-slate-700 ${
-                        histSort === "changedAt" ? "text-indigo-700 font-semibold" : ""
-                      }`}
-                    >
-                      日付（変更日時）
-                      <span className="text-[10px]">
-                        {histSort === "changedAt" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
-                      </span>
-                    </button>
-                  ),
-                  category: (
-                    <button
-                      type="button"
-                      onClick={() => toggleHistorySort("account")}
-                      className={`inline-flex items-center gap-1 hover:text-slate-700 ${
-                        histSort === "account" ? "text-indigo-700 font-semibold" : ""
-                      }`}
-                    >
-                      科目
-                      <span className="text-[10px]">
-                        {histSort === "account" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
-                      </span>
-                    </button>
-                  ),
-                  amount: (
-                    <button
-                      type="button"
-                      onClick={() => toggleHistorySort("amount")}
-                      className={`inline-flex items-center gap-1 hover:text-slate-700 ${
-                        histSort === "amount" ? "text-indigo-700 font-semibold" : ""
-                      }`}
-                    >
-                      金額
-                      <span className="text-[10px]">
-                        {histSort === "amount" ? (histOrder === "desc" ? "▼" : "▲") : "↕"}
-                      </span>
-                    </button>
-                  ),
-                }}
-                rows={(recentHistory ?? []).map((h) => ({
-                  key: h.historyId,
-                  date: fmtDate(h.changedAt),
-                  account: "現金",
-                  description: `${h.period.fiscalYear}年${h.period.month}月の実績`,
-                  amount: yen(h.amount),
-                  tone: "none" as const,
-                  category: (
-                    <>
-                      {h.action === "delete" ? (
-                        <>
-                          <span className="font-mono text-xs text-slate-400 mr-1">
-                            {h.account.code}
-                          </span>
-                          {displayName(h.account, sysMode)}
-                        </>
-                      ) : (
-                        <div className="flex flex-col gap-0.5">
-                          <select
-                            value={h.account.id}
-                            onChange={(e) =>
-                              updateHistoryAccount(h.recordId, Number(e.target.value))
-                            }
-                            className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-40"
-                          >
-                            {GROUP_ORDER.map((cat) => {
-                              const items = byCategory[cat] ?? [];
-                              if (items.length === 0) return null;
-                              return (
-                                <optgroup key={cat} label={GROUP_LABELS[cat]}>
-                                  {items.map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                      {a.code} {displayName(a, sysMode)}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              );
-                            })}
-                          </select>
-                          {historyAcctError[h.recordId] && (
-                            <span className="text-[10px] text-red-500">
-                              {historyAcctError[h.recordId]}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  ),
-                  status: (
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLOR[h.action] ?? ""}`}
-                    >
-                      {ACTION_LABEL[h.action] ?? h.action}
-                    </span>
-                  ),
-                }))}
-              />
+              <>
+                {histMsg && (
+                  <Notice tone="error" onClose={() => setHistMsg(null)} className="mb-3">
+                    {histMsg}
+                  </Notice>
+                )}
+                <LedgerTable
+                  total={histTotal}
+                  offset={histOffset}
+                  pageSize={HISTORY_PAGE_SIZE}
+                  onPageChange={setHistOffset}
+                  emptyText="現金の明細はまだありません。カレンダーから登録できます。"
+                  rows={(cashHistory ?? [])
+                    .slice(histOffset, histOffset + HISTORY_PAGE_SIZE)
+                    .map((e) => ({
+                      key: e.id,
+                      date: new Date(e.date).toLocaleDateString("ja-JP"),
+                      account: "現金",
+                      description: e.description,
+                      amount: yen(e.amount),
+                      tone: e.amount < 0 ? ("out" as const) : ("in" as const),
+                      category: (
+                        <select
+                          value={e.categoryAccountId ?? ""}
+                          onChange={(ev) =>
+                            setCashCategory(
+                              e.id,
+                              ev.target.value === "" ? null : Number(ev.target.value),
+                            )
+                          }
+                          className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-40"
+                        >
+                          <option value="">未割り当て</option>
+                          {GROUP_ORDER.map((cat) => {
+                            const items = (byCategory[cat] ?? []).filter((a) =>
+                              [...INCOME_CATS, ...EXPENSE_CATS].includes(a.category),
+                            );
+                            if (items.length === 0) return null;
+                            return (
+                              <optgroup key={cat} label={GROUP_LABELS[cat]}>
+                                {items.map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.code} {displayName(a, sysMode)}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            );
+                          })}
+                        </select>
+                      ),
+                      status: (
+                        <LedgerBadge tone={e.categoryAccountId !== null ? "emerald" : "amber"}>
+                          {e.categoryAccountId !== null ? "実績" : "未割り当て"}
+                        </LedgerBadge>
+                      ),
+                      actions: (
+                        <button
+                          type="button"
+                          onClick={() => deleteCashEntry(e)}
+                          className="text-xs text-slate-400 hover:text-red-600"
+                        >
+                          削除
+                        </button>
+                      ),
+                    }))}
+                />
+              </>
             ))}
         </div>
       )}
@@ -1418,21 +1213,16 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
               </h2>
               <button
                 type="button"
-                onClick={() => {
-                  setCellDetail(null);
-                  setDetailEdit(null);
-                }}
+                onClick={() => setCellDetail(null)}
                 className="text-sm text-slate-400 hover:text-slate-600"
               >
                 閉じる
               </button>
             </div>
             <p className="text-xs text-slate-500 mb-4">
-              このセルに登録されている実績の一覧です。合計 {yen(detailCell?.total ?? 0)}（
-              {detailCell?.records.length ?? 0} 件）
+              このセルの実績の一覧です。合計 {yen(detailCell?.total ?? 0)}（
+              {detailCell?.records.length ?? 0} 件）。明細の科目は履歴から変えられます。
             </p>
-
-            {matrixError && <p className="text-xs text-red-600 mb-2">{matrixError}</p>}
 
             {detailCell && detailCell.records.length > 0 ? (
               <div className="overflow-x-auto">
@@ -1443,104 +1233,45 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
                       <th className="text-left py-2 pr-4 font-medium">出どころ</th>
                       <th className="text-left py-2 pr-4 font-medium">内容</th>
                       <th className="text-right py-2 pr-2 font-medium">金額</th>
-                      <th className="py-2"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {detailCell.records.map((r) => {
-                      const editing = detailEdit?.id === r.id ? detailEdit : null;
-                      return (
-                        <tr key={r.id} className="hover:bg-slate-50">
-                          <td className="py-2 pr-4 text-xs font-mono text-slate-500 whitespace-nowrap">
-                            {fmtDate(r.createdAt)}
-                          </td>
-                          <td className="py-2 pr-4 whitespace-nowrap">
-                            <span
-                              className={`text-[10px] px-1.5 py-0.5 rounded ${SOURCE_BADGE[r.source.kind]}`}
-                            >
-                              {SOURCE_LABEL[r.source.kind]}
-                            </span>
-                          </td>
-                          <td className="py-2 pr-4 text-xs text-slate-600">
-                            {r.source.description ? (
-                              <>
-                                {r.source.date &&
-                                  `${new Date(r.source.date).toLocaleDateString("ja-JP")} · `}
-                                {r.source.description}
-                                {r.source.accountName && (
-                                  <span className="text-slate-400">（{r.source.accountName}）</span>
-                                )}
-                              </>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-                          <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
-                            {editing ? (
-                              <input
-                                type="number"
-                                value={editing.amount}
-                                onChange={(e) =>
-                                  setDetailEdit({ ...editing, amount: e.target.value })
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") saveDetailAmount();
-                                  if (e.key === "Escape") setDetailEdit(null);
-                                }}
-                                autoFocus
-                                className="w-28 text-right text-xs border border-indigo-400 rounded px-1 py-0.5"
-                              />
-                            ) : (
-                              yen(Number(r.amount))
-                            )}
-                          </td>
-                          <td className="py-2 text-right whitespace-nowrap">
-                            {editing ? (
-                              <button
-                                type="button"
-                                aria-label="保存"
-                                title="保存"
-                                onClick={saveDetailAmount}
-                                className="text-indigo-600 hover:text-indigo-700"
-                              >
-                                <Check className="w-4 h-4" aria-hidden="true" />
-                              </button>
-                            ) : r.journalEntryId !== null ? (
-                              // 仕訳と連動した実績は仕訳側が正なのでここでは触らせない
-                              <span className="text-[10px] text-slate-400">仕訳から修正</span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  aria-label="この実績を編集"
-                                  title="編集"
-                                  onClick={() =>
-                                    setDetailEdit({ id: r.id, amount: String(r.amount) })
-                                  }
-                                  className="text-slate-300 hover:text-indigo-500"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label="この実績を削除"
-                                  title="削除"
-                                  onClick={() => deleteDetailRecord(r)}
-                                  className="text-slate-300 hover:text-red-500"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                                </button>
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {detailCell.records.map((r) => (
+                      <tr key={r.id} className="hover:bg-slate-50">
+                        <td className="py-2 pr-4 text-xs font-mono text-slate-500 whitespace-nowrap">
+                          {fmtDate(r.createdAt)}
+                        </td>
+                        <td className="py-2 pr-4 whitespace-nowrap">
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded ${SOURCE_BADGE[r.source.kind]}`}
+                          >
+                            {SOURCE_LABEL[r.source.kind]}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 text-xs text-slate-600">
+                          {r.source.description ? (
+                            <>
+                              {r.source.date &&
+                                `${new Date(r.source.date).toLocaleDateString("ja-JP")} · `}
+                              {r.source.description}
+                              {r.source.accountName && (
+                                <span className="text-slate-400">（{r.source.accountName}）</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
+                          {yen(Number(r.amount))}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             ) : (
-              <p className="text-sm text-slate-400">このセルの実績はすべて削除されました。</p>
+              <p className="text-sm text-slate-400">このセルの実績はありません。</p>
             )}
           </div>
         </div>

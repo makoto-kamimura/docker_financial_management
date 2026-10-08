@@ -4,6 +4,36 @@ import { randomBytes, scryptSync } from "node:crypto";
 
 const prisma = new PrismaClient();
 
+// 銀行明細を 1 行入れる（明細は実績の表 financial_records の kind = BANK の行。科目なし＝未割り当て）
+async function createSeedBankEntry(
+  tenantId: number,
+  bankAccountId: number,
+  t: { date: string; description: string; amount: number; balance: number },
+) {
+  const date = new Date(t.date);
+  const fiscalYear = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const period = await prisma.period.upsert({
+    where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
+    update: {},
+    create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
+  });
+  await prisma.financialRecord.create({
+    data: {
+      tenantId,
+      kind: "BANK",
+      bankAccountId,
+      periodId: period.id,
+      date,
+      description: t.description,
+      flow: t.amount,
+      balance: t.balance,
+      source: "MANUAL",
+      amount: 0,
+    },
+  });
+}
+
 // NOTE: src/lib/auth.ts の hashPassword と同一実装。auth.ts は next/headers に依存し
 // tsx（seed 実行環境）から import できないため、seed 専用に複製している。
 function hashPassword(password: string): string {
@@ -136,7 +166,8 @@ async function main() {
   console.log("  ✓ Demo users ready (password: 'password')");
 
   // ── 1. 既存の取引データをクリア ──────────────────────────────────────────
-  await prisma.financialRecord.deleteMany({});
+  // 明細の行（kind あり）は残す（以前の bank_transactions と同じく、取引データのクリアの対象外）
+  await prisma.financialRecord.deleteMany({ where: { kind: null } });
   await prisma.budget.deleteMany({});
   await prisma.officer.deleteMany({});
   console.log("  ✓ Cleared financial records, budgets & officers");
@@ -648,7 +679,7 @@ async function main() {
   }
 
   // ── 8. 入出金明細（直近3か月）──────────────────────────────────────────
-  const existingTxns = await prisma.ledgerEntry.count({ where: { kind: "BANK" } });
+  const existingTxns = await prisma.financialRecord.count({ where: { kind: "BANK" } });
   if (existingTxns === 0) {
     // 給与口座: 初期残高 150,000
     const salaryTxns = [
@@ -780,18 +811,7 @@ async function main() {
       ...savingsTxns.map((t) => ({ ...t, acc: savingsAcc })),
     ];
     for (const t of toCreate) {
-      await prisma.ledgerEntry.create({
-        data: {
-          tenantId: t.acc.tenantId,
-          kind: "BANK",
-          bankAccountId: t.acc.id,
-          date: new Date(t.date),
-          description: t.description,
-          amount: t.amount,
-          balance: t.balance,
-          source: "MANUAL",
-        },
-      });
+      await createSeedBankEntry(t.acc.tenantId, t.acc.id, t);
     }
     console.log(`  ✓ Created ${toCreate.length} bank transactions`);
   }
@@ -952,7 +972,9 @@ async function main() {
     },
   });
 
-  const soleTxnCount = await prisma.ledgerEntry.count({ where: { bankAccountId: { in: [4, 5] } } });
+  const soleTxnCount = await prisma.financialRecord.count({
+    where: { bankAccountId: { in: [4, 5] } },
+  });
   if (soleTxnCount === 0) {
     const soleBusinessTxns = [
       { date: "2026-04-10", description: "A社 案件入金", amount: 1_200_000, balance: 2_850_000 },
@@ -1011,32 +1033,10 @@ async function main() {
       },
     ];
     for (const t of soleBusinessTxns) {
-      await prisma.ledgerEntry.create({
-        data: {
-          tenantId: soleBusinessAcc.tenantId,
-          kind: "BANK",
-          bankAccountId: soleBusinessAcc.id,
-          date: new Date(t.date),
-          description: t.description,
-          amount: t.amount,
-          balance: t.balance,
-          source: "MANUAL",
-        },
-      });
+      await createSeedBankEntry(soleBusinessAcc.tenantId, soleBusinessAcc.id, t);
     }
     for (const t of soleTaxTxns) {
-      await prisma.ledgerEntry.create({
-        data: {
-          tenantId: soleTaxAcc.tenantId,
-          kind: "BANK",
-          bankAccountId: soleTaxAcc.id,
-          date: new Date(t.date),
-          description: t.description,
-          amount: t.amount,
-          balance: t.balance,
-          source: "MANUAL",
-        },
-      });
+      await createSeedBankEntry(soleTaxAcc.tenantId, soleTaxAcc.id, t);
     }
     console.log("  ✓ Created sole proprietor bank transactions");
   }
@@ -2334,7 +2334,9 @@ async function main() {
     },
   });
 
-  const corpTxnCount = await prisma.ledgerEntry.count({ where: { bankAccountId: { in: [6, 7] } } });
+  const corpTxnCount = await prisma.financialRecord.count({
+    where: { bankAccountId: { in: [6, 7] } },
+  });
   if (corpTxnCount === 0) {
     const corpMainTxns = [
       { date: "2026-04-05", description: "X社 売掛入金", amount: 3_200_000, balance: 12_800_000 },
@@ -2429,32 +2431,10 @@ async function main() {
       },
     ];
     for (const t of corpMainTxns) {
-      await prisma.ledgerEntry.create({
-        data: {
-          tenantId: corpMainAcc.tenantId,
-          kind: "BANK",
-          bankAccountId: corpMainAcc.id,
-          date: new Date(t.date),
-          description: t.description,
-          amount: t.amount,
-          balance: t.balance,
-          source: "MANUAL",
-        },
-      });
+      await createSeedBankEntry(corpMainAcc.tenantId, corpMainAcc.id, t);
     }
     for (const t of corpSavingsTxns) {
-      await prisma.ledgerEntry.create({
-        data: {
-          tenantId: corpSavingsAcc.tenantId,
-          kind: "BANK",
-          bankAccountId: corpSavingsAcc.id,
-          date: new Date(t.date),
-          description: t.description,
-          amount: t.amount,
-          balance: t.balance,
-          source: "MANUAL",
-        },
-      });
+      await createSeedBankEntry(corpSavingsAcc.tenantId, corpSavingsAcc.id, t);
     }
     console.log("  ✓ Created corporate bank transactions");
   }

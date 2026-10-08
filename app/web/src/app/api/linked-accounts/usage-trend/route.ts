@@ -28,12 +28,12 @@ export const GET = withApi({
         orderBy: { id: "asc" },
         select: { id: true, name: true },
       }),
-      db.ledgerEntry.findMany({
+      db.financialRecord.findMany({
         where: { ...CARD },
         select: {
           cardAccountId: true,
           date: true,
-          amount: true,
+          flow: true,
           chargeToCardId: true,
           chargeGroupId: true,
         },
@@ -46,8 +46,8 @@ export const GET = withApi({
 
     const rows = txns.map((t) => ({
       accountId: t.cardAccountId!,
-      month: ym(t.date.getUTCFullYear(), t.date.getUTCMonth() + 1),
-      amount: cardSpend(t.amount),
+      month: ym(t.date!.getUTCFullYear(), t.date!.getUTCMonth() + 1),
+      amount: cardSpend(t.flow),
       transferToAccountId: t.chargeToCardId,
       chargeGroupId: t.chargeGroupId,
     }));

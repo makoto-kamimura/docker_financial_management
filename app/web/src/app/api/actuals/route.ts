@@ -2,138 +2,95 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
+import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 import { findAccountByCode } from "@/lib/period";
-import {
-  assertJournalSyncAllowed,
-  deleteFinancialRecordsForJournalEntry,
-  JOURNAL_DETAILS_INCLUDE,
-  syncJournalToFinancialRecords,
-} from "@/lib/journal";
+import { CASH, createEntry, toCashEntry } from "@/lib/ledger-entries";
+
+// 現金の明細（実績の表 financial_records の kind = CASH の行）。実績管理の「現金」のカレンダーと履歴で使う。
+// 科目を付けて登録するので、登録した時点で実績になる（科目は履歴から変えられる: ./[id]/categorize）。
+
+const CASH_INCLUDE = {
+  account: { select: { id: true, code: true, name: true, category: true } },
+} as const;
 
 const ActualSchema = z.object({
   date: z.string().min(1),
   description: z.string().min(1),
   accountCode: z.string().min(1),
-  /** 支払元・入金先の科目。省略すると現金（家計の実績のカレンダーは現金だけを扱う） */
-  counterAccountCode: z.string().min(1).optional(),
   amount: z.number().positive(),
   direction: z.enum(["income", "expense"]),
-  paymentMethod: z.string().optional(),
 });
 
-// GET /api/actuals?year=2026&month=6 … カレンダー日次実績（複式仕訳）
+// GET /api/actuals?year=2026&month=6 … その月の現金の明細（カレンダー）
+// GET /api/actuals … 直近 200 件の現金の明細（履歴）
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({
     year: z.coerce.number().int().optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
   }),
-  handler: async ({ user, db, query }) => {
-    const year = query.year ?? new Date().getFullYear();
-    const month = query.month ?? new Date().getMonth() + 1;
-
-    const from = new Date(year, month - 1, 1);
-    const to = new Date(year, month, 1);
-
-    const entries = await db.journalEntry.findMany({
-      where: { tenantId: user.tenantId, transactionDate: { gte: from, lt: to } },
-      include: JOURNAL_DETAILS_INCLUDE,
-      orderBy: { transactionDate: "asc" },
+  handler: async ({ db, query }) => {
+    const byMonth = query.year !== undefined && query.month !== undefined;
+    const rows = await db.financialRecord.findMany({
+      where: {
+        ...CASH,
+        ...(byMonth
+          ? {
+              date: {
+                gte: new Date(query.year!, query.month! - 1, 1),
+                lt: new Date(query.year!, query.month!, 1),
+              },
+            }
+          : {}),
+      },
+      include: CASH_INCLUDE,
+      orderBy: [{ date: byMonth ? "asc" : "desc" }, { id: "asc" }],
+      ...(byMonth ? {} : { take: 200 }),
     });
-
-    return NextResponse.json({ data: entries });
+    return NextResponse.json({ data: rows.map(toCashEntry) });
   },
 });
 
-// 現金の科目（資産の区分で名前が「現金」のもの。家計の既定は HA102、事業用は 1000）。
-// 同じ名前が複数あるときは、コードの若いものを使う
-function findCashAccount(db: Parameters<typeof findAccountByCode>[0]) {
-  return db.account.findFirst({
-    where: { category: "ASSET", name: "現金" },
-    orderBy: { code: "asc" },
-  });
-}
-
-// POST /api/actuals … 日次実績の登録（内部的に複式仕訳を自動生成）
+// POST /api/actuals … 現金の明細の登録（科目つき。登録した時点で実績になる）
 export const POST = withApi({
   role: "editor",
   schema: ActualSchema,
   handler: async ({ user, db, body, audit }) => {
     const { tenantId } = user;
-
-    const [account, counter] = await Promise.all([
-      findAccountByCode(db, tenantId, body.accountCode),
-      body.counterAccountCode
-        ? findAccountByCode(db, tenantId, body.counterAccountCode)
-        : findCashAccount(db),
-    ]);
+    const account = await findAccountByCode(db, tenantId, body.accountCode);
     if (!account) throw badRequest(`勘定科目 "${body.accountCode}" が見つかりません`);
-    if (!counter) {
-      throw badRequest(
-        body.counterAccountCode
-          ? `対当科目 "${body.counterAccountCode}" が見つかりません`
-          : "現金の科目がありません。設定の科目名設定で、資産の区分に「現金」を追加してください",
-      );
-    }
 
-    const [debitId, creditId] =
-      body.direction === "income" ? [counter.id, account.id] : [account.id, counter.id];
-
-    await assertJournalSyncAllowed(db, tenantId, new Date(body.date), [debitId, creditId]);
-
-    const entry = await db.journalEntry.create({
-      data: {
-        tenantId,
-        transactionDate: new Date(body.date),
-        description: body.description,
-        // 対当科目を省いた登録（実績のカレンダーの「現金」）は現金払い
-        paymentMethod: body.counterAccountCode ? (body.paymentMethod ?? "cash") : "cash",
-        details: {
-          create: [
-            { side: "debit", accountId: debitId, amount: body.amount },
-            { side: "credit", accountId: creditId, amount: body.amount },
-          ],
-        },
-      },
-      include: JOURNAL_DETAILS_INCLUDE,
-    });
-
-    // D-5c: カレンダー入力（自動 2 行仕訳）も choke-point 経由で月次実績へ同期する
-    await syncJournalToFinancialRecords(
+    const row = await createEntry(
       db,
       tenantId,
-      entry.id,
-      entry.transactionDate,
-      entry.details.map((d) => ({
-        accountId: d.accountId,
-        category: d.account.category,
-        side: d.side,
-        amount: Number(d.amount),
-      })),
+      { kind: "CASH" },
+      {
+        date: new Date(body.date),
+        description: body.description,
+        flow: body.direction === "income" ? body.amount : -body.amount,
+        source: "MANUAL",
+        category: account,
+      },
     );
-
-    await audit("create", `journal_entry:${entry.id}`);
-    return NextResponse.json({ data: entry }, { status: 201 });
+    await audit("create_cash_entry", `financial_record:${row.id}`);
+    const created = await db.financialRecord.findUniqueOrThrow({
+      where: { id: row.id },
+      include: CASH_INCLUDE,
+    });
+    return NextResponse.json({ data: toCashEntry(created) }, { status: 201 });
   },
 });
 
-// DELETE /api/actuals?id=123 … 日次実績の削除
+// DELETE /api/actuals?id=123 … 現金の明細の削除（実績を確定済みの月は 409）
 export const DELETE = withApi({
   role: "editor",
   querySchema: z.object({ id: z.coerce.number().int().positive() }),
-  handler: async ({ user, db, query, audit }) => {
-    const entry = await db.journalEntry.findUnique({
-      where: { id: query.id, tenantId: user.tenantId },
-    });
-    if (!entry) throw notFound();
-
-    // D-5a: 同期済み FinancialRecord 行があれば一緒に削除する（現状 actuals は未同期のため
-    // no-op だが、D-5c で同期対象になった時点でこの処理がそのまま効くようにしておく）
-    await db.$transaction(async (tx) => {
-      await deleteFinancialRecordsForJournalEntry(tx, query.id);
-      await tx.journalEntry.delete({ where: { id: query.id } });
-    });
-    await audit("delete", `journal_entry:${query.id}`);
+  handler: async ({ db, query, audit }) => {
+    const row = await db.financialRecord.findFirst({ where: { id: query.id, ...CASH } });
+    if (!row) throw notFound();
+    await assertActualsPeriodsEditable(db, [row.periodId]);
+    await db.financialRecord.delete({ where: { id: row.id } });
+    await audit("delete_cash_entry", `financial_record:${query.id}`);
     return NextResponse.json({ ok: true });
   },
 });

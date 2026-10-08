@@ -59,7 +59,7 @@ export function normalizeKeyword(text: string): string {
 
 export type TxnCategoryRuleInput = { keyword: string; categoryAccountId: number; priority: number };
 
-// 摘要にマッチする科目 ID をルールから決定する（取込時の自動分類。転記は行わない）。
+// 摘要にマッチする科目 ID をルールから決定する（取込時の自動分類。科目が付いた明細はそのまま実績になる）。
 // 優先度（priority）降順 → キーワード長い順で評価し、最初に一致したものを採用する。
 export function classifyByRules(description: string, rules: TxnCategoryRuleInput[]): number | null {
   const normalizedDesc = normalizeKeyword(description);

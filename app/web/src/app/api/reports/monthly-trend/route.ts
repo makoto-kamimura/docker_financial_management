@@ -10,6 +10,7 @@ import {
   type CategoryAmounts,
   type TrendCategory,
 } from "@/lib/monthly-trend";
+import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
 
 // GET /api/reports/monthly-trend?period=YYYY-MM&back=6&forward=6&accountCode=&method=
 //   … 対象月を中心とした前後の推移。対象月以前は実績、後ろは予測。
@@ -36,13 +37,15 @@ export const GET = withApi({
     const keyOf = (fiscalYear: number, month: number) =>
       `${fiscalYear}-${String(month).padStart(2, "0")}`;
 
-    const records = await db.financialRecord.findMany({
-      where: { tenantId },
-      include: {
-        account: { select: { id: true, code: true, category: true } },
-        period: { select: { fiscalYear: true, month: true } },
-      },
-    });
+    const records = actualRows(
+      await db.financialRecord.findMany({
+        where: { tenantId, ...ACTUAL_WHERE },
+        include: {
+          account: { select: { id: true, code: true, category: true } },
+          period: { select: { fiscalYear: true, month: true } },
+        },
+      }),
+    );
 
     // 月 × カテゴリの実績（構成比と同じく絶対値。BS 科目は対象外）
     const actualByKey = new Map<string, CategoryAmounts>();

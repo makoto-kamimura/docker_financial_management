@@ -312,7 +312,7 @@ export async function fetchAccounts(): Promise<Account[]> {
 
 // 実績 1 行の出どころ（GET /financials/matrix）。セルの内訳で表示する
 export type RecordSource = {
-  kind: "bank" | "card" | "journal" | "direct";
+  kind: "cash" | "bank" | "card" | "journal" | "direct";
   date: string | null;
   description: string | null;
   accountName: string | null;
@@ -324,7 +324,7 @@ export type FinancialRecordRow = {
   amount: number;
   account: { id: number; code: string; name: string; category: string };
   period: { fiscalYear: number; month: number };
-  /** 仕訳と連動した実績（金額は仕訳帳から直す） */
+  /** 仕訳と連動した実績 */
   journalEntryId: number | null;
   createdAt: string;
   source: RecordSource;
@@ -334,7 +334,7 @@ export async function fetchFinancialMatrix(year?: number): Promise<{
   year: number;
   years: number[];
   data: FinancialRecordRow[];
-  /** 実績を確定済みの月（編集できない） */
+  /** 実績を確定済みの月 */
   confirmedMonths: number[];
 }> {
   const json = await request<{
@@ -351,75 +351,57 @@ export async function fetchFinancialMatrix(year?: number): Promise<{
   };
 }
 
-export async function postFinancialRecord(data: {
-  accountCode: string;
-  fiscalYear: number;
-  month: number;
-  amount: number;
-}): Promise<void> {
-  await request("/financials", "登録に失敗しました", jsonInit("POST", data));
-}
-
-// 金額または勘定科目の変更。転記元の銀行/カード明細があればサーバー側で科目も追随する
-export async function patchFinancialRecord(
-  id: number,
-  data: { amount: number } | { accountId: number },
-): Promise<void> {
-  await request(`/financials/${id}`, "更新に失敗しました", jsonInit("PATCH", data));
-}
-
-export async function deleteFinancialRecord(id: number): Promise<void> {
-  await request(`/financials/${id}`, "削除に失敗しました", { method: "DELETE" });
-}
-
-export async function fetchRecordHistory(q: HistoryQuery): Promise<HistoryPage> {
-  const json = await request<{
-    data?: (Omit<ChangeHistoryRow, "targetId"> & { recordId: number | null })[];
-    total?: number;
-  }>(`/financials/recent?${historyParams(q)}`, "履歴の取得に失敗しました");
-  return {
-    data: (json.data ?? []).map(({ recordId, ...h }) => ({ ...h, targetId: recordId })),
-    total: json.total ?? 0,
-  };
-}
-
-// ── 日次の入出金（実績管理のカレンダー。GET/POST/DELETE /actuals）──────────────
-export type ActualEntry = {
+// ── 現金の明細（実績管理の「現金」のカレンダーと履歴。GET/POST/DELETE /actuals）──────────
+// 科目を付けた明細がそのまま実績になる（科目×月へ直接入れる実績はやめた。web 版と同じ）
+export type CashEntry = {
   id: number;
-  transactionDate: string;
+  date: string;
   description: string;
-  paymentMethod: string;
-  details: {
-    id: number;
-    side: "debit" | "credit";
-    amount: number;
-    account: Account;
-  }[];
+  /** +入金 / −出金 */
+  amount: number;
+  categoryAccountId: number | null;
+  categoryAccount: Account | null;
 };
 
-export async function fetchActuals(year: number, month: number): Promise<ActualEntry[]> {
-  const json = await request<{ data?: ActualEntry[] }>(
+/** その月の現金の明細（カレンダー） */
+export async function fetchActuals(year: number, month: number): Promise<CashEntry[]> {
+  const json = await request<{ data?: CashEntry[] }>(
     `/actuals?year=${year}&month=${month}`,
     "実績の取得に失敗しました",
   );
-  return json.data ?? [];
+  return (json.data ?? []).map((e) => ({ ...e, amount: Number(e.amount) }));
 }
 
-// counterAccountCode を省くと、現金の科目で仕訳を作る（実績のカレンダーの「現金」。web 版と同じ）
+/** 直近 200 件の現金の明細（履歴） */
+export async function fetchCashEntries(): Promise<CashEntry[]> {
+  const json = await request<{ data?: CashEntry[] }>("/actuals", "履歴の取得に失敗しました");
+  return (json.data ?? []).map((e) => ({ ...e, amount: Number(e.amount) }));
+}
+
 export async function postActual(data: {
   date: string;
   description: string;
   accountCode: string;
-  counterAccountCode?: string;
   amount: number;
   direction: "income" | "expense";
-  paymentMethod?: string;
 }): Promise<void> {
   await request("/actuals", "登録に失敗しました", jsonInit("POST", data));
 }
 
 export async function deleteActual(id: number): Promise<void> {
   await request(`/actuals?id=${id}`, "削除に失敗しました", { method: "DELETE" });
+}
+
+/** 現金の明細の科目を変える（null で未割り当てに戻す） */
+export async function categorizeCashEntry(
+  id: number,
+  categoryAccountId: number | null,
+): Promise<void> {
+  await request(
+    `/actuals/${id}/categorize`,
+    "科目の設定に失敗しました",
+    jsonInit("PATCH", { categoryAccountId }),
+  );
 }
 
 // ── 総資産サマリ（実物資産・銀行口座残高・ローンを含む純資産）──────────────
@@ -644,8 +626,8 @@ export type CycleStatus = {
     monthEnd: string;
     sources: ActualsSource[];
     lagging: { kind: ActualsSource["kind"]; id: number }[];
-    /** この月の未転記の明細の件数（参考） */
-    unposted: number;
+    /** 科目が付いていない明細の件数 */
+    unassigned: number;
     /** 確定時点の記録（口座・カードごとの最終日と「当月末まで変動なし」の印）。未確定・古い確定は null */
     confirmedCoverage: CoverageSnapshot | null;
   };
@@ -1011,14 +993,12 @@ export type BankTransaction = {
   balance: number | null;
   accountId: number;
   source: "MANUAL" | "CSV" | "SYNC";
-  /** 紐付けた収入・支払項目（未紐付けは null） */
+  /** 付けた収入・支出の科目（未割り当ては null）。科目が付いた明細がそのまま実績 */
   categoryAccountId: number | null;
   categoryAccount: { id: number; code: string; name: string } | null;
-  /** 実績へ転記済みなら FinancialRecord の id */
-  postedRecordId: number | null;
-  /** 口座間振替の対。値があると科目紐付け・転記の対象外 */
+  /** 口座間振替の対。値があると科目を付けず、実績に入らない */
   transferGroupId: string | null;
-  /** デビット・プリペイド・電子マネーへのチャージ先。値があると科目紐付け・転記の対象外 */
+  /** デビット・プリペイド・電子マネーへのチャージ先。値があると科目を付けず、実績に入らない */
   chargeToAccountId: number | null;
   chargeToAccount: { id: number; name: string } | null;
   /** チャージ先の明細と対になっていれば値が入る */
@@ -1258,8 +1238,7 @@ export type CardTransaction = {
   source: "MANUAL" | "CSV" | "SYNC";
   categoryAccountId: number | null;
   categoryAccount: { id: number; code: string; name: string } | null;
-  postedRecordId: number | null;
-  /** 他カード・電子マネーへのチャージ先。値があれば科目紐付け・転記の対象外 */
+  /** 他カード・電子マネーへのチャージ先。値があれば科目を付けず、実績に入らない */
   transferToAccountId: number | null;
   transferToAccount: { id: number; name: string } | null;
   /**
@@ -1438,38 +1417,24 @@ export async function fetchCardFlow(): Promise<CardFlowResponse> {
   };
 }
 
-// ── 科目紐付け・実績転記（銀行 / カード共通）────────────────────────────
+// ── 科目の紐付け（銀行 / カード共通）────────────────────────────
 // エンドポイントは web 版と同じ PATCH /{bank|card}-transactions/{id}/categorize。
+// 科目を付けた明細がそのまま実績になる（転記の操作は無い）。
 export type TxnKind = "bank" | "card";
 
-const categorizePath = (kind: TxnKind, txnId: number) =>
-  `/${kind}-transactions/${txnId}/categorize`;
-
-/** 明細に科目を紐付ける（null で未紐付けに戻す） */
+/**
+ * 明細に科目を付ける（null で未割り当てに戻す）。web 版と同じく、付けたときは摘要を学習し、
+ * 同じ摘要で未割り当ての明細にも同じ科目を付ける（その件数を返す）。
+ */
 export async function categorizeTransaction(
   kind: TxnKind,
   txnId: number,
   categoryAccountId: number | null,
-): Promise<void> {
-  await request(
-    categorizePath(kind, txnId),
-    "科目の設定に失敗しました",
-    jsonInit("PATCH", { categoryAccountId }),
-  );
-}
-
-/**
- * 明細を実績へ転記する。web 版と同じく learn=true で摘要を学習し、
- * 同じ摘要で科目未設定の明細にも科目を一括適用する（その件数を返す）。
- */
-export async function postTransactionToActuals(
-  kind: TxnKind,
-  txnId: number,
 ): Promise<{ updatedSiblingCount: number }> {
   const json = await request<{ updatedSiblingCount?: number }>(
-    categorizePath(kind, txnId),
-    "実績への転記に失敗しました",
-    jsonInit("PATCH", { post: true, learn: true }),
+    `/${kind}-transactions/${txnId}/categorize`,
+    "科目の設定に失敗しました",
+    jsonInit("PATCH", { categoryAccountId, learn: categoryAccountId !== null }),
   );
   return { updatedSiblingCount: json?.updatedSiblingCount ?? 0 };
 }

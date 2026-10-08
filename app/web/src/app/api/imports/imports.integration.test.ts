@@ -1,8 +1,11 @@
 /**
- * 実績管理の CSV インポート（実績・銀行・カードの統合）結合テスト（実 DB 使用）
+ * 実績管理の CSV インポート（銀行・カードの明細）結合テスト（実 DB 使用）
  *
- * - 登録先の列（target・account）つきの CSV を、実績・銀行・カードに振り分けて登録する
+ * - 登録先の列（target・account）つきの CSV を、銀行・カードに振り分けて登録する
+ * - 学習ルールに当たった明細には科目が付き、そのまま実績になる
  * - 列の無い CSV は、指定した登録先（target・accountId）に入れる
+ * - 実績の行（target=実績）・target=actual は受け付けない
+ * - 実績を確定済みの月の行は飛ばす
  * - 誤りのある行があれば、どの行も登録しない
  *
  * 実行: `npm run test:integration`（DB 起動が前提）
@@ -44,6 +47,7 @@ function csvReq(query: string, csv: string) {
 let tenantId: number;
 let bankId: number;
 let cardId: number;
+let salaryId: number;
 
 beforeAll(async () => {
   for (const t of ["tenants", "users", "accounts", "periods", "bank_accounts", "linked_accounts"]) {
@@ -62,7 +66,13 @@ beforeAll(async () => {
       role: "editor",
     },
   });
-  await prisma.account.create({ data: { tenantId, code, name: "給与", category: "REVENUE" } });
+  salaryId = (
+    await prisma.account.create({ data: { tenantId, code, name: "給与", category: "REVENUE" } })
+  ).id;
+  // 摘要「給与」の明細には、取り込み時に給与の科目が付く
+  await prisma.txnCategoryRule.create({
+    data: { tenantId, keyword: "給与", categoryAccountId: salaryId, priority: 100 },
+  });
   bankId = (
     await prisma.bankAccount.create({
       data: { tenantId, name: "テスト普通", bankName: "テスト銀行" },
@@ -79,7 +89,8 @@ afterAll(async () => {
   const where = { tenantId };
   await prisma.auditLog.deleteMany({ where: { userId: actingUser.id } });
   await prisma.financialRecord.deleteMany({ where });
-  await prisma.ledgerEntry.deleteMany({ where });
+  await prisma.actualsConfirmation.deleteMany({ where });
+  await prisma.txnCategoryRule.deleteMany({ where });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.linkedAccount.deleteMany({ where });
   await prisma.period.deleteMany({ where });
@@ -90,30 +101,72 @@ afterAll(async () => {
 });
 
 describe("POST /api/imports", () => {
-  it("登録先の列つきの CSV を、実績・銀行・カードに振り分ける", async () => {
+  it("登録先の列つきの CSV を、銀行・カードに振り分け、学習ルールに当たった明細は実績になる", async () => {
     const csv = [
-      "target,account,date,description,amount,accountCode",
-      `実績,,2031-04-30,,350000,${code}`,
-      "銀行,テスト普通,2031-04-25,給与,300000,",
-      "カード,テストカード,2031-04-27,スーパー,-3980,",
+      "target,account,date,description,amount",
+      "銀行,テスト普通,2031-04-25,給与,300000",
+      "カード,テストカード,2031-04-27,スーパー,-3980",
     ].join("\n");
     const res = await importPost(csvReq("", csv), emptyRouteContext());
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.results.actual).toEqual({ inserted: 1, skipped: 0 });
-    expect(body.results.bank).toMatchObject([{ id: bankId, inserted: 1 }]);
+    expect(body.results.actual).toBeNull();
+    expect(body.results.bank).toMatchObject([{ id: bankId, inserted: 1, locked: 0 }]);
     expect(body.results.card).toMatchObject([{ id: cardId, inserted: 1 }]);
 
-    const record = await prisma.financialRecord.findFirstOrThrow({
-      where: { tenantId },
+    // 給与は学習ルールで科目が付き、その行がそのまま実績（収入は入金が正）
+    const salary = await prisma.financialRecord.findFirstOrThrow({
+      where: { bankAccountId: bankId },
       include: { period: true },
     });
-    expect([record.period.fiscalYear, record.period.month, Number(record.amount)]).toEqual([
-      2031, 4, 350000,
+    expect([salary.accountId, Number(salary.amount), Number(salary.flow)]).toEqual([
+      salaryId,
+      300000,
+      300000,
     ]);
-    const card = await prisma.ledgerEntry.findFirstOrThrow({ where: { cardAccountId: cardId } });
-    // 明細の表は +入金 / −出金なので、カードの利用も CSV のまま負で保存する
-    expect(Number(card.amount)).toBe(-3980);
+    expect([salary.period.fiscalYear, salary.period.month]).toEqual([2031, 4]);
+    // ルールに当たらないカードの明細は未割り当て（実績の金額は 0）。flow は CSV のまま負
+    const card = await prisma.financialRecord.findFirstOrThrow({
+      where: { cardAccountId: cardId },
+    });
+    expect([card.accountId, Number(card.amount), Number(card.flow)]).toEqual([null, 0, -3980]);
+  });
+
+  it("実績の行・target=actual は受け付けない", async () => {
+    const routed = await importPost(
+      csvReq("", `target,account,date,description,amount,accountCode\n実績,,2031-04-30,,1,${code}`),
+      emptyRouteContext(),
+    );
+    expect(routed.status).toBe(400);
+    const direct = await importPost(
+      csvReq("?target=actual", `accountCode,fiscalYear,month,amount\n${code},2031,4,1`),
+      emptyRouteContext(),
+    );
+    expect(direct.status).toBe(410);
+  });
+
+  it("実績を確定済みの月の行は飛ばす", async () => {
+    const period = await prisma.period.upsert({
+      where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: 2031, month: 7 } },
+      update: {},
+      create: { tenantId, fiscalYear: 2031, month: 7, quarter: 3 },
+    });
+    await prisma.actualsConfirmation.create({
+      data: { tenantId, periodId: period.id, confirmedById: actingUser.id },
+    });
+    const csv = "date,description,amount\n2031-07-10,確定済みの月,-500\n2031-08-10,翌月,-600";
+    const res = await importPost(
+      csvReq(`?target=bank&accountId=${bankId}`, csv),
+      emptyRouteContext(),
+    );
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.results.bank).toMatchObject([{ id: bankId, inserted: 1, skipped: 0, locked: 1 }]);
+    expect(
+      await prisma.financialRecord.count({
+        where: { bankAccountId: bankId, description: "確定済みの月" },
+      }),
+    ).toBe(0);
   });
 
   it("列の無い CSV は、指定した登録先に入れる（同じ明細は重複として飛ばす）", async () => {
@@ -128,7 +181,7 @@ describe("POST /api/imports", () => {
   });
 
   it("誤りのある行があれば、どの行も登録しない", async () => {
-    const before = await prisma.ledgerEntry.count({ where: { bankAccountId: bankId } });
+    const before = await prisma.financialRecord.count({ where: { bankAccountId: bankId } });
     const csv = [
       "target,account,date,description,amount",
       "銀行,テスト普通,2031-06-01,家賃,-80000",
@@ -138,6 +191,6 @@ describe("POST /api/imports", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.errors.map((e: { row: number }) => e.row)).toEqual([3]);
-    expect(await prisma.ledgerEntry.count({ where: { bankAccountId: bankId } })).toBe(before);
+    expect(await prisma.financialRecord.count({ where: { bankAccountId: bankId } })).toBe(before);
   });
 });

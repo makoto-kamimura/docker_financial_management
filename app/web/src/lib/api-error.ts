@@ -20,6 +20,11 @@ export const badRequest = (message: string) => new ApiError(400, message);
 export const notFound = (message = "not found") => new ApiError(404, message);
 export const forbidden = (message = "forbidden") => new ApiError(403, message);
 export const conflict = (message = "conflict") => new ApiError(409, message);
+export const gone = (message = "gone") => new ApiError(410, message);
+
+/** 実績の直接入力をやめた API が返すメッセージ */
+export const DIRECT_ACTUALS_GONE_MESSAGE =
+  "実績は明細（現金・銀行・カード）に科目を付けると入ります。科目×月への直接入力はできません";
 
 // ハンドラで発生した例外を HTTP レスポンスへ写像する（withApi の catch 節から呼ばれる）。
 // - ApiError: 指定ステータスで返す

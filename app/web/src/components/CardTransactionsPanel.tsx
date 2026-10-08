@@ -2,10 +2,11 @@
 
 // カード・電子マネーの明細パネル（明細一覧とカレンダー）。カード・電子マネー管理のタブから、
 // 実績管理の「履歴」「カレンダー」（出どころにカード・電子マネーを選んだとき）へ移設した。
-// 表示するカードは呼び出し側が選ぶ。科目付け・転記・チャージ先・固定決済・削除と、日付を選んでの
+// 表示するカードは呼び出し側が選ぶ。科目付け（付けた明細がそのまま実績）・チャージ先・固定決済・削除と、日付を選んでの
 // 利用・返金の登録ができる（API は /api/linked-accounts/{id}/transactions ほか、移設前と同じ）。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidateActuals } from "@/lib/invalidate-actuals";
 import { useState, useMemo } from "react";
 import { Trash2 } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
@@ -49,8 +50,7 @@ type Txn = {
   source: "MANUAL" | "CSV" | "SYNC";
   categoryAccountId: number | null;
   categoryAccount: { id: number; code: string; name: string } | null;
-  postedRecordId: number | null;
-  /** 他カード・電子マネーへのチャージ（資金移動）の場合のチャージ先。値があれば科目紐付け・転記の対象外 */
+  /** 他カード・電子マネーへのチャージ（資金移動）の場合のチャージ先。値があれば科目を付けず、実績に入らない */
   transferToAccountId: number | null;
   transferToAccount: { id: number; name: string } | null;
   /**
@@ -91,11 +91,11 @@ type CardRecurring = {
   categoryAccountId: number | null;
 };
 
-type PostFilter = "all" | "posted" | "unposted";
+type PostFilter = "all" | "unassigned" | "actual";
 const POST_FILTERS: [PostFilter, string][] = [
   ["all", "全件"],
-  ["unposted", "実績未転記"],
-  ["posted", "実績転記済"],
+  ["unassigned", "未割り当て"],
+  ["actual", "実績"],
 ];
 
 type Props = {
@@ -170,14 +170,16 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
 
   const filteredTxns = useMemo(() => {
     const all = txns ?? [];
-    if (postFilter === "posted") return all.filter((t) => t.postedRecordId !== null);
-    // 実績未転記はこれから転記する明細を拾うための絞り込み。チャージはそもそも転記の対象外
+    if (postFilter === "actual") return all.filter((t) => t.categoryAccountId !== null);
+    // 未割り当てはこれから科目を付ける明細を拾うための絞り込み。チャージはそもそも科目を付けない
     // （実際の支出はチャージ先の利用明細で計上する）なので、いつまでも残って紛らわしいため除く
     // チャージ先に入った入金明細（chargeGroupId だけを持つ行）も同じ理由で除く
-    if (postFilter === "unposted")
+    if (postFilter === "unassigned")
       return all.filter(
         (t) =>
-          t.postedRecordId === null && t.transferToAccountId === null && t.chargeGroupId === null,
+          t.categoryAccountId === null &&
+          t.transferToAccountId === null &&
+          t.chargeGroupId === null,
       );
     return all;
   }, [txns, postFilter]);
@@ -210,10 +212,15 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
   // ── ハンドラ ────────────────────────────────────────────────
 
   async function deleteTxn(txnId: number) {
-    await fetch(`/api/linked-accounts/${accountId}/transactions?txnId=${txnId}`, {
+    const res = await fetch(`/api/linked-accounts/${accountId}/transactions?txnId=${txnId}`, {
       method: "DELETE",
     });
-    qc.invalidateQueries({ queryKey: ["card-txns", accountId] });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setMsg(`削除に失敗しました: ${err.error ?? "エラー"}`);
+    }
+    qc.invalidateQueries({ queryKey: ["card-txns"] });
+    invalidateActuals(qc);
   }
 
   // ── 明細から固定決済（毎月このカードで決済される支払い）を登録する ─────
@@ -296,13 +303,22 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
     } else setMsg("解除に失敗しました。");
   }
 
+  // 科目を付けると、その明細がそのまま実績になる。付けた科目は学習し、
+  // 同じ摘要でまだ未割り当ての明細にも同じ科目を付ける
   async function setTxnCategory(txnId: number, categoryAccountId: number | null) {
-    await fetch(`/api/card-transactions/${txnId}/categorize`, {
+    const res = await fetch(`/api/card-transactions/${txnId}/categorize`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryAccountId }),
+      body: JSON.stringify({ categoryAccountId, learn: categoryAccountId !== null }),
     });
-    qc.invalidateQueries({ queryKey: ["card-txns", accountId] });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg(`科目の変更に失敗しました: ${json.error ?? "エラー"}`);
+    } else if ((json.updatedSiblingCount ?? 0) > 0) {
+      setMsg(`同じ摘要の未割り当ての明細 ${json.updatedSiblingCount} 件にも同じ科目を付けました。`);
+    }
+    qc.invalidateQueries({ queryKey: ["card-txns"] });
+    invalidateActuals(qc);
   }
 
   // ── 明細をチャージ（資金移動）に指定する ─────────────────────────
@@ -334,7 +350,7 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
     if (res.ok) {
       setMsg(
         transferToAccountId === null
-          ? "チャージの指定を解除しました。科目の紐付け・転記ができるようになります。"
+          ? "チャージの指定を解除しました。科目を付けられるようになります。"
           : pairTxnId !== null
             ? "チャージ先の明細と紐付けました。両方とも収入・支出には計上されません。"
             : "チャージ（資金移動）に指定しました。収入・支出には計上されません。",
@@ -359,27 +375,6 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
       setMsg("ルールを削除しました。指定済みの明細はそのまま残ります。");
       qc.invalidateQueries({ queryKey: ["card-transfer-rules", accountId] });
     } else setMsg("ルールの削除に失敗しました。");
-  }
-
-  async function postTxnToActuals(txnId: number) {
-    const res = await fetch(`/api/card-transactions/${txnId}/categorize`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ post: true, learn: true }),
-    });
-    if (res.ok) {
-      const json = await res.json().catch(() => ({}));
-      const n = json.updatedSiblingCount ?? 0;
-      setMsg(
-        n > 0
-          ? `実績へ転記しました。同じ摘要の未分類明細 ${n} 件にも科目を設定しました。`
-          : "実績へ転記しました。",
-      );
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setMsg(`転記に失敗しました: ${err.error ?? "エラー"}`);
-    }
-    qc.invalidateQueries({ queryKey: ["card-txns", accountId] });
   }
 
   // ── カレンダーハンドラ ───────────────────────────────────────
@@ -417,8 +412,10 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
     if (res.ok) {
       setCalForm(BLANK_CAL_FORM);
       qc.invalidateQueries({ queryKey: ["card-txns", accountId] });
+      invalidateActuals(qc);
     } else {
-      setMsg("登録に失敗しました");
+      const err = await res.json().catch(() => ({}));
+      setMsg(err.error ?? "登録に失敗しました");
     }
     setCalSaving(false);
   }
@@ -468,10 +465,10 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
             </div>
           )}
 
-          {/* チャージを「実績未転記」から外している理由も、ここで示す */}
+          {/* チャージを「未割り当て」から外している理由も、ここで示す */}
           <InfoNote className="mb-2">
             {CARD_HELP.list}
-            {postFilter === "unposted" && <> {CARD_HELP.postFilter}</>}
+            {postFilter === "unassigned" && <> {CARD_HELP.postFilter}</>}
           </InfoNote>
           <TermDetails terms={CARD_TERMS} className="mb-3" />
 
@@ -536,7 +533,6 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                     ) : (
                       <select
                         value={t.categoryAccountId ?? ""}
-                        disabled={t.postedRecordId !== null}
                         onChange={(e) =>
                           setTxnCategory(
                             t.id,
@@ -545,7 +541,7 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                         }
                         className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white disabled:bg-slate-50 disabled:text-slate-400 min-w-32"
                       >
-                        <option value="">未紐付け</option>
+                        <option value="">未割り当て</option>
                         {categorizableAccounts.map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.code} {a.name}
@@ -558,8 +554,10 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                 status: (
                   <>
                     <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
-                    {t.postedRecordId !== null && (
-                      <LedgerBadge tone="emerald">転記済み</LedgerBadge>
+                    {!excluded && (
+                      <LedgerBadge tone={t.categoryAccountId !== null ? "emerald" : "amber"}>
+                        {t.categoryAccountId !== null ? "実績" : "未割り当て"}
+                      </LedgerBadge>
                     )}
                     {t.transferToAccountId && (
                       <LedgerBadge tone={t.chargeGroupId ? "emerald" : "slate"}>
@@ -571,16 +569,6 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                     {registered && <LedgerBadge tone="indigo">固定決済</LedgerBadge>}
                   </>
                 ),
-                actions:
-                  !excluded && t.postedRecordId === null ? (
-                    <button
-                      onClick={() => postTxnToActuals(t.id)}
-                      disabled={t.categoryAccountId === null}
-                      className="text-xs text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
-                    >
-                      転記する
-                    </button>
-                  ) : null,
                 more: (
                   <>
                     <LedgerMoreSection title="チャージ先">
@@ -609,9 +597,6 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                         </div>
                       ) : t.chargeGroupId ? (
                         // 入金側は自分ではチャージ先を持たない（相手のチャージ元が持つ）
-                        <span className="text-xs text-slate-400">対象外</span>
-                      ) : t.postedRecordId !== null ? (
-                        // 転記済みは実績が立っているため、先に転記の取り消しが要る
                         <span className="text-xs text-slate-400">対象外</span>
                       ) : chargeTargets.length === 0 ? (
                         <span className="text-xs text-slate-300 whitespace-nowrap">

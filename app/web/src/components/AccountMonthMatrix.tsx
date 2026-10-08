@@ -3,6 +3,7 @@
 // 予算管理と実績管理の「一覧」タブで共用する、科目 × 月（1〜12 月）の表。
 // 並び（区分の順 → 科目コード）・区分のバッジ・月ごとの合計の行・確定済みの月の鍵・
 // セルでの追加／編集／削除・「科目を追加」の行・エラーの表示をここで一か所にまとめる。
+// onAdd・onSave・onDelete を渡さなければ見るだけの表になる（実績は明細から入るため、実績管理は見るだけ）。
 // 予算・実績それぞれの追加表示（ローン返済・適正額、N 件の内訳・仕訳と連動など）は
 // getCell / emptyCellLabel で呼び出し側が渡す。
 
@@ -81,10 +82,10 @@ export function AccountMonthMatrix({
   lockedTitle: (month: number) => string;
   /** 表の上に出す印の見かた */
   legend?: ReactNode;
-  /** 失敗したらメッセージを返す（成功なら null） */
-  onAdd: (code: string, month: number, amount: number) => Promise<string | null>;
-  onSave: (id: number, amount: number) => Promise<string | null>;
-  onDelete: (id: number) => Promise<string | null>;
+  /** 失敗したらメッセージを返す（成功なら null）。3 つとも省くと見るだけの表になる */
+  onAdd?: (code: string, month: number, amount: number) => Promise<string | null>;
+  onSave?: (id: number, amount: number) => Promise<string | null>;
+  onDelete?: (id: number) => Promise<string | null>;
 }) {
   const [edit, setEdit] = useState<{ id: number; amount: string } | null>(null);
   const [add, setAdd] = useState<{ code: string; month: number; amount: string } | null>(null);
@@ -108,10 +109,13 @@ export function AccountMonthMatrix({
     if (message) setError(message);
     else done();
   }
-  const saveEdit = () => edit && run(onSave(edit.id, Number(edit.amount)), () => setEdit(null));
+  const readOnly = !onAdd || !onSave || !onDelete;
+  const saveEdit = () =>
+    edit && onSave && run(onSave(edit.id, Number(edit.amount)), () => setEdit(null));
   const saveAdd = () =>
     add &&
     add.amount !== "" &&
+    onAdd &&
     run(onAdd(add.code, add.month, Number(add.amount)), () => setAdd(null));
 
   // 月ごとの合計（収入・支出・差引）
@@ -258,7 +262,7 @@ export function AccountMonthMatrix({
                               <div className="flex items-center justify-end gap-1 group/cell">
                                 <span>{yen(cell.amount)}</span>
                                 {cell.action ??
-                                  (cell.editable && !locked && (
+                                  (cell.editable && !locked && onDelete && (
                                     <>
                                       <button
                                         type="button"
@@ -300,6 +304,8 @@ export function AccountMonthMatrix({
                             <span className="text-slate-300" title={lockedTitle(m)}>
                               —
                             </span>
+                          ) : readOnly ? (
+                            <span className="text-slate-300">—</span>
                           ) : (
                             <button
                               type="button"
@@ -340,38 +346,40 @@ export function AccountMonthMatrix({
             </tfoot>
           </table>
         </div>
-        {/* 値がまだ無い科目を行として足す */}
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-slate-100">
-          <label htmlFor="matrix-add-row" className="text-xs font-medium text-slate-600">
-            科目を追加
-          </label>
-          <select
-            id="matrix-add-row"
-            value={addRowCode}
-            onChange={(e) => setAddRowCode(e.target.value)}
-            className="select-sm max-w-64"
-          >
-            <option value="">選択してください</option>
-            {addable.map((a) => (
-              <option key={a.code} value={a.code}>
-                {a.code} {displayName(a, mode)}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={addRowCode === ""}
-            onClick={() => {
-              setExtraCodes((codes) =>
-                codes.includes(addRowCode) ? codes : [...codes, addRowCode],
-              );
-              setAddRowCode("");
-            }}
-            className="btn-secondary btn-sm"
-          >
-            行を追加
-          </button>
-        </div>
+        {/* 値がまだ無い科目を行として足す（見るだけの表では出さない） */}
+        {!readOnly && (
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-slate-100">
+            <label htmlFor="matrix-add-row" className="text-xs font-medium text-slate-600">
+              科目を追加
+            </label>
+            <select
+              id="matrix-add-row"
+              value={addRowCode}
+              onChange={(e) => setAddRowCode(e.target.value)}
+              className="select-sm max-w-64"
+            >
+              <option value="">選択してください</option>
+              {addable.map((a) => (
+                <option key={a.code} value={a.code}>
+                  {a.code} {displayName(a, mode)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={addRowCode === ""}
+              onClick={() => {
+                setExtraCodes((codes) =>
+                  codes.includes(addRowCode) ? codes : [...codes, addRowCode],
+                );
+                setAddRowCode("");
+              }}
+              className="btn-secondary btn-sm"
+            >
+              行を追加
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

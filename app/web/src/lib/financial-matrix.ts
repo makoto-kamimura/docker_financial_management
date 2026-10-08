@@ -1,7 +1,7 @@
 // 実績（FinancialRecord）を「勘定科目 × 月」のテーブル表示に組み替える。
 // 予算（Budget）は科目・期間ごとに 1 行しか持てないが、実績は同じ科目・同じ月に
-// 複数行（銀行明細からの転記・手入力など）が並ぶ。そのためセルは合計値を持ち、
-// 元の行も保持して「1 行だけのセルはその場で編集できる」ようにする。
+// 複数行（現金・銀行・カードの明細、仕訳など）が並ぶ。そのためセルは合計値を持ち、
+// 元の行も保持して内訳を出せるようにする。
 
 export type MatrixAccount = { id: number; code: string; name: string; category: string };
 
@@ -49,11 +49,4 @@ export function buildFinancialMatrix<T extends MatrixRecord>(records: T[]): Matr
   }
 
   return [...rows.values()].sort((a, b) => a.account.code.localeCompare(b.account.code));
-}
-
-// セルが「その場で編集できる」のは実績が 1 行だけのとき。
-// 複数行あるセルはどの行を更新すべきか決められないため、履歴（一覧モード）へ誘導する。
-export function editableRecord<T extends MatrixRecord>(cell: MatrixCell<T> | undefined): T | null {
-  if (!cell || cell.records.length !== 1) return null;
-  return cell.records[0];
 }

@@ -7,6 +7,7 @@ import {
   type Assignment,
   type AssignRule,
 } from "@/lib/allocation-assign";
+import { actualRows } from "@/lib/actuals";
 
 // 予算配分の計算に要るもの（ルール・対象の科目・振り分け・按分の重みに使う実績）を読み込む。
 // allocation-suggest / allocation-guide / allocation-rules / variance が共通で使う。
@@ -99,23 +100,25 @@ export async function loadActualWeights(
   const records =
     accountIds.length === 0
       ? []
-      : await db.financialRecord.findMany({
-          where: {
-            tenantId,
-            accountId: { in: accountIds },
-            period: {
-              OR: Array.from(
-                { length: (end.year - start.year) * 12 + end.month - start.month + 1 },
-                (_, i) => shift(start.year, start.month, i),
-              ).map((p) => ({ fiscalYear: p.year, month: p.month })),
+      : await db.financialRecord
+          .findMany({
+            where: {
+              tenantId,
+              accountId: { in: accountIds },
+              period: {
+                OR: Array.from(
+                  { length: (end.year - start.year) * 12 + end.month - start.month + 1 },
+                  (_, i) => shift(start.year, start.month, i),
+                ).map((p) => ({ fiscalYear: p.year, month: p.month })),
+              },
             },
-          },
-          select: {
-            accountId: true,
-            amount: true,
-            period: { select: { fiscalYear: true, month: true } },
-          },
-        });
+            select: {
+              accountId: true,
+              amount: true,
+              period: { select: { fiscalYear: true, month: true } },
+            },
+          })
+          .then(actualRows);
 
   const byMonth = new Map<string, Map<number, number>>();
   for (const r of records) {

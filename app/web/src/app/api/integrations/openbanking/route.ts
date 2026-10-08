@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { ApiError, badRequest, notFound } from "@/lib/api-error";
+import { insertExternalEntries } from "@/lib/ledger-entries";
 
 // 全銀 API / オープンバンキング API 設定（環境変数から取得）
 // OPENBANKING_API_KEY, OPENBANKING_API_BASE を .env で設定する
@@ -13,7 +14,7 @@ const OPENBANKING_API_BASE = process.env.OPENBANKING_API_BASE ?? "https://api.op
 // 登録済み銀行口座一覧を返す。
 //
 // GET /api/integrations/openbanking?action=transactions&accountId=XXX&from=YYYY-MM-DD&to=YYYY-MM-DD
-// 指定口座の入出金履歴を外部 API から取得して、銀行明細（ledger_entries の kind = BANK）の形式で返す。
+// 指定口座の入出金履歴を外部 API から取得して、銀行明細（financial_records の kind = BANK の行）の形式で返す。
 export const GET = withApi({
   role: "editor",
   querySchema: z.object({
@@ -34,7 +35,7 @@ export const GET = withApi({
       });
 
       // 口座ごとの最新残高：最新トランザクションの balance or 取引合計
-      const latestTxns = await db.ledgerEntry.findMany({
+      const latestTxns = await db.financialRecord.findMany({
         where: { bankAccountId: { in: accounts.map((a) => a.id) } },
         orderBy: [{ date: "desc" }, { id: "desc" }],
         distinct: ["bankAccountId"],
@@ -123,7 +124,7 @@ const SyncSchema = z.object({
   ),
 });
 
-// POST /api/integrations/openbanking … 取引データを明細の表（ledger_entries）に銀行明細として同期保存する。
+// POST /api/integrations/openbanking … 取引データを実績の表（financial_records）に銀行明細として同期保存する。
 export const POST = withApi({
   role: "editor",
   schema: SyncSchema,
@@ -133,34 +134,22 @@ export const POST = withApi({
     });
     if (!account) throw notFound("口座が見つかりません");
 
-    let inserted = 0;
-    let skipped = 0;
+    // 取り込みは CSV・自動取得と同じ（重複・確定済みの月は飛ばし、学習ルールで科目を付ける）
+    const { inserted, locked } = await insertExternalEntries(
+      db,
+      user.tenantId,
+      { kind: "BANK", accountId: account.id },
+      body.transactions.map((tx) => ({
+        externalId: tx.id,
+        date: tx.date,
+        description: tx.description,
+        amount: tx.amount,
+        balance: tx.balance,
+      })),
+      "SYNC",
+    );
+    const skipped = body.transactions.length - inserted - locked;
 
-    for (const tx of body.transactions) {
-      const existing = await db.ledgerEntry.findFirst({
-        where: { bankAccountId: account.id, externalId: tx.id },
-      });
-      if (existing) {
-        skipped++;
-        continue;
-      }
-
-      await db.ledgerEntry.create({
-        data: {
-          tenantId: user.tenantId,
-          kind: "BANK",
-          bankAccountId: account.id,
-          date: new Date(tx.date),
-          amount: tx.amount,
-          description: tx.description,
-          balance: tx.balance,
-          source: "SYNC",
-          externalId: tx.id,
-        },
-      });
-      inserted++;
-    }
-
-    return NextResponse.json({ inserted, skipped }, { status: 201 });
+    return NextResponse.json({ inserted, skipped, locked }, { status: 201 });
   },
 });

@@ -28,15 +28,15 @@ export const GET = withApi({
     const start = new Date(year, month - 1, 1);
     const end = new Date(year, month, 1);
 
-    const txns = await db.ledgerEntry.findMany({
+    const txns = await db.financialRecord.findMany({
       where: {
         kind: "BANK",
         date: { gte: start, lt: end },
-        categoryAccountId: { not: null },
+        accountId: { not: null },
       },
       include: {
         bankAccount: { select: { id: true, name: true } },
-        categoryAccount: { select: { id: true, name: true } },
+        account: { select: { id: true, name: true } },
       },
     });
 
@@ -50,9 +50,9 @@ export const GET = withApi({
     const txnInputs: MonthlyTxnEdgeInput[] = txns.map((t) => ({
       accountId: t.bankAccountId!,
       accountName: t.bankAccount!.name,
-      amount: Number(t.amount),
-      categoryAccountId: t.categoryAccountId,
-      categoryName: t.categoryAccount?.name ?? null,
+      amount: Number(t.flow),
+      categoryAccountId: t.accountId,
+      categoryName: t.account?.name ?? null,
     }));
 
     const transferInputs: TransferInput[] = transfers.map((t) => ({
@@ -69,24 +69,24 @@ export const GET = withApi({
     // 実績がまだ入力されていない口座 × 科目は、直近 HISTORY_MONTHS か月の平均から推測して補う
     // （フロー図では破線・アンバーで描画される）
     const historyStart = new Date(year, month - 1 - HISTORY_MONTHS, 1);
-    const historyTxns = await db.ledgerEntry.findMany({
+    const historyTxns = await db.financialRecord.findMany({
       where: {
         kind: "BANK",
         date: { gte: historyStart, lt: start },
-        categoryAccountId: { not: null },
+        accountId: { not: null },
       },
       include: {
         bankAccount: { select: { id: true, name: true } },
-        categoryAccount: { select: { id: true, name: true } },
+        account: { select: { id: true, name: true } },
       },
     });
 
     const historyInputs: MonthlyTxnEdgeInput[] = historyTxns.map((t) => ({
       accountId: t.bankAccountId!,
       accountName: t.bankAccount!.name,
-      amount: Number(t.amount),
-      categoryAccountId: t.categoryAccountId,
-      categoryName: t.categoryAccount?.name ?? null,
+      amount: Number(t.flow),
+      categoryAccountId: t.accountId,
+      categoryName: t.account?.name ?? null,
     }));
 
     const estimated = estimateMissingEdges(txnInputs, historyInputs, HISTORY_MONTHS);

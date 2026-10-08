@@ -18,10 +18,9 @@ describe("parseTarget / hasTargetColumn", () => {
 });
 
 describe("routeLedgerRows", () => {
-  it("実績・銀行・カードに振り分け、実績の年月は date から補う", () => {
+  it("銀行・カードに振り分ける", () => {
     const r = routeLedgerRows(
       [
-        { target: "実績", accountCode: "H1000", date: "2026-10-05", amount: "350000" },
         {
           target: "銀行",
           account: "住信SBI",
@@ -40,20 +39,17 @@ describe("routeLedgerRows", () => {
       ctx,
     );
     expect(r.errors).toEqual([]);
-    expect(r.actual).toEqual([
-      { accountCode: "H1000", amount: "350000", fiscalYear: "2026", month: "10" },
-    ]);
     expect(r.bank.get(1)?.map((t) => [t.description, t.amount])).toEqual([["給与", 300000]]);
-    // カードは CSV のまま（支出は負）。保存時に符号を反転する
+    // カードも CSV のまま（支出は負）。明細の表も +入金 / −出金
     expect(r.card.get(7)?.map((t) => t.amount)).toEqual([-3980]);
   });
 
-  it("登録先・口座・必要な列の誤りを行番号つきで返す", () => {
+  it("登録先・口座・必要な列の誤りと、実績の行を行番号つきで返す", () => {
     const r = routeLedgerRows(
       [
         { target: "不明", amount: "1" },
         { target: "bank", account: "無い口座", date: "2026-10-01", description: "x", amount: "1" },
-        { target: "actual", accountCode: "", amount: "1", fiscalYear: "2026", month: "10" },
+        { target: "実績", accountCode: "H1000", amount: "1", fiscalYear: "2026", month: "10" },
         {
           target: "card",
           account: "三井住友カード",

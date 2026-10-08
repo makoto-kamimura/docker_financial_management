@@ -76,7 +76,7 @@ export function ActualsConfirmSection({
     const label = `${year}年${month}月`;
     Alert.alert(
       "実績の確定",
-      `${label}の実績を確定します。確定すると、${label}の実績は登録・変更・削除や明細の転記ができなくなります。よろしいですか？`,
+      `${label}の実績を確定します。確定すると、${label}の明細は登録・削除や科目の変更ができなくなります。よろしいですか？`,
       [
         { text: "キャンセル", style: "cancel" },
         {
@@ -337,9 +337,10 @@ function ActualsBlock({
         />
       )}
       {!locked && blockedReason && <Text style={s.blocked}>{blockedReason}</Text>}
-      {!locked && actuals.unposted > 0 && (
+      {!locked && actuals.unassigned > 0 && (
         <Text style={s.hint}>
-          {month}月の明細のうち {actuals.unposted} 件がまだ実績に転記されていません。
+          {month}月の明細のうち {actuals.unassigned}{" "}
+          件にまだ科目が付いていません（科目を付けると実績に入ります）。
         </Text>
       )}
     </View>

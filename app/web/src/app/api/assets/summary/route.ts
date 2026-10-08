@@ -6,6 +6,7 @@ import { summarizeNetWorth, type NetWorthAccountBalance } from "@/lib/asset-summ
 import { buildBankBalanceMap } from "@/lib/bank-balance";
 import { estimateAssetValue, VALUATION_INCLUDE } from "@/lib/personal-asset-valuation";
 import { loanBalanceAt } from "@/lib/loan-balance";
+import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -47,24 +48,27 @@ export const GET = withApi({
           where: { tenantId },
           include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
         }),
-        db.ledgerEntry.groupBy({
+        db.financialRecord.groupBy({
           by: ["bankAccountId"],
-          _sum: { amount: true },
+          _sum: { flow: true },
           where: { kind: "BANK", date: { lt: nextMonthStart } },
         }),
-        db.financialRecord.findMany({
-          where: {
-            tenantId,
-            account: { category: { in: ["ASSET", "LIABILITY"] } },
-            period: {
-              OR: [{ fiscalYear: { lt: year } }, { fiscalYear: year, month: { lte: month } }],
+        db.financialRecord
+          .findMany({
+            where: {
+              tenantId,
+              ...ACTUAL_WHERE,
+              account: { category: { in: ["ASSET", "LIABILITY"] } },
+              period: {
+                OR: [{ fiscalYear: { lt: year } }, { fiscalYear: year, month: { lte: month } }],
+              },
             },
-          },
-          include: {
-            account: { select: { id: true, category: true } },
-            period: { select: { fiscalYear: true, month: true } },
-          },
-        }),
+            include: {
+              account: { select: { id: true, category: true } },
+              period: { select: { fiscalYear: true, month: true } },
+            },
+          })
+          .then(actualRows),
         // D-4: 実物資産の紐付け負債（personalAsset あり）は personalAssetDebts 側で
         // スケジュール計算した残高を計上するため、ここでは除外して二重計上を防ぐ。
         // 時点より後に返した元金は、今の残高に足し戻す
@@ -95,7 +99,7 @@ export const GET = withApi({
       // 口座残高は口座サマリと同じ定義（明細合計 + 差額）で算出する
       const bankBalanceMap = buildBankBalanceMap(
         bankAccounts,
-        bankSums.map((b) => ({ accountId: b.bankAccountId!, sum: b._sum.amount?.toNumber() ?? 0 })),
+        bankSums.map((b) => ({ accountId: b.bankAccountId!, sum: b._sum.flow?.toNumber() ?? 0 })),
       );
 
       // 科目ごとに「指定した月以前で最も新しい月」のスナップショットを残高として採用する

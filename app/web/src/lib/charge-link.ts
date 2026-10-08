@@ -76,7 +76,6 @@ function rank(c: { amountMatch: boolean; incoming: boolean }): number {
 export type LinkableChargeTxn = {
   id: number;
   accountId: number;
-  postedRecordId: number | null;
   chargeGroupId: string | null;
   /** その明細自身がさらに別のカードへのチャージになっている場合のチャージ先 */
   transferToAccountId: number | null;
@@ -85,16 +84,12 @@ export type LinkableChargeTxn = {
 /**
  * チャージ先の明細を対にしてよいか判定する。問題があればその理由、無ければ null を返す。
  *
- * 転記済みは実績（FinancialRecord）が既に立っており、対にしても実績は消えないため
- * 先に転記の取り消しが要る。既に別のチャージと対になっている明細も選べない
- * （1 つの入金が複数のチャージの相手になることはない）。
+ * 既に別のチャージと対になっている明細は選べない（1 つの入金が複数のチャージの相手になることはない）。
+ * 科目が付いていた明細は、対にすると科目が外れて実績から抜ける（呼び出し側で外す）。
  */
 export function validateChargePair(txn: LinkableChargeTxn, targetAccountId: number): string | null {
   if (txn.accountId !== targetAccountId) {
     return "選択した明細はチャージ先のカード・電子マネーのものではありません";
-  }
-  if (txn.postedRecordId !== null) {
-    return "実績へ転記済みの明細とは紐付けできません（先に転記を取り消してください）";
   }
   if (txn.chargeGroupId !== null) {
     return "この明細は既に別のチャージと紐付けられています";

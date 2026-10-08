@@ -22,13 +22,13 @@ export const GET = withApi({
         where: { tenantId },
         select: { id: true, name: true, bankName: true },
       }),
-      // 紐付け済み（transferGroupId あり）と転記済みは対象外。転記済みは実績が既に立っており、
-      // 後から振替に変えても FinancialRecord が残るため、先に転記の取り消しが要る
-      db.ledgerEntry.findMany({
+      // 紐付け済み（transferGroupId あり）と、実績を確定済みの月の明細は対象外
+      // （振替にすると科目が外れて実績から抜けるため、確定済みの月は変えられない）
+      db.financialRecord.findMany({
         where: {
           kind: "BANK",
           transferGroupId: null,
-          postedRecordId: null,
+          period: { actualsConfirmation: { is: null } },
           // チャージ（カード・電子マネーへの資金移動）として指定済みの明細は口座間振替ではない
           chargeToCardId: null,
           chargeGroupId: null,
@@ -38,8 +38,8 @@ export const GET = withApi({
           bankAccountId: true,
           date: true,
           description: true,
-          amount: true,
-          categoryAccountId: true,
+          flow: true,
+          accountId: true,
         },
         orderBy: { date: "desc" },
       }),
@@ -49,10 +49,10 @@ export const GET = withApi({
     const txns: (MatchableTxn & { categoryAccountId: number | null })[] = rows.map((r) => ({
       id: r.id,
       accountId: r.bankAccountId!,
-      date: r.date,
-      description: r.description,
-      amount: Number(r.amount),
-      categoryAccountId: r.categoryAccountId,
+      date: r.date!,
+      description: r.description!,
+      amount: Number(r.flow),
+      categoryAccountId: r.accountId,
     }));
 
     const matches = findTransferMatches(txns, { maxDayGap: query.maxDayGap });

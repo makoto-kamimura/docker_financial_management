@@ -16,7 +16,7 @@ export const GET = withApi({
 
     const [accounts, txns, transfers, loans, dismissals] = await Promise.all([
       db.bankAccount.findMany({ where: { tenantId }, select: { id: true, name: true } }),
-      db.ledgerEntry.findMany({
+      db.financialRecord.findMany({
         where: {
           kind: "BANK",
           date: { gte: since },
@@ -24,7 +24,7 @@ export const GET = withApi({
           chargeToCardId: null,
           chargeGroupId: null,
         },
-        select: { bankAccountId: true, date: true, description: true, amount: true },
+        select: { bankAccountId: true, date: true, description: true, flow: true },
       }),
       db.transfer.findMany({ where: { tenantId } }),
       db.loan.findMany({ where: { tenantId, debitBankAccountId: { not: null } } }),
@@ -47,9 +47,9 @@ export const GET = withApi({
     const candidates = findRecurringCandidates(
       txns.map((t) => ({
         accountId: t.bankAccountId!,
-        date: t.date,
-        description: t.description,
-        amount: Number(t.amount),
+        date: t.date!,
+        description: t.description!,
+        amount: Number(t.flow),
       })),
       [...rules, ...loanRules],
       new Set(dismissals.map((d) => dismissKey(d.bankAccountId, d.signature))),

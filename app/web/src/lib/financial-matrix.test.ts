@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFinancialMatrix, editableRecord, type MatrixRecord } from "@/lib/financial-matrix";
+import { buildFinancialMatrix, type MatrixRecord } from "@/lib/financial-matrix";
 
 const account = (code: string, category = "EXPENSE") => ({
   id: Number(code.replace(/\D/g, "")) || 1,
@@ -39,19 +39,5 @@ describe("buildFinancialMatrix", () => {
 
   it("実績が無ければ空配列", () => {
     expect(buildFinancialMatrix([])).toEqual([]);
-  });
-});
-
-describe("editableRecord", () => {
-  it("実績が 1 行だけのセルはその行を返す", () => {
-    const rows = buildFinancialMatrix([rec(7, "H3000", 3, 500)]);
-    expect(editableRecord(rows[0].byMonth.get(3))?.id).toBe(7);
-  });
-
-  it("複数行のセル・空セルは編集不可（null）", () => {
-    const rows = buildFinancialMatrix([rec(1, "H3000", 3, 500), rec(2, "H3000", 3, 300)]);
-    expect(editableRecord(rows[0].byMonth.get(3))).toBeNull();
-    expect(editableRecord(rows[0].byMonth.get(4))).toBeNull();
-    expect(editableRecord(undefined)).toBeNull();
   });
 });

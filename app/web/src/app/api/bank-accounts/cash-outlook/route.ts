@@ -5,6 +5,7 @@ import { shiftYm, trendMonths, ym } from "@/lib/balance-trend";
 import { buildCashOutlook, type OutlookRule } from "@/lib/cash-outlook";
 import { categoryBucket } from "@/lib/kpi";
 import { loanFundingTransfers } from "@/lib/loan-funding";
+import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
 
 // GET /api/bank-accounts/cash-outlook?before=12&after=12 … 銀行管理の残高の推移。
 //   今月の前後の月末残高を、口座ごとと合計で返す（計算は lib/cash-outlook.ts）。
@@ -29,16 +30,18 @@ export const GET = withApi({
         orderBy: { id: "asc" },
         select: { id: true, name: true, balanceAdjustment: true },
       }),
-      db.ledgerEntry.findMany({
+      db.financialRecord.findMany({
         where: { kind: "BANK" },
-        select: { bankAccountId: true, date: true, amount: true },
+        select: { bankAccountId: true, date: true, flow: true },
       }),
       db.transfer.findMany({ where: { tenantId } }),
       db.loan.findMany({ where: { tenantId, debitBankAccountId: { not: null } } }),
-      db.financialRecord.findMany({
-        where: { tenantId, period: { fiscalYear: year, month } },
-        select: { amount: true, account: { select: { category: true } } },
-      }),
+      db.financialRecord
+        .findMany({
+          where: { tenantId, ...ACTUAL_WHERE, period: { fiscalYear: year, month } },
+          select: { amount: true, account: { select: { category: true } } },
+        })
+        .then(actualRows),
       db.budget.findMany({
         where: { tenantId, period: { fiscalYear: { gte: year, lte: year + 3 } } },
         select: {
@@ -53,9 +56,9 @@ export const GET = withApi({
     const monthlyNet = new Map<number, Map<string, number>>();
     let firstKey: string | null = null;
     for (const t of txns) {
-      const key = ym(t.date.getUTCFullYear(), t.date.getUTCMonth() + 1);
+      const key = ym(t.date!.getUTCFullYear(), t.date!.getUTCMonth() + 1);
       const perAccount = monthlyNet.get(t.bankAccountId!) ?? new Map<string, number>();
-      perAccount.set(key, (perAccount.get(key) ?? 0) + Number(t.amount));
+      perAccount.set(key, (perAccount.get(key) ?? 0) + Number(t.flow));
       monthlyNet.set(t.bankAccountId!, perAccount);
       if (!firstKey || key < firstKey) firstKey = key;
     }

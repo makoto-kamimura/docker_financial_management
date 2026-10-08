@@ -27,7 +27,7 @@ const ym = (year: number, month: number) => `${year}-${String(month).padStart(2,
 //   「実績入力済み」になっていることが条件（lib/actuals-coverage.ts）。
 //   月末まで届いていない口座・カードは、noChange（当月末まで変動なし）で指定すれば、そろったものとして扱う。
 //   確定時点の明細の状況（最終日と変動なしの印）は actuals_confirmations.coverage に記録する。
-//   確定後は、その月の実績（financial_records）の登録・変更・削除・明細の転記を受け付けない。
+//   確定後は、その月の明細の登録・削除・科目の変更と、実績（financial_records）を書く操作を受け付けない。
 export const POST = withApi({
   role: "editor",
   schema: ConfirmSchema,
@@ -72,7 +72,7 @@ export const POST = withApi({
     await audit("actuals_confirm", `actuals:${ym(year, month)}`, {
       after: {
         coveredThrough: coverage.coveredThrough,
-        unposted: coverage.unposted,
+        unassigned: coverage.unassigned,
         noChange: snapshot.sources
           .filter((s) => s.noChange)
           .map((s) => ({ kind: s.kind, id: s.id, lastDate: s.lastDate })),

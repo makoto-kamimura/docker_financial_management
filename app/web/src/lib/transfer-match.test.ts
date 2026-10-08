@@ -97,14 +97,8 @@ describe("findTransferMatches", () => {
 });
 
 describe("validateTransferLink", () => {
-  const out = { id: 1, accountId: 10, amount: -50000, transferGroupId: null, postedRecordId: null };
-  const income = {
-    id: 2,
-    accountId: 11,
-    amount: 50000,
-    transferGroupId: null,
-    postedRecordId: null,
-  };
+  const out = { id: 1, accountId: 10, amount: -50000, transferGroupId: null };
+  const income = { id: 2, accountId: 11, amount: 50000, transferGroupId: null };
 
   it("出金と入金の正しい組なら null", () => {
     expect(validateTransferLink(out, income)).toBeNull();
@@ -117,11 +111,10 @@ describe("validateTransferLink", () => {
     expect(validateTransferLink(out, { ...income, accountId: 10 })).toContain("同じ口座");
   });
 
-  it("すでに紐付け済み・転記済みは弾く", () => {
+  it("すでに紐付け済みは弾く", () => {
     expect(validateTransferLink({ ...out, transferGroupId: "g-1" }, income)).toContain(
       "すでに振替",
     );
-    expect(validateTransferLink(out, { ...income, postedRecordId: 5 })).toContain("転記済み");
   });
 
   it("符号・金額が噛み合わない組は弾く", () => {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { categoryBucket } from "@/lib/kpi";
 import { buildCashFlow, type SysMode } from "@/lib/cashflow";
+import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
 
 // GET /api/cashflow?year=&mode= … 年間資金フロー図（集計ベース）
 export const GET = withApi({
@@ -16,10 +17,12 @@ export const GET = withApi({
     const { year } = query;
     const mode = query.mode as SysMode;
 
-    const records = await db.financialRecord.findMany({
-      where: { tenantId, ...(year ? { period: { fiscalYear: year } } : {}) },
-      include: { account: true },
-    });
+    const records = actualRows(
+      await db.financialRecord.findMany({
+        where: { tenantId, ...ACTUAL_WHERE, ...(year ? { period: { fiscalYear: year } } : {}) },
+        include: { account: true },
+      }),
+    );
 
     const totals = { revenue: 0, cogs: 0, expense: 0 };
     for (const r of records) {

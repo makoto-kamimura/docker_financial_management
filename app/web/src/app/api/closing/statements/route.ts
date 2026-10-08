@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { withCache } from "@/lib/redis";
+import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
 
 // GET /api/closing/statements?year=&departmentId= … P/L・B/S・財務指標（Redis キャッシュ）
 export const GET = withApi({
@@ -19,14 +20,17 @@ export const GET = withApi({
       : `closing:statements:${tenantId}:${fiscalYear}`;
 
     const payload = await withCache(cacheKey, 3600, async () => {
-      const records = await db.financialRecord.findMany({
-        where: {
-          tenantId,
-          period: { fiscalYear },
-          ...(departmentId ? { departmentId } : {}),
-        },
-        include: { account: true, period: true },
-      });
+      const records = actualRows(
+        await db.financialRecord.findMany({
+          where: {
+            tenantId,
+            ...ACTUAL_WHERE,
+            period: { fiscalYear },
+            ...(departmentId ? { departmentId } : {}),
+          },
+          include: { account: true, period: true },
+        }),
+      );
 
       const apportionments = await db.apportionment.findMany({
         where: { tenantId },

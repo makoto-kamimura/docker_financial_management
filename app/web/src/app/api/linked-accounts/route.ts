@@ -33,7 +33,7 @@ export const GET = withApi({
           account: { select: { id: true, code: true, name: true, category: true } },
         },
       }),
-      db.ledgerEntry.groupBy({
+      db.financialRecord.groupBy({
         by: ["chargeToCardId"],
         where: { chargeToCardId: { not: null } },
         _count: { _all: true },

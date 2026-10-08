@@ -49,20 +49,20 @@ export const GET = withApi({
           select: { id: true, name: true, type: true },
         }),
         // チャージ指定済みのカード明細（chargeToCardId 付き）
-        db.ledgerEntry.findMany({
+        db.financialRecord.findMany({
           where: { kind: "CARD", chargeToCardId: { not: null }, date: { gte: since } },
           select: {
-            amount: true,
+            flow: true,
             cardAccount: { select: { name: true } },
             chargeToCard: { select: { name: true } },
           },
         }),
         // 銀行口座からのチャージ（プリペイド・電子マネーへの入金）。カード明細には現れないため
         // ここを見ないと、銀行から直接チャージしているカードが図に出てこない
-        db.ledgerEntry.findMany({
+        db.financialRecord.findMany({
           where: { kind: "BANK", chargeToCardId: { not: null }, date: { gte: since } },
           select: {
-            amount: true,
+            flow: true,
             bankAccount: { select: { name: true } },
             chargeToCard: { select: { name: true } },
           },
@@ -94,7 +94,7 @@ export const GET = withApi({
             {
               fromCardName: t.cardAccount.name,
               toCardName: t.chargeToCard.name,
-              amount: cardSpend(t.amount),
+              amount: cardSpend(t.flow),
             },
           ]
         : [],
@@ -108,7 +108,7 @@ export const GET = withApi({
             {
               fromBankName: t.bankAccount.name,
               toCardName: t.chargeToCard.name,
-              amount: -Number(t.amount),
+              amount: -Number(t.flow),
             },
           ]
         : [],
