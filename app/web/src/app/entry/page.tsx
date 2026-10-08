@@ -249,13 +249,13 @@ function EntryContent() {
   const histTotal = cashHistory?.length ?? 0;
   const [histMsg, setHistMsg] = useState<string | null>(null);
 
-  // 現金の明細の科目を変える（科目を付けた明細がそのまま実績）
+  // 現金の明細の科目を変える（科目を付けた明細がそのまま実績。銀行・カードと同じく学習する）
   async function setCashCategory(id: number, categoryAccountId: number | null) {
     setHistMsg(null);
     const res = await fetch(`/api/actuals/${id}/categorize`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryAccountId }),
+      body: JSON.stringify({ categoryAccountId, learn: categoryAccountId !== null }),
     });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };

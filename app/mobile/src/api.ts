@@ -392,7 +392,7 @@ export async function deleteActual(id: number): Promise<void> {
   await request(`/actuals?id=${id}`, "削除に失敗しました", { method: "DELETE" });
 }
 
-/** 現金の明細の科目を変える（null で未割り当てに戻す） */
+/** 現金の明細の科目を変える（null で未割り当てに戻す。科目を付けたときは学習する） */
 export async function categorizeCashEntry(
   id: number,
   categoryAccountId: number | null,
@@ -400,7 +400,7 @@ export async function categorizeCashEntry(
   await request(
     `/actuals/${id}/categorize`,
     "科目の設定に失敗しました",
-    jsonInit("PATCH", { categoryAccountId }),
+    jsonInit("PATCH", { categoryAccountId, learn: categoryAccountId !== null }),
   );
 }
 

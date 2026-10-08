@@ -5,6 +5,7 @@ import { categorizeEntry } from "@/lib/ledger-categorize";
 
 const Schema = z.object({
   categoryAccountId: z.number().int().positive().nullable().optional(),
+  learn: z.boolean().optional(),
 });
 
 // PATCH /api/actuals/[id]/categorize … 現金の明細の科目の変更（editor 以上）。
@@ -13,7 +14,7 @@ export const PATCH = withApi({
   role: "editor",
   schema: Schema,
   handler: async ({ user, db, id, body, audit }) => {
-    const { before, updated } = await categorizeEntry(
+    const { before, updated, updatedSiblingCount } = await categorizeEntry(
       db,
       { tenantId: user.tenantId },
       "CASH",
@@ -23,7 +24,11 @@ export const PATCH = withApi({
     await audit("cash_entry_categorize", `financial_record:${id}`, {
       before,
       after: { categoryAccountId: updated.accountId, amount: Number(updated.amount) },
+      ...(updatedSiblingCount > 0 ? { updatedSiblingCount } : {}),
     });
-    return NextResponse.json({ data: { id, categoryAccountId: updated.accountId } });
+    return NextResponse.json({
+      data: { id, categoryAccountId: updated.accountId },
+      updatedSiblingCount,
+    });
   },
 });
