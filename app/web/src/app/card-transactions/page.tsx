@@ -8,7 +8,6 @@ import { AppShell } from "@/components/AppShell";
 import { CardUsageTrendCharts, useCardUsageTrend } from "@/components/CardUsageTrendCharts";
 import { SectionLead } from "@/components/Explain";
 import { CARD_HELP } from "@/lib/help-texts";
-import type { FlowGraph } from "@/components/AccountFlowDiagram";
 import {
   LINKED_ACCOUNT_TYPES,
   LINKED_ACCOUNT_TYPE_LABELS,
@@ -59,16 +58,9 @@ type CategoryAccount = { id: number; code: string; name: string; category: strin
 // 電子マネー・プリペイドはカード番号が無く、明細も「チャージ残高からの支払い」なので文言を切り替える
 const ACCOUNT_TYPE_LABEL = LINKED_ACCOUNT_TYPE_LABELS;
 
-// サマリタブのフロー図（GET /api/linked-accounts/flow）。
-// 引き落とし・チャージ・固定決済のどれにも現れないカードは線を引けないため unlinked として案内する。
+// カードごとの引き落としと固定決済（GET /api/linked-accounts/flow）。一覧のカードごとに並べる
 type CardFlowResponse = {
-  /** チャージがカード同士で循環していると描画できない（銀行側のフロー図と同じ扱い） */
-  cyclic: boolean;
-  graph: FlowGraph;
-  /** チャージを月あたりに均すのに使った月数 */
-  chargeMonths: number;
-  unlinked: { id: number; name: string; type: string }[];
-  /** 銀行口座 → カードの引き落とし（資金移動ルール）。スケジュール一覧の元データ */
+  /** 銀行口座 → カードの引き落とし（資金移動ルール） */
   transfers: {
     id: number;
     from: string | null;
@@ -81,7 +73,7 @@ type CardFlowResponse = {
     day: number;
     note: string | null;
   }[];
-  /** カードでの固定決済（CardRecurringPayment）。同じくスケジュール一覧の元データ */
+  /** カードでの固定決済（CardRecurringPayment） */
   recurring: {
     id: number;
     accountId: number;
@@ -92,10 +84,6 @@ type CardFlowResponse = {
   }[];
 };
 const EMPTY_CARD_FLOW: CardFlowResponse = {
-  cyclic: false,
-  graph: { nodes: [], links: [] },
-  chargeMonths: 3,
-  unlinked: [],
   transfers: [],
   recurring: [],
 };

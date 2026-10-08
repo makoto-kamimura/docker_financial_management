@@ -43,7 +43,6 @@ export function RecurringSuggestionsPanel({
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["transfer-suggestions"] });
     qc.invalidateQueries({ queryKey: ["transfer-flow"] });
-    qc.invalidateQueries({ queryKey: ["funding-plan"] });
     qc.invalidateQueries({ queryKey: ["cash-outlook"] });
     qc.invalidateQueries({ queryKey: ["transfers"] });
   };
