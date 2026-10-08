@@ -1,6 +1,11 @@
 @import "tailwindcss";
 
 @layer base {
+  /* 画面の枠（AppShell）は body の高さに合わせる。body に上の余白が付いても、ページが縦にずれないようにする */
+  html,
+  body {
+    height: 100%;
+  }
   body {
     font-family:
       ui-sans-serif,

@@ -246,11 +246,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    // 枠は画面（100vh）ではなく body の高さに合わせ、モバイルのメニューと暗幕も画面の上端ではなく枠に重ねる
+    // （body に上の余白があっても、ヘッダーやメニューの上端が隠れないようにする）
+    <div className="relative flex h-full overflow-hidden bg-slate-50">
       {/* モバイルオーバーレイ */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-20 md:hidden"
+          className="absolute inset-0 bg-black/50 z-20 md:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -259,7 +261,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside
         id="app-sidebar"
         className={`w-56 flex-shrink-0 bg-slate-900 flex flex-col
-          fixed md:static inset-y-0 left-0 z-30 transition-transform duration-200
+          absolute md:static inset-y-0 left-0 z-30 transition-transform duration-200
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
         aria-label="サイドバーナビゲーション"
