@@ -321,6 +321,15 @@ flowchart LR
 | `src/components/AccountMonthMatrix.tsx` | 予算・実績の科目×月の表 |
 | `src/components/MonthCalendar.tsx`（モバイルも同名） | 月のカレンダー（月の移動・月の合計の帯 `CalendarTotals`・曜日の行・日のマス・今日の印・選んだ日）。マスの中身は `DayAmounts`（その日の入金 + と出金 −）などを呼び出し側が渡す。予算・現金・銀行・カードのカレンダーで使う |
 
+大きい画面は、タブやモーダルごとの部品を `src/components/<画面>/` に分けて置く（`page.tsx` はタブの切り替えと、開いているモーダルの状態だけを持つ）。モバイルの `src/components/bank/`・`card/` と同じ置き方。
+
+| フォルダ | 中身 |
+|---|---|
+| `src/components/entry/` | 実績管理の現金のタブ（一覧 `ActualsMatrixTab`・カレンダー `CashCalendarTab`・CSV インポート `CsvImportTab`・履歴 `CashHistoryTab`）。銀行・カードのタブは `BankTransactionsPanel`・`CardTransactionsPanel` などを使う |
+| `src/components/loans/` | 借入金管理のモーダル（追加・編集 `LoanFormModals`・金利変更と改定後の返済額 `LoanRateModals`・返済登録 `RepayModal`）。入力の状態と保存はモーダル側が持つ |
+| `src/components/assets/` | 資産管理の実物資産の一覧 `PersonalAssetsSection` と、登録・編集のモーダル `PersonalAssetFormModal` |
+| `src/components/settings/` | 設定の各タブ（基本設定 `ProfileSections`・消費税設定・科目名設定・セキュリティ） |
+
 ## 6. 認証とアカウント
 
 ### 6.1 ログイン
