@@ -17,6 +17,7 @@ import { SectionLead } from "@/components/Explain";
 import { BUDGET_HELP } from "@/lib/help-texts";
 import { useFiscalYear } from "@/lib/use-fiscal-year";
 import { planAllocationApply, type AssignmentSource } from "@/lib/allocation-assign";
+import { yen } from "@/lib/format";
 
 // 配分ルールのメンバー科目（自動の振り分け＋手動の割り当てを解決したもの）
 type MemberAccount = {
@@ -539,7 +540,6 @@ type AllocationSuggestion = {
 type AllocationBasis = "budget" | "actual" | "manual";
 
 const ALLOC_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const allocYen = (v: number) => Math.round(v).toLocaleString("ja-JP");
 
 function AllocationSuggestSection() {
   const qc = useQueryClient();
@@ -712,12 +712,12 @@ function AllocationSuggestSection() {
         {data && (
           <div className="text-sm text-slate-600 ml-auto text-right">
             <div>
-              収入基準額: <span className="font-semibold">¥{allocYen(data.basisAmount)}</span>
+              収入基準額: <span className="font-semibold">{yen(data.basisAmount)}</span>
             </div>
             {/* 手入力は控除しないので基準額＝配分額。二重表示を避けて振り分け対象額だけ出す */}
             <div>
               {data.basis === "manual" ? "配分対象額" : "配分可能額（ローン等控除後）"}:{" "}
-              <span className="font-semibold text-indigo-700">¥{allocYen(data.available)}</span>
+              <span className="font-semibold text-indigo-700">{yen(data.available)}</span>
             </div>
           </div>
         )}
@@ -733,8 +733,8 @@ function AllocationSuggestSection() {
 
       {data && data.overRecommended && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
-          ⚠ 推奨額の合計（¥{allocYen(data.totalRecommended)}）が
-          {data.basis === "manual" ? "配分対象額" : "配分可能額"}（¥{allocYen(data.available)}
+          ⚠ 推奨額の合計（{yen(data.totalRecommended)}）が
+          {data.basis === "manual" ? "配分対象額" : "配分可能額"}（{yen(data.available)}
           ）を超えています。金額を調整してください。
         </div>
       )}
@@ -751,7 +751,7 @@ function AllocationSuggestSection() {
             ).map(([label, value]) => (
               <div key={label} className="rounded-lg bg-slate-50 px-3 py-2 text-center">
                 <div className="text-xs text-slate-500">{label}</div>
-                <div className="text-sm font-semibold text-slate-700">¥{allocYen(value)}</div>
+                <div className="text-sm font-semibold text-slate-700">{yen(value)}</div>
               </div>
             ))}
           </div>
@@ -796,11 +796,11 @@ function AllocationSuggestSection() {
                                 <span className="tabular-nums">
                                   {a.budget !== null ? (
                                     <span className="text-slate-400">
-                                      予算 ¥{allocYen(a.budget)}（そのまま）
+                                      予算 {yen(a.budget)}（そのまま）
                                     </span>
                                   ) : addedById.has(a.id) ? (
                                     <span className="text-indigo-700">
-                                      → ¥{allocYen(addedById.get(a.id)!)}
+                                      → {yen(addedById.get(a.id)!)}
                                     </span>
                                   ) : (
                                     <span className="text-slate-300">—</span>
@@ -812,8 +812,8 @@ function AllocationSuggestSection() {
                         )}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-500">
-                        ¥{allocYen(item.min)}
-                        {item.max !== null ? ` 〜 ¥${allocYen(item.max)}` : " 〜"}
+                        {yen(item.min)}
+                        {item.max !== null ? ` 〜 ${yen(item.max)}` : " 〜"}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <input

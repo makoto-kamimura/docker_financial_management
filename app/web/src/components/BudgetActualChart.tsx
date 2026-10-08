@@ -17,6 +17,7 @@ import { buildBudgetActualGroups, type BudgetActualBar } from "@/lib/budget-actu
 import { nextYearMonth, type VarianceRow } from "@/lib/budget-cycle";
 import { displayName, type ViewMode } from "@/lib/display-name";
 import { DASHBOARD_HELP, textFor } from "@/lib/help-texts";
+import { yen } from "@/lib/format";
 
 type Row = VarianceRow & { soleName: string | null; corporateName: string | null };
 
@@ -25,8 +26,6 @@ type Row = VarianceRow & { soleName: string | null; corporateName: string | null
 const COLOR_GOOD = "#2a78d6";
 const COLOR_BAD = "#d03b3b";
 const COLOR_NEUTRAL = "#64748b";
-
-const yen = (v: number) => `¥${Math.round(v).toLocaleString("ja-JP")}`;
 
 function stateOf(bar: BudgetActualBar, expense: boolean) {
   if (bar.favorable === null) {

@@ -1,16 +1,35 @@
-// 画面共通の書式。web 版の表示（toLocaleString("ja-JP")）とそろえる。
+// 画面共通の書式。金額は web 版（app/web/src/lib/format.ts）と同じく「1,234円」にそろえる。
+//   - yen: ふつうの金額。負の数は「−1,234円」
+//   - yenSigned: 入出金・差のように向きのある金額。「+1,234円」「−1,234円」（0 は「0円」）
+//   - yenShort: 幅の狭いカード・グラフ。1 万円以上は「12.3万円」
+//   - amountText: 表の中の数字だけ
+// どれも円未満は四捨五入する。
 
-/** ¥1,234,567（web 版の円表示と同じ） */
-export const yen = (v: number) => `¥${Math.round(v).toLocaleString("ja-JP")}`;
+const MINUS = "−";
 
-/** 1,234,567円 */
-export const yenJa = (v: number) => `${Math.round(v).toLocaleString("ja-JP")}円`;
+/** 「1,234」（四捨五入。負の数は「−1,234」） */
+export function amountText(v: number): string {
+  const n = Math.round(v);
+  return `${n < 0 ? MINUS : ""}${Math.abs(n).toLocaleString("ja-JP")}`;
+}
 
-/** 画面幅が狭いカード用の短縮表記（1 万円以上は「◯万円」） */
-export const yenShort = (v: number) =>
-  Math.abs(v) >= 10_000
-    ? `${(v / 10_000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : `${Math.round(v).toLocaleString("ja-JP")}円`;
+/** 「1,234円」 */
+export function yen(v: number): string {
+  return `${amountText(v)}円`;
+}
+
+/** 「+1,234円」「−1,234円」「0円」 */
+export function yenSigned(v: number): string {
+  const n = Math.round(v);
+  return `${n > 0 ? "+" : ""}${yen(n)}`;
+}
+
+/** 1 万円以上は「12.3万円」（小数 1 桁）、それ未満は「1,234円」 */
+export function yenShort(v: number): string {
+  if (Math.abs(v) < 1_0000) return yen(v);
+  const man = (Math.abs(v) / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 });
+  return `${v < 0 ? MINUS : ""}${man}万円`;
+}
 
 /** 2026/07/01 09:30 */
 export function fmtDateTime(iso: string): string {

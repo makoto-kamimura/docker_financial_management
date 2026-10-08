@@ -4,6 +4,7 @@
 // AppShell とページ見出しは呼び出し側（/bank-accounts）が持つ。
 
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Modal } from "@/components/Modal";
 import { invalidateActuals } from "@/lib/invalidate-actuals";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -23,6 +24,7 @@ import {
   TXN_SOURCE_LABEL as SOURCE_LABELS,
 } from "@/lib/labels";
 import { Notice, Tabs } from "@/components/ui";
+import { yen } from "@/lib/format";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
@@ -82,7 +84,6 @@ type TransferCandidate = {
 
 // ── 定数 ────────────────────────────────────────────────────────
 const now = new Date();
-const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 // 明細一覧のページング（実績管理の履歴と同じ 30 件単位）
 const TXN_PAGE_SIZE = 30;
@@ -932,110 +933,108 @@ export function BankTransactionsPanel({
             </div>
           )}
           {recurringParts.includes("register") && bankTransferOpen && (
-            <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-              <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-2xl my-auto">
-                <h2 className="text-lg font-bold text-slate-800 mb-1">振替を登録（銀行 → 銀行）</h2>
-                <p className="text-xs text-slate-500 mb-4">
-                  両方の口座に明細を作ります。自己資金の移動なので収入・支出には計上されません。
-                </p>
-                <form onSubmit={submitBankTransfer} className="flex flex-wrap gap-3 items-end">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-500">日付</label>
-                    <input
-                      type="date"
-                      required
-                      value={bankTransfer.date}
-                      onChange={(e) => setBankTransfer((b) => ({ ...b, date: e.target.value }))}
-                      className="input-field text-sm"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1 min-w-44">
-                    <label className="text-xs text-slate-500">出金元の口座</label>
-                    <select
-                      required
-                      value={bankTransfer.fromAccountId}
-                      onChange={(e) =>
-                        setBankTransfer((b) => ({ ...b, fromAccountId: e.target.value }))
-                      }
-                      className="input-field text-sm"
-                    >
-                      <option value="">選択してください</option>
-                      {(accounts ?? []).map((a) => (
+            <Modal size="xl">
+              <h2 className="text-lg font-bold text-slate-800 mb-1">振替を登録（銀行 → 銀行）</h2>
+              <p className="text-xs text-slate-500 mb-4">
+                両方の口座に明細を作ります。自己資金の移動なので収入・支出には計上されません。
+              </p>
+              <form onSubmit={submitBankTransfer} className="flex flex-wrap gap-3 items-end">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-slate-500">日付</label>
+                  <input
+                    type="date"
+                    required
+                    value={bankTransfer.date}
+                    onChange={(e) => setBankTransfer((b) => ({ ...b, date: e.target.value }))}
+                    className="input-field text-sm"
+                  />
+                </div>
+                <div className="flex flex-col gap-1 min-w-44">
+                  <label className="text-xs text-slate-500">出金元の口座</label>
+                  <select
+                    required
+                    value={bankTransfer.fromAccountId}
+                    onChange={(e) =>
+                      setBankTransfer((b) => ({ ...b, fromAccountId: e.target.value }))
+                    }
+                    className="input-field text-sm"
+                  >
+                    <option value="">選択してください</option>
+                    {(accounts ?? []).map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}（{a.bankName}）
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <span className="text-slate-400 pb-2">→</span>
+                <div className="flex flex-col gap-1 min-w-44">
+                  <label className="text-xs text-slate-500">入金先の口座</label>
+                  <select
+                    required
+                    value={bankTransfer.toAccountId}
+                    onChange={(e) =>
+                      setBankTransfer((b) => ({ ...b, toAccountId: e.target.value }))
+                    }
+                    className="input-field text-sm"
+                  >
+                    <option value="">選択してください</option>
+                    {(accounts ?? [])
+                      .filter((a) => String(a.id) !== bankTransfer.fromAccountId)
+                      .map((a) => (
                         <option key={a.id} value={a.id}>
                           {a.name}（{a.bankName}）
                         </option>
                       ))}
-                    </select>
-                  </div>
-                  <span className="text-slate-400 pb-2">→</span>
-                  <div className="flex flex-col gap-1 min-w-44">
-                    <label className="text-xs text-slate-500">入金先の口座</label>
-                    <select
-                      required
-                      value={bankTransfer.toAccountId}
-                      onChange={(e) =>
-                        setBankTransfer((b) => ({ ...b, toAccountId: e.target.value }))
-                      }
-                      className="input-field text-sm"
-                    >
-                      <option value="">選択してください</option>
-                      {(accounts ?? [])
-                        .filter((a) => String(a.id) !== bankTransfer.fromAccountId)
-                        .map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.name}（{a.bankName}）
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1 w-36">
-                    <label className="text-xs text-slate-500">金額（円）</label>
-                    <input
-                      type="number"
-                      required
-                      min={1}
-                      placeholder="例: 50000"
-                      value={bankTransfer.amount}
-                      onChange={(e) => setBankTransfer((b) => ({ ...b, amount: e.target.value }))}
-                      className="input-field text-sm"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1 min-w-40">
-                    <label className="text-xs text-slate-500">摘要（任意）</label>
-                    <input
-                      type="text"
-                      placeholder="未入力なら相手口座名から自動作成"
-                      value={bankTransfer.description}
-                      onChange={(e) =>
-                        setBankTransfer((b) => ({ ...b, description: e.target.value }))
-                      }
-                      className="input-field text-sm"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 self-end ml-auto">
-                    <button
-                      type="button"
-                      onClick={() => setBankTransferOpen(false)}
-                      className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
-                    >
-                      キャンセル
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={(accounts ?? []).length < 2}
-                      className="btn-primary"
-                    >
-                      振替を登録
-                    </button>
-                  </div>
-                  {(accounts ?? []).length < 2 && (
-                    <span className="text-xs text-slate-400 self-end pb-2">
-                      振替には 2 つ以上の口座の登録が必要です。
-                    </span>
-                  )}
-                </form>
-              </div>
-            </div>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1 w-36">
+                  <label className="text-xs text-slate-500">金額（円）</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    placeholder="例: 50000"
+                    value={bankTransfer.amount}
+                    onChange={(e) => setBankTransfer((b) => ({ ...b, amount: e.target.value }))}
+                    className="input-field text-sm"
+                  />
+                </div>
+                <div className="flex flex-col gap-1 min-w-40">
+                  <label className="text-xs text-slate-500">摘要（任意）</label>
+                  <input
+                    type="text"
+                    placeholder="未入力なら相手口座名から自動作成"
+                    value={bankTransfer.description}
+                    onChange={(e) =>
+                      setBankTransfer((b) => ({ ...b, description: e.target.value }))
+                    }
+                    className="input-field text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-2 self-end ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setBankTransferOpen(false)}
+                    className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={(accounts ?? []).length < 2}
+                    className="btn-primary"
+                  >
+                    振替を登録
+                  </button>
+                </div>
+                {(accounts ?? []).length < 2 && (
+                  <span className="text-xs text-slate-400 self-end pb-2">
+                    振替には 2 つ以上の口座の登録が必要です。
+                  </span>
+                )}
+              </form>
+            </Modal>
           )}
 
           {/* ── 取込済み明細の振替紐付け ─────────────── */}

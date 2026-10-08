@@ -10,7 +10,7 @@ import { SETTINGS_HELP } from "@/lib/help-texts";
 // 区分名は予算管理・実績管理と同じ（lib/labels.ts）
 import { CATEGORY_LABEL } from "@/lib/labels";
 import { PageHeader, Tabs } from "@/components/ui";
-import { SaveNotice, SettingsCard, type SaveMessage } from "@/components/SettingsCard";
+import { SaveNotice, SectionCard, type SaveMessage } from "@/components/SectionCard";
 
 // ── 共通型 ──────────────────────────────────────────────────────
 type BusinessProfile = {
@@ -74,7 +74,7 @@ function DisplayNameSection() {
   }
 
   return (
-    <SettingsCard
+    <SectionCard
       title="あなたの表示名"
       lead={SETTINGS_HELP.displayName}
       actions={
@@ -102,7 +102,7 @@ function DisplayNameSection() {
         {me && <span className="text-xs text-slate-400 pb-2">ログイン: {me.email}</span>}
       </div>
       <SaveNotice msg={msg} />
-    </SettingsCard>
+    </SectionCard>
   );
 }
 
@@ -154,7 +154,7 @@ function ClosingMonthSection() {
 
   const startMonth = (closingMonth % 12) + 1;
   return (
-    <SettingsCard
+    <SectionCard
       title="決算月"
       lead={SETTINGS_HELP.closingMonth}
       actions={
@@ -189,7 +189,7 @@ function ClosingMonthSection() {
         </span>
       </div>
       <SaveNotice msg={msg} />
-    </SettingsCard>
+    </SectionCard>
   );
 }
 
@@ -238,7 +238,7 @@ function BusinessProfileSection() {
     setForm((prev) => ({ ...prev, [field]: val }));
 
   return (
-    <SettingsCard
+    <SectionCard
       title="事業者情報"
       lead={SETTINGS_HELP.businessProfile}
       actions={
@@ -318,7 +318,7 @@ function BusinessProfileSection() {
         </label>
       </div>
       <SaveNotice msg={msg} />
-    </SettingsCard>
+    </SectionCard>
   );
 }
 
@@ -369,7 +369,7 @@ function TaxSettingsSection() {
   }
 
   return (
-    <SettingsCard
+    <SectionCard
       title="消費税設定"
       lead={SETTINGS_HELP.tax}
       actions={
@@ -441,7 +441,7 @@ function TaxSettingsSection() {
           </tbody>
         </table>
       )}
-    </SettingsCard>
+    </SectionCard>
   );
 }
 
@@ -558,7 +558,7 @@ function SecuritySection() {
   return (
     <>
       {/* MFA セットアップ */}
-      <SettingsCard
+      <SectionCard
         title="多要素認証（MFA / TOTP）"
         lead={SETTINGS_HELP.mfa}
         badge={
@@ -645,10 +645,10 @@ function SecuritySection() {
           </div>
         )}
         <SaveNotice msg={mfaMsg} />
-      </SettingsCard>
+      </SectionCard>
 
       {/* リカバリーコード */}
-      <SettingsCard title="MFA リカバリーコード" lead={SETTINGS_HELP.recovery}>
+      <SectionCard title="MFA リカバリーコード" lead={SETTINGS_HELP.recovery}>
         <div className="flex gap-2 mb-4">
           <input
             placeholder="現在の TOTP コード（6桁）"
@@ -686,7 +686,7 @@ function SecuritySection() {
           </div>
         )}
         <SaveNotice msg={recMsg} />
-      </SettingsCard>
+      </SectionCard>
     </>
   );
 }
@@ -835,7 +835,7 @@ function AccountNamesSection() {
   };
 
   return (
-    <SettingsCard
+    <SectionCard
       title="科目名設定"
       lead={SETTINGS_HELP.accountNames}
       actions={
@@ -983,7 +983,7 @@ function AccountNamesSection() {
           </table>
         </div>
       )}
-    </SettingsCard>
+    </SectionCard>
   );
 }
 

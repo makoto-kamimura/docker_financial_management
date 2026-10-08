@@ -28,6 +28,7 @@ import { ENTRY_HELP, textFor } from "@/lib/help-texts";
 import { displayName, type ViewMode } from "@/lib/display-name";
 import { invalidateActuals } from "@/lib/invalidate-actuals";
 import { Notice } from "@/components/ui";
+import { yenSigned } from "@/lib/format";
 
 export function ActualsConfirmPanel({
   mode,
@@ -383,7 +384,6 @@ const KIND_LABEL: Record<UnassignedEntry["kind"], string> = {
   BANK: "銀行",
   CARD: "カード",
 };
-const yen = (v: number) => `${v < 0 ? "−" : "+"}${Math.abs(v).toLocaleString("ja-JP")}円`;
 
 // 未割り当て（科目が付いていない）の明細の一覧。行ごとに科目を選ぶと、その明細がそのまま実績になる。
 // 残っている間は、その月の実績を確定できない。「まとめて自動処理」は、学習ルールで科目を付け、
@@ -551,7 +551,7 @@ function UnassignedCard({
                   <td
                     className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${e.amount < 0 ? "text-rose-600" : "text-emerald-600"}`}
                   >
-                    {yen(e.amount)}
+                    {yenSigned(e.amount)}
                   </td>
                   <td className="px-3 py-2">
                     <select

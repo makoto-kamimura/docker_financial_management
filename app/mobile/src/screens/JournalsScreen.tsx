@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { fetchJournals, type JournalEntry, type ViewMode } from "../api";
 import { Card, EmptyText, Notice, Pills } from "../components/ui";
-import { fmtDate, MONTHS, yenJa } from "../format";
+import { fmtDate, MONTHS, yen } from "../format";
 import { displayName } from "../shared/display-name";
 import { useFiscalYear } from "../fiscal-year";
 
@@ -110,7 +110,7 @@ export function JournalsScreen({ viewMode }: Props) {
               </View>
               <View style={s.titleRow}>
                 <Text style={s.desc}>{e.description}</Text>
-                <Text style={s.total}>{yenJa(sum)}</Text>
+                <Text style={s.total}>{yen(sum)}</Text>
               </View>
               {[...debits, ...credits].map((d) => (
                 <View key={d.id} style={[s.line, d.side === "debit" ? s.lineDebit : s.lineCredit]}>
@@ -121,7 +121,7 @@ export function JournalsScreen({ viewMode }: Props) {
                     <Text style={s.code}>{d.account.code} </Text>
                     {displayName(d.account, viewMode)}
                   </Text>
-                  <Text style={s.amount}>{yenJa(Number(d.amount))}</Text>
+                  <Text style={s.amount}>{yen(Number(d.amount))}</Text>
                 </View>
               ))}
               {e.details.some((d) => d.note) && (

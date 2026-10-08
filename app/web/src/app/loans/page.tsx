@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import {
   CartesianGrid,
@@ -35,6 +36,7 @@ import { asOfDateLabel } from "@/lib/asset-valuation";
 import { VariableRateHelp } from "@/components/HelpTip";
 import { SectionLead } from "@/components/Explain";
 import { LOANS_HELP } from "@/lib/help-texts";
+import { yen } from "@/lib/format";
 
 type AccountRef = { id: number; code: string; name: string; category: string };
 type AssetRef = {
@@ -47,8 +49,6 @@ type AssetRef = {
 /** ローンの種別から、その場で作る資産の種別の既定を決める（住宅→建物、カー→車） */
 const assetCategoryForLoanType = (loanType: string): PersonalAssetCategory =>
   loanType === "housing" ? "BUILDING" : loanType === "car" ? "VEHICLE" : "OTHER";
-
-const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 // ── ページ ──────────────────────────────────────────────────────
 export default function LoansPage() {
@@ -745,337 +745,54 @@ export default function LoansPage() {
 
       {/* 借入追加モーダル */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">借入追加</h2>
-            <div className="space-y-3">
-              {(
-                [
-                  ["lenderName", "借入先 *"],
-                  ["amount", "借入金額（円）*"],
-                  ["interestRate", "年利率（例: 0.03）"],
-                  ["borrowedOn", "借入日 *", "date"],
-                  ["repaymentDate", "支払い完了年月（完済予定日）*", "date"],
-                ] as [keyof typeof newLoan, string, string?][]
-              ).map(([k, label, type]) => (
-                <div key={k}>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
-                  <input
-                    type={type ?? "text"}
-                    value={newLoan[k]}
-                    onChange={(e) => setNewLoan((f) => ({ ...f, [k]: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-              ))}
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">借入種別</label>
-                <select
-                  value={newLoan.loanType}
-                  onChange={(e) => setNewLoan((f) => ({ ...f, loanType: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                >
-                  {LOAN_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {/* 予算連携は住宅ローン以外（カーローン等）でも使えるよう常に表示する */}
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    予算連携先科目（例: 家賃・借入返済）
-                  </label>
-                  <select
-                    value={newLoan.linkedAccountCode}
-                    onChange={(e) =>
-                      setNewLoan((f) => ({ ...f, linkedAccountCode: e.target.value }))
-                    }
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  >
-                    <option value="">選択してください</option>
-                    {accounts
-                      .filter((a) => a.category === "EXPENSE" || a.category === "LIABILITY")
-                      .map((a) => (
-                        <option key={a.code} value={a.code}>
-                          {a.code} {a.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    月々の返済額（円）
-                  </label>
-                  <input
-                    type="number"
-                    value={newLoan.monthlyPayment}
-                    onChange={(e) => setNewLoan((f) => ({ ...f, monthlyPayment: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                  <p className="text-xs text-slate-400 mt-1">
-                    支払い完了年月まで、連携先科目の予算に毎月自動加算されます。
-                  </p>
-                </div>
-              </>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    引き落とし口座
-                  </label>
-                  <select
-                    value={newLoan.debitBankAccountId}
-                    onChange={(e) =>
-                      setNewLoan((f) => ({ ...f, debitBankAccountId: e.target.value }))
-                    }
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  >
-                    <option value="">指定しない</option>
-                    {bankAccounts.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    引き落とし日（毎月）
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    placeholder="27"
-                    value={newLoan.debitDay}
-                    onChange={(e) => setNewLoan((f) => ({ ...f, debitDay: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-slate-400 -mt-2">{LOANS_HELP.debit}</p>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">残価（円）</label>
+        <Modal size="md">
+          <h2 className="text-lg font-bold text-slate-800 mb-4">借入追加</h2>
+          <div className="space-y-3">
+            {(
+              [
+                ["lenderName", "借入先 *"],
+                ["amount", "借入金額（円）*"],
+                ["interestRate", "年利率（例: 0.03）"],
+                ["borrowedOn", "借入日 *", "date"],
+                ["repaymentDate", "支払い完了年月（完済予定日）*", "date"],
+              ] as [keyof typeof newLoan, string, string?][]
+            ).map(([k, label, type]) => (
+              <div key={k}>
+                <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
                 <input
-                  type="number"
-                  min={0}
-                  placeholder="残価設定ローンのみ"
-                  value={newLoan.residualValue}
-                  onChange={(e) => setNewLoan((f) => ({ ...f, residualValue: e.target.value }))}
+                  type={type ?? "text"}
+                  value={newLoan[k]}
+                  onChange={(e) => setNewLoan((f) => ({ ...f, [k]: e.target.value }))}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
-
-              {/* この借入で買った資産（その場で作るか、ローンの無い既存の資産を選ぶ） */}
-              <fieldset className="rounded-lg border border-slate-200 px-3 py-2">
-                <legend className="px-1 text-sm font-medium text-slate-600">
-                  この借入で買った資産
-                </legend>
-                <div className="flex flex-wrap gap-3 text-sm text-slate-700">
-                  {(
-                    [
-                      ["none", "なし"],
-                      ["new", "新しく作る"],
-                      ["link", "既存から選ぶ"],
-                    ] as const
-                  ).map(([mode, label]) => (
-                    <label key={mode} className="flex items-center gap-1.5">
-                      <input
-                        type="radio"
-                        name="new-loan-asset"
-                        checked={newAsset.mode === mode}
-                        onChange={() =>
-                          setNewAsset((a) => ({
-                            ...a,
-                            mode,
-                            // 新しく作るときの既定: 名前は借入先、種別はローンの種別から
-                            ...(mode === "new" && {
-                              name: a.name || newLoan.lenderName,
-                              category: assetCategoryForLoanType(newLoan.loanType),
-                            }),
-                          }))
-                        }
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                {newAsset.mode === "new" && (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <label className="block">
-                      <span className="text-xs text-slate-600">資産名</span>
-                      <input
-                        value={newAsset.name}
-                        placeholder={newLoan.lenderName}
-                        onChange={(e) => setNewAsset((a) => ({ ...a, name: e.target.value }))}
-                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-xs text-slate-600">種別</span>
-                      <select
-                        value={newAsset.category}
-                        onChange={(e) =>
-                          setNewAsset((a) => ({
-                            ...a,
-                            category: e.target.value as PersonalAssetCategory,
-                          }))
-                        }
-                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
-                      >
-                        {Object.entries(PERSONAL_ASSET_CATEGORY_LABEL).map(([v, label]) => (
-                          <option key={v} value={v}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block">
-                      <span className="text-xs text-slate-600">取得価格（円）</span>
-                      <input
-                        type="number"
-                        min={0}
-                        placeholder={newLoan.amount || "借入額"}
-                        value={newAsset.acquisitionCost}
-                        onChange={(e) =>
-                          setNewAsset((a) => ({ ...a, acquisitionCost: e.target.value }))
-                        }
-                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-xs text-slate-600">評価額（円）</span>
-                      <input
-                        type="number"
-                        min={0}
-                        placeholder="取得価格と同じ"
-                        value={newAsset.currentValue}
-                        onChange={(e) =>
-                          setNewAsset((a) => ({ ...a, currentValue: e.target.value }))
-                        }
-                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
-                      />
-                    </label>
-                  </div>
-                )}
-                {newAsset.mode === "link" && (
-                  <select
-                    value={newAsset.assetId}
-                    onChange={(e) => setNewAsset((a) => ({ ...a, assetId: e.target.value }))}
-                    className="mt-2 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
-                  >
-                    <option value="">資産を選んでください</option>
-                    {assets
-                      .filter((a) => a.loanId === null)
-                      .map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}（{PERSONAL_ASSET_CATEGORY_LABEL[a.category] ?? a.category}）
-                        </option>
-                      ))}
-                  </select>
-                )}
-                <p className="mt-1 text-[11px] text-slate-400">{LOANS_HELP.asset}</p>
-              </fieldset>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">備考</label>
-                <input
-                  value={newLoan.note}
-                  onChange={(e) => setNewLoan((f) => ({ ...f, note: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            ))}
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">借入種別</label>
+              <select
+                value={newLoan.loanType}
+                onChange={(e) => setNewLoan((f) => ({ ...f, loanType: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
               >
-                キャンセル
-              </button>
-              <button
-                onClick={saveLoan}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-              >
-                保存
-              </button>
+                {LOAN_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 借入編集モーダル（支払い完了年月・月々の返済額・予算連携先） */}
-      {editForm.loanId && (
-        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">借入条件の編集</h2>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    借入金額（円）
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={editForm.amount}
-                    onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">借入日</label>
-                  <input
-                    type="date"
-                    value={editForm.borrowedOn}
-                    onChange={(e) => setEditForm((f) => ({ ...f, borrowedOn: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
+            {/* 予算連携は住宅ローン以外（カーローン等）でも使えるよう常に表示する */}
+            <>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">
-                  年利率（例: 0.03）
-                </label>
-                <input
-                  type="number"
-                  step="0.0001"
-                  disabled={!editForm.rateEditable}
-                  value={editForm.interestRate}
-                  onChange={(e) => setEditForm((f) => ({ ...f, interestRate: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
-                />
-                {!editForm.rateEditable && (
-                  <p className="text-xs text-slate-400 mt-1">
-                    金利変更の履歴があるローンは、「金利変更」から登録してください。
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  支払い完了年月（完済予定日）*
-                </label>
-                <input
-                  type="date"
-                  value={editForm.repaymentDate}
-                  onChange={(e) => setEditForm((f) => ({ ...f, repaymentDate: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  予算連携先科目（例: 家賃）
+                  予算連携先科目（例: 家賃・借入返済）
                 </label>
                 <select
-                  value={editForm.linkedAccountCode}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, linkedAccountCode: e.target.value }))
-                  }
+                  value={newLoan.linkedAccountCode}
+                  onChange={(e) => setNewLoan((f) => ({ ...f, linkedAccountCode: e.target.value }))}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 >
-                  <option value="">連携なし</option>
+                  <option value="">選択してください</option>
                   {accounts
                     .filter((a) => a.category === "EXPENSE" || a.category === "LIABILITY")
                     .map((a) => (
@@ -1086,109 +803,382 @@ export default function LoansPage() {
                 </select>
               </div>
               <div>
-                <label className="flex items-center gap-1.5 text-sm font-medium text-slate-600 mb-1">
+                <label className="block text-sm font-medium text-slate-600 mb-1">
                   月々の返済額（円）
-                  <VariableRateHelp />
                 </label>
                 <input
                   type="number"
-                  value={editForm.monthlyPayment}
-                  onChange={(e) => setEditForm((f) => ({ ...f, monthlyPayment: e.target.value }))}
+                  value={newLoan.monthlyPayment}
+                  onChange={(e) => setNewLoan((f) => ({ ...f, monthlyPayment: e.target.value }))}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  連携先科目を設定すると、支払い完了年月まで予算に毎月自動加算されます。
-                  入力した金額は実額として扱われ、金利改定や資産の編集では上書きされません。
+                  支払い完了年月まで、連携先科目の予算に毎月自動加算されます。
                 </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">残価（円）</label>
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="残価設定ローンのみ"
-                  value={editForm.residualValue}
-                  onChange={(e) => setEditForm((f) => ({ ...f, residualValue: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  残価設定ローン（カーローン等）で最終回に一括して支払う据置額。
-                  入力すると毎月はこの額を除いた分だけを償却し、最終回に残価が残る計算になります。
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    引き落とし口座
-                  </label>
-                  <select
-                    value={editForm.debitBankAccountId}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, debitBankAccountId: e.target.value }))
-                    }
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  >
-                    <option value="">指定しない</option>
-                    {bankAccounts.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    引き落とし日（毎月）
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    placeholder="27"
-                    value={editForm.debitDay}
-                    onChange={(e) => setEditForm((f) => ({ ...f, debitDay: e.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-slate-400 -mt-2">{LOANS_HELP.debit}</p>
+            </>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">
-                  この借入で買った資産
+                  引き落とし口座
                 </label>
                 <select
-                  value={editForm.assetId}
-                  onChange={(e) => setEditForm((f) => ({ ...f, assetId: e.target.value }))}
+                  value={newLoan.debitBankAccountId}
+                  onChange={(e) =>
+                    setNewLoan((f) => ({ ...f, debitBankAccountId: e.target.value }))
+                  }
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 >
-                  <option value="">なし</option>
+                  <option value="">指定しない</option>
+                  {bankAccounts.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  引き落とし日（毎月）
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  placeholder="27"
+                  value={newLoan.debitDay}
+                  onChange={(e) => setNewLoan((f) => ({ ...f, debitDay: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 -mt-2">{LOANS_HELP.debit}</p>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">残価（円）</label>
+              <input
+                type="number"
+                min={0}
+                placeholder="残価設定ローンのみ"
+                value={newLoan.residualValue}
+                onChange={(e) => setNewLoan((f) => ({ ...f, residualValue: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+
+            {/* この借入で買った資産（その場で作るか、ローンの無い既存の資産を選ぶ） */}
+            <fieldset className="rounded-lg border border-slate-200 px-3 py-2">
+              <legend className="px-1 text-sm font-medium text-slate-600">
+                この借入で買った資産
+              </legend>
+              <div className="flex flex-wrap gap-3 text-sm text-slate-700">
+                {(
+                  [
+                    ["none", "なし"],
+                    ["new", "新しく作る"],
+                    ["link", "既存から選ぶ"],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <label key={mode} className="flex items-center gap-1.5">
+                    <input
+                      type="radio"
+                      name="new-loan-asset"
+                      checked={newAsset.mode === mode}
+                      onChange={() =>
+                        setNewAsset((a) => ({
+                          ...a,
+                          mode,
+                          // 新しく作るときの既定: 名前は借入先、種別はローンの種別から
+                          ...(mode === "new" && {
+                            name: a.name || newLoan.lenderName,
+                            category: assetCategoryForLoanType(newLoan.loanType),
+                          }),
+                        }))
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              {newAsset.mode === "new" && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-xs text-slate-600">資産名</span>
+                    <input
+                      value={newAsset.name}
+                      placeholder={newLoan.lenderName}
+                      onChange={(e) => setNewAsset((a) => ({ ...a, name: e.target.value }))}
+                      className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs text-slate-600">種別</span>
+                    <select
+                      value={newAsset.category}
+                      onChange={(e) =>
+                        setNewAsset((a) => ({
+                          ...a,
+                          category: e.target.value as PersonalAssetCategory,
+                        }))
+                      }
+                      className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                    >
+                      {Object.entries(PERSONAL_ASSET_CATEGORY_LABEL).map(([v, label]) => (
+                        <option key={v} value={v}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs text-slate-600">取得価格（円）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder={newLoan.amount || "借入額"}
+                      value={newAsset.acquisitionCost}
+                      onChange={(e) =>
+                        setNewAsset((a) => ({ ...a, acquisitionCost: e.target.value }))
+                      }
+                      className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs text-slate-600">評価額（円）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="取得価格と同じ"
+                      value={newAsset.currentValue}
+                      onChange={(e) => setNewAsset((a) => ({ ...a, currentValue: e.target.value }))}
+                      className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                </div>
+              )}
+              {newAsset.mode === "link" && (
+                <select
+                  value={newAsset.assetId}
+                  onChange={(e) => setNewAsset((a) => ({ ...a, assetId: e.target.value }))}
+                  className="mt-2 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                >
+                  <option value="">資産を選んでください</option>
                   {assets
-                    .filter((a) => a.loanId === null || a.loanId === editForm.loanId)
+                    .filter((a) => a.loanId === null)
                     .map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}（{PERSONAL_ASSET_CATEGORY_LABEL[a.category] ?? a.category}）
                       </option>
                     ))}
                 </select>
-                <p className="text-xs text-slate-400 mt-1">{LOANS_HELP.asset}</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                onClick={() => setEditForm((f) => ({ ...f, loanId: null }))}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={saveEdit}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-              >
-                保存
-              </button>
+              )}
+              <p className="mt-1 text-[11px] text-slate-400">{LOANS_HELP.asset}</p>
+            </fieldset>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">備考</label>
+              <input
+                value={newLoan.note}
+                onChange={(e) => setNewLoan((f) => ({ ...f, note: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
             </div>
           </div>
-        </div>
+          <div className="flex justify-end gap-2 mt-5">
+            <button
+              onClick={() => setShowForm(false)}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={saveLoan}
+              className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              保存
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 借入編集モーダル（支払い完了年月・月々の返済額・予算連携先） */}
+      {editForm.loanId && (
+        <Modal size="md">
+          <h2 className="text-lg font-bold text-slate-800 mb-4">借入条件の編集</h2>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  借入金額（円）
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editForm.amount}
+                  onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">借入日</label>
+                <input
+                  type="date"
+                  value={editForm.borrowedOn}
+                  onChange={(e) => setEditForm((f) => ({ ...f, borrowedOn: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                年利率（例: 0.03）
+              </label>
+              <input
+                type="number"
+                step="0.0001"
+                disabled={!editForm.rateEditable}
+                value={editForm.interestRate}
+                onChange={(e) => setEditForm((f) => ({ ...f, interestRate: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+              />
+              {!editForm.rateEditable && (
+                <p className="text-xs text-slate-400 mt-1">
+                  金利変更の履歴があるローンは、「金利変更」から登録してください。
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                支払い完了年月（完済予定日）*
+              </label>
+              <input
+                type="date"
+                value={editForm.repaymentDate}
+                onChange={(e) => setEditForm((f) => ({ ...f, repaymentDate: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                予算連携先科目（例: 家賃）
+              </label>
+              <select
+                value={editForm.linkedAccountCode}
+                onChange={(e) => setEditForm((f) => ({ ...f, linkedAccountCode: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">連携なし</option>
+                {accounts
+                  .filter((a) => a.category === "EXPENSE" || a.category === "LIABILITY")
+                  .map((a) => (
+                    <option key={a.code} value={a.code}>
+                      {a.code} {a.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="flex items-center gap-1.5 text-sm font-medium text-slate-600 mb-1">
+                月々の返済額（円）
+                <VariableRateHelp />
+              </label>
+              <input
+                type="number"
+                value={editForm.monthlyPayment}
+                onChange={(e) => setEditForm((f) => ({ ...f, monthlyPayment: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                連携先科目を設定すると、支払い完了年月まで予算に毎月自動加算されます。
+                入力した金額は実額として扱われ、金利改定や資産の編集では上書きされません。
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">残価（円）</label>
+              <input
+                type="number"
+                min={0}
+                placeholder="残価設定ローンのみ"
+                value={editForm.residualValue}
+                onChange={(e) => setEditForm((f) => ({ ...f, residualValue: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                残価設定ローン（カーローン等）で最終回に一括して支払う据置額。
+                入力すると毎月はこの額を除いた分だけを償却し、最終回に残価が残る計算になります。
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  引き落とし口座
+                </label>
+                <select
+                  value={editForm.debitBankAccountId}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, debitBankAccountId: e.target.value }))
+                  }
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">指定しない</option>
+                  {bankAccounts.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  引き落とし日（毎月）
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  placeholder="27"
+                  value={editForm.debitDay}
+                  onChange={(e) => setEditForm((f) => ({ ...f, debitDay: e.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 -mt-2">{LOANS_HELP.debit}</p>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                この借入で買った資産
+              </label>
+              <select
+                value={editForm.assetId}
+                onChange={(e) => setEditForm((f) => ({ ...f, assetId: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">なし</option>
+                {assets
+                  .filter((a) => a.loanId === null || a.loanId === editForm.loanId)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}（{PERSONAL_ASSET_CATEGORY_LABEL[a.category] ?? a.category}）
+                    </option>
+                  ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">{LOANS_HELP.asset}</p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-5">
+            <button
+              onClick={() => setEditForm((f) => ({ ...f, loanId: null }))}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={saveEdit}
+              className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              保存
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* 金利変更モーダル */}
@@ -1201,244 +1191,238 @@ export default function LoansPage() {
               : null;
           const current = loan?.monthlyPayment ? Number(loan.monthlyPayment) : null;
           return (
-            <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-              <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm my-auto">
-                <h2 className="text-lg font-bold text-slate-800 mb-1">金利変更の登録</h2>
-                <p className="text-xs text-slate-500 mb-4">
-                  変更前の金利は履歴として残り、変動前後の返済スケジュールを比較できます。
-                </p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">
-                      金利変更日（適用開始）
-                    </label>
-                    <input
-                      type="date"
-                      value={rateForm.effectiveOn}
-                      onChange={(e) => setRateForm((f) => ({ ...f, effectiveOn: e.target.value }))}
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">
-                      変更後の年利率（例: 0.03 = 3%）
-                    </label>
+            <Modal size="sm">
+              <h2 className="text-lg font-bold text-slate-800 mb-1">金利変更の登録</h2>
+              <p className="text-xs text-slate-500 mb-4">
+                変更前の金利は履歴として残り、変動前後の返済スケジュールを比較できます。
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    金利変更日（適用開始）
+                  </label>
+                  <input
+                    type="date"
+                    value={rateForm.effectiveOn}
+                    onChange={(e) => setRateForm((f) => ({ ...f, effectiveOn: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    変更後の年利率（例: 0.03 = 3%）
+                  </label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={rateForm.interestRate}
+                    onChange={(e) => setRateForm((f) => ({ ...f, interestRate: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    現在: {ratePercent(rateForm.interestRate || 0).toFixed(2)}%
+                  </p>
+                </div>
+                <div className="border-t border-slate-100 pt-3">
+                  <label className="flex items-center gap-1.5 text-sm font-medium text-slate-600 mb-1">
+                    改定後の月々の返済額（実額）
+                    <VariableRateHelp />
+                  </label>
+                  <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      step="0.0001"
-                      value={rateForm.interestRate}
-                      onChange={(e) => setRateForm((f) => ({ ...f, interestRate: e.target.value }))}
+                      placeholder={ref ? `参考: ${ref.monthly}` : "金融機関の通知額"}
+                      value={rateForm.monthlyPayment}
+                      onChange={(e) =>
+                        setRateForm((f) => ({ ...f, monthlyPayment: e.target.value }))
+                      }
                       className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                     />
-                    <p className="text-xs text-slate-400 mt-1">
-                      現在: {ratePercent(rateForm.interestRate || 0).toFixed(2)}%
-                    </p>
-                  </div>
-                  <div className="border-t border-slate-100 pt-3">
-                    <label className="flex items-center gap-1.5 text-sm font-medium text-slate-600 mb-1">
-                      改定後の月々の返済額（実額）
-                      <VariableRateHelp />
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        placeholder={ref ? `参考: ${ref.monthly}` : "金融機関の通知額"}
-                        value={rateForm.monthlyPayment}
-                        onChange={(e) =>
-                          setRateForm((f) => ({ ...f, monthlyPayment: e.target.value }))
+                    {current !== null && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRateForm((f) => ({ ...f, monthlyPayment: String(current) }))
                         }
-                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                      />
-                      {current !== null && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setRateForm((f) => ({ ...f, monthlyPayment: String(current) }))
-                          }
-                          className="shrink-0 rounded-lg border border-slate-300 px-2 py-2 text-xs text-slate-600 hover:bg-slate-50"
-                          title="5 年ルールで返済額が変わらないときに押します"
-                        >
-                          据え置き（{yen(current)}）
-                        </button>
-                      )}
-                    </div>
-                    <div className="mt-1.5 space-y-1 text-xs">
-                      <p className="text-slate-500">
-                        金融機関から通知された金額を入力してください。入力するとこの額で残高・
-                        予算が再計算されます。
+                        className="shrink-0 rounded-lg border border-slate-300 px-2 py-2 text-xs text-slate-600 hover:bg-slate-50"
+                        title="5 年ルールで返済額が変わらないときに押します"
+                      >
+                        据え置き（{yen(current)}）
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-1.5 space-y-1 text-xs">
+                    <p className="text-slate-500">
+                      金融機関から通知された金額を入力してください。入力するとこの額で残高・
+                      予算が再計算されます。
+                    </p>
+                    {current !== null && (
+                      <p className="text-slate-400">現在の返済額: {yen(current)}</p>
+                    )}
+                    {ref && (
+                      <p className="text-slate-400">
+                        計算上の目安: {yen(ref.monthly)}（残高 {yen(ref.balance)} ÷ 残り{" "}
+                        {ref.remainingMonths}回）
                       </p>
-                      {current !== null && (
-                        <p className="text-slate-400">現在の返済額: {yen(current)}</p>
-                      )}
-                      {ref && (
-                        <p className="text-slate-400">
-                          計算上の目安: {yen(ref.monthly)}（残高 {yen(ref.balance)} ÷ 残り{" "}
-                          {ref.remainingMonths}回）
-                        </p>
-                      )}
-                      {ref && current !== null && current !== ref.monthly && (
-                        <p className="rounded bg-amber-50 px-2 py-1.5 text-amber-700">
-                          5 年ルールのローンなら、金利が変わっても返済額は{yen(current)}
-                          のまま据え置かれます。通知が届いていなければ空欄のままで構いません（後から
-                          入力できます）。
-                        </p>
-                      )}
-                    </div>
+                    )}
+                    {ref && current !== null && current !== ref.monthly && (
+                      <p className="rounded bg-amber-50 px-2 py-1.5 text-amber-700">
+                        5 年ルールのローンなら、金利が変わっても返済額は{yen(current)}
+                        のまま据え置かれます。通知が届いていなければ空欄のままで構いません（後から
+                        入力できます）。
+                      </p>
+                    )}
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-600 mb-1">メモ</label>
-                    <input
-                      type="text"
-                      placeholder="例: 変動金利見直し"
-                      value={rateForm.note}
-                      onChange={(e) => setRateForm((f) => ({ ...f, note: e.target.value }))}
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                    />
-                  </div>
-                  {rateError && <p className="text-xs text-red-600">{rateError}</p>}
                 </div>
-                <div className="flex justify-end gap-2 mt-5">
-                  <button
-                    onClick={() => setRateForm((f) => ({ ...f, loanId: null }))}
-                    className="px-4 py-2 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
-                  >
-                    キャンセル
-                  </button>
-                  <button
-                    onClick={saveRateChange}
-                    disabled={rateForm.interestRate === ""}
-                    className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-40"
-                  >
-                    登録
-                  </button>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">メモ</label>
+                  <input
+                    type="text"
+                    placeholder="例: 変動金利見直し"
+                    value={rateForm.note}
+                    onChange={(e) => setRateForm((f) => ({ ...f, note: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
                 </div>
+                {rateError && <p className="text-xs text-red-600">{rateError}</p>}
               </div>
-            </div>
+              <div className="flex justify-end gap-2 mt-5">
+                <button
+                  onClick={() => setRateForm((f) => ({ ...f, loanId: null }))}
+                  className="px-4 py-2 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={saveRateChange}
+                  disabled={rateForm.interestRate === ""}
+                  className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-40"
+                >
+                  登録
+                </button>
+              </div>
+            </Modal>
           );
         })()}
 
       {/* 金利改定後の実額を後から入力するモーダル */}
       {pendingForm.changeId && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
-            <h2 className="flex items-center gap-1.5 text-lg font-bold text-slate-800 mb-1">
-              改定後の返済額を入力
-              <VariableRateHelp />
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              金融機関の通知どおりの返済額を選んでください。5
-              年ルールなら「据え置き」のまま反映します。 以降の残高・予算がこの額で計算されます。
-            </p>
-            <fieldset className="space-y-2">
-              <legend className="sr-only">改定後の返済額</legend>
-              {pendingForm.choices.map((c) => (
-                <label
-                  key={c.key}
-                  className={`flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer ${pendingForm.choice === c.key ? "border-amber-400 bg-amber-50" : "border-slate-200"}`}
-                >
-                  <input
-                    type="radio"
-                    name="pending-payment"
-                    className="mt-1"
-                    checked={pendingForm.choice === c.key}
-                    onChange={() =>
-                      setPendingForm((f) => ({
-                        ...f,
-                        choice: c.key,
-                        monthlyPayment: c.amount !== null ? String(c.amount) : "",
-                      }))
-                    }
-                  />
-                  <span className="text-sm text-slate-700">
-                    {c.label}
-                    {c.amount !== null && (
-                      <span className="ml-1 font-semibold tabular-nums">{yen(c.amount)}</span>
-                    )}
-                    <span className="block text-[11px] text-slate-400">{c.note}</span>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-            {pendingForm.choice === "custom" && (
-              <input
-                type="number"
-                autoFocus
-                aria-label="通知された返済額"
-                placeholder="金融機関の通知額"
-                value={pendingForm.monthlyPayment}
-                onChange={(e) => setPendingForm((f) => ({ ...f, monthlyPayment: e.target.value }))}
-                className="mt-2 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              />
-            )}
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                onClick={closePending}
-                className="px-4 py-2 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+        <Modal size="sm">
+          <h2 className="flex items-center gap-1.5 text-lg font-bold text-slate-800 mb-1">
+            改定後の返済額を入力
+            <VariableRateHelp />
+          </h2>
+          <p className="text-xs text-slate-500 mb-4">
+            金融機関の通知どおりの返済額を選んでください。5
+            年ルールなら「据え置き」のまま反映します。 以降の残高・予算がこの額で計算されます。
+          </p>
+          <fieldset className="space-y-2">
+            <legend className="sr-only">改定後の返済額</legend>
+            {pendingForm.choices.map((c) => (
+              <label
+                key={c.key}
+                className={`flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer ${pendingForm.choice === c.key ? "border-amber-400 bg-amber-50" : "border-slate-200"}`}
               >
-                キャンセル
-              </button>
-              <button
-                onClick={savePendingMonthly}
-                disabled={pendingForm.monthlyPayment === ""}
-                className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-40"
-              >
-                反映
-              </button>
-            </div>
+                <input
+                  type="radio"
+                  name="pending-payment"
+                  className="mt-1"
+                  checked={pendingForm.choice === c.key}
+                  onChange={() =>
+                    setPendingForm((f) => ({
+                      ...f,
+                      choice: c.key,
+                      monthlyPayment: c.amount !== null ? String(c.amount) : "",
+                    }))
+                  }
+                />
+                <span className="text-sm text-slate-700">
+                  {c.label}
+                  {c.amount !== null && (
+                    <span className="ml-1 font-semibold tabular-nums">{yen(c.amount)}</span>
+                  )}
+                  <span className="block text-[11px] text-slate-400">{c.note}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          {pendingForm.choice === "custom" && (
+            <input
+              type="number"
+              autoFocus
+              aria-label="通知された返済額"
+              placeholder="金融機関の通知額"
+              value={pendingForm.monthlyPayment}
+              onChange={(e) => setPendingForm((f) => ({ ...f, monthlyPayment: e.target.value }))}
+              className="mt-2 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            />
+          )}
+          <div className="flex justify-end gap-2 mt-5">
+            <button
+              onClick={closePending}
+              className="px-4 py-2 text-sm bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={savePendingMonthly}
+              disabled={pendingForm.monthlyPayment === ""}
+              className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-40"
+            >
+              反映
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* 返済登録モーダル */}
       {payForm.loanId && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">返済登録</h2>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">返済日 *</label>
-                <input
-                  type="date"
-                  value={payForm.repaidOn}
-                  onChange={(e) => setPayForm((f) => ({ ...f, repaidOn: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">元金（円）*</label>
-                <input
-                  type="number"
-                  value={payForm.principal}
-                  onChange={(e) => setPayForm((f) => ({ ...f, principal: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">利息（円）</label>
-                <input
-                  type="number"
-                  value={payForm.interest}
-                  onChange={(e) => setPayForm((f) => ({ ...f, interest: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
+        <Modal size="sm">
+          <h2 className="text-lg font-bold text-slate-800 mb-4">返済登録</h2>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">返済日 *</label>
+              <input
+                type="date"
+                value={payForm.repaidOn}
+                onChange={(e) => setPayForm((f) => ({ ...f, repaidOn: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
             </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                onClick={() => setPayForm((f) => ({ ...f, loanId: null }))}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={repay}
-                className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                登録
-              </button>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">元金（円）*</label>
+              <input
+                type="number"
+                value={payForm.principal}
+                onChange={(e) => setPayForm((f) => ({ ...f, principal: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">利息（円）</label>
+              <input
+                type="number"
+                value={payForm.interest}
+                onChange={(e) => setPayForm((f) => ({ ...f, interest: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
             </div>
           </div>
-        </div>
+          <div className="flex justify-end gap-2 mt-5">
+            <button
+              onClick={() => setPayForm((f) => ({ ...f, loanId: null }))}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={repay}
+              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              登録
+            </button>
+          </div>
+        </Modal>
       )}
     </AppShell>
   );

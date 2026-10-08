@@ -14,6 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { yenShort } from "@/lib/format";
 
 export type ChartSeries = { key: string; label: string; color: string; values: (number | null)[] };
 
@@ -21,10 +22,6 @@ export type ChartSeries = { key: string; label: string; color: string; values: (
 export const SERIES_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"];
 export const OTHER_COLOR = "#94a3b8";
 
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : `${Math.round(v).toLocaleString("ja-JP")}円`;
 const manAxis = (v: number) => `${Math.round(v / 10000).toLocaleString()}万`;
 const monthLabel = (key: string) => `${key.slice(0, 4)}年${Number(key.slice(5))}月`;
 
@@ -38,7 +35,7 @@ export function ValueLineChart({
   series,
   height,
   compact = false,
-  formatValue = yen,
+  formatValue = yenShort,
   formatAxis = manAxis,
   stepped = false,
 }: {

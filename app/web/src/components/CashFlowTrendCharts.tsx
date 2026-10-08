@@ -6,10 +6,11 @@
 // （GET /api/bank-accounts/cash-outlook。計算は lib/cash-outlook.ts）。
 
 import { useQuery } from "@tanstack/react-query";
-import { SectionLead } from "@/components/Explain";
+import { SectionCard } from "@/components/SectionCard";
 import { SERIES_COLORS, ValueLineChart } from "@/components/ValueLineChart";
 import { asOfDateLabel } from "@/lib/asset-valuation";
 import { BANK_HELP } from "@/lib/help-texts";
+import { yenShort } from "@/lib/format";
 
 type CashOutlookResponse = {
   months: string[];
@@ -18,11 +19,6 @@ type CashOutlookResponse = {
   totalBasis: ("actual" | "budget" | "rule")[];
   accounts: { id: number; name: string; balance: number; values: number[] }[];
 };
-
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : `${Math.round(v).toLocaleString("ja-JP")}円`;
 
 export function CashFlowTrendCharts() {
   const { data } = useQuery({
@@ -43,20 +39,15 @@ export function CashFlowTrendCharts() {
   const lastLabel = `${data.months[lastIndex].slice(0, 4)}年${Number(data.months[lastIndex].slice(5))}月`;
 
   return (
-    <section aria-labelledby="cash-trend-title" className="card mb-6">
-      <h2 id="cash-trend-title" className="section-title mb-1">
-        残高の推移
-      </h2>
-      <SectionLead className="mb-3">{BANK_HELP.trend}</SectionLead>
-
+    <SectionCard title="残高の推移" lead={BANK_HELP.trend}>
       <div className="flex flex-wrap items-end gap-x-8 gap-y-1 mb-2">
         <div>
           <p className="text-xs text-slate-500">総残高（{asOfDateLabel(new Date())}）</p>
-          <p className="text-2xl font-bold text-indigo-600 tabular-nums">{yen(todayTotal)}</p>
+          <p className="text-2xl font-bold text-indigo-600 tabular-nums">{yenShort(todayTotal)}</p>
         </div>
         <p className="text-xs text-slate-500">
           {lastLabel}末の見込み{" "}
-          <span className="font-medium text-slate-700">{yen(data.total[lastIndex])}</span>
+          <span className="font-medium text-slate-700">{yenShort(data.total[lastIndex])}</span>
         </p>
         <p className="text-xs text-slate-400">
           {budgetMonths === 0
@@ -80,8 +71,8 @@ export function CashFlowTrendCharts() {
             <p className="text-sm font-medium text-slate-800 mb-1">{a.name}</p>
             <p className="text-xs text-slate-500 mb-1">
               今の残高{" "}
-              <span className="font-medium text-slate-700 tabular-nums">{yen(a.balance)}</span> ・{" "}
-              {lastLabel}末の見込み {yen(a.values[lastIndex] ?? 0)}
+              <span className="font-medium text-slate-700 tabular-nums">{yenShort(a.balance)}</span>{" "}
+              ・ {lastLabel}末の見込み {yenShort(a.values[lastIndex] ?? 0)}
             </p>
             <ValueLineChart
               months={data.months}
@@ -95,6 +86,6 @@ export function CashFlowTrendCharts() {
           </div>
         ))}
       </div>
-    </section>
+    </SectionCard>
   );
 }

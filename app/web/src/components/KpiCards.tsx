@@ -8,6 +8,7 @@ import type { ViewMode } from "@/lib/display-name";
 import { KPI_LABELS } from "@/lib/mode-labels";
 import { kpiTermHelp } from "@/lib/help-texts";
 import { useFiscalYear } from "@/lib/use-fiscal-year";
+import { yen } from "@/lib/format";
 
 type Kpi = {
   period: string;
@@ -46,7 +47,6 @@ type KpiBudget = {
   operatingProfitRate: number | null;
 };
 
-const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 
 // 予算行の文言。予算が未登録の月は「予算 未設定」を出して欠落と 0 円を区別する。

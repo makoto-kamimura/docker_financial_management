@@ -14,7 +14,7 @@ import {
   type ViewMode,
 } from "../../api";
 import { categoryPayload, EntryCategoryField } from "../EntryCategoryField";
-import { digitsOnly, isoDate, yenJa } from "../../format";
+import { digitsOnly, isoDate, yen } from "../../format";
 import { BANK_HELP } from "../../shared/help-texts";
 import { Button, Card, Field, Input, Lead, Notice, Pills, SelectField } from "../ui";
 
@@ -191,14 +191,13 @@ export function BankTransactionsCalendar({
         {/* 表示中の月の入出金の合計 */}
         <View style={s.totals}>
           <Text style={s.totalItem}>
-            入金合計 <Text style={s.income}>{yenJa(monthTotals.income)}</Text>
+            入金合計 <Text style={s.income}>{yen(monthTotals.income)}</Text>
           </Text>
           <Text style={s.totalItem}>
-            出金合計 <Text style={s.expense}>{yenJa(monthTotals.expense)}</Text>
+            出金合計 <Text style={s.expense}>{yen(monthTotals.expense)}</Text>
           </Text>
           <Text style={s.totalItem}>
-            差引{" "}
-            <Text style={monthTotals.net < 0 ? s.expense : s.net}>{yenJa(monthTotals.net)}</Text>
+            差引 <Text style={monthTotals.net < 0 ? s.expense : s.net}>{yen(monthTotals.net)}</Text>
           </Text>
           <Text style={s.count}>{monthTotals.count} 件の明細</Text>
         </View>
@@ -287,7 +286,7 @@ export function BankTransactionsCalendar({
                 </View>
                 <Text style={t.amount > 0 ? s.income : s.expense}>
                   {t.amount > 0 ? "+" : "−"}
-                  {yenJa(Math.abs(t.amount))}
+                  {yen(Math.abs(t.amount))}
                 </Text>
                 <TouchableOpacity onPress={() => confirmDelete(t)} hitSlop={8}>
                   <Text style={s.remove}>✕</Text>

@@ -13,7 +13,7 @@ import {
   type ViewMode,
 } from "../api";
 import { displayName } from "../shared/display-name";
-import { digitsOnly, isoDate, yenJa } from "../format";
+import { digitsOnly, isoDate, yen } from "../format";
 import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, Field, Input, Notice, Pills } from "./ui";
 
@@ -165,14 +165,13 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
         {/* 当月に入力された実績の合計 */}
         <View style={s.totals}>
           <Text style={s.totalItem}>
-            収入合計 <Text style={s.income}>{yenJa(monthTotals.income)}</Text>
+            収入合計 <Text style={s.income}>{yen(monthTotals.income)}</Text>
           </Text>
           <Text style={s.totalItem}>
-            支出合計 <Text style={s.expense}>{yenJa(monthTotals.expense)}</Text>
+            支出合計 <Text style={s.expense}>{yen(monthTotals.expense)}</Text>
           </Text>
           <Text style={s.totalItem}>
-            差引{" "}
-            <Text style={monthTotals.net < 0 ? s.expense : s.net}>{yenJa(monthTotals.net)}</Text>
+            差引 <Text style={monthTotals.net < 0 ? s.expense : s.net}>{yen(monthTotals.net)}</Text>
           </Text>
           <Text style={s.count}>{monthTotals.count} 件の実績</Text>
         </View>
@@ -256,7 +255,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                   </View>
                   <Text style={isIncome ? s.income : s.expense}>
                     {isIncome ? "+" : "−"}
-                    {yenJa(isIncome ? income : expense)}
+                    {yen(isIncome ? income : expense)}
                   </Text>
                   <TouchableOpacity onPress={() => confirmDelete(e)} hitSlop={8}>
                     <Text style={s.remove}>✕</Text>

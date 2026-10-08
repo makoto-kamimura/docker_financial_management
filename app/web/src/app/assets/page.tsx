@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import Link from "next/link";
+import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { AssetTrendCharts, TrendBadge } from "@/components/AssetTrendCharts";
 import { SectionLead } from "@/components/Explain";
@@ -26,6 +27,7 @@ import { ASSETS_HELP, textFor } from "@/lib/help-texts";
 import { isCountedAsAsset } from "@/lib/personal-asset";
 import { useViewMode } from "@/lib/use-view-mode";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/labels";
+import { yenShort } from "@/lib/format";
 
 type ValueTrend = "up" | "down" | "flat";
 type PersonalAssetPart = {
@@ -361,229 +363,227 @@ function PersonalAssetFormModal({
 
   return (
     // 画面が低いと入力欄が枠外に出るため、オーバーレイ側で縦スクロールできるようにする
-    <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-[560px] my-auto p-6">
-        <h2 className="text-lg font-semibold text-slate-800 mb-4">
-          {isEdit ? "実物資産 編集" : "実物資産 登録"}
-        </h2>
-        <div className="space-y-3">
+    <Modal size="lg">
+      <h2 className="text-lg font-semibold text-slate-800 mb-4">
+        {isEdit ? "実物資産 編集" : "実物資産 登録"}
+      </h2>
+      <div className="space-y-3">
+        <label className="block">
+          <span className="text-xs font-medium text-slate-600">資産名 *</span>
+          <input
+            className="input-field mt-1 w-full"
+            value={form.name}
+            onChange={(e) => f("name", e.target.value)}
+            placeholder={parts ? "自宅" : "自宅土地"}
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="text-xs font-medium text-slate-600">資産名 *</span>
-            <input
+            <span className="text-xs font-medium text-slate-600">種別</span>
+            <select
               className="input-field mt-1 w-full"
-              value={form.name}
-              onChange={(e) => f("name", e.target.value)}
-              placeholder={parts ? "自宅" : "自宅土地"}
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">種別</span>
-              <select
-                className="input-field mt-1 w-full"
-                value={form.category}
-                onChange={(e) => f("category", e.target.value)}
-              >
-                {Object.entries(PERSONAL_ASSET_CATEGORY_LABEL).map(([v, label]) => (
-                  <option key={v} value={v}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">取得日</span>
-              <input
-                type="date"
-                className="input-field mt-1 w-full"
-                value={form.acquiredOn}
-                onChange={(e) => f("acquiredOn", e.target.value)}
-              />
-            </label>
-          </div>
-
-          <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={parts !== null}
-              onChange={(e) => toggleParts(e.target.checked)}
-            />
-            <span className="text-xs text-slate-600">
-              内訳を分けて登録する（土地と建物など）
-              <span className="mt-0.5 block text-[10px] text-slate-400">
-                ローン 1 本で土地と建物を買ったときなどに使います。資産とローンは 1
-                つのまま、内訳ごとに評価額と価値の変わり方を入れられます
-              </span>
-            </span>
-          </label>
-
-          {parts ? (
-            <div className="space-y-3">
-              {parts.map((p, i) => (
-                <div key={p.key} className="rounded-lg border border-slate-200 p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-600">内訳 {i + 1}</span>
-                    {parts.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => setParts((ps) => ps && ps.filter((x) => x.key !== p.key))}
-                        className="text-xs text-red-400 hover:text-red-600"
-                      >
-                        削除
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">内訳名 *</span>
-                      <input
-                        className="input-field mt-1 w-full"
-                        value={p.name}
-                        onChange={(e) => setPart(p.key, { name: e.target.value })}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">種別</span>
-                      <select
-                        className="input-field mt-1 w-full"
-                        value={p.category}
-                        onChange={(e) =>
-                          setPart(p.key, { category: e.target.value as PersonalAssetCategory })
-                        }
-                      >
-                        {Object.entries(PERSONAL_ASSET_CATEGORY_LABEL).map(([v, label]) => (
-                          <option key={v} value={v}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">取得価格（円）</span>
-                      <input
-                        type="number"
-                        min={0}
-                        className="input-field mt-1 w-full"
-                        value={p.acquisitionCost}
-                        onChange={(e) => setPart(p.key, { acquisitionCost: e.target.value })}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">現在評価額（円） *</span>
-                      <input
-                        type="number"
-                        min={0}
-                        className="input-field mt-1 w-full"
-                        value={p.currentValue}
-                        onChange={(e) => setPart(p.key, { currentValue: e.target.value })}
-                      />
-                    </label>
-                  </div>
-                  <ValuationFields
-                    idPrefix={`part-${p.key}`}
-                    category={p.category}
-                    value={p}
-                    onChange={(v) => setPart(p.key, v)}
-                  />
-                </div>
+              value={form.category}
+              onChange={(e) => f("category", e.target.value)}
+            >
+              {Object.entries(PERSONAL_ASSET_CATEGORY_LABEL).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
               ))}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => setParts((ps) => [...(ps ?? []), newPart("", "OTHER")])}
-                  className="text-xs text-indigo-600 hover:text-indigo-800"
-                >
-                  + 内訳を追加
-                </button>
-                <span className="text-xs text-slate-500">
-                  合計: 取得価格 {yen(partsCost)} ・ 現在評価額 {yen(partsTotal)}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">取得価格（円）</span>
-                  <input
-                    type="number"
-                    className="input-field mt-1 w-full"
-                    value={form.acquisitionCost}
-                    onChange={(e) => f("acquisitionCost", e.target.value)}
-                    min={0}
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">現在評価額（円） *</span>
-                  <input
-                    type="number"
-                    className="input-field mt-1 w-full"
-                    value={form.currentValue}
-                    onChange={(e) => f("currentValue", e.target.value)}
-                    min={0}
-                  />
-                </label>
-              </div>
-              <ValuationFields
-                idPrefix="asset"
-                category={form.category}
-                value={valuation}
-                onChange={setValuation}
-              />
-            </>
-          )}
-          <p className="text-[10px] text-slate-400">{ASSETS_HELP.valuation}</p>
-          {/* 借入の入力は借入金管理に集めた。ひも付いた借入があれば、表示だけ出す */}
-          {isEdit && asset.loanId !== null ? (
-            <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              借入: {asset.loanLenderName}（残高 {yen(asset.debtRemaining ?? 0)}）— 借入の条件は
-              <Link href={"/loans" as never} className="mx-0.5 underline text-indigo-600">
-                借入金管理
-              </Link>
-              で編集します。
-            </p>
-          ) : (
-            <p className="text-[10px] text-slate-400">{ASSETS_HELP.loanHint}</p>
-          )}
-          <label className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={form.countAsAsset}
-              onChange={(e) => f("countAsAsset", e.target.checked)}
-            />
-            <span className="text-xs text-slate-600">
-              純資産に評価額を計上する
-              <span className="mt-0.5 block text-[10px] text-slate-400">
-                ローンに含まれる登記費用・手数料など、借入はあるが資産価値を持たない項目はオフにしてください。オフにすると負債だけが純資産に反映されます
-              </span>
-            </span>
+            </select>
           </label>
           <label className="block">
-            <span className="text-xs font-medium text-slate-600">備考</span>
+            <span className="text-xs font-medium text-slate-600">取得日</span>
             <input
+              type="date"
               className="input-field mt-1 w-full"
-              value={form.note}
-              onChange={(e) => f("note", e.target.value)}
+              value={form.acquiredOn}
+              onChange={(e) => f("acquiredOn", e.target.value)}
             />
           </label>
         </div>
-        {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-        <div className="mt-4 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            キャンセル
-          </button>
-          <button type="button" onClick={submit} disabled={saving} className="btn-primary">
-            {saving ? "保存中…" : isEdit ? "保存" : "登録"}
-          </button>
-        </div>
+
+        <label className="flex items-start gap-2 rounded-lg border border-slate-200 px-3 py-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={parts !== null}
+            onChange={(e) => toggleParts(e.target.checked)}
+          />
+          <span className="text-xs text-slate-600">
+            内訳を分けて登録する（土地と建物など）
+            <span className="mt-0.5 block text-[10px] text-slate-400">
+              ローン 1 本で土地と建物を買ったときなどに使います。資産とローンは 1
+              つのまま、内訳ごとに評価額と価値の変わり方を入れられます
+            </span>
+          </span>
+        </label>
+
+        {parts ? (
+          <div className="space-y-3">
+            {parts.map((p, i) => (
+              <div key={p.key} className="rounded-lg border border-slate-200 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-600">内訳 {i + 1}</span>
+                  {parts.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setParts((ps) => ps && ps.filter((x) => x.key !== p.key))}
+                      className="text-xs text-red-400 hover:text-red-600"
+                    >
+                      削除
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">内訳名 *</span>
+                    <input
+                      className="input-field mt-1 w-full"
+                      value={p.name}
+                      onChange={(e) => setPart(p.key, { name: e.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">種別</span>
+                    <select
+                      className="input-field mt-1 w-full"
+                      value={p.category}
+                      onChange={(e) =>
+                        setPart(p.key, { category: e.target.value as PersonalAssetCategory })
+                      }
+                    >
+                      {Object.entries(PERSONAL_ASSET_CATEGORY_LABEL).map(([v, label]) => (
+                        <option key={v} value={v}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">取得価格（円）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      className="input-field mt-1 w-full"
+                      value={p.acquisitionCost}
+                      onChange={(e) => setPart(p.key, { acquisitionCost: e.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">現在評価額（円） *</span>
+                    <input
+                      type="number"
+                      min={0}
+                      className="input-field mt-1 w-full"
+                      value={p.currentValue}
+                      onChange={(e) => setPart(p.key, { currentValue: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <ValuationFields
+                  idPrefix={`part-${p.key}`}
+                  category={p.category}
+                  value={p}
+                  onChange={(v) => setPart(p.key, v)}
+                />
+              </div>
+            ))}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setParts((ps) => [...(ps ?? []), newPart("", "OTHER")])}
+                className="text-xs text-indigo-600 hover:text-indigo-800"
+              >
+                + 内訳を追加
+              </button>
+              <span className="text-xs text-slate-500">
+                合計: 取得価格 {yenShort(partsCost)} ・ 現在評価額 {yenShort(partsTotal)}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600">取得価格（円）</span>
+                <input
+                  type="number"
+                  className="input-field mt-1 w-full"
+                  value={form.acquisitionCost}
+                  onChange={(e) => f("acquisitionCost", e.target.value)}
+                  min={0}
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600">現在評価額（円） *</span>
+                <input
+                  type="number"
+                  className="input-field mt-1 w-full"
+                  value={form.currentValue}
+                  onChange={(e) => f("currentValue", e.target.value)}
+                  min={0}
+                />
+              </label>
+            </div>
+            <ValuationFields
+              idPrefix="asset"
+              category={form.category}
+              value={valuation}
+              onChange={setValuation}
+            />
+          </>
+        )}
+        <p className="text-[10px] text-slate-400">{ASSETS_HELP.valuation}</p>
+        {/* 借入の入力は借入金管理に集めた。ひも付いた借入があれば、表示だけ出す */}
+        {isEdit && asset.loanId !== null ? (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            借入: {asset.loanLenderName}（残高 {yenShort(asset.debtRemaining ?? 0)}）— 借入の条件は
+            <Link href={"/loans" as never} className="mx-0.5 underline text-indigo-600">
+              借入金管理
+            </Link>
+            で編集します。
+          </p>
+        ) : (
+          <p className="text-[10px] text-slate-400">{ASSETS_HELP.loanHint}</p>
+        )}
+        <label className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={form.countAsAsset}
+            onChange={(e) => f("countAsAsset", e.target.checked)}
+          />
+          <span className="text-xs text-slate-600">
+            純資産に評価額を計上する
+            <span className="mt-0.5 block text-[10px] text-slate-400">
+              ローンに含まれる登記費用・手数料など、借入はあるが資産価値を持たない項目はオフにしてください。オフにすると負債だけが純資産に反映されます
+            </span>
+          </span>
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-slate-600">備考</span>
+          <input
+            className="input-field mt-1 w-full"
+            value={form.note}
+            onChange={(e) => f("note", e.target.value)}
+          />
+        </label>
       </div>
-    </div>
+      {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+      <div className="mt-4 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+        >
+          キャンセル
+        </button>
+        <button type="button" onClick={submit} disabled={saving} className="btn-primary">
+          {saving ? "保存中…" : isEdit ? "保存" : "登録"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -651,7 +651,7 @@ function ValueEditor({
 
 /** 最後の評価額の記録（手で入れた値、または価値の変わり方を変えたときの見積もり） */
 const lastValuedText = (value: number | string, on: string | null) =>
-  on ? `${on} 時点の評価額 ${yen(Number(value))}` : `評価額 ${yen(Number(value))}`;
+  on ? `${on} 時点の評価額 ${yenShort(Number(value))}` : `評価額 ${yenShort(Number(value))}`;
 
 function PersonalAssetsSection() {
   const invalidateAssets = useInvalidateAssets();
@@ -716,9 +716,9 @@ function PersonalAssetsSection() {
           <h2 className="section-title mb-1">実物資産（土地・建物・車・金など）</h2>
           <SectionLead className="mb-1">{ASSETS_HELP.personal}</SectionLead>
           <p className="text-xs text-slate-400 mt-0.5">
-            {asOfDateLabel(new Date())}の見積もりの合計: {yen(total)}
+            {asOfDateLabel(new Date())}の見積もりの合計: {yenShort(total)}
             {totalDebt > 0 && (
-              <span className="text-amber-600"> ・ 負債残高合計: {yen(totalDebt)}</span>
+              <span className="text-amber-600"> ・ 負債残高合計: {yenShort(totalDebt)}</span>
             )}
             {hasExcluded && <span> ・ 「資産計上外」の項目は負債のみ反映</span>}
           </p>
@@ -765,7 +765,7 @@ function PersonalAssetsSection() {
                   <div className="text-xs text-slate-400 mt-1">
                     {a.acquiredOn && <span>取得日: {a.acquiredOn.slice(0, 10)} ・ </span>}
                     {a.acquisitionCost !== null && (
-                      <span>取得価格: {yen(Number(a.acquisitionCost))} ・ </span>
+                      <span>取得価格: {yenShort(Number(a.acquisitionCost))} ・ </span>
                     )}
                     {a.ruleLabel && <span>価値の変わり方: {a.ruleLabel} ・ </span>}
                     {a.parts.length === 0 && (
@@ -775,7 +775,7 @@ function PersonalAssetsSection() {
                   {a.loanId !== null && (
                     <div className="text-xs text-amber-600 mt-0.5">
                       借入: {a.loanLenderName} ・ {asOfDateLabel(new Date())}の残高{" "}
-                      {yen(a.debtRemaining ?? 0)} ・{" "}
+                      {yenShort(a.debtRemaining ?? 0)} ・{" "}
                       <Link href={"/loans" as never} className="underline">
                         借入金管理で見る
                       </Link>
@@ -788,7 +788,7 @@ function PersonalAssetsSection() {
                       {asOfDateLabel(new Date())}の見積もり
                     </p>
                     <p className="font-bold text-slate-800 text-sm tabular-nums">
-                      {yen(a.estimatedValue ?? Number(a.currentValue))}
+                      {yenShort(a.estimatedValue ?? Number(a.currentValue))}
                     </p>
                     {a.parts.length === 0 && (
                       <ValueEditor
@@ -838,7 +838,7 @@ function PersonalAssetsSection() {
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5 pl-5">
                           {p.acquisitionCost !== null && (
-                            <span>取得価格: {yen(Number(p.acquisitionCost))} ・ </span>
+                            <span>取得価格: {yenShort(Number(p.acquisitionCost))} ・ </span>
                           )}
                           価値の変わり方: {p.ruleLabel} ・{" "}
                           {lastValuedText(p.currentValue, p.lastValuedOn)}
@@ -846,7 +846,7 @@ function PersonalAssetsSection() {
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-semibold text-slate-700 tabular-nums">
-                          {yen(p.estimatedValue ?? Number(p.currentValue))}
+                          {yenShort(p.estimatedValue ?? Number(p.currentValue))}
                         </p>
                         <ValueEditor
                           value={p.currentValue}
@@ -868,11 +868,6 @@ function PersonalAssetsSection() {
     </div>
   );
 }
-
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : v.toLocaleString("ja-JP") + "円";
 
 // 資産管理は「実物資産の評価額の推移」と「実物資産」の一覧。総資産サマリ（口座・借入金を含む純資産）は
 // ダッシュボードへ移し、KPI の対象月の時点で出す（components/NetWorthSummaryCard.tsx）。

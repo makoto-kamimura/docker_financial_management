@@ -8,6 +8,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SectionLead } from "@/components/Explain";
 import { BANK_HELP } from "@/lib/help-texts";
+import { yen } from "@/lib/format";
 
 type TransferRow = {
   id: number;
@@ -20,8 +21,6 @@ type TransferRow = {
   label: string | null;
   day: number;
 };
-
-const yen = (v: number) => (v ?? 0).toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 type Props = {
   /** 選んだ銀行（null はすべての銀行） */

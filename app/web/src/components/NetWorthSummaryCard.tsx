@@ -6,8 +6,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { SectionLead } from "@/components/Explain";
+import { SectionCard } from "@/components/SectionCard";
 import { ASSETS_HELP } from "@/lib/help-texts";
+import { yenShort } from "@/lib/format";
 
 type NetWorthBreakdownItem = { key: string; label: string; amount: number };
 type NetWorthSummary = {
@@ -21,11 +22,6 @@ type NetWorthSummary = {
   netWorth: number;
   breakdown: NetWorthBreakdownItem[];
 };
-
-const yen = (v: number) =>
-  Math.abs(v) >= 1_0000
-    ? `${(v / 1_0000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`
-    : v.toLocaleString("ja-JP") + "円";
 
 /** 「2026年8月末時点」「2026年10月6日時点」（総資産サマリ・総借入サマリで共用） */
 export function summaryAsOfLabel(s: { asOf: string; isCurrentMonth: boolean }) {
@@ -46,27 +42,26 @@ export function NetWorthSummaryCard({ period }: { period: string | null }) {
   if (!enabled || !data) return null;
 
   return (
-    <section aria-labelledby="net-worth-title" className="card mb-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 id="net-worth-title" className="section-title">
-          総資産サマリ（{summaryAsOfLabel(data)}）
-        </h2>
+    <SectionCard
+      title={<>総資産サマリ（{summaryAsOfLabel(data)}）</>}
+      lead={ASSETS_HELP.netWorth}
+      actions={
         <Link href={"/assets" as never} className="text-xs text-indigo-600 underline">
           資産管理で内訳と推移を見る
         </Link>
-      </div>
-      <SectionLead className="mb-4">{ASSETS_HELP.netWorth}</SectionLead>
+      }
+    >
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div>
           <p className="text-xs text-slate-500 mb-1">総資産</p>
           <p className="text-2xl font-bold text-emerald-600 tabular-nums">
-            {yen(data.totalAssets)}
+            {yenShort(data.totalAssets)}
           </p>
         </div>
         <div>
           <p className="text-xs text-slate-500 mb-1">総負債</p>
           <p className="text-2xl font-bold text-rose-600 tabular-nums">
-            {yen(data.totalLiabilities)}
+            {yenShort(data.totalLiabilities)}
           </p>
         </div>
         <div>
@@ -74,7 +69,7 @@ export function NetWorthSummaryCard({ period }: { period: string | null }) {
           <p
             className={`text-2xl font-bold tabular-nums ${data.netWorth >= 0 ? "text-indigo-600" : "text-red-600"}`}
           >
-            {yen(data.netWorth)}
+            {yenShort(data.netWorth)}
           </p>
         </div>
       </div>
@@ -83,10 +78,10 @@ export function NetWorthSummaryCard({ period }: { period: string | null }) {
           .filter((b) => b.amount !== 0)
           .map((b) => (
             <span key={b.key}>
-              {b.label}: <span className="font-medium text-slate-700">{yen(b.amount)}</span>
+              {b.label}: <span className="font-medium text-slate-700">{yenShort(b.amount)}</span>
             </span>
           ))}
       </div>
-    </section>
+    </SectionCard>
   );
 }

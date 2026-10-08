@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { CardUsageTrendCharts, useCardUsageTrend } from "@/components/CardUsageTrendCharts";
 import { SectionLead } from "@/components/Explain";
@@ -15,6 +16,7 @@ import {
   type LinkedAccountType,
 } from "@/lib/linked-account-type";
 import { Notice, PageHeader } from "@/components/ui";
+import { yen } from "@/lib/format";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -53,7 +55,6 @@ type CategoryAccount = { id: number; code: string; name: string; category: strin
 // チャージの自動判定ルール（card_transfer_rules）
 
 // ── 定数 ────────────────────────────────────────────────────────
-const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
 
 // 電子マネー・プリペイドはカード番号が無く、明細も「チャージ残高からの支払い」なので文言を切り替える
 const ACCOUNT_TYPE_LABEL = LINKED_ACCOUNT_TYPE_LABELS;
@@ -243,138 +244,136 @@ export default function CardTransactionsPage() {
 
       {/* カード・電子マネーの登録／編集モーダル（設定「口座・カード管理」から移設）*/}
       {cardForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 overflow-y-auto p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md my-auto">
-            <h2 className="text-lg font-bold text-slate-800 mb-1">
-              {cardForm.id === null ? "カード・電子マネー追加" : "カード・電子マネーを編集"}
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              電子マネー（Suica・PayPay 等）もここから登録すると、この画面で利用履歴を登録できます。
-              銀行口座の登録は「銀行管理」の「銀行追加」から行います。
-            </p>
-            <div className="space-y-3">
-              {/* 種別は登録後も変更できる（実際にはプリペイドなのにクレジットで登録した、
+        <Modal size="md">
+          <h2 className="text-lg font-bold text-slate-800 mb-1">
+            {cardForm.id === null ? "カード・電子マネー追加" : "カード・電子マネーを編集"}
+          </h2>
+          <p className="text-xs text-slate-500 mb-4">
+            電子マネー（Suica・PayPay 等）もここから登録すると、この画面で利用履歴を登録できます。
+            銀行口座の登録は「銀行管理」の「銀行追加」から行います。
+          </p>
+          <div className="space-y-3">
+            {/* 種別は登録後も変更できる（実際にはプリペイドなのにクレジットで登録した、
                   といった取り違えを直せないとチャージ先に選べないため）。明細の符号や集計には
                   影響せず、変わるのは表示ラベルとチャージ先に選べるかどうかだけ。 */}
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">種別</label>
-                <div className="flex flex-wrap rounded-lg overflow-hidden border border-slate-200 text-sm">
-                  {LINKED_ACCOUNT_TYPES.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setCardForm({ ...cardForm, type: t })}
-                      className={`px-3 py-2 font-medium transition-colors ${
-                        cardForm.type === t
-                          ? "bg-indigo-600 text-white"
-                          : "bg-white text-slate-500 hover:bg-slate-50"
-                      }`}
-                    >
-                      {ACCOUNT_TYPE_LABEL[t]}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">
-                  デビット・プリペイド・電子マネーは、他のカードや銀行口座の明細から「チャージ先」
-                  として選べるようになります。後払いのクレジットカードは残高を持たないため選べません。
-                </p>
-                {/* クレジットへ戻すと、既にこのカードをチャージ先にしている明細の指定が取り残される */}
-                {cardForm.id !== null &&
-                  !isChargeableType(cardForm.type) &&
-                  (editingChargeSourceCount ?? 0) > 0 && (
-                    <p className="mt-1.5 text-[11px] text-amber-700 leading-relaxed">
-                      このカードをチャージ先に指定している明細が {editingChargeSourceCount}{" "}
-                      件あります。
-                      クレジットカードに変更すると、以後このカードはチャージ先に選べなくなります
-                      （既存の指定はそのまま残るので、必要なら実績管理の履歴の「解除」で外してください）。
-                    </p>
-                  )}
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">種別</label>
+              <div className="flex flex-wrap rounded-lg overflow-hidden border border-slate-200 text-sm">
+                {LINKED_ACCOUNT_TYPES.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setCardForm({ ...cardForm, type: t })}
+                    className={`px-3 py-2 font-medium transition-colors ${
+                      cardForm.type === t
+                        ? "bg-indigo-600 text-white"
+                        : "bg-white text-slate-500 hover:bg-slate-50"
+                    }`}
+                  >
+                    {ACCOUNT_TYPE_LABEL[t]}
+                  </button>
+                ))}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">名称 *</label>
-                <input
-                  placeholder={
-                    cardForm.type === "E_MONEY"
-                      ? "例: モバイルSuica"
-                      : cardForm.type === "PREPAID_CARD"
-                        ? "例: JAL Global Wallet"
-                        : cardForm.type === "DEBIT_CARD"
-                          ? "例: 住信SBIデビット"
-                          : "例: 楽天カード"
-                  }
-                  value={cardForm.name}
-                  onChange={(e) => setCardForm({ ...cardForm, name: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  {cardForm.type === "E_MONEY" ? "発行会社・サービス *" : "カード会社 *"}
-                </label>
-                <input
-                  placeholder={
-                    cardForm.type === "E_MONEY" ? "例: JR東日本" : "例: 楽天カード株式会社"
-                  }
-                  value={cardForm.institution}
-                  onChange={(e) => setCardForm({ ...cardForm, institution: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">下4桁</label>
-                <input
-                  placeholder="1234"
-                  maxLength={4}
-                  value={cardForm.lastFour}
-                  onChange={(e) => setCardForm({ ...cardForm, lastFour: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  紐付き勘定科目
-                </label>
-                <select
-                  value={cardForm.accountCode}
-                  onChange={(e) => setCardForm({ ...cardForm, accountCode: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                >
-                  <option value="">なし</option>
-                  {ledgerAccounts.map((a) => (
-                    <option key={a.code} value={a.code}>
-                      {a.code} {a.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">メモ</label>
-                <input
-                  placeholder="任意"
-                  value={cardForm.note}
-                  onChange={(e) => setCardForm({ ...cardForm, note: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              {cardError && <p className="text-xs text-red-600">{cardError}</p>}
+              <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">
+                デビット・プリペイド・電子マネーは、他のカードや銀行口座の明細から「チャージ先」
+                として選べるようになります。後払いのクレジットカードは残高を持たないため選べません。
+              </p>
+              {/* クレジットへ戻すと、既にこのカードをチャージ先にしている明細の指定が取り残される */}
+              {cardForm.id !== null &&
+                !isChargeableType(cardForm.type) &&
+                (editingChargeSourceCount ?? 0) > 0 && (
+                  <p className="mt-1.5 text-[11px] text-amber-700 leading-relaxed">
+                    このカードをチャージ先に指定している明細が {editingChargeSourceCount}{" "}
+                    件あります。
+                    クレジットカードに変更すると、以後このカードはチャージ先に選べなくなります
+                    （既存の指定はそのまま残るので、必要なら実績管理の履歴の「解除」で外してください）。
+                  </p>
+                )}
             </div>
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                onClick={() => setCardForm(null)}
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={saveCard}
-                disabled={!cardForm.name || !cardForm.institution}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
-              >
-                {cardForm.id === null ? "登録" : "保存"}
-              </button>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">名称 *</label>
+              <input
+                placeholder={
+                  cardForm.type === "E_MONEY"
+                    ? "例: モバイルSuica"
+                    : cardForm.type === "PREPAID_CARD"
+                      ? "例: JAL Global Wallet"
+                      : cardForm.type === "DEBIT_CARD"
+                        ? "例: 住信SBIデビット"
+                        : "例: 楽天カード"
+                }
+                value={cardForm.name}
+                onChange={(e) => setCardForm({ ...cardForm, name: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                {cardForm.type === "E_MONEY" ? "発行会社・サービス *" : "カード会社 *"}
+              </label>
+              <input
+                placeholder={
+                  cardForm.type === "E_MONEY" ? "例: JR東日本" : "例: 楽天カード株式会社"
+                }
+                value={cardForm.institution}
+                onChange={(e) => setCardForm({ ...cardForm, institution: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">下4桁</label>
+              <input
+                placeholder="1234"
+                maxLength={4}
+                value={cardForm.lastFour}
+                onChange={(e) => setCardForm({ ...cardForm, lastFour: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">
+                紐付き勘定科目
+              </label>
+              <select
+                value={cardForm.accountCode}
+                onChange={(e) => setCardForm({ ...cardForm, accountCode: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">なし</option>
+                {ledgerAccounts.map((a) => (
+                  <option key={a.code} value={a.code}>
+                    {a.code} {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">メモ</label>
+              <input
+                placeholder="任意"
+                value={cardForm.note}
+                onChange={(e) => setCardForm({ ...cardForm, note: e.target.value })}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            {cardError && <p className="text-xs text-red-600">{cardError}</p>}
           </div>
-        </div>
+          <div className="flex justify-end gap-2 mt-5">
+            <button
+              onClick={() => setCardForm(null)}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={saveCard}
+              disabled={!cardForm.name || !cardForm.institution}
+              className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+            >
+              {cardForm.id === null ? "登録" : "保存"}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {msg && (
