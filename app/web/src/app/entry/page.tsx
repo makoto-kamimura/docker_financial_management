@@ -39,14 +39,25 @@ type Account = {
   soleName?: string | null;
   corporateName?: string | null;
 };
-// CSV インポートの結果（POST /api/imports）。登録先ごとの登録件数と、重複・確定済みの月で飛ばした件数
-type ImportCount = { inserted: number; skipped: number; locked: number };
+// CSV インポートの結果（POST /api/imports）。取り込み先ごとの登録件数と、重複・確定済みの月で飛ばした件数
+// offset は自動相殺で振替・チャージの組にした数
+type ImportCount = {
+  kind: "CASH" | "BANK" | "CARD";
+  id: number | null;
+  name: string;
+  inserted: number;
+  skipped: number;
+  locked: number;
+  offset: number;
+};
 type ImportResult = {
-  results: {
-    bank: (ImportCount & { id: number; name: string })[];
-    card: (ImportCount & { id: number; name: string })[];
-  } | null;
+  results: ImportCount[] | null;
   errors: { row: number; message: string }[];
+};
+const IMPORT_KIND_LABEL: Record<ImportCount["kind"], string> = {
+  CASH: "現金",
+  BANK: "銀行",
+  CARD: "カード・電子マネー",
 };
 
 // 現金の履歴のページ送り（銀行・カードの履歴と同じ 30 件ずつ）
@@ -193,9 +204,7 @@ function EntryContent() {
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
   // CSV インポートの取り込み先は銀行・カード（現金の CSV は扱わない）
-  const [source, setSource] = useState<Source>(
-    initial.tab === "csv" && initial.source === "manual" ? "bank" : initial.source,
-  );
+  const [source, setSource] = useState<Source>(initial.source);
   // 銀行は null で「すべての銀行」。カードは 1 枚ずつ扱う（null なら最初のカード）
   const [bankAccountId, setBankAccountId] = useState<number | null>(
     initial.source === "bank" ? initial.account : null,
@@ -398,19 +407,28 @@ function EntryContent() {
     }
     setImportResult(null);
     setImportError(null);
-    // ヘッダに target 列があれば行ごとに振り分ける（画面の取り込み先は使わない）
+    // ヘッダに取り込み先の列（取り込み先 / account）があれば行ごとに振り分ける（画面の取り込み先は使わない）
     const header = (await file.text()).split(/\r?\n/, 1)[0] ?? "";
     const routed = header
       .split(",")
-      .map((h) => h.trim().replace(/^"|"$/g, ""))
-      .includes("target");
-    if (!routed && source !== "manual") {
+      .map((h) =>
+        h
+          .trim()
+          .replace(/^"|"$/g, "")
+          .replace(/^\uFEFF/, ""),
+      )
+      .some((h) => h === "取り込み先" || h === "account");
+    if (!routed) {
+      if (source === "manual") {
+        setPendingImport({ file, label: "現金" });
+        return;
+      }
       const list = source === "bank" ? bankAccounts : cardAccounts;
       const id = source === "bank" ? bankAccountId : cardId;
       const account = list?.find((a) => a.id === id);
       if (!account) {
         setImportError(
-          "取り込み先の口座を選んでください（CSV に target・account の列があれば、行ごとに振り分けます）。",
+          "取り込み先の口座を選んでください（CSV に取り込み先の列があれば、行ごとに振り分けます）。",
         );
         return;
       }
@@ -427,7 +445,9 @@ function EntryContent() {
     setPendingImport(null);
     setImporting(true);
     try {
-      const params = new URLSearchParams({ target: source === "card" ? "card" : "bank" });
+      const params = new URLSearchParams({
+        target: source === "manual" ? "cash" : source,
+      });
       const id = source === "bank" ? bankAccountId : source === "card" ? cardId : null;
       if (id !== null) params.set("accountId", String(id));
       const res = await fetch(`/api/imports?${params}`, {
@@ -472,18 +492,17 @@ function EntryContent() {
     if (res.ok) {
       const name = bankAccounts?.find((a) => a.id === bankAccountId)?.name ?? "";
       setImportResult({
-        results: {
-          bank: [
-            {
-              id: bankAccountId,
-              name,
-              inserted: json.inserted ?? 0,
-              skipped: json.skipped ?? 0,
-              locked: json.locked ?? 0,
-            },
-          ],
-          card: [],
-        },
+        results: [
+          {
+            kind: "BANK",
+            id: bankAccountId,
+            name,
+            inserted: json.inserted ?? 0,
+            skipped: json.skipped ?? 0,
+            locked: json.locked ?? 0,
+            offset: json.offset ?? 0,
+          },
+        ],
         errors: [],
       });
       queryClient.invalidateQueries({ queryKey: ["bank-txns"] });
@@ -555,7 +574,6 @@ function EntryContent() {
         tabs={TABS}
         value={tab}
         onChange={(t) => {
-          if (t === "csv" && source === "manual") setSource("bank");
           setTab(t);
         }}
       />
@@ -580,11 +598,7 @@ function EntryContent() {
       {/* ── 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ ── */}
       {sourceTab && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <SegmentedControl
-            options={tab === "csv" ? SOURCES.filter(([v]) => v !== "manual") : SOURCES}
-            value={source}
-            onChange={setSource}
-          />
+          <SegmentedControl options={SOURCES} value={source} onChange={setSource} />
           {source === "bank" && (
             <select
               aria-label="銀行"
@@ -971,20 +985,15 @@ function EntryContent() {
                 <div className="flex items-start gap-3">
                   <span className="text-2xl">✅</span>
                   <ul className="text-sm text-slate-800 space-y-0.5">
-                    {importResult.results.bank.map((r) => (
-                      <li key={`b${r.id}`}>
-                        銀行 {r.name}: {r.inserted.toLocaleString()} 件を登録
+                    {importResult.results.map((r) => (
+                      <li key={`${r.kind}${r.id ?? ""}`}>
+                        {IMPORT_KIND_LABEL[r.kind]}
+                        {r.kind !== "CASH" && ` ${r.name}`}: {r.inserted.toLocaleString()} 件を登録
                         {r.skipped > 0 && `（${r.skipped.toLocaleString()} 件は取り込み済み）`}
                         {r.locked > 0 &&
                           `（${r.locked.toLocaleString()} 件は実績を確定済みの月のため飛ばしました）`}
-                      </li>
-                    ))}
-                    {importResult.results.card.map((r) => (
-                      <li key={`c${r.id}`}>
-                        カード・電子マネー {r.name}: {r.inserted.toLocaleString()} 件を登録
-                        {r.skipped > 0 && `（${r.skipped.toLocaleString()} 件は取り込み済み）`}
-                        {r.locked > 0 &&
-                          `（${r.locked.toLocaleString()} 件は実績を確定済みの月のため飛ばしました）`}
+                        {r.offset > 0 &&
+                          `（${r.offset.toLocaleString()} 組を振替・チャージにしました）`}
                       </li>
                     ))}
                   </ul>
@@ -1021,28 +1030,30 @@ function EntryContent() {
           )}
           {importError && <Notice tone="error">{importError}</Notice>}
 
-          {/* 書式の説明（実績 / 銀行・カード / 登録先の列つき） */}
+          {/* 書式の説明（取り込み先の列つき / 列なし） */}
           <div className="card bg-slate-50 space-y-4">
             <div>
               <h3 className="text-xs font-semibold text-slate-700 mb-2">
-                銀行・カード・電子マネー（取り込み先で口座を選んだとき）
+                取り込み先の列つき（1 つのファイルで、現金・銀行・カードにまとめて登録する）
               </h3>
-              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`date,description,amount,balance
-${THIS_YEAR}-06-25,給与,300000,512000
-${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
-              <p className="mt-1 text-xs text-slate-500">
-                銀行・カード会社のサイトの明細そのままの形式です（入金は正、支出は負。balance
-                は銀行だけで、無くてもかまいません）。摘要が学習ルールに当たった明細には科目が付き、そのまま実績になります。
-              </p>
+              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`取り込み先,日付,摘要,金額,残高
+住信SBI普通,${THIS_YEAR}-06-25,給与,300000,512000
+楽天カード,${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,
+現金,${THIS_YEAR}-06-28,八百屋,-650,`}</pre>
+              <p className="mt-1 text-xs text-slate-500">{ENTRY_HELP.csvRouted}</p>
             </div>
             <div>
               <h3 className="text-xs font-semibold text-slate-700 mb-2">
-                登録先の列つき（1 つのファイルで、銀行・カードに振り分ける）
+                取り込み先の列なし（上で選んだ現金・口座・カードに入れる）
               </h3>
-              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`target,account,date,description,amount
-銀行,住信SBI普通,${THIS_YEAR}-06-25,給与,300000
-カード,楽天カード,${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980`}</pre>
-              <p className="mt-1 text-xs text-slate-500">{ENTRY_HELP.csvRouted}</p>
+              <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`日付,摘要,金額,残高
+${THIS_YEAR}-06-25,給与,300000,512000
+${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
+              <p className="mt-1 text-xs text-slate-500">
+                銀行・カード会社のサイトの明細そのままの形式です（英語の列名
+                date・description・amount・balance
+                でもかまいません。入金は正、支出は負。残高は銀行だけで、無くてもかまいません）。
+              </p>
             </div>
           </div>
         </div>

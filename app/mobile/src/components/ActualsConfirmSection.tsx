@@ -1,7 +1,8 @@
 // 実績の画面の「実績の確定」タブ（web 版 components/ActualsConfirmPanel.tsx と同じ流れ）。
 // 月ごとの流れ ① → ② → ③（順番は API が強制）のうち ② を受け持つ。
 //   銀行・カード・電子マネーの明細の最終日が月末日までそろうと「実績入力済み」になるので、
-//   ボタンで実績を確定する（POST /actuals/confirm）。
+//   ボタンで実績を確定する（POST /actuals/confirm）。科目が付いていない明細が残っている月は確定できない
+//   （下の「未割り当ての明細」で科目を付ける。UnassignedEntries.tsx）。
 //   明細が月末まで届かない口座・カードは、行ごとの「当月末まで変動なし」で、そろったものとして扱える。
 //   その印と確定時点の最終日は確定の記録として残す（確定後はその記録を表示する）。
 //   前提の ① と、あとに続く ③ は予算の画面の「予算の確定」タブ（BudgetConfirmSection.tsx）で行う。
@@ -22,6 +23,7 @@ import { cycleKey } from "../shared/cycle-month";
 import { CycleSteps, formatYmd } from "./CycleSteps";
 import { MonthPills } from "./MonthPills";
 import { Button, COLORS, Notice } from "./ui";
+import { UnassignedEntries } from "./UnassignedEntries";
 
 type Props = {
   viewMode: ViewMode;
@@ -178,6 +180,11 @@ export function ActualsConfirmSection({
         />
       )}
 
+      {/* 未割り当ての明細（残っている間は確定できない）とまとめての処理 */}
+      {!loading && data && month !== null && !data.actuals.confirmedAt && (
+        <UnassignedEntries year={year} month={month} onChanged={() => setReloadKey((k) => k + 1)} />
+      )}
+
       {!loading && data?.actuals.confirmedAt && !data.nextConfirmedAt && (
         <Text style={s.note}>
           次は、予算の画面で{month}月の予算と実績を比べ、{data.next.month}
@@ -240,7 +247,9 @@ function ActualsBlock({
       ? "明細を取り込むと確定できます。"
       : !ready
         ? `明細が月末（${formatYmd(actuals.monthEnd)}）までそろうか、届いていないものに「当月末まで変動なし」を付けると確定できます。`
-        : null;
+        : actuals.unassigned > 0
+          ? `未割り当ての明細（${actuals.unassigned} 件）に科目を付けると確定できます。`
+          : null;
 
   return (
     <View style={s.actualsBox}>
@@ -337,12 +346,6 @@ function ActualsBlock({
         />
       )}
       {!locked && blockedReason && <Text style={s.blocked}>{blockedReason}</Text>}
-      {!locked && actuals.unassigned > 0 && (
-        <Text style={s.hint}>
-          {month}月の明細のうち {actuals.unassigned}{" "}
-          件にまだ科目が付いていません（科目を付けると実績に入ります）。
-        </Text>
-      )}
     </View>
   );
 }
@@ -358,7 +361,6 @@ const s = StyleSheet.create({
   },
   title: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6 },
   note: { fontSize: 11, color: COLORS.sub, lineHeight: 16, marginBottom: 10 },
-  hint: { fontSize: 11, color: COLORS.muted, lineHeight: 16, marginTop: 4 },
   empty: { fontSize: 12, color: COLORS.muted, marginVertical: 8 },
   spinner: { marginVertical: 16 },
   link: { color: COLORS.primary, textDecorationLine: "underline" },

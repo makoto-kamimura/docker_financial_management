@@ -6,7 +6,8 @@ import type { AccountCategoryValue } from "@/lib/account-category";
 import { signedActualAmountFromSpend } from "@/lib/journal";
 import { resolvePeriod } from "@/lib/period";
 import { ACTUALS_LOCKED_MESSAGE, confirmedActualsPeriodIds } from "@/lib/budget-lock";
-import { conflict } from "@/lib/api-error";
+import { conflict, notFound } from "@/lib/api-error";
+import { applyAutoOffset } from "@/lib/auto-offset";
 
 // 明細（実績の表 financial_records の kind を持つ行）の読み書きの共通部分。
 //
@@ -244,31 +245,48 @@ export type InsertResult = {
   inserted: number;
   /** 実績を確定済みの月のため飛ばした件数 */
   locked: number;
+  /** 自動相殺で振替・チャージの組にした数（lib/auto-offset.ts） */
+  offset: number;
 };
 
+/**
+ * 学習ルール（txn_category_rules）で摘要から科目を決める関数を用意する。
+ * 当たらなければ null（未割り当て）。
+ */
+export async function loadRuleClassifier(db: TenantDbClient) {
+  const rules = await db.txnCategoryRule.findMany({
+    select: {
+      keyword: true,
+      categoryAccountId: true,
+      priority: true,
+      categoryAccount: { select: { category: true } },
+    },
+  });
+  const categoryOf = new Map(rules.map((r) => [r.categoryAccountId, r.categoryAccount.category]));
+  return (description: string): { id: number; category: string } | null => {
+    const id = classifyByRules(description, rules);
+    return id === null ? null : { id, category: categoryOf.get(id)! };
+  };
+}
+
 // 外部由来（CSV 取込・自動同期）の明細を登録する。
-// 一括 createMany + skipDuplicates で、口座ごとの externalId の一意制約により重複行は自動的にスキップされる。
-// 摘要が txn_category_rules に一致する場合は科目を付け、その行はそのまま実績になる。
+// 銀行・カードは、口座ごとの externalId の一意制約で重複行を自動的にスキップする（createMany + skipDuplicates）。
+// 現金は口座が無く一意制約が効かないので、同じ externalId の現金の明細があれば先に除く。
+// 摘要が学習ルールに当たった明細には科目を付け、その行はそのまま実績になる。
 // カードは、取り込む先のカードのチャージのルール（card_transfer_rules）に当たった行をチャージにし、科目を付けない。
 // 実績を確定済みの月の行は、実績を変えないよう登録しない（locked に数える）。
+// 登録したあと、その日付の明細に自動相殺（lib/auto-offset.ts）をかける。
 export async function insertExternalEntries(
   db: TenantDb,
   tenantId: number,
-  target: Exclude<EntryTarget, { kind: "CASH" }>,
+  target: EntryTarget,
   rows: ExternalEntryRow[],
   source: Extract<TxnSource, "CSV" | "SYNC">,
 ): Promise<InsertResult> {
-  if (rows.length === 0) return { inserted: 0, locked: 0 };
+  if (rows.length === 0) return { inserted: 0, locked: 0, offset: 0 };
 
-  const [rules, transferRules] = await Promise.all([
-    db.txnCategoryRule.findMany({
-      select: {
-        keyword: true,
-        categoryAccountId: true,
-        priority: true,
-        categoryAccount: { select: { category: true } },
-      },
-    }),
+  const [classify, transferRules] = await Promise.all([
+    loadRuleClassifier(db),
     // チャージ判定は取り込む先のカードに紐付いたルールだけを見る
     // （同じ摘要が別のカードでは通常の利用を指すことがあるため）
     target.kind === "CARD"
@@ -278,7 +296,6 @@ export async function insertExternalEntries(
         })
       : Promise.resolve([]),
   ]);
-  const categoryOf = new Map(rules.map((r) => [r.categoryAccountId, r.categoryAccount.category]));
 
   const dated = rows.map((r) => ({ ...r, date: new Date(r.date) }));
   const periods = await resolveEntryPeriods(
@@ -286,14 +303,20 @@ export async function insertExternalEntries(
     tenantId,
     dated.map((r) => r.date),
   );
-  const open = dated.filter((r) => !periods.isLocked(r.date));
+  let open = dated.filter((r) => !periods.isLocked(r.date));
+  if (target.kind === "CASH" && open.length > 0) {
+    const existing = await db.financialRecord.findMany({
+      where: { ...CASH, externalId: { in: open.map((r) => r.externalId) } },
+      select: { externalId: true },
+    });
+    const seen = new Set(existing.map((e) => e.externalId));
+    open = open.filter((r) => !seen.has(r.externalId) && (seen.add(r.externalId), true));
+  }
 
   const { count } = await db.financialRecord.createMany({
     data: open.map((r) => {
       const chargeToCardId =
         target.kind === "CARD" ? resolveTransferTarget(r.description, transferRules) : null;
-      // チャージ（資金移動）と判定した行は支出ではないので科目を付けない
-      const categoryId = chargeToCardId === null ? classifyByRules(r.description, rules) : null;
       return entryCreateData(tenantId, target, periods.periodIdOf(r.date), {
         date: r.date,
         description: r.description,
@@ -302,13 +325,41 @@ export async function insertExternalEntries(
         source,
         externalId: r.externalId,
         chargeToCardId,
-        category:
-          categoryId === null ? null : { id: categoryId, category: categoryOf.get(categoryId)! },
+        // チャージ（資金移動）と判定した行は支出ではないので科目を付けない
+        category: chargeToCardId === null ? classify(r.description) : null,
       });
     }),
     skipDuplicates: true,
   });
-  return { inserted: count, locked: dated.length - open.length };
+  const { pairs } =
+    target.kind === "CASH" || count === 0
+      ? { pairs: 0 }
+      : await applyAutoOffset(
+          db,
+          open.map((r) => r.date),
+        );
+  const locked = dated.filter((r) => periods.isLocked(r.date)).length;
+  return { inserted: count, locked, offset: pairs };
+}
+
+/**
+ * 画面から登録する明細の科目。指定が無ければ学習ルールで決め、null なら未割り当て。
+ * 指定した科目が自テナントに無ければ 404。
+ */
+export async function entryCategory(
+  db: TenantDbClient,
+  tenantId: number,
+  categoryAccountId: number | null | undefined,
+  description: string,
+): Promise<{ id: number; category: string } | null> {
+  if (categoryAccountId === null) return null;
+  if (categoryAccountId === undefined) return (await loadRuleClassifier(db))(description);
+  const account = await db.account.findUnique({
+    where: { id: categoryAccountId, tenantId },
+    select: { id: true, category: true },
+  });
+  if (!account) throw notFound("科目が見つかりません");
+  return account;
 }
 
 /**

@@ -7,6 +7,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateActuals } from "@/lib/invalidate-actuals";
+import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
 import { useState, useMemo } from "react";
 import { Trash2 } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
@@ -75,7 +76,13 @@ const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", curren
 // 明細一覧のページング（実績管理の履歴・銀行管理の一覧と同じ 30 件単位）
 const TXN_PAGE_SIZE = 30;
 
-const BLANK_CAL_FORM = { description: "", amount: "", type: "charge" as "charge" | "refund" };
+// category は科目（"" = 自動。components/EntryCategoryField.tsx）
+const BLANK_CAL_FORM = {
+  description: "",
+  amount: "",
+  type: "charge" as "charge" | "refund",
+  category: "",
+};
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 // 電子マネー・プリペイドはカード番号が無く、明細も「チャージ残高からの支払い」なので文言を切り替える
@@ -407,7 +414,12 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
     const res = await fetch(`/api/linked-accounts/${accountId}/transactions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: dateStr, description: calForm.description, amount }),
+      body: JSON.stringify({
+        date: dateStr,
+        description: calForm.description,
+        amount,
+        ...categoryPayload(calForm.category),
+      }),
     });
     if (res.ok) {
       setCalForm(BLANK_CAL_FORM);
@@ -856,7 +868,7 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                         <button
                           key={d}
                           type="button"
-                          onClick={() => setCalForm((f) => ({ ...f, type: d }))}
+                          onClick={() => setCalForm((f) => ({ ...f, type: d, category: "" }))}
                           className={`flex-1 py-1.5 font-medium transition-colors ${
                             calForm.type === d
                               ? d === "charge"
@@ -892,6 +904,12 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                         className="input-field text-xs"
                       />
                     </div>
+                    {/* 利用は支出の科目、返金は支出の科目のマイナスとして実績に入る */}
+                    <EntryCategoryField
+                      value={calForm.category}
+                      onChange={(category) => setCalForm((f) => ({ ...f, category }))}
+                      direction="expense"
+                    />
                     <button
                       type="submit"
                       disabled={calSaving || accountId === null}

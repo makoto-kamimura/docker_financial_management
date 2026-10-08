@@ -7,6 +7,7 @@ import {
   BANK,
   CARD,
   createEntry,
+  entryCategory,
   ENTRY_REFS_INCLUDE,
   insertExternalEntries,
   toBankTxn,
@@ -15,11 +16,14 @@ import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 import { invalidateCache } from "@/lib/redis";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/import";
+import { applyAutoOffset } from "@/lib/auto-offset";
 
 const TxnSchema = z.object({
   date: z.string().min(1),
   description: z.string().min(1),
   amount: z.number(),
+  /** 科目。省略すると学習ルールで決め、null なら未割り当て（付けた明細はそのまま実績になる） */
+  categoryAccountId: z.number().int().positive().nullable().optional(),
   balance: z.number().nullable().optional(),
 });
 
@@ -66,11 +70,24 @@ export const POST = withApi({
           flow: body.amount,
           balance: body.balance ?? null,
           source: "MANUAL",
+          category: await entryCategory(
+            db,
+            user.tenantId,
+            body.categoryAccountId,
+            body.description,
+          ),
         },
       );
+      // 同じ日・同じ金額の対になる明細が 1 組だけあれば、振替・チャージの組にする
+      await applyAutoOffset(db, [txn.date!]);
+      const saved = await db.financialRecord.findUniqueOrThrow({
+        where: { id: txn.id },
+        include: ENTRY_REFS_INCLUDE,
+      });
+
       await audit("create_txn", `bank_account:${id}:${txn.id}`);
       await invalidateCache(`assets:summary:${user.tenantId}:*`);
-      return NextResponse.json({ data: toBankTxn(txn) }, { status: 201 });
+      return NextResponse.json({ data: toBankTxn(saved) }, { status: 201 });
     }
 
     // S-9: CSV 取込のみユーザー単位のレート制限を適用（10 回 / 10 分）

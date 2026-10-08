@@ -12,6 +12,7 @@ import { SectionLead } from "@/components/Explain";
 import { Notice } from "@/components/ui";
 import { BANK_HELP } from "@/lib/help-texts";
 import { invalidateActuals } from "@/lib/invalidate-actuals";
+import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
 
 type BankAccount = { id: number; name: string; bankName: string };
 type Txn = {
@@ -35,6 +36,8 @@ const BLANK_FORM = {
   amount: "",
   /** 全口座の表示で登録するときの口座（文字列で保持して未選択も許す） */
   accountId: "",
+  /** 科目（"" = 自動。components/EntryCategoryField.tsx） */
+  category: "",
 };
 
 type Props = {
@@ -153,6 +156,7 @@ export function BankTransactionsCalendar({ accountId }: Props) {
         date: `${monthPrefix}${pad(selectedDay)}`,
         description: form.description.trim(),
         amount: form.type === "expense" ? -Math.abs(raw) : Math.abs(raw),
+        ...categoryPayload(form.category),
       }),
     });
     setSaving(false);
@@ -394,7 +398,7 @@ export function BankTransactionsCalendar({ accountId }: Props) {
                       <button
                         key={d}
                         type="button"
-                        onClick={() => setForm((f) => ({ ...f, type: d }))}
+                        onClick={() => setForm((f) => ({ ...f, type: d, category: "" }))}
                         className={`flex-1 py-1.5 font-medium transition-colors ${
                           form.type === d
                             ? d === "expense"
@@ -449,6 +453,11 @@ export function BankTransactionsCalendar({ accountId }: Props) {
                       className="input-field text-xs"
                     />
                   </div>
+                  <EntryCategoryField
+                    value={form.category}
+                    onChange={(category) => setForm((f) => ({ ...f, category }))}
+                    direction={form.type}
+                  />
                   {error && <p className="text-xs text-red-600">{error}</p>}
                   <button type="submit" disabled={saving} className="btn-primary text-xs mt-1">
                     {saving ? "登録中..." : "登録"}

@@ -6,6 +6,7 @@
  *   - カードの API は以前どおり +利用 / −返金で受け取り・返す
  *   - 振替・チャージにすると科目が外れて実績から抜ける
  *   - 実績を確定済みの月の明細は、登録・削除・科目の変更ができない
+ *   - 登録時の科目（省略時は学習ルール）・同じ日・同じ金額の組の自動相殺・未割り当ての一覧・まとめての処理
  *
  * 実行: `npm run test:integration`
  */
@@ -42,6 +43,8 @@ import { POST as transferLink } from "./bank-transfers/link/route";
 import { GET as matrixGet } from "./financials/matrix/route";
 import { DELETE as cashDelete, GET as cashGet, POST as cashPost } from "./actuals/route";
 import { PATCH as cashCategorize } from "./actuals/[id]/categorize/route";
+import { GET as unassignedGet } from "./ledger/unassigned/route";
+import { POST as autoProcessPost } from "./ledger/auto-process/route";
 
 const SUFFIX = `ledger_${Date.now()}`;
 const YEAR = 2032;
@@ -270,7 +273,8 @@ describe("振替・チャージにすると実績から抜ける", () => {
       makeReq("PATCH", "http://x", { categoryAccountId: expense.id }),
       params(out.id),
     );
-    const incoming = await postCardTxn(eMoneyId, `${YEAR}-05-10`, "チャージ入金", -5_000);
+    // 日付がずれていると自動相殺にはかからないので、手で組にする
+    const incoming = await postCardTxn(eMoneyId, `${YEAR}-05-11`, "チャージ入金", -5_000);
 
     const res = await bankCharge(
       makeReq("PATCH", "http://x", { chargeToAccountId: eMoneyId, pairTxnId: incoming.id }),
@@ -315,7 +319,8 @@ describe("振替・チャージにすると実績から抜ける", () => {
     );
     const inRes = await bankTxnPost(
       makeReq("POST", `http://x/api/bank-accounts/${savings.id}/transactions`, {
-        date: `${YEAR}-05-12`,
+        // 日付がずれていると自動相殺にはかからないので、手で組にする
+        date: `${YEAR}-05-13`,
         description: "振替入金",
         amount: 10_000,
       }),
@@ -411,5 +416,71 @@ describe("実績を確定済みの月", () => {
     expect(del.status).toBe(409);
     const r = await row(created.id);
     expect([r.accountId, Number(r.amount)]).toEqual([null, 0]);
+  });
+});
+
+describe("登録時の科目・自動相殺・未割り当て・まとめての処理", () => {
+  it("カレンダーの登録で科目を選ぶと、その明細がそのまま実績になる。省略すると学習ルールで決まる", async () => {
+    const chosen = await bankTxnPost(
+      makeReq("POST", `http://x/api/bank-accounts/${bankId}/transactions`, {
+        date: `${YEAR}-08-01`,
+        description: "米屋",
+        amount: -2_000,
+        categoryAccountId: expense.id,
+      }),
+      params(bankId),
+    );
+    const chosenRow = await row((await chosen.json()).data.id);
+    expect([chosenRow.accountId, Number(chosenRow.amount)]).toEqual([expense.id, 2_000]);
+
+    // 4 月の操作で「ドラッグストア」を学習済み
+    const learned = await postCardTxn(creditCardId, `${YEAR}-08-02`, "ドラッグストア", 900);
+    expect(learned.categoryAccountId).toBe(other.id);
+    expect(Number((await row(learned.id)).amount)).toBe(900);
+
+    const unknown = await postBankTxn(`${YEAR}-08-03`, "初めての店", -100);
+    expect(unknown.categoryAccountId).toBeNull();
+  });
+
+  it("同じ日・同じ金額の銀行からの出金と電子マネーへの入金を登録すると、自動でチャージの組になる", async () => {
+    const out = await postBankTxn(`${YEAR}-08-10`, "電子マネーへ", -7_000);
+    // 電子マネーの入金（カードの API では −利用）
+    const incoming = await postCardTxn(eMoneyId, `${YEAR}-08-10`, "チャージ", -7_000);
+    expect(incoming.chargeGroupId).not.toBeNull();
+    const o = await row(out.id);
+    expect([o.chargeToCardId, o.chargeGroupId, o.accountId]).toEqual([
+      eMoneyId,
+      incoming.chargeGroupId,
+      null,
+    ]);
+  });
+
+  it("未割り当ての一覧に出て、残っていると確定できない。まとめて自動処理で学習ルールの科目が付く", async () => {
+    const res = await unassignedGet(
+      makeReq("GET", `http://x/api/ledger/unassigned?year=${YEAR}&month=8`),
+      emptyRouteContext(),
+    );
+    const list = (await res.json()).data;
+    expect(list.map((e: { description: string }) => e.description)).toEqual(["初めての店"]);
+    expect(list[0]).toMatchObject({ kind: "BANK", amount: -100, sourceName: "給与口座" });
+
+    // あとから学習ルールを足して、まとめて自動処理する
+    await prisma.txnCategoryRule.create({
+      data: { tenantId, keyword: "初めての店", categoryAccountId: other.id, priority: 100 },
+    });
+    const processed = await autoProcessPost(
+      makeReq("POST", "http://x/api/ledger/auto-process"),
+      emptyRouteContext(),
+    );
+    expect(processed.status).toBe(200);
+    const result = (await processed.json()).data;
+    expect(result.categorized).toBeGreaterThanOrEqual(1);
+    const after = await (
+      await unassignedGet(
+        makeReq("GET", `http://x/api/ledger/unassigned?year=${YEAR}&month=8`),
+        emptyRouteContext(),
+      )
+    ).json();
+    expect(after.data).toEqual([]);
   });
 });

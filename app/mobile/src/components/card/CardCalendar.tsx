@@ -12,6 +12,7 @@ import {
   type ViewMode,
 } from "../../api";
 import { Button, Card, EmptyText, Field, Input, Notice, Pills } from "../ui";
+import { categoryPayload, EntryCategoryField } from "../EntryCategoryField";
 import { displayName } from "../../shared/display-name";
 import { digitsOnly, isoDate, yen } from "../../format";
 
@@ -32,10 +33,12 @@ export function CardCalendar({
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
+  // category は科目（null = 自動。学習ルールで決め、無ければ未割り当て）
   const [form, setForm] = useState({
     description: "",
     amount: "",
     type: "charge" as "charge" | "refund",
+    category: null as Account | null,
   });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -84,12 +87,13 @@ export function CardCalendar({
         date: isoDate(year, month, selectedDay),
         description: form.description.trim(),
         amount: form.type === "charge" ? Math.abs(raw) : -Math.abs(raw),
+        ...categoryPayload(form.category),
       });
-      setForm({ description: "", amount: "", type: "charge" });
+      setForm({ description: "", amount: "", type: "charge", category: null });
       setMsg(null);
       await load();
-    } catch {
-      setMsg("登録に失敗しました");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "登録に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -221,6 +225,14 @@ export function CardCalendar({
                 onChangeText={(t) => setForm((f) => ({ ...f, amount: digitsOnly(t) }))}
               />
             </Field>
+            {/* 利用は支出の科目、返金は支出の科目のマイナスとして実績に入る */}
+            <EntryCategoryField
+              accounts={categoryAccounts}
+              value={form.category}
+              onChange={(category) => setForm((f) => ({ ...f, category }))}
+              direction="expense"
+              viewMode={viewMode}
+            />
             <Button label={saving ? "登録中..." : "登録"} onPress={submit} loading={saving} />
           </Card>
         </>
