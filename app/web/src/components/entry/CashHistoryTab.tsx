@@ -6,10 +6,10 @@ import { useState } from "react";
 import { LoadingSpinner } from "@/components/StateViews";
 import { LedgerBadge, LedgerTable } from "@/components/LedgerTable";
 import { Notice } from "@/components/ui";
-import { displayName, type ViewMode } from "@/lib/display-name";
-import { invalidateActuals } from "@/lib/invalidate-actuals";
-import { CATEGORY_LABEL as GROUP_LABELS, CATEGORY_ORDER as GROUP_ORDER } from "@/lib/labels";
-import { yen } from "@/lib/format";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
+import { invalidateActuals } from "@/lib/client/invalidate-actuals";
+import { CATEGORY_LABEL as GROUP_LABELS, CATEGORY_ORDER as GROUP_ORDER } from "@/lib/shared/labels";
+import { yen } from "@/lib/common/format";
 import { EXPENSE_CATS, INCOME_CATS, type Account, type CashEntry } from "@/components/entry/types";
 
 // 現金の履歴のページ送り（銀行・カードの履歴と同じ 30 件ずつ）

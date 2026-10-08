@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { shiftYm, trendMonths, ym } from "@/lib/balance-trend";
-import { buildCashOutlook, type OutlookRule } from "@/lib/cash-outlook";
-import { categoryBucket } from "@/lib/kpi";
-import { loanFundingTransfers } from "@/lib/loan-funding";
-import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
+import { withApi } from "@/lib/server/api-handler";
+import { shiftYm, trendMonths, ym } from "@/lib/ledger/balance-trend";
+import { buildCashOutlook, type OutlookRule } from "@/lib/ledger/cash-outlook";
+import { categoryBucket } from "@/lib/accounting/kpi";
+import { loanFundingTransfers } from "@/lib/assets/loan-funding";
+import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
 
 // GET /api/bank-accounts/cash-outlook?before=12&after=12 … 銀行管理の残高の推移。
-//   今月の前後の月末残高を、口座ごとと合計で返す（計算は lib/cash-outlook.ts）。
+//   今月の前後の月末残高を、口座ごとと合計で返す（計算は lib/ledger/cash-outlook.ts）。
 //   過去は明細のある月からにする（最大 before か月前）。口座ごとの先の見込みは資金繰りと同じく
 //   資金移動ルール + 借入の返済の自動の引き落とし、合計の先の見込みは予算と実績の収支から出す。
 export const GET = withApi({

@@ -19,7 +19,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
 // Redis はテスト対象外。キャッシュ系は素通しにする。
-vi.mock("@/lib/redis", () => ({
+vi.mock("@/lib/server/redis", () => ({
   withCache: vi
     .fn()
     .mockImplementation(async (_key: string, _ttl: number, fn: () => unknown) => fn()),
@@ -29,16 +29,16 @@ vi.mock("@/lib/redis", () => ({
 // requireRole はモックし、テスト側で「現在のユーザー」を差し替えられるようにする。
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let actingUser: any = null;
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/server/authz", () => ({
   requireRole: vi.fn(async () => {
     if (!actingUser) return { error: new Response("unauthorized", { status: 401 }) };
     return { user: actingUser };
   }),
 }));
 
-import { prisma } from "@/lib/prisma";
-import { createTestEntry } from "@/lib/test-entries";
-import { tenantDb } from "@/lib/tenant-db";
+import { prisma } from "@/lib/server/prisma";
+import { createTestEntry } from "@/lib/ledger/test-entries";
+import { tenantDb } from "@/lib/server/tenant-db";
 
 // 実ルートハンドラ（tenantDb 経由に移行済み）
 import {
@@ -53,7 +53,7 @@ import { GET as openbankingGet, POST as openbankingPost } from "./integrations/o
 import { GET as uploadGet } from "./uploads/[filename]/route";
 import { POST as allocationApplyPost } from "./budgets/allocation-apply/route";
 import { PATCH as categorizePatch } from "./bank-transactions/[id]/categorize/route";
-import { emptyRouteContext } from "@/lib/api-handler";
+import { emptyRouteContext } from "@/lib/server/api-handler";
 
 const SUFFIX = `iso_${Date.now()}`;
 

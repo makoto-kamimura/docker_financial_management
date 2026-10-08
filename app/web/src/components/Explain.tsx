@@ -1,7 +1,7 @@
 import { Info } from "lucide-react";
-import type { TermHelp } from "@/lib/help-texts";
+import type { TermHelp } from "@/lib/shared/help-texts";
 
-// 画面に常に出す説明の部品。文言は lib/help-texts.ts にまとめている。
+// 画面に常に出す説明の部品。文言は lib/shared/help-texts.ts にまとめている。
 // ホバーでしか開かない吹き出しはタッチ端末で読めないため、説明は見出しの下に出す。
 
 /** ページ見出し（h1）の下の説明 */

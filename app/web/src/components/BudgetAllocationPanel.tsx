@@ -14,10 +14,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
-import { BUDGET_HELP } from "@/lib/help-texts";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
-import { planAllocationApply, type AssignmentSource } from "@/lib/allocation-assign";
-import { yen } from "@/lib/format";
+import { BUDGET_HELP } from "@/lib/shared/help-texts";
+import { useFiscalYear } from "@/lib/client/use-fiscal-year";
+import { planAllocationApply, type AssignmentSource } from "@/lib/shared/allocation-assign";
+import { yen } from "@/lib/common/format";
 
 // 配分ルールのメンバー科目（自動の振り分け＋手動の割り当てを解決したもの）
 type MemberAccount = {

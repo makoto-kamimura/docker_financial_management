@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { zDate } from "@/lib/zod-helpers";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { zDate } from "@/lib/common/zod-helpers";
 
 // D-3: 請求書から自動生成された売掛金（invoiceId あり）は、金額・得意先名等を Invoice 側が正とする
 const INVOICE_MIRRORED_FIELDS = [

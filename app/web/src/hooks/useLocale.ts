@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Locale } from "@/lib/i18n";
+import type { Locale } from "@/lib/client/i18n";
 import type { Dictionary } from "@/locales/ja";
 
 const cachedDicts: Partial<Record<Locale, Dictionary>> = {};

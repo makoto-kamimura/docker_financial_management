@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
-vi.mock("@/lib/redis", () => ({
+vi.mock("@/lib/server/redis", () => ({
   withCache: vi
     .fn()
     .mockImplementation(async (_key: string, _ttl: number, fn: () => unknown) => fn()),
@@ -23,7 +23,7 @@ vi.mock("@/lib/redis", () => ({
 const RANK: Record<string, number> = { viewer: 1, accountant: 2, editor: 3, admin: 4 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let actingUser: any = null;
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/server/authz", () => ({
   requireRole: vi.fn(async (min: string) => {
     if (!actingUser) return { error: new Response("unauthorized", { status: 401 }) };
     if ((RANK[actingUser.role] ?? 0) < RANK[min]) {
@@ -33,9 +33,9 @@ vi.mock("@/lib/authz", () => ({
   }),
 }));
 
-import { prisma } from "@/lib/prisma";
-import { emptyRouteContext } from "@/lib/api-handler";
-import { createTestEntry } from "@/lib/test-entries";
+import { prisma } from "@/lib/server/prisma";
+import { emptyRouteContext } from "@/lib/server/api-handler";
+import { createTestEntry } from "@/lib/ledger/test-entries";
 import { POST as cashPost } from "./route";
 import { POST as actualsConfirmPost, DELETE as actualsConfirmDelete } from "./confirm/route";
 import { GET as varianceGet } from "../budgets/variance/route";

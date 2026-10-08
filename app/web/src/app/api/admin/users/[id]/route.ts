@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { hashPassword, invalidateAllSessions } from "@/lib/auth";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { hashPassword, invalidateAllSessions } from "@/lib/server/auth";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),

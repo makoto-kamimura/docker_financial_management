@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { CARD, ENTRY_REFS_INCLUDE, toCardTxn } from "@/lib/ledger-entries";
-import { validateCardTransferTarget } from "@/lib/card-transfer";
-import { validateChargePair } from "@/lib/charge-link";
-import { isChargeableType } from "@/lib/linked-account-type";
-import { invalidateCache } from "@/lib/redis";
-import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { CARD, ENTRY_REFS_INCLUDE, toCardTxn } from "@/lib/ledger/ledger-entries";
+import { validateCardTransferTarget } from "@/lib/ledger/card-transfer";
+import { validateChargePair } from "@/lib/ledger/charge-link";
+import { isChargeableType } from "@/lib/shared/linked-account-type";
+import { invalidateCache } from "@/lib/server/redis";
+import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 
 // PATCH /api/card-transactions/[id]/transfer … 明細 1 件のチャージ指定・解除（editor 以上）
 //

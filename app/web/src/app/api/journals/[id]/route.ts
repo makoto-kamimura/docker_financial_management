@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { deleteFinancialRecordsForJournalEntry, JOURNAL_DETAILS_INCLUDE } from "@/lib/journal";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import {
+  deleteFinancialRecordsForJournalEntry,
+  JOURNAL_DETAILS_INCLUDE,
+} from "@/lib/accounting/journal";
 
 // GET /api/journals/[id] … 仕訳 1 件の取得
 export const GET = withApi({

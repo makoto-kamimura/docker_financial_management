@@ -17,19 +17,19 @@ import {
   type MatrixCell,
 } from "@/components/AccountMonthMatrix";
 import { CsvDropzone, Notice, PageHeader, Pager, Tabs } from "@/components/ui";
-import { useFiscalYear } from "@/lib/use-fiscal-year";
+import { useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { InfoNote, SectionLead } from "@/components/Explain";
-import { useViewMode } from "@/lib/use-view-mode";
-import { BUDGET_HELP, textFor } from "@/lib/help-texts";
-import { displayName } from "@/lib/display-name";
-import { importErrorMessage, importNetworkErrorMessage } from "@/lib/import-error";
-import { CHANGE_ACTION_LABEL as ACTION_LABEL } from "@/lib/labels";
+import { useViewMode } from "@/lib/client/use-view-mode";
+import { BUDGET_HELP, textFor } from "@/lib/shared/help-texts";
+import { displayName } from "@/lib/shared/display-name";
+import { importErrorMessage, importNetworkErrorMessage } from "@/lib/client/import-error";
+import { CHANGE_ACTION_LABEL as ACTION_LABEL } from "@/lib/shared/labels";
 import {
   BUDGET_SOURCE_LABEL,
   buildBudgetCellDetail,
   type BudgetCellItem,
-} from "@/lib/budget-cell-detail";
-import { amountText, yen } from "@/lib/format";
+} from "@/lib/shared/budget-cell-detail";
+import { amountText, yen } from "@/lib/common/format";
 
 type AccountRef = {
   id: number;
@@ -308,7 +308,7 @@ function BudgetContent() {
   const deleteBudget = async (id: number) =>
     failure(await fetch(`/api/budgets/${id}`, { method: "DELETE" }));
 
-  // セルの内訳（カレンダーの登録・一覧などで入れた額・自動加算）。lib/budget-cell-detail.ts
+  // セルの内訳（カレンダーの登録・一覧などで入れた額・自動加算）。lib/shared/budget-cell-detail.ts
   function cellDetailOf(code: string, m: number) {
     const cell = grouped.get(code)?.byMonth.get(m);
     return buildBudgetCellDetail({

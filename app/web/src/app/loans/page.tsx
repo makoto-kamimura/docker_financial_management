@@ -13,20 +13,20 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { LOAN_TYPE_LABEL } from "@/lib/labels";
+import { LOAN_TYPE_LABEL } from "@/lib/shared/labels";
 import {
   buildRateComparison,
   pendingRateChange,
   ratePercent,
   type Loan,
-} from "@/lib/loan-schedule";
+} from "@/lib/shared/loan-schedule";
 import { LoanTrendCharts, repaidPercent } from "@/components/LoanTrendCharts";
 import { PageHeader } from "@/components/ui";
-import { asOfDateLabel } from "@/lib/asset-valuation";
+import { asOfDateLabel } from "@/lib/shared/asset-valuation";
 import { VariableRateHelp } from "@/components/HelpTip";
 import { SectionLead } from "@/components/Explain";
-import { LOANS_HELP } from "@/lib/help-texts";
-import { yen } from "@/lib/format";
+import { LOANS_HELP } from "@/lib/shared/help-texts";
+import { yen } from "@/lib/common/format";
 import { LoanAddModal, LoanEditModal } from "@/components/loans/LoanFormModals";
 import { PendingPaymentModal, RateChangeModal } from "@/components/loans/LoanRateModals";
 import { RepayModal } from "@/components/loans/RepayModal";

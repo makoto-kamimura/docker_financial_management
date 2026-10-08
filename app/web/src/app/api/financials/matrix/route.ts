@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { LedgerKind } from "@prisma/client";
-import { withApi } from "@/lib/api-handler";
-import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
+import { withApi } from "@/lib/server/api-handler";
+import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
 
 // GET /api/financials/matrix?year=YYYY
 //   … 実績管理のテーブル表示モード（勘定科目 × 月）用。指定年度の実績を明細のまま返す。
 //     予算（/api/budgets）と同じ形で返し、クライアント側で科目 × 月に組み替える
-//     （lib/financial-matrix.ts）。同じ科目・月に複数明細が存在しうる点が予算と異なる。
+//     （lib/shared/financial-matrix.ts）。同じ科目・月に複数明細が存在しうる点が予算と異なる。
 // 実績 1 行の出どころ。セルの内訳モーダルで「どこから入った実績か」を示すために使う。
 // 明細（現金・銀行・カード）はその明細の日付・摘要・口座名、仕訳連動は仕訳の摘要を添える。
 // どれでもない行は、科目×月へ直接入れていたころの実績（過去の直接入力）。

@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { BANK, CARD, ENTRY_REFS_INCLUDE, toBankTxn } from "@/lib/ledger-entries";
-import { validateChargePair } from "@/lib/charge-link";
-import { isChargeableType } from "@/lib/linked-account-type";
-import { invalidateCache } from "@/lib/redis";
-import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { BANK, CARD, ENTRY_REFS_INCLUDE, toBankTxn } from "@/lib/ledger/ledger-entries";
+import { validateChargePair } from "@/lib/ledger/charge-link";
+import { isChargeableType } from "@/lib/shared/linked-account-type";
+import { invalidateCache } from "@/lib/server/redis";
+import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 
 // PATCH /api/bank-transactions/[id]/charge … 銀行明細のチャージ指定・解除（editor 以上）
 //

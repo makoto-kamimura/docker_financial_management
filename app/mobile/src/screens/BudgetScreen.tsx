@@ -250,7 +250,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
   // 予算を確定済みの月は編集できない（web 版の一覧の鍵の印と同じ）
   const locked = data.confirmedMonths.includes(month);
 
-  // セルの内訳（カレンダーの登録・一覧などで入れた額・自動加算。web 版と同じ lib/budget-cell-detail.ts）
+  // セルの内訳（カレンダーの登録・一覧などで入れた額・自動加算。web 版と同じ lib/shared/budget-cell-detail.ts）
   const [detailCode, setDetailCode] = useState<string | null>(null);
   const cellDetailOf = (code: string) =>
     buildBudgetCellDetail({

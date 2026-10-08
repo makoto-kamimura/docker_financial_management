@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
-vi.mock("@/lib/redis", () => ({
+vi.mock("@/lib/server/redis", () => ({
   withCache: vi
     .fn()
     .mockImplementation(async (_key: string, _ttl: number, fn: () => unknown) => fn()),
@@ -17,15 +17,15 @@ vi.mock("@/lib/redis", () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let actingUser: any = null;
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/server/authz", () => ({
   requireRole: vi.fn(async () =>
     actingUser ? { user: actingUser } : { error: new Response("unauthorized", { status: 401 }) },
   ),
 }));
 
-import { prisma } from "@/lib/prisma";
-import { createTestEntry } from "@/lib/test-entries";
-import { emptyRouteContext } from "@/lib/api-handler";
+import { prisma } from "@/lib/server/prisma";
+import { createTestEntry } from "@/lib/ledger/test-entries";
+import { emptyRouteContext } from "@/lib/server/api-handler";
 import { GET as summaryGet } from "./summary/route";
 import { GET as outlookGet } from "./cash-outlook/route";
 

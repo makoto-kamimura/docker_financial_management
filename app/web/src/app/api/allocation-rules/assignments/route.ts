@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { loadAllocationRulesView } from "@/lib/allocation-data";
-import { isAllocationTarget } from "@/lib/allocation-assign";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { loadAllocationRulesView } from "@/lib/budget/allocation-data";
+import { isAllocationTarget } from "@/lib/shared/allocation-assign";
 
 const AssignSchema = z.object({
   accountId: z.number().int().positive(),

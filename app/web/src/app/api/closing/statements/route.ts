@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { withCache } from "@/lib/redis";
-import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
+import { withApi } from "@/lib/server/api-handler";
+import { withCache } from "@/lib/server/redis";
+import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
 
 // GET /api/closing/statements?year=&departmentId= … P/L・B/S・財務指標（Redis キャッシュ）
 export const GET = withApi({

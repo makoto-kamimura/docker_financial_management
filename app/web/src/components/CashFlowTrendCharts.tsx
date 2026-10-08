@@ -3,14 +3,14 @@
 // 銀行管理の「残高の推移」（借入金管理の「借入残高の推移」と同じ形）。
 // 上に日付つきの総残高と合計のグラフ、下に口座ごとの小さなグラフを並べる。今月より先は破線。
 // 合計の先は予算と実績の収支から、口座ごとの先は毎月の入出金（資金移動ルールと借入の返済）から見込む
-// （GET /api/bank-accounts/cash-outlook。計算は lib/cash-outlook.ts）。
+// （GET /api/bank-accounts/cash-outlook。計算は lib/ledger/cash-outlook.ts）。
 
 import { useQuery } from "@tanstack/react-query";
 import { SectionCard } from "@/components/SectionCard";
 import { SERIES_COLORS, ValueLineChart } from "@/components/ValueLineChart";
-import { asOfDateLabel } from "@/lib/asset-valuation";
-import { BANK_HELP } from "@/lib/help-texts";
-import { yenShort } from "@/lib/format";
+import { asOfDateLabel } from "@/lib/shared/asset-valuation";
+import { BANK_HELP } from "@/lib/shared/help-texts";
+import { yenShort } from "@/lib/common/format";
 
 type CashOutlookResponse = {
   months: string[];

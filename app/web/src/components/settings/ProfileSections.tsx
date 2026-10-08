@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { SETTINGS_HELP } from "@/lib/help-texts";
+import { SETTINGS_HELP } from "@/lib/shared/help-texts";
 import { SaveNotice, SectionCard, type SaveMessage } from "@/components/SectionCard";
 
 type BusinessProfile = {

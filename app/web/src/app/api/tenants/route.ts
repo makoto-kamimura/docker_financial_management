@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { seedDefaultAccountsForTenant } from "@/lib/default-accounts";
-import { seedDefaultAllocationRulesForTenant } from "@/lib/default-allocation-rules";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { seedDefaultAccountsForTenant } from "@/lib/accounting/default-accounts";
+import { seedDefaultAllocationRulesForTenant } from "@/lib/budget/default-allocation-rules";
 
 const TenantSchema = z.object({
   type: z.string().default("SOLE_PROPRIETOR"),

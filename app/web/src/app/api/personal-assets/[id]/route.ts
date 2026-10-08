@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
-import { badRequest, notFound } from "@/lib/api-error";
-import { zYearMonth } from "@/lib/zod-helpers";
-import { computeDebtSchedule } from "@/lib/debt-schedule";
+import { withApi } from "@/lib/server/api-handler";
+import { PERSONAL_ASSET_CATEGORIES } from "@/lib/assets/personal-asset";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { zYearMonth } from "@/lib/common/zod-helpers";
+import { computeDebtSchedule } from "@/lib/shared/debt-schedule";
 import {
   buildDebtLoanData,
   ratePercentOf,
   manualMonthlyPaymentOf,
-} from "@/lib/personal-asset-debt";
-import { invalidateCache } from "@/lib/redis";
+} from "@/lib/assets/personal-asset-debt";
+import { invalidateCache } from "@/lib/server/redis";
 import {
   anchorBeforeRuleChange,
   assetInput,
@@ -23,7 +23,7 @@ import {
   VALUATION_INCLUDE,
   valuationData,
   valuationFields,
-} from "@/lib/personal-asset-valuation";
+} from "@/lib/assets/personal-asset-valuation";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),

@@ -12,7 +12,7 @@ const API_BASE_URL: string = process.env.EXPO_PUBLIC_API_BASE_URL ?? `http://${_
 
 const TIMEOUT_MS = 10_000;
 
-// ネイティブアプリであることをサーバへ明示するヘッダ（web/src/lib/csrf.ts と対の値）。
+// ネイティブアプリであることをサーバへ明示するヘッダ（web/src/lib/server/csrf.ts と対の値）。
 // ブラウザはクロスサイトのリクエストにカスタムヘッダを付けられない（プリフライトが必要で、
 // 本 API は CORS を許可していない）ため、このヘッダがあれば CSRF ではないと判断できる。
 const CLIENT_HEADER = "X-Requested-With";
@@ -243,7 +243,7 @@ export type KpiBudget = {
 };
 
 // 期（決算月で締める 1 年）の着地見込みと、その時点の達成率。
-// 未入力の月は入力済み月の平均で埋め、残りの月は移動平均で予測する（web の lib/kpi.ts）
+// 未入力の月は入力済み月の平均で埋め、残りの月は移動平均で予測する（web の lib/accounting/kpi.ts）
 export type AnnualOutlook = {
   /** 決算月（1〜12） */
   closingMonth: number;
@@ -928,7 +928,7 @@ export type BankAccount = {
   lastFour: string | null;
   note: string | null;
   account: { id: number; code: string; name: string } | null;
-  /** 明細合計 + 差額（web/src/lib/bank-balance.ts の定義） */
+  /** 明細合計 + 差額（web/src/lib/ledger/bank-balance.ts の定義） */
   balance: number;
   /** 明細の増減合計だけの残高 */
   transactionSum: number;

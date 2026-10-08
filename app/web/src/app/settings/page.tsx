@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
-import { SETTINGS_HELP } from "@/lib/help-texts";
+import { SETTINGS_HELP } from "@/lib/shared/help-texts";
 import { PageHeader, Tabs } from "@/components/ui";
 import {
   DisplayNameSection,

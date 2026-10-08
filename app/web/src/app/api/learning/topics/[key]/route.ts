@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { TOPIC_KEYS, loadTopic } from "@/lib/learning-content";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { TOPIC_KEYS, loadTopic } from "@/lib/common/learning-content";
 
 // GET /api/learning/topics/[key] … 学習ガイド記事本文 + 自分の既読状況
 // key は TOPIC_KEYS（ビルド時生成の定数配列）による z.enum ホワイトリストで検証し、

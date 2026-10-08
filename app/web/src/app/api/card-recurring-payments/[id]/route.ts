@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { conflict, notFound } from "@/lib/api-error";
-import { CardRecurringPatchSchema } from "@/lib/card-recurring-schema";
+import { withApi } from "@/lib/server/api-handler";
+import { conflict, notFound } from "@/lib/server/api-error";
+import { CardRecurringPatchSchema } from "@/lib/ledger/card-recurring-schema";
 
 // PATCH /api/card-recurring-payments/[id] … 固定決済の更新（editor 以上）
 export const PATCH = withApi({

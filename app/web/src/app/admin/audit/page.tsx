@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { Notice, PageHeader } from "@/components/ui";
-import { ADMIN_HELP } from "@/lib/help-texts";
+import { ADMIN_HELP } from "@/lib/shared/help-texts";
 
 type Log = {
   id: number;

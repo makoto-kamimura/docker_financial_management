@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { createSession } from "@/lib/auth";
-import { writeAudit } from "@/lib/audit";
-import { consumeMfaChallenge } from "@/lib/mfa-challenge";
-import { clientIp } from "@/lib/rate-limit";
+import { prisma } from "@/lib/server/prisma";
+import { createSession } from "@/lib/server/auth";
+import { writeAudit } from "@/lib/server/audit";
+import { consumeMfaChallenge } from "@/lib/server/mfa-challenge";
+import { clientIp } from "@/lib/server/rate-limit";
 
 const VerifySchema = z
   .object({

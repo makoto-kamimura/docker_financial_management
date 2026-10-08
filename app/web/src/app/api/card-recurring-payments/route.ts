@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { conflict, notFound } from "@/lib/api-error";
-import { CardRecurringCreateSchema } from "@/lib/card-recurring-schema";
+import { withApi } from "@/lib/server/api-handler";
+import { conflict, notFound } from "@/lib/server/api-error";
+import { CardRecurringCreateSchema } from "@/lib/ledger/card-recurring-schema";
 
 // カードの固定決済（毎月このカードで決済されるサブスク・通信費など）。
 //

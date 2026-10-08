@@ -10,7 +10,7 @@ import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
 import { Notice, PageHeader } from "@/components/ui";
-import { ADMIN_HELP } from "@/lib/help-texts";
+import { ADMIN_HELP } from "@/lib/shared/help-texts";
 
 type RoleType = "admin" | "editor" | "viewer";
 type User = {

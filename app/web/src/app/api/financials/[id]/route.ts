@@ -1,5 +1,5 @@
-import { withApi } from "@/lib/api-handler";
-import { DIRECT_ACTUALS_GONE_MESSAGE, gone } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { DIRECT_ACTUALS_GONE_MESSAGE, gone } from "@/lib/server/api-error";
 
 // PATCH・DELETE /api/financials/[id] … 実績の行の直接の変更・削除。
 // 実績は明細（現金・銀行・カード）に科目を付けると入るようにしたため、科目×月の行を直接は変えない（410）。

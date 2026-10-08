@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { yenShort } from "@/lib/format";
+import { yenShort } from "@/lib/common/format";
 
 export type ChartSeries = { key: string; label: string; color: string; values: (number | null)[] };
 

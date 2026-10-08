@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { ApiError, badRequest } from "@/lib/api-error";
-import { verifyTotpWithReplayGuard } from "@/lib/totp-replay-guard";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { ApiError, badRequest } from "@/lib/server/api-error";
+import { verifyTotpWithReplayGuard } from "@/lib/server/totp-replay-guard";
 
 const Schema = z.object({ code: z.string().min(6) });
 

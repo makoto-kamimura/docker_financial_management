@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { loadAllocationRulesView } from "@/lib/allocation-data";
-import { ALLOCATION_GROUPS, ALLOCATION_TARGET_CATEGORIES } from "@/lib/default-allocation-rules";
+import { withApi } from "@/lib/server/api-handler";
+import { loadAllocationRulesView } from "@/lib/budget/allocation-data";
+import {
+  ALLOCATION_GROUPS,
+  ALLOCATION_TARGET_CATEGORIES,
+} from "@/lib/budget/default-allocation-rules";
 
 const RuleSchema = z
   .object({
@@ -12,7 +15,7 @@ const RuleSchema = z
     minPercent: z.number().min(0).max(100),
     maxPercent: z.number().min(0).max(100).nullable(),
     note: z.string().max(255).nullable().optional(),
-    // 科目名にこのどれかを含む科目をこのルールに入れる（lib/allocation-assign.ts）
+    // 科目名にこのどれかを含む科目をこのルールに入れる（lib/shared/allocation-assign.ts）
     keywords: z.array(z.string().trim().min(1).max(50)).max(50).optional(),
     // キーワードに当たらなかったこの区分の科目を受け取る（受け皿）。null = 受け皿ではない
     fallbackCategory: z.enum(ALLOCATION_TARGET_CATEGORIES).nullable().optional(),

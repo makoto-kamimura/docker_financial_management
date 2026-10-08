@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { conflict, forbidden } from "@/lib/api-error";
-import { ACCOUNT_CATEGORIES } from "@/lib/account-category";
+import { withApi } from "@/lib/server/api-handler";
+import { conflict, forbidden } from "@/lib/server/api-error";
+import { ACCOUNT_CATEGORIES } from "@/lib/accounting/account-category";
 
 // 各科目の名称（家庭科目名 / 個人事業主モード / 法人モード）と区分を一括更新する。
 // soleName / corporateName の空文字は null（＝家庭科目名 name にフォールバック）として保存する。

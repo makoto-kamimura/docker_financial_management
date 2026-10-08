@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest } from "@/lib/api-error";
-import { invalidateCache } from "@/lib/redis";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest } from "@/lib/server/api-error";
+import { invalidateCache } from "@/lib/server/redis";
 
 const FinalizeSchema = z.object({
   fiscalYear: z.number().int(),

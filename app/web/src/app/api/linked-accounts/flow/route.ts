@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { CHANNEL_LABELS, type TransferChannel } from "@/lib/transferflow";
+import { withApi } from "@/lib/server/api-handler";
+import { CHANNEL_LABELS, type TransferChannel } from "@/lib/ledger/transferflow";
 
 // GET /api/linked-accounts/flow
 //   … カード・電子マネーごとの、毎月の引き落とし（資金移動ルール）と固定決済（CardRecurringPayment）。

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/authz";
-import { config } from "@/lib/config";
-import { safeEqual } from "@/lib/crypto-util";
+import { prisma } from "@/lib/server/prisma";
+import { requireRole } from "@/lib/server/authz";
+import { config } from "@/lib/server/config";
+import { safeEqual } from "@/lib/server/crypto-util";
 
 // POST /api/admin/cleanup — 期限切れセッションの削除（admin 限定）
 // 定期実行: docker exec platform-web-1 curl -X POST http://localhost:3000/api/admin/cleanup
@@ -10,7 +10,7 @@ import { safeEqual } from "@/lib/crypto-util";
 export async function POST(req: NextRequest) {
   // Bearer トークンによるサービスキー認証 or admin セッション認証
   // S-13: 文字列の === 比較（早期終了によるタイミング差）を safeEqual() に置換。
-  // CLEANUP_SERVICE_KEY は lib/config.ts の Zod スキーマで 32 文字未満を起動時に拒否している
+  // CLEANUP_SERVICE_KEY は lib/server/config.ts の Zod スキーマで 32 文字未満を起動時に拒否している
   const authHeader = req.headers.get("Authorization");
   const serviceKey = config.CLEANUP_SERVICE_KEY;
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { getSessionDetail } from "@/lib/account-conversion";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import { getSessionDetail } from "@/lib/accounting/account-conversion";
 
 // GET /api/account-conversion/history/[id]/export … 変換セッションの CSV 出力
 export const GET = withApi({

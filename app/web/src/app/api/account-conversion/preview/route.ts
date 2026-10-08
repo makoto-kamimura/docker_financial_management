@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { isHomeAccountCode, suggestConversions } from "@/lib/account-conversion";
+import { withApi } from "@/lib/server/api-handler";
+import { isHomeAccountCode, suggestConversions } from "@/lib/accounting/account-conversion";
 
 // GET /api/account-conversion/preview … 現在のテナントに存在する家庭モード科目（H-prefix）
 // について、法人科目への変換候補を提案する（DB への書き込みは行わない）。

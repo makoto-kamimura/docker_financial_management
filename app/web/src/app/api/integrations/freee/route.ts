@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { ApiError, badRequest } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { ApiError, badRequest } from "@/lib/server/api-error";
 
 // freee API OAuth 2.0 設定（環境変数から取得）
 // FREEE_CLIENT_ID, FREEE_CLIENT_SECRET, FREEE_REDIRECT_URI を .env で設定する

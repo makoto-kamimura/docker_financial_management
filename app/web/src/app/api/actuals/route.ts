@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
-import { findAccountByCode } from "@/lib/period";
-import { CASH, createEntry, toCashEntry } from "@/lib/ledger-entries";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
+import { findAccountByCode } from "@/lib/accounting/period";
+import { CASH, createEntry, toCashEntry } from "@/lib/ledger/ledger-entries";
 
 // 現金の明細（実績の表 financial_records の kind = CASH の行）。実績管理の「現金」のカレンダーと履歴で使う。
 // 科目を付けて登録するので、登録した時点で実績になる（科目は履歴から変えられる: ./[id]/categorize）。

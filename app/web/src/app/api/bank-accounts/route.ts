@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { requireAccountByCode } from "@/lib/period";
-import { buildBankBalanceMap } from "@/lib/bank-balance";
-import { invalidateCache } from "@/lib/redis";
+import { withApi } from "@/lib/server/api-handler";
+import { requireAccountByCode } from "@/lib/accounting/period";
+import { buildBankBalanceMap } from "@/lib/ledger/bank-balance";
+import { invalidateCache } from "@/lib/server/redis";
 
 const BankAccountSchema = z.object({
   name: z.string().min(1),
@@ -16,7 +16,7 @@ const BankAccountSchema = z.object({
   note: z.string().optional(),
 });
 
-// GET /api/bank-accounts … 銀行口座一覧（残高は「明細合計 + 差額」= lib/bank-balance.ts の定義）
+// GET /api/bank-accounts … 銀行口座一覧（残高は「明細合計 + 差額」= lib/ledger/bank-balance.ts の定義）
 export const GET = withApi({
   role: "viewer",
   handler: async ({ user, db }) => {

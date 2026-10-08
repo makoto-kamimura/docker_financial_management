@@ -7,11 +7,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { TrendBadge } from "@/components/AssetTrendCharts";
 import { SectionLead } from "@/components/Explain";
-import { asOfDateLabel } from "@/lib/asset-valuation";
-import { ASSETS_HELP } from "@/lib/help-texts";
-import { isCountedAsAsset } from "@/lib/personal-asset";
-import { PERSONAL_ASSET_CATEGORY_LABEL } from "@/lib/labels";
-import { yenShort } from "@/lib/format";
+import { asOfDateLabel } from "@/lib/shared/asset-valuation";
+import { ASSETS_HELP } from "@/lib/shared/help-texts";
+import { isCountedAsAsset } from "@/lib/assets/personal-asset";
+import { PERSONAL_ASSET_CATEGORY_LABEL } from "@/lib/shared/labels";
+import { yenShort } from "@/lib/common/format";
 import { PersonalAsset } from "@/components/assets/types";
 import { PersonalAssetFormModal } from "@/components/assets/PersonalAssetFormModal";
 

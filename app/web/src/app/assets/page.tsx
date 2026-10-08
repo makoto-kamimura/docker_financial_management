@@ -3,8 +3,8 @@
 import { AppShell } from "@/components/AppShell";
 import { AssetTrendCharts } from "@/components/AssetTrendCharts";
 import { PageHeader } from "@/components/ui";
-import { ASSETS_HELP, textFor } from "@/lib/help-texts";
-import { useViewMode } from "@/lib/use-view-mode";
+import { ASSETS_HELP, textFor } from "@/lib/shared/help-texts";
+import { useViewMode } from "@/lib/client/use-view-mode";
 import { PersonalAssetsSection } from "@/components/assets/PersonalAssetsSection";
 
 // 資産管理は「実物資産の評価額の推移」と「実物資産」の一覧。総資産サマリ（口座・借入金を含む純資産）は

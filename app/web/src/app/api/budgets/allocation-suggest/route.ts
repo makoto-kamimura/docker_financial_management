@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { suggestAllocation } from "@/lib/allocation";
-import { splitByRatio } from "@/lib/allocation-assign";
-import { loadActualWeights, loadAllocationContext } from "@/lib/allocation-data";
-import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
+import { withApi } from "@/lib/server/api-handler";
+import { suggestAllocation } from "@/lib/budget/allocation";
+import { splitByRatio } from "@/lib/shared/allocation-assign";
+import { loadActualWeights, loadAllocationContext } from "@/lib/budget/allocation-data";
+import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget/budget-overlay";
 
 // GET /api/budgets/allocation-suggest?year=&month=&basis=budget|actual|manual&amount= … 配分提案（読み取り専用）
 //   basis=manual … 実績・予算を一切見ず、amount（画面で入力した収入金額）だけを基準額にする。
@@ -14,7 +14,7 @@ import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budge
 //     「配分可能額」をもとに算出する。
 //   各ルールには、メンバー科目（自動の振り分け＋手動の割り当て）と、按分の重み（前の 3 か月の実績）、
 //   その月にすでに入っている予算を付けて返す。「予算へ反映」は、予算が未設定の科目だけに
-//   残りを按分する（画面で lib/allocation-assign.ts の planAllocationApply を使う）。
+//   残りを按分する（画面で lib/shared/allocation-assign.ts の planAllocationApply を使う）。
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({

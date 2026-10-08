@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { ACCOUNT_CATEGORIES } from "@/lib/account-category";
-import { badRequest, conflict, notFound } from "@/lib/api-error";
-import { findAccountByCode } from "@/lib/period";
+import { withApi } from "@/lib/server/api-handler";
+import { ACCOUNT_CATEGORIES } from "@/lib/accounting/account-category";
+import { badRequest, conflict, notFound } from "@/lib/server/api-error";
+import { findAccountByCode } from "@/lib/accounting/period";
 
 const UpdateSchema = z.object({
   code: z.string().min(1).max(20).optional(),

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { suggestAllocation } from "@/lib/allocation";
-import { splitByRatio } from "@/lib/allocation-assign";
-import { loadActualWeights, loadAllocationContext } from "@/lib/allocation-data";
-import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
+import { withApi } from "@/lib/server/api-handler";
+import { suggestAllocation } from "@/lib/budget/allocation";
+import { splitByRatio } from "@/lib/shared/allocation-assign";
+import { loadActualWeights, loadAllocationContext } from "@/lib/budget/allocation-data";
+import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget/budget-overlay";
 
 // GET /api/budgets/allocation-guide?year=YYYY
 //   … 予算管理のマトリクスに重ねる「適正金額」。収入（REVENUE）の実績が入力済みの月について、

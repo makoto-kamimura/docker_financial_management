@@ -17,14 +17,14 @@ export type ActualsSource = {
   lastDate: string | null;
 };
 
-/** 実績を確定したときに記録した、確定時点の明細の状況（lib/actuals-coverage.ts の CoverageSnapshot） */
+/** 実績を確定したときに記録した、確定時点の明細の状況（lib/ledger/actuals-coverage.ts の CoverageSnapshot） */
 export type CoverageSnapshot = {
   monthEnd: string;
   coveredThrough: string | null;
   sources: (ActualsSource & { noChange: boolean })[];
 };
 
-/** GET /api/cycle-status（lib/cycle-status.ts）の data。予実対比のレスポンスにも同じ項目が入る */
+/** GET /api/cycle-status（lib/budget/cycle-status.ts）の data。予実対比のレスポンスにも同じ項目が入る */
 export type CycleStatus = {
   year: number;
   month: number;

@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
+import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
 
 export function FiscalYearSwitcher({ compact = false }: { compact?: boolean }) {
   const year = useFiscalYear();

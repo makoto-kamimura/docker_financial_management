@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { TransferCreateSchema } from "@/lib/transfer-schema";
+import { withApi } from "@/lib/server/api-handler";
+import { TransferCreateSchema } from "@/lib/ledger/transfer-schema";
 
 // GET /api/transfers … 資金移動ルール一覧
 export const GET = withApi({

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { prisma } from "@/lib/prisma";
-import { seedDefaultAllocationRulesForTenant } from "@/lib/default-allocation-rules";
-import { loadAllocationRulesView } from "@/lib/allocation-data";
+import { withApi } from "@/lib/server/api-handler";
+import { prisma } from "@/lib/server/prisma";
+import { seedDefaultAllocationRulesForTenant } from "@/lib/budget/default-allocation-rules";
+import { loadAllocationRulesView } from "@/lib/budget/allocation-data";
 
 // POST /api/allocation-rules/defaults
 //   … ファイナンシャルプランナー推奨の既定配分ルールを投入する（editor 以上）。

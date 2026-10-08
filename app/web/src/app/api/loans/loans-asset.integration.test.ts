@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
-vi.mock("@/lib/redis", () => ({
+vi.mock("@/lib/server/redis", () => ({
   withCache: vi
     .fn()
     .mockImplementation(async (_key: string, _ttl: number, fn: () => unknown) => fn()),
@@ -24,16 +24,16 @@ vi.mock("@/lib/redis", () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let actingUser: any = null;
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/server/authz", () => ({
   requireRole: vi.fn(async () =>
     actingUser ? { user: actingUser } : { error: new Response("unauthorized", { status: 401 }) },
   ),
 }));
 
-import { prisma } from "@/lib/prisma";
-import { tenantDb } from "@/lib/tenant-db";
-import { emptyRouteContext } from "@/lib/api-handler";
-import { computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
+import { prisma } from "@/lib/server/prisma";
+import { tenantDb } from "@/lib/server/tenant-db";
+import { emptyRouteContext } from "@/lib/server/api-handler";
+import { computePersonalAssetDebtOverlay } from "@/lib/budget/budget-overlay";
 import { GET as loansGet, POST as loansPost } from "./route";
 import { PATCH as loanPatch } from "./[id]/route";
 import { GET as loanSummaryGet } from "./summary/route";

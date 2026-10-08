@@ -4,10 +4,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
-import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
-import { displayName, type ViewMode } from "@/lib/display-name";
-import { invalidateActuals } from "@/lib/invalidate-actuals";
-import { yen } from "@/lib/format";
+import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
+import { invalidateActuals } from "@/lib/client/invalidate-actuals";
+import { yen } from "@/lib/common/format";
 import {
   EXPENSE_CATS,
   INCOME_CATS,

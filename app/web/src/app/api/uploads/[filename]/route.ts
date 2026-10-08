@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
-import { withApi } from "@/lib/api-handler";
-import { notFound } from "@/lib/api-error";
-import { contentTypeForExtension, tenantUploadDir, UPLOAD_DIR } from "@/lib/upload";
+import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
+import { contentTypeForExtension, tenantUploadDir, UPLOAD_DIR } from "@/lib/server/upload";
 
 // GET /api/uploads/[filename] … 証憑ファイルの配信。
 // Receipt レコード経由で「自テナントの仕訳に紐づく証憑か」を確認してから配信する

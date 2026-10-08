@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
+import { withApi } from "@/lib/server/api-handler";
+import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
 
 // GET /api/closing/etax?fiscalYear=&type= … e-Tax / eLTAX 向け XML 生成（accountant 以上）
 export const GET = withApi({

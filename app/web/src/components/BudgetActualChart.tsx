@@ -5,7 +5,7 @@
 //   - 実績の色は有利＝青・不利＝赤（発散配色。赤緑は色覚の違いで見分けにくいため使わない）、
 //     予算 0 は灰色。色だけに頼らず、右に「余り／超過」などの
 //     ラベルと矢印を出し、金額も文字で並べる（ツールチップだけで値を読ませない）
-//   データは予算管理の「予実差確認」「予算の確定」と同じ GET /api/budgets/variance。整形は lib/budget-actual-chart.ts。
+//   データは予算管理の「予実差確認」「予算の確定」と同じ GET /api/budgets/variance。整形は lib/shared/budget-actual-chart.ts。
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -13,11 +13,11 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
 import { budgetConfirmHref } from "@/components/CycleSteps";
-import { buildBudgetActualGroups, type BudgetActualBar } from "@/lib/budget-actual-chart";
-import { nextYearMonth, type VarianceRow } from "@/lib/budget-cycle";
-import { displayName, type ViewMode } from "@/lib/display-name";
-import { DASHBOARD_HELP, textFor } from "@/lib/help-texts";
-import { yen } from "@/lib/format";
+import { buildBudgetActualGroups, type BudgetActualBar } from "@/lib/shared/budget-actual-chart";
+import { nextYearMonth, type VarianceRow } from "@/lib/shared/budget-cycle";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
+import { DASHBOARD_HELP, textFor } from "@/lib/shared/help-texts";
+import { yen } from "@/lib/common/format";
 
 type Row = VarianceRow & { soleName: string | null; corporateName: string | null };
 

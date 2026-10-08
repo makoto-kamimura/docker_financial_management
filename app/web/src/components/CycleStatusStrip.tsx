@@ -6,7 +6,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { CycleSteps, type CycleStatus } from "@/components/CycleSteps";
-import { DASHBOARD_HELP } from "@/lib/help-texts";
+import { DASHBOARD_HELP } from "@/lib/shared/help-texts";
 
 export function CycleStatusStrip({ period }: { period: string | null }) {
   const [year, month] = (period ?? "").split("-").map(Number);

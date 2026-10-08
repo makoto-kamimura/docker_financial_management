@@ -29,7 +29,7 @@ accountant のロールは、`/admin/users` でロールを変えて使う。実
 
 ```bash
 cd app/web
-npx tsx -e 'import { PrismaClient } from "@prisma/client"; import { seedDefaultAccountsForTenant } from "./src/lib/default-accounts"; const p = new PrismaClient(); seedDefaultAccountsForTenant(p, <tenantId>).finally(() => p.$disconnect());'
+npx tsx -e 'import { PrismaClient } from "@prisma/client"; import { seedDefaultAccountsForTenant } from "./src/lib/accounting/default-accounts"; const p = new PrismaClient(); seedDefaultAccountsForTenant(p, <tenantId>).finally(() => p.$disconnect());'
 ```
 
 ## 4. 勘定科目変換を試すための初期データ

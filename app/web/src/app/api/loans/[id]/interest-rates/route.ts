@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest, notFound } from "@/lib/api-error";
-import { invalidateCache } from "@/lib/redis";
-import { recalcMonthlyPaymentAtRateChange, ymIndex } from "@/lib/debt-schedule";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest, notFound } from "@/lib/server/api-error";
+import { invalidateCache } from "@/lib/server/redis";
+import { recalcMonthlyPaymentAtRateChange, ymIndex } from "@/lib/shared/debt-schedule";
 import type { Loan, LoanInterestRateChange } from "@prisma/client";
 
 const RateChangeSchema = z.object({

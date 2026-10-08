@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
+import { withApi } from "@/lib/server/api-handler";
 import {
   categoryBucket,
   computeAnnualOutlook,
   computeKpiAt,
   computeKpiBudgetAt,
   type MonthlyByCategory,
-} from "@/lib/kpi";
-import { forecast } from "@/lib/forecast";
-import { loadLastActualsConfirmed } from "@/lib/cycle-status";
-import { ACTUAL_WHERE, actualRows } from "@/lib/actuals";
+} from "@/lib/accounting/kpi";
+import { forecast } from "@/lib/budget/forecast";
+import { loadLastActualsConfirmed } from "@/lib/budget/cycle-status";
+import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
 
 // GET /api/kpi?period=YYYY-MM … 指定月（既定は現在月以前の最新月）の主要 KPI を返す。
 // periods は実データのある月の昇順リストで、ダッシュボードの対象月セレクタが使う。

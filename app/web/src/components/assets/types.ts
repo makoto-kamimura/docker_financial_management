@@ -1,7 +1,7 @@
 // 資産管理の実物資産の型（GET /api/personal-assets の応答）。
 
-import { type BuildingStructure, type ValuationMethod } from "@/lib/asset-valuation";
-import { type PersonalAssetCategory } from "@/lib/labels";
+import { type BuildingStructure, type ValuationMethod } from "@/lib/shared/asset-valuation";
+import { type PersonalAssetCategory } from "@/lib/shared/labels";
 
 export type ValueTrend = "up" | "down" | "flat";
 export type PersonalAssetPart = {

@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { computeDebtSchedule } from "@/lib/debt-schedule";
-import { loanBalanceAt } from "@/lib/loan-balance";
-import { manualMonthlyPaymentOf, ratePercentOf } from "@/lib/personal-asset-debt";
+import { withApi } from "@/lib/server/api-handler";
+import { computeDebtSchedule } from "@/lib/shared/debt-schedule";
+import { loanBalanceAt } from "@/lib/assets/loan-balance";
+import { manualMonthlyPaymentOf, ratePercentOf } from "@/lib/assets/personal-asset-debt";
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // GET /api/loans/summary?year=&month= … 総借入サマリ（ダッシュボードの KPI の対象月の時点。読み取り専用）
 //   時点は総資産サマリと同じ（月末、今月なら今日）。その時点で残高のある借入（資産のローンも含む）の、
-//   残高（lib/loan-balance.ts）・月々の返済額・金利・完済予定と、その合計を返す。
+//   残高（lib/assets/loan-balance.ts）・月々の返済額・金利・完済予定と、その合計を返す。
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({

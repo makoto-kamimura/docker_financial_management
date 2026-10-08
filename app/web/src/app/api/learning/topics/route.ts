@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { withApi } from "@/lib/api-handler";
-import { loadTopicSummaries } from "@/lib/learning-content";
+import { withApi } from "@/lib/server/api-handler";
+import { loadTopicSummaries } from "@/lib/common/learning-content";
 
 // GET /api/learning/topics … 学習ガイドのトピック一覧 + 自分の既読状況（ロール不問・認証のみ）
 export const GET = withApi({

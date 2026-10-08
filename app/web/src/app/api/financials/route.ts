@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { DIRECT_ACTUALS_GONE_MESSAGE, gone } from "@/lib/api-error";
-import { aggregate, type Granularity, type RecordWithPeriod } from "@/lib/aggregate";
-import { ACTUAL_WHERE } from "@/lib/actuals";
+import { withApi } from "@/lib/server/api-handler";
+import { DIRECT_ACTUALS_GONE_MESSAGE, gone } from "@/lib/server/api-error";
+import { aggregate, type Granularity, type RecordWithPeriod } from "@/lib/accounting/aggregate";
+import { ACTUAL_WHERE } from "@/lib/ledger/actuals";
 
 // GET /api/financials?granularity=month&accountCode=4000
 export const GET = withApi({

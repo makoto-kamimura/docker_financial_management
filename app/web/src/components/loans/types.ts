@@ -1,6 +1,6 @@
 // 借入金管理の部品で使う、参照用の型（GET /api/accounts・/api/personal-assets・/api/bank-accounts）
-import type { PersonalAssetCategory } from "@/lib/labels";
-import type { LoanRateChange } from "@/lib/loan-schedule";
+import type { PersonalAssetCategory } from "@/lib/shared/labels";
+import type { LoanRateChange } from "@/lib/shared/loan-schedule";
 
 export type AccountRef = { id: number; code: string; name: string; category: string };
 export type AssetRef = {

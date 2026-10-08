@@ -3,19 +3,19 @@
 // 予算管理の「予実差確認」タブ。選んだ月の予算と実績を科目ごとに比べて見るだけの画面。
 //   データは GET /api/budgets/variance（予算の確定タブ・ダッシュボードのグラフと同じ）。
 //   差額の扱いを選んで翌月の予算案を作り、確定するのは「予算の確定」タブ（components/BudgetConfirmPanel.tsx）。
-//   年は左のメニュー、月は上のボタンで選ぶ（lib/use-cycle-month.ts）。
+//   年は左のメニュー、月は上のボタンで選ぶ（lib/client/use-cycle-month.ts）。
 
 import { useQuery } from "@tanstack/react-query";
 import { LoadingSpinner } from "@/components/StateViews";
 import { SectionLead } from "@/components/Explain";
 import { CycleSteps, type CycleStatus } from "@/components/CycleSteps";
 import { MonthPicker } from "@/components/MonthPicker";
-import { BUDGET_HELP, textFor } from "@/lib/help-texts";
-import { displayName, type ViewMode } from "@/lib/display-name";
-import { isExpenseCategory, nextYearMonth, type VarianceRow } from "@/lib/budget-cycle";
-import { cycleKey } from "@/lib/cycle-month";
-import { useCycleMonth } from "@/lib/use-cycle-month";
-import { yen, yenSigned } from "@/lib/format";
+import { BUDGET_HELP, textFor } from "@/lib/shared/help-texts";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
+import { isExpenseCategory, nextYearMonth, type VarianceRow } from "@/lib/shared/budget-cycle";
+import { cycleKey } from "@/lib/shared/cycle-month";
+import { useCycleMonth } from "@/lib/client/use-cycle-month";
+import { yen, yenSigned } from "@/lib/common/format";
 
 export type VarianceRowWithNames = VarianceRow & {
   soleName: string | null;

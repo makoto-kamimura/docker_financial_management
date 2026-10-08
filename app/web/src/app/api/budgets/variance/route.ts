@@ -1,22 +1,22 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { loadAllocationContext } from "@/lib/allocation-data";
-import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget-overlay";
+import { withApi } from "@/lib/server/api-handler";
+import { loadAllocationContext } from "@/lib/budget/allocation-data";
+import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget/budget-overlay";
 import {
   BUDGET_CYCLE_CATEGORIES,
   computeVariance,
   summarizeVariance,
   type BudgetCycleCategory,
-} from "@/lib/budget-cycle";
-import { loadCycleStatus } from "@/lib/cycle-status";
-import { ACTUAL_WHERE } from "@/lib/actuals";
+} from "@/lib/shared/budget-cycle";
+import { loadCycleStatus } from "@/lib/budget/cycle-status";
+import { ACTUAL_WHERE } from "@/lib/ledger/actuals";
 
 // GET /api/budgets/variance?year=&month= … 予実対比（科目別）と翌月の予算・確定状況（読み取り専用）
 //   当月の予算（自動反映を含む）と実績の差、翌月に登録済みの予算、両月の確定状況、
 //   余りの回し先の既定（予算配分ルール「貯蓄・投資」に入る科目のうちコードが一番小さいもの）を返す。
-//   確定状況（① 当月の予算・② 当月の実績・③ 翌月の予算と、前月の実績）は lib/cycle-status.ts で出す。
-//   翌月の予算案そのものは、差額の扱いを画面で選びながら lib/budget-cycle.ts で作る。
+//   確定状況（① 当月の予算・② 当月の実績・③ 翌月の予算と、前月の実績）は lib/budget/cycle-status.ts で出す。
+//   翌月の予算案そのものは、差額の扱いを画面で選びながら lib/shared/budget-cycle.ts で作る。
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({

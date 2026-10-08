@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { badRequest } from "@/lib/api-error";
-import { findAccountByCode } from "@/lib/period";
-import { invalidateCache } from "@/lib/redis";
-import { LOAN_INCLUDE, loanBalanceAt } from "@/lib/loan-balance";
-import { loanFundingTransfers } from "@/lib/loan-funding";
-import { PERSONAL_ASSET_CATEGORIES } from "@/lib/personal-asset";
-import { recordValuation, ruleOfRow } from "@/lib/personal-asset-valuation";
+import { withApi } from "@/lib/server/api-handler";
+import { badRequest } from "@/lib/server/api-error";
+import { findAccountByCode } from "@/lib/accounting/period";
+import { invalidateCache } from "@/lib/server/redis";
+import { LOAN_INCLUDE, loanBalanceAt } from "@/lib/assets/loan-balance";
+import { loanFundingTransfers } from "@/lib/assets/loan-funding";
+import { PERSONAL_ASSET_CATEGORIES } from "@/lib/assets/personal-asset";
+import { recordValuation, ruleOfRow } from "@/lib/assets/personal-asset-valuation";
 
 // この借入で買った資産（任意）。その場で作るか、ローンの無い既存の資産にひも付ける
 const LoanAssetSchema = z.discriminatedUnion("mode", [
@@ -41,7 +41,7 @@ const LoanSchema = z.object({
 });
 
 // GET /api/loans?status=active … 借入金一覧
-//   remainingAmount は今日の時点の残高（lib/loan-balance.ts）。返済の記録が無いローンも返済予定どおりに減る
+//   remainingAmount は今日の時点の残高（lib/assets/loan-balance.ts）。返済の記録が無いローンも返済予定どおりに減る
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({ status: z.string().optional() }),

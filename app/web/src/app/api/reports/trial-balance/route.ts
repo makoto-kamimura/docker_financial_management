@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
+import { withApi } from "@/lib/server/api-handler";
 
 // GET /api/reports/trial-balance?year=&month=&format=&rollup= … 試算表（親科目ロールアップ対応）
 export const GET = withApi({

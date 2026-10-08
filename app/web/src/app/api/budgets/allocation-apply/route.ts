@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { recordBudgetHistory } from "@/lib/budget-history";
-import { assertBudgetPeriodEditable } from "@/lib/budget-lock";
-import { notFound } from "@/lib/api-error";
-import { resolvePeriod } from "@/lib/period";
-import { zMoney } from "@/lib/schemas";
+import { withApi } from "@/lib/server/api-handler";
+import { recordBudgetHistory } from "@/lib/budget/budget-history";
+import { assertBudgetPeriodEditable } from "@/lib/budget/budget-lock";
+import { notFound } from "@/lib/server/api-error";
+import { resolvePeriod } from "@/lib/accounting/period";
+import { zMoney } from "@/lib/common/schemas";
 
 const ApplySchema = z.object({
   year: z.number().int(),

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { conflict, notFound } from "@/lib/api-error";
+import { withApi } from "@/lib/server/api-handler";
+import { conflict, notFound } from "@/lib/server/api-error";
 
 const UpdateSchema = z.object({
   name: z.string().min(1).optional(),

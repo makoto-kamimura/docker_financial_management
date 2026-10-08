@@ -2,7 +2,7 @@
 
 // 実物資産の評価額の推移（資産管理）。上に「資産計上」の合計、下に資産ごとの小さなグラフを並べる。
 // データは GET /api/personal-assets/trend（月末ごと）。今月より先は見積もりなので破線で描く。
-// 評価額を手で入れた点を通り、最後の点から先は価値の変わり方で見積もる（lib/asset-valuation.ts）。
+// 評価額を手で入れた点を通り、最後の点から先は価値の変わり方で見積もる（lib/shared/asset-valuation.ts）。
 // 内訳のある資産（土地と建物など）は、内訳ごとの線を重ねる（色は内訳の順に固定。4 つ目からは「その他」）。
 
 import { useQuery } from "@tanstack/react-query";
@@ -15,10 +15,10 @@ import {
   ValueLineChart,
   type ChartSeries,
 } from "@/components/ValueLineChart";
-import { ASSETS_HELP } from "@/lib/help-texts";
-import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/labels";
-import { asOfDateLabel, TREND_LABEL, type ValueTrend } from "@/lib/asset-valuation";
-import { yenShort } from "@/lib/format";
+import { ASSETS_HELP } from "@/lib/shared/help-texts";
+import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/shared/labels";
+import { asOfDateLabel, TREND_LABEL, type ValueTrend } from "@/lib/shared/asset-valuation";
+import { yenShort } from "@/lib/common/format";
 
 type TrendSeries = {
   id: number;

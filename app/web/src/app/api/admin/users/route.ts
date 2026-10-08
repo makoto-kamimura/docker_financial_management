@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { withApi } from "@/lib/api-handler";
-import { conflict } from "@/lib/api-error";
-import { hashPassword } from "@/lib/auth";
-import { seedDefaultAccountsForTenant } from "@/lib/default-accounts";
-import { seedDefaultAllocationRulesForTenant } from "@/lib/default-allocation-rules";
+import { prisma } from "@/lib/server/prisma";
+import { withApi } from "@/lib/server/api-handler";
+import { conflict } from "@/lib/server/api-error";
+import { hashPassword } from "@/lib/server/auth";
+import { seedDefaultAccountsForTenant } from "@/lib/accounting/default-accounts";
+import { seedDefaultAllocationRulesForTenant } from "@/lib/budget/default-allocation-rules";
 
 const CreateSchema = z.object({
   email: z.string().email(),

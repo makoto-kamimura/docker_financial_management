@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { shiftYm, trendMonths, ym } from "@/lib/balance-trend";
-import { buildCardUsageTrend } from "@/lib/card-usage";
-import { CARD, cardSpend } from "@/lib/ledger-entries";
+import { withApi } from "@/lib/server/api-handler";
+import { shiftYm, trendMonths, ym } from "@/lib/ledger/balance-trend";
+import { buildCardUsageTrend } from "@/lib/ledger/card-usage";
+import { CARD, cardSpend } from "@/lib/ledger/ledger-entries";
 
 // GET /api/linked-accounts/usage-trend?before=12&after=6 … カード・電子マネー管理のサマリ「利用額の推移」。
-//   今月の前後の月ごとの利用額を、カードごとと合計で返す（計算は lib/card-usage.ts）。
+//   今月の前後の月ごとの利用額を、カードごとと合計で返す（計算は lib/ledger/card-usage.ts）。
 //   過去は明細のある月からにする（最大 before か月前）。先の月は固定決済の合計で見込む。
 export const GET = withApi({
   role: "viewer",

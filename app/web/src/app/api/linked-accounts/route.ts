@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { withApi } from "@/lib/api-handler";
-import { requireAccountByCode } from "@/lib/period";
-import { LINKED_ACCOUNT_TYPES } from "@/lib/linked-account-type";
+import { withApi } from "@/lib/server/api-handler";
+import { requireAccountByCode } from "@/lib/accounting/period";
+import { LINKED_ACCOUNT_TYPES } from "@/lib/shared/linked-account-type";
 
 // D-1: 銀行口座は /api/bank-accounts に一本化。本 API はクレジットカード・デビットカード・
 // プリペイドカード・電子マネー（Suica・PayPay 等）の台帳を扱う。利用明細の構造はどれも同じ。

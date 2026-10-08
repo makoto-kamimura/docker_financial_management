@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkCsrf, isMutatingApiRequest } from "@/lib/csrf";
-import { sessionCookieName } from "@/lib/session-constants";
+import { checkCsrf, isMutatingApiRequest } from "@/lib/server/csrf";
+import { sessionCookieName } from "@/lib/server/session-constants";
 
 // 保護対象パス。未ログイン（セッション Cookie 無し）なら /login へリダイレクトする。
 // NOTE: ここでは Cookie の有無のみを確認する軽量チェック。
