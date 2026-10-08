@@ -13,8 +13,6 @@ import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar"
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { CardTransactionsPanel } from "@/components/CardTransactionsPanel";
 import { LedgerBadge, LedgerTable } from "@/components/LedgerTable";
-import { RecurringSuggestionsPanel } from "@/components/RecurringSuggestionsPanel";
-import { TransferRulesCard } from "@/components/TransferRulesCard";
 import { CsvDropzone, Notice, PageHeader, SegmentedControl, Tabs } from "@/components/ui";
 import { setFiscalYear, useFiscalYear } from "@/lib/use-fiscal-year";
 import { SectionLead, TermDetails } from "@/components/Explain";
@@ -214,8 +212,6 @@ function EntryContent() {
   );
   // 出どころ（取り込み先）を選ぶタブ。CSV インポートでは、登録先の列が無い CSV の取り込み先になる
   const sourceTab = tab === "calendar" || tab === "history" || tab === "csv";
-  // 銀行の履歴の「振替を登録（銀行 → 銀行）」のモーダル
-  const [bankTransferOpen, setBankTransferOpen] = useState(false);
   const { data: bankAccounts } = useQuery({
     queryKey: ["bank-accounts"],
     enabled: sourceTab && source === "bank",
@@ -648,24 +644,8 @@ function EntryContent() {
       {tab === "calendar" && source === "card" && cardId !== null && (
         <CardTransactionsPanel view="calendar" accountId={cardId} />
       )}
-      {/* 銀行の履歴: 毎月の入出金の候補 → 毎月の入出金（資金移動ルール）→ 振替紐付け → 明細の一覧。
-          ルールと振替は銀行管理の資金移動スケジュールから移した */}
       {tab === "history" && source === "bank" && (
-        <>
-          <RecurringSuggestionsPanel accountId={bankAccountId} />
-          <TransferRulesCard
-            accountId={bankAccountId}
-            onRegisterTransfer={() => setBankTransferOpen(true)}
-          />
-          <BankTransactionsPanel
-            view="recurring"
-            recurringParts={["register", "match"]}
-            bankTransferOpen={bankTransferOpen}
-            onBankTransferOpenChange={setBankTransferOpen}
-            accountId={bankAccountId}
-          />
-          <BankTransactionsPanel view="list" accountId={bankAccountId} />
-        </>
+        <BankTransactionsPanel accountId={bankAccountId} />
       )}
       {tab === "history" && source === "card" && cardId !== null && (
         <CardTransactionsPanel view="list" accountId={cardId} />

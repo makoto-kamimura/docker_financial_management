@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dayGap,
   rankChargeCandidates,
   validateChargePair,
   type ChargeCandidateTxn,
@@ -88,5 +89,13 @@ describe("validateChargePair", () => {
   it("紐付け済み・チャージ指定済みの明細は選べない", () => {
     expect(validateChargePair({ ...base, chargeGroupId: "uuid" }, 7)).toMatch(/既に/);
     expect(validateChargePair({ ...base, transferToAccountId: 8 }, 7)).toMatch(/チャージ/);
+  });
+});
+
+describe("dayGap", () => {
+  it("同じ日は 0、順序に依らず絶対値を返す", () => {
+    expect(dayGap(new Date("2026-08-03"), new Date("2026-08-03"))).toBe(0);
+    expect(dayGap(new Date("2026-07-31"), new Date("2026-08-03"))).toBe(3);
+    expect(dayGap(new Date("2026-08-03"), new Date("2026-07-31"))).toBe(3);
   });
 });

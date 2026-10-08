@@ -13,7 +13,7 @@ import { assertActualsPeriodsEditable } from "@/lib/budget-lock";
 // PATCH /api/card-transactions/[id]/transfer … 明細 1 件のチャージ指定・解除（editor 以上）
 //
 // transferToAccountId に値を入れるとチャージ（資金移動）扱いになり、収入・支出に計上されなくなる。
-// null を渡すと解除して通常の利用明細に戻す。銀行明細の振替紐付け／解除に対応する操作。
+// null を渡すと解除して通常の利用明細に戻す。銀行の振替（自動で組になる）と解除に当たる操作。
 //
 // pairTxnId を添えると、チャージ先に入った明細と対にする（共通の chargeGroupId を与える）。
 // 対にした入金明細も科目を外して実績に入れず、チャージが二重計上されなくなる。

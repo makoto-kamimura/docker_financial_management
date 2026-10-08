@@ -39,7 +39,7 @@ import { PATCH as cardCategorize } from "./card-transactions/[id]/categorize/rou
 import { PATCH as bankCategorize } from "./bank-transactions/[id]/categorize/route";
 import { PATCH as cardTransfer } from "./card-transactions/[id]/transfer/route";
 import { PATCH as bankCharge } from "./bank-transactions/[id]/charge/route";
-import { POST as transferLink } from "./bank-transfers/link/route";
+import { DELETE as transferUnlink } from "./bank-transfers/link/route";
 import { GET as matrixGet } from "./financials/matrix/route";
 import { DELETE as cashDelete, GET as cashGet, POST as cashPost } from "./actuals/route";
 import { PATCH as cashCategorize } from "./actuals/[id]/categorize/route";
@@ -308,7 +308,7 @@ describe("振替・チャージにすると実績から抜ける", () => {
     expect(body.data.transferToAccount).toEqual({ id: eMoneyId, name: "テスト電子マネー" });
   });
 
-  it("銀行どうしの出金と入金を振替として紐付けると、科目が外れる", async () => {
+  it("同じ日・同じ金額の銀行どうしの出金と入金は自動で振替になり、科目が外れる。解除すると別々の明細に戻る", async () => {
     const savings = await prisma.bankAccount.create({
       data: { tenantId, name: "貯蓄口座", bankName: "テスト銀行" },
     });
@@ -319,27 +319,29 @@ describe("振替・チャージにすると実績から抜ける", () => {
     );
     const inRes = await bankTxnPost(
       makeReq("POST", `http://x/api/bank-accounts/${savings.id}/transactions`, {
-        // 日付がずれていると自動相殺にはかからないので、手で組にする
-        date: `${YEAR}-05-13`,
+        date: `${YEAR}-05-12`,
         description: "振替入金",
         amount: 10_000,
       }),
       params(savings.id),
     );
     const income = (await inRes.json()).data;
-    const res = await transferLink(
-      makeReq("POST", "http://x", { outTxnId: out.id, inTxnId: income.id }),
+    const o = await row(out.id);
+    const i = await row(income.id);
+    expect(o.transferGroupId).not.toBeNull();
+    expect([o.accountId, Number(o.amount), i.transferGroupId]).toEqual([
+      null,
+      0,
+      o.transferGroupId,
+    ]);
+
+    const res = await transferUnlink(
+      makeReq("DELETE", `http://x/api/bank-transfers/link?transferGroupId=${o.transferGroupId}`),
       emptyRouteContext(),
     );
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.data.map((t: { accountId: number }) => t.accountId)).toEqual([bankId, savings.id]);
-    const r = await row(out.id);
-    expect([r.accountId, Number(r.amount), r.transferGroupId]).toEqual([
-      null,
-      0,
-      body.transferGroupId,
-    ]);
+    expect((await row(out.id)).transferGroupId).toBeNull();
+    expect((await row(income.id)).transferGroupId).toBeNull();
   });
 });
 
