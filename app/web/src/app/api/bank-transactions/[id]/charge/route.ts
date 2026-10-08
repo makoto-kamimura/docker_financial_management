@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
-import { serializeBankTransaction } from "@/lib/bank-transactions";
+import { BANK, CARD, ENTRY_REFS_INCLUDE, toBankTxn } from "@/lib/ledger-entries";
 import { validateChargePair } from "@/lib/charge-link";
 import { isChargeableType } from "@/lib/linked-account-type";
 import { invalidateCache } from "@/lib/redis";
@@ -27,14 +27,13 @@ export const PATCH = withApi({
   handler: async ({ user, db, id, body, audit }) => {
     const { tenantId } = user;
 
-    // 明細は親口座（BankAccount）経由でテナント所有を確認する
-    const txn = await db.bankTransaction.findFirst({
-      where: { id, account: { tenantId } },
+    const txn = await db.ledgerEntry.findFirst({
+      where: { id, ...BANK },
       select: {
         id: true,
         postedRecordId: true,
         transferGroupId: true,
-        chargeToAccountId: true,
+        chargeToCardId: true,
         chargeGroupId: true,
       },
     });
@@ -68,18 +67,27 @@ export const PATCH = withApi({
       }
 
       if (body.pairTxnId) {
-        const pair = await db.cardTransaction.findFirst({
-          where: { id: body.pairTxnId, account: { tenantId } },
+        const pair = await db.ledgerEntry.findFirst({
+          where: { id: body.pairTxnId, ...CARD },
           select: {
             id: true,
-            accountId: true,
+            cardAccountId: true,
             postedRecordId: true,
             chargeGroupId: true,
-            transferToAccountId: true,
+            chargeToCardId: true,
           },
         });
         if (!pair) throw notFound("チャージ先の明細が見つかりません");
-        const pairError = validateChargePair(pair, target.id);
+        const pairError = validateChargePair(
+          {
+            id: pair.id,
+            accountId: pair.cardAccountId!,
+            postedRecordId: pair.postedRecordId,
+            chargeGroupId: pair.chargeGroupId,
+            transferToAccountId: pair.chargeToCardId,
+          },
+          target.id,
+        );
         if (pairError) throw badRequest(pairError);
         pairTxnId = pair.id;
       }
@@ -88,8 +96,8 @@ export const PATCH = withApi({
     // 既に対になっているチャージ先の明細（解除・付け替えのときに一緒に外す）
     const previousPairIds = txn.chargeGroupId
       ? (
-          await db.cardTransaction.findMany({
-            where: { chargeGroupId: txn.chargeGroupId, account: { tenantId } },
+          await db.ledgerEntry.findMany({
+            where: { chargeGroupId: txn.chargeGroupId, ...CARD },
             select: { id: true },
           })
         ).map((t) => t.id)
@@ -99,38 +107,35 @@ export const PATCH = withApi({
 
     const updated = await db.$transaction(async (tx) => {
       if (previousPairIds.length > 0) {
-        await tx.cardTransaction.updateMany({
+        await tx.ledgerEntry.updateMany({
           where: { id: { in: previousPairIds } },
           data: { chargeGroupId: null },
         });
       }
       if (pairTxnId !== null) {
-        await tx.cardTransaction.update({
+        await tx.ledgerEntry.update({
           where: { id: pairTxnId },
           data: { chargeGroupId, categoryAccountId: null },
         });
       }
-      return tx.bankTransaction.update({
+      return tx.ledgerEntry.update({
         where: { id },
         // チャージは支出ではないので、付いていた科目はここで外す
         data: {
-          chargeToAccountId: body.chargeToAccountId,
+          chargeToCardId: body.chargeToAccountId,
           chargeGroupId,
           ...(body.chargeToAccountId !== null ? { categoryAccountId: null } : {}),
         },
-        include: {
-          categoryAccount: { select: { id: true, code: true, name: true } },
-          chargeToAccount: { select: { id: true, name: true } },
-        },
+        include: ENTRY_REFS_INCLUDE,
       });
     });
 
     await audit("set_bank_charge", `bank_transaction:${id}`, {
-      before: { chargeToAccountId: txn.chargeToAccountId, chargeGroupId: txn.chargeGroupId },
+      before: { chargeToAccountId: txn.chargeToCardId, chargeGroupId: txn.chargeGroupId },
       after: { chargeToAccountId: body.chargeToAccountId, chargeGroupId, pairTxnId },
     });
     await invalidateCache(`assets:summary:${tenantId}:*`);
 
-    return NextResponse.json({ data: serializeBankTransaction(updated) });
+    return NextResponse.json({ data: toBankTxn(updated) });
   },
 });

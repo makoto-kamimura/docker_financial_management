@@ -11,6 +11,7 @@ import {
   type CardFlowTransfer,
 } from "@/lib/card-flow";
 import { CHANNEL_LABELS, type TransferChannel } from "@/lib/transferflow";
+import { cardSpend } from "@/lib/ledger-entries";
 
 // GET /api/linked-accounts/flow
 //   … カード・電子マネー関連の資金フロー図（カード・電子マネー管理のサマリタブ）。
@@ -47,31 +48,23 @@ export const GET = withApi({
           orderBy: { id: "asc" },
           select: { id: true, name: true, type: true },
         }),
-        // チャージ指定済みの明細（transferToAccountId 付き）。明細は親カード経由でテナントを絞る
-        db.cardTransaction.findMany({
-          where: {
-            account: { tenantId },
-            transferToAccountId: { not: null },
-            date: { gte: since },
-          },
+        // チャージ指定済みのカード明細（chargeToCardId 付き）
+        db.ledgerEntry.findMany({
+          where: { kind: "CARD", chargeToCardId: { not: null }, date: { gte: since } },
           select: {
             amount: true,
-            account: { select: { name: true } },
-            transferToAccount: { select: { name: true } },
+            cardAccount: { select: { name: true } },
+            chargeToCard: { select: { name: true } },
           },
         }),
         // 銀行口座からのチャージ（プリペイド・電子マネーへの入金）。カード明細には現れないため
         // ここを見ないと、銀行から直接チャージしているカードが図に出てこない
-        db.bankTransaction.findMany({
-          where: {
-            account: { tenantId },
-            chargeToAccountId: { not: null },
-            date: { gte: since },
-          },
+        db.ledgerEntry.findMany({
+          where: { kind: "BANK", chargeToCardId: { not: null }, date: { gte: since } },
           select: {
             amount: true,
-            account: { select: { name: true } },
-            chargeToAccount: { select: { name: true } },
+            bankAccount: { select: { name: true } },
+            chargeToCard: { select: { name: true } },
           },
         }),
         db.cardRecurringPayment.findMany({
@@ -96,25 +89,25 @@ export const GET = withApi({
     );
 
     const chargeInputs: CardChargeTxn[] = chargeTxns.flatMap((t) =>
-      t.transferToAccount
+      t.chargeToCard && t.cardAccount
         ? [
             {
-              fromCardName: t.account.name,
-              toCardName: t.transferToAccount.name,
-              amount: Number(t.amount),
+              fromCardName: t.cardAccount.name,
+              toCardName: t.chargeToCard.name,
+              amount: cardSpend(t.amount),
             },
           ]
         : [],
     );
     const charges = aggregateCharges(chargeInputs, CHARGE_MONTHS);
 
-    // 銀行明細は「入金は正・出金は負」なので、チャージ（出金）が正になるよう符号を反転する
+    // 明細は「入金は正・出金は負」なので、チャージ（出金）が正になるよう符号を反転する
     const bankChargeInputs: BankChargeTxn[] = bankChargeTxns.flatMap((t) =>
-      t.chargeToAccount
+      t.chargeToCard && t.bankAccount
         ? [
             {
-              fromBankName: t.account.name,
-              toCardName: t.chargeToAccount.name,
+              fromBankName: t.bankAccount.name,
+              toCardName: t.chargeToCard.name,
               amount: -Number(t.amount),
             },
           ]

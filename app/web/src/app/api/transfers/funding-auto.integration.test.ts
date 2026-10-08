@@ -70,14 +70,7 @@ async function suggestions() {
 }
 
 beforeAll(async () => {
-  for (const t of [
-    "tenants",
-    "users",
-    "bank_accounts",
-    "bank_transactions",
-    "loans",
-    "transfers",
-  ]) {
+  for (const t of ["tenants", "users", "bank_accounts", "ledger_entries", "loans", "transfers"]) {
     await prisma.$executeRawUnsafe(
       `SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 1))`,
     );
@@ -98,9 +91,11 @@ beforeAll(async () => {
   });
   bankId = bank.id;
   // 直近 4 か月、毎月 27 日に家賃 8 万円の引き落とし（今月は除く）
-  await prisma.bankTransaction.createMany({
+  await prisma.ledgerEntry.createMany({
     data: [1, 2, 3, 4].map((i) => ({
-      accountId: bankId,
+      tenantId,
+      kind: "BANK" as const,
+      bankAccountId: bankId,
       date: new Date(now.getFullYear(), now.getMonth() - i, 27),
       description: `家賃 ${i}`,
       amount: -80_000,
@@ -128,7 +123,7 @@ afterAll(async () => {
   await prisma.recurringSuggestionDismissal.deleteMany({ where });
   await prisma.transfer.deleteMany({ where });
   await prisma.loan.deleteMany({ where });
-  await prisma.bankTransaction.deleteMany({ where: { account: { tenantId } } });
+  await prisma.ledgerEntry.deleteMany({ where: { tenantId } });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.tenant.delete({ where: { id: tenantId } });

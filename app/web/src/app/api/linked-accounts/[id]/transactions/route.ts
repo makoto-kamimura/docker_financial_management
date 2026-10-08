@@ -3,7 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
 import { parseBankCsv } from "@/lib/banktxn-import";
-import { serializeCardTransaction, upsertExternalCardTransactions } from "@/lib/card-transactions";
+import { CARD, ENTRY_REFS_INCLUDE, insertExternalEntries, toCardTxn } from "@/lib/ledger-entries";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/import";
 
@@ -20,17 +20,14 @@ export const GET = withApi({
     const account = await db.linkedAccount.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!account) throw notFound();
 
-    const txns = await db.cardTransaction.findMany({
-      where: { accountId: id },
+    // チャージ（資金移動）の明細はチャージ先を表示し、科目紐付け・転記の対象外にする
+    const txns = await db.ledgerEntry.findMany({
+      where: { ...CARD, cardAccountId: id },
       orderBy: { date: "desc" },
       take: 200,
-      include: {
-        categoryAccount: { select: { id: true, code: true, name: true } },
-        // チャージ（資金移動）の明細はチャージ先を表示し、科目紐付け・転記の対象外にする
-        transferToAccount: { select: { id: true, name: true } },
-      },
+      include: ENTRY_REFS_INCLUDE,
     });
-    return NextResponse.json({ data: txns.map(serializeCardTransaction) });
+    return NextResponse.json({ data: txns.map(toCardTxn) });
   },
 });
 
@@ -49,17 +46,20 @@ export const POST = withApi({
       if (!parsed.success) throw badRequest("date, description, amount は必須です");
 
       const body = parsed.data;
-      const txn = await db.cardTransaction.create({
+      // 画面からは +利用 / −返金 で受け取り、明細の表の +入金 / −出金 に直して保存する
+      const txn = await db.ledgerEntry.create({
         data: {
-          accountId: id,
+          tenantId: user.tenantId,
+          ...CARD,
+          cardAccountId: id,
           date: new Date(body.date),
           description: body.description,
-          amount: body.amount,
+          amount: -body.amount,
           source: "MANUAL",
         },
       });
       await audit("create_card_txn", `linked_account:${id}:${txn.id}`);
-      return NextResponse.json({ data: serializeCardTransaction(txn) }, { status: 201 });
+      return NextResponse.json({ data: toCardTxn(txn) }, { status: 201 });
     }
 
     // S-9 と同様、CSV 取込のみユーザー単位のレート制限を適用（10 回 / 10 分）
@@ -84,7 +84,13 @@ export const POST = withApi({
       );
     }
 
-    const inserted = await upsertExternalCardTransactions(db, id, rows, "CSV");
+    const inserted = await insertExternalEntries(
+      db,
+      user.tenantId,
+      { kind: "CARD", accountId: id },
+      rows,
+      "CSV",
+    );
     // 同じ内容の明細は externalId の一意制約で自動的にスキップされる（重複取込の防止）
     const skipped = rows.length - inserted;
     await audit("import_card_txn", `linked_account:${id}:${inserted}`);
@@ -102,27 +108,20 @@ export const DELETE = withApi({
 
     // チャージとして対にしていた明細（チャージ元の銀行明細・カード明細）は実在する記録なので
     // 一緒には消さず、紐付けだけ外して科目紐付け・転記をできる状態に戻す
-    const target = await db.cardTransaction.findFirst({
-      where: { id: query.txnId, accountId: id },
+    const target = await db.ledgerEntry.findFirst({
+      where: { id: query.txnId, ...CARD, cardAccountId: id },
       select: { chargeGroupId: true },
     });
     if (!target) throw notFound();
 
     if (target.chargeGroupId) {
-      const where = { chargeGroupId: target.chargeGroupId };
-      await Promise.all([
-        db.cardTransaction.updateMany({
-          where: { ...where, account: { tenantId: user.tenantId }, id: { not: query.txnId } },
-          data: { chargeGroupId: null },
-        }),
-        db.bankTransaction.updateMany({
-          where: { ...where, account: { tenantId: user.tenantId } },
-          data: { chargeGroupId: null },
-        }),
-      ]);
+      await db.ledgerEntry.updateMany({
+        where: { chargeGroupId: target.chargeGroupId, id: { not: query.txnId } },
+        data: { chargeGroupId: null },
+      });
     }
 
-    await db.cardTransaction.delete({ where: { id: query.txnId, accountId: id } });
+    await db.ledgerEntry.delete({ where: { id: query.txnId, cardAccountId: id } });
     await audit("delete_card_txn", `linked_account:${id}:${query.txnId}`);
     return NextResponse.json({ ok: true });
   },

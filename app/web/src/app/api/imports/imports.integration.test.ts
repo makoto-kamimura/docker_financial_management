@@ -79,8 +79,7 @@ afterAll(async () => {
   const where = { tenantId };
   await prisma.auditLog.deleteMany({ where: { userId: actingUser.id } });
   await prisma.financialRecord.deleteMany({ where });
-  await prisma.bankTransaction.deleteMany({ where: { accountId: bankId } });
-  await prisma.cardTransaction.deleteMany({ where: { accountId: cardId } });
+  await prisma.ledgerEntry.deleteMany({ where });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.linkedAccount.deleteMany({ where });
   await prisma.period.deleteMany({ where });
@@ -112,9 +111,9 @@ describe("POST /api/imports", () => {
     expect([record.period.fiscalYear, record.period.month, Number(record.amount)]).toEqual([
       2031, 4, 350000,
     ]);
-    const card = await prisma.cardTransaction.findFirstOrThrow({ where: { accountId: cardId } });
-    // カードは利用＝正で保存する（CSV の -3980 を反転）
-    expect(Number(card.amount)).toBe(3980);
+    const card = await prisma.ledgerEntry.findFirstOrThrow({ where: { cardAccountId: cardId } });
+    // 明細の表は +入金 / −出金なので、カードの利用も CSV のまま負で保存する
+    expect(Number(card.amount)).toBe(-3980);
   });
 
   it("列の無い CSV は、指定した登録先に入れる（同じ明細は重複として飛ばす）", async () => {
@@ -129,7 +128,7 @@ describe("POST /api/imports", () => {
   });
 
   it("誤りのある行があれば、どの行も登録しない", async () => {
-    const before = await prisma.bankTransaction.count({ where: { accountId: bankId } });
+    const before = await prisma.ledgerEntry.count({ where: { bankAccountId: bankId } });
     const csv = [
       "target,account,date,description,amount",
       "銀行,テスト普通,2031-06-01,家賃,-80000",
@@ -139,6 +138,6 @@ describe("POST /api/imports", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.errors.map((e: { row: number }) => e.row)).toEqual([3]);
-    expect(await prisma.bankTransaction.count({ where: { accountId: bankId } })).toBe(before);
+    expect(await prisma.ledgerEntry.count({ where: { bankAccountId: bankId } })).toBe(before);
   });
 });

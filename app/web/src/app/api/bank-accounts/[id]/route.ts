@@ -62,7 +62,7 @@ export const DELETE = withApi({
     if (!existing) throw notFound();
 
     const [txnCount, transferCount] = await Promise.all([
-      db.bankTransaction.count({ where: { accountId: id } }),
+      db.ledgerEntry.count({ where: { bankAccountId: id } }),
       db.transfer.count({
         where: { tenantId, OR: [{ fromAccountId: id }, { toAccountId: id }] },
       }),

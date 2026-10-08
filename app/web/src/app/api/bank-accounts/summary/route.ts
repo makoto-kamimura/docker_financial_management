@@ -30,21 +30,21 @@ export const GET = withApi({
         orderBy: { id: "asc" },
         select: { id: true, name: true, bankName: true, balanceAdjustment: true, createdAt: true },
       }),
-      db.bankTransaction.groupBy({
-        by: ["accountId"],
+      db.ledgerEntry.groupBy({
+        by: ["bankAccountId"],
         _sum: { amount: true },
         _max: { createdAt: true },
-        where: { account: { tenantId }, date: { lt: nextMonthStart } },
+        where: { kind: "BANK", date: { lt: nextMonthStart } },
       }),
     ]);
 
     const balanceMap = buildBankBalanceMap(
       accounts,
-      sums.map((s) => ({ accountId: s.accountId, sum: s._sum.amount?.toNumber() ?? 0 })),
+      sums.map((s) => ({ accountId: s.bankAccountId!, sum: s._sum.amount?.toNumber() ?? 0 })),
     );
     // 明細を最後に登録した日時（どの口座も含めた最新。明細が無ければ口座の登録日時）
     const lastUpdatedAt = accounts.reduce<Date | null>((latest, a) => {
-      const t = sums.find((s) => s.accountId === a.id)?._max.createdAt ?? a.createdAt;
+      const t = sums.find((s) => s.bankAccountId === a.id)?._max.createdAt ?? a.createdAt;
       return !latest || t > latest ? t : latest;
     }, null);
 

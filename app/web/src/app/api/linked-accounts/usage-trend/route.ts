@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { shiftYm, trendMonths, ym } from "@/lib/balance-trend";
 import { buildCardUsageTrend } from "@/lib/card-usage";
+import { CARD, cardSpend } from "@/lib/ledger-entries";
 
 // GET /api/linked-accounts/usage-trend?before=12&after=6 … カード・電子マネー管理のサマリ「利用額の推移」。
 //   今月の前後の月ごとの利用額を、カードごとと合計で返す（計算は lib/card-usage.ts）。
@@ -27,13 +28,13 @@ export const GET = withApi({
         orderBy: { id: "asc" },
         select: { id: true, name: true },
       }),
-      db.cardTransaction.findMany({
-        where: { account: { tenantId } },
+      db.ledgerEntry.findMany({
+        where: { ...CARD },
         select: {
-          accountId: true,
+          cardAccountId: true,
           date: true,
           amount: true,
-          transferToAccountId: true,
+          chargeToCardId: true,
           chargeGroupId: true,
         },
       }),
@@ -44,10 +45,10 @@ export const GET = withApi({
     ]);
 
     const rows = txns.map((t) => ({
-      accountId: t.accountId,
+      accountId: t.cardAccountId!,
       month: ym(t.date.getUTCFullYear(), t.date.getUTCMonth() + 1),
-      amount: Number(t.amount),
-      transferToAccountId: t.transferToAccountId,
+      amount: cardSpend(t.amount),
+      transferToAccountId: t.chargeToCardId,
       chargeGroupId: t.chargeGroupId,
     }));
     const recurringMonthly = new Map<number, number>();

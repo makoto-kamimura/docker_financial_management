@@ -98,7 +98,7 @@ export function buildCoverageSnapshot(
 
 /** 銀行口座・カード台帳の全ソースと、それぞれの明細の最終日 */
 export async function loadActualsSources(
-  db: Pick<TenantDbClient, "bankAccount" | "bankTransaction" | "linkedAccount" | "cardTransaction">,
+  db: Pick<TenantDbClient, "bankAccount" | "linkedAccount" | "ledgerEntry">,
   tenantId: number,
 ): Promise<ActualsSource[]> {
   const [banks, cards, bankMax, cardMax] = await Promise.all([
@@ -112,19 +112,19 @@ export async function loadActualsSources(
       select: { id: true, name: true, type: true },
       orderBy: { id: "asc" },
     }),
-    db.bankTransaction.groupBy({
-      by: ["accountId"],
+    db.ledgerEntry.groupBy({
+      by: ["bankAccountId"],
       _max: { date: true },
-      where: { account: { tenantId } },
+      where: { tenantId, kind: "BANK" },
     }),
-    db.cardTransaction.groupBy({
-      by: ["accountId"],
+    db.ledgerEntry.groupBy({
+      by: ["cardAccountId"],
       _max: { date: true },
-      where: { account: { tenantId } },
+      where: { tenantId, kind: "CARD" },
     }),
   ]);
-  const bankLast = new Map(bankMax.map((b) => [b.accountId, b._max.date]));
-  const cardLast = new Map(cardMax.map((c) => [c.accountId, c._max.date]));
+  const bankLast = new Map(bankMax.map((b) => [b.bankAccountId, b._max.date]));
+  const cardLast = new Map(cardMax.map((c) => [c.cardAccountId, c._max.date]));
   return [
     ...banks.map((b) => {
       const last = bankLast.get(b.id);
@@ -154,39 +154,27 @@ export async function loadActualsSources(
  * 口座間振替・チャージは転記の対象外なので数えない。
  */
 export async function countUnpostedTxns(
-  db: Pick<TenantDbClient, "bankTransaction" | "cardTransaction">,
+  db: Pick<TenantDbClient, "ledgerEntry">,
   tenantId: number,
   year: number,
   month: number,
 ): Promise<number> {
-  const date = { gte: new Date(year, month - 1, 1), lt: new Date(year, month, 1) };
-  const [bank, card] = await Promise.all([
-    db.bankTransaction.count({
-      where: {
-        account: { tenantId },
-        date,
-        postedRecordId: null,
-        transferGroupId: null,
-        chargeToAccountId: null,
-        chargeGroupId: null,
-      },
-    }),
-    db.cardTransaction.count({
-      where: {
-        account: { tenantId },
-        date,
-        postedRecordId: null,
-        transferToAccountId: null,
-        chargeGroupId: null,
-      },
-    }),
-  ]);
-  return bank + card;
+  return db.ledgerEntry.count({
+    where: {
+      tenantId,
+      kind: { in: ["BANK", "CARD"] },
+      date: { gte: new Date(year, month - 1, 1), lt: new Date(year, month, 1) },
+      postedRecordId: null,
+      transferGroupId: null,
+      chargeToCardId: null,
+      chargeGroupId: null,
+    },
+  });
 }
 
 /** 対象月の実績の入力状況（ソース一覧・判定・未転記件数） */
 export async function loadActualsCoverage(
-  db: Pick<TenantDbClient, "bankAccount" | "bankTransaction" | "linkedAccount" | "cardTransaction">,
+  db: Pick<TenantDbClient, "bankAccount" | "linkedAccount" | "ledgerEntry">,
   tenantId: number,
   year: number,
   month: number,

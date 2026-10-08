@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { withApi } from "@/lib/api-handler";
 import { notFound } from "@/lib/api-error";
 import { getBankSyncProvider } from "@/lib/banksync";
-import { upsertExternalTransactions } from "@/lib/bank-transactions";
+import { insertExternalEntries } from "@/lib/ledger-entries";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 // POST /api/bank-accounts/[id]/sync … アグリゲーション自動同期（既定モック）
@@ -22,7 +22,13 @@ export const POST = withApi({
       bankName: account.bankName,
     });
 
-    const inserted = await upsertExternalTransactions(db, id, fetched, "SYNC");
+    const inserted = await insertExternalEntries(
+      db,
+      user.tenantId,
+      { kind: "BANK", accountId: id },
+      fetched,
+      "SYNC",
+    );
     await audit("sync_txn", `bank_account:${id}:${provider.name}:${inserted}`);
     return NextResponse.json({ provider: provider.name, fetched: fetched.length });
   },

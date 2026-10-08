@@ -25,7 +25,7 @@ export const GET = withApi({
   role: "viewer",
   handler: async ({ user, db }) => {
     const { tenantId } = user;
-    const [items, cardCharges, bankCharges] = await Promise.all([
+    const [items, charges] = await Promise.all([
       db.linkedAccount.findMany({
         where: { tenantId },
         orderBy: [{ institution: "asc" }],
@@ -33,25 +33,16 @@ export const GET = withApi({
           account: { select: { id: true, code: true, name: true, category: true } },
         },
       }),
-      db.cardTransaction.groupBy({
-        by: ["transferToAccountId"],
-        where: { transferToAccountId: { not: null }, account: { tenantId } },
-        _count: { _all: true },
-      }),
-      db.bankTransaction.groupBy({
-        by: ["chargeToAccountId"],
-        where: { chargeToAccountId: { not: null }, account: { tenantId } },
+      db.ledgerEntry.groupBy({
+        by: ["chargeToCardId"],
+        where: { chargeToCardId: { not: null } },
         _count: { _all: true },
       }),
     ]);
 
     const chargeSources = new Map<number, number>();
-    for (const g of cardCharges) {
-      const id = g.transferToAccountId;
-      if (id !== null) chargeSources.set(id, (chargeSources.get(id) ?? 0) + g._count._all);
-    }
-    for (const g of bankCharges) {
-      const id = g.chargeToAccountId;
+    for (const g of charges) {
+      const id = g.chargeToCardId;
       if (id !== null) chargeSources.set(id, (chargeSources.get(id) ?? 0) + g._count._all);
     }
 

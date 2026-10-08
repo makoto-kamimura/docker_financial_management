@@ -103,7 +103,7 @@ beforeAll(async () => {
     "receivables",
     "invoices",
     "bank_accounts",
-    "bank_transactions",
+    "ledger_entries",
     "audit_logs",
     "journal_entries",
     "receipts",
@@ -173,9 +173,11 @@ beforeAll(async () => {
   const bankB = await prisma.bankAccount.create({
     data: { tenantId: tenantB.id, name: "口座B", bankName: "銀行B" },
   });
-  const bankTxnB = await prisma.bankTransaction.create({
+  const bankTxnB = await prisma.ledgerEntry.create({
     data: {
-      accountId: bankB.id,
+      tenantId: tenantB.id,
+      kind: "BANK",
+      bankAccountId: bankB.id,
       date: new Date("2026-01-05"),
       description: "B社取引",
       amount: 500,
@@ -221,9 +223,11 @@ beforeAll(async () => {
   });
 
   // F-5 回帰テスト用: 明細の科目紐付け・実績転記のテナント越境検証・二重転記防止に使う明細
-  const bankTxnA = await prisma.bankTransaction.create({
+  const bankTxnA = await prisma.ledgerEntry.create({
     data: {
-      accountId: bankA.id,
+      tenantId: tenantA.id,
+      kind: "BANK",
+      bankAccountId: bankA.id,
       date: new Date("2026-01-05"),
       description: "A社取引",
       amount: -3000,
@@ -268,7 +272,7 @@ afterAll(async () => {
   const tids = [seed.tenantAId, seed.tenantBId];
   // FK 順に削除
   await prisma.financialRecord.deleteMany({ where: { tenantId: { in: tids } } });
-  await prisma.bankTransaction.deleteMany({ where: { account: { tenantId: { in: tids } } } });
+  await prisma.ledgerEntry.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.bankAccount.deleteMany({ where: { tenantId: { in: tids } } });
   await prisma.receipt.deleteMany({ where: { journalEntry: { tenantId: { in: tids } } } });
   await prisma.journalDetail.deleteMany({ where: { journalEntry: { tenantId: { in: tids } } } });
@@ -494,7 +498,7 @@ describe("[F-5] bank-transactions/[id]/categorize のテナント越境・二重
     );
     expect(res.status).toBe(404);
 
-    const txn = await prisma.bankTransaction.findUnique({ where: { id: seed.bankTxnAId } });
+    const txn = await prisma.ledgerEntry.findUnique({ where: { id: seed.bankTxnAId } });
     expect(txn?.categoryAccountId).toBeNull();
   });
 
@@ -528,7 +532,7 @@ describe("[F-5] bank-transactions/[id]/categorize のテナント越境・二重
     expect(records).toHaveLength(1);
     expect(Number(records[0].amount)).toBe(3000); // |amount| = |-3000|
 
-    const txn = await prisma.bankTransaction.findUnique({ where: { id: seed.bankTxnAId } });
+    const txn = await prisma.ledgerEntry.findUnique({ where: { id: seed.bankTxnAId } });
     expect(txn?.postedRecordId).toBe(records[0].id);
   });
 

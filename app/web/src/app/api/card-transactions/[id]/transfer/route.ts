@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/api-handler";
 import { badRequest, notFound } from "@/lib/api-error";
-import { serializeCardTransaction } from "@/lib/card-transactions";
+import { CARD, ENTRY_REFS_INCLUDE, toCardTxn } from "@/lib/ledger-entries";
 import { validateCardTransferTarget } from "@/lib/card-transfer";
 import { validateChargePair } from "@/lib/charge-link";
 import { isChargeableType } from "@/lib/linked-account-type";
@@ -28,20 +28,24 @@ export const PATCH = withApi({
   handler: async ({ user, db, id, body, audit }) => {
     const { tenantId } = user;
 
-    // 明細は親口座（LinkedAccount）経由でテナント所有を確認する
-    const txn = await db.cardTransaction.findFirst({
-      where: { id, account: { tenantId } },
+    const entry = await db.ledgerEntry.findFirst({
+      where: { id, ...CARD },
       select: {
         id: true,
-        accountId: true,
+        cardAccountId: true,
         description: true,
         categoryAccountId: true,
         postedRecordId: true,
-        transferToAccountId: true,
+        chargeToCardId: true,
         chargeGroupId: true,
       },
     });
-    if (!txn) throw notFound();
+    if (!entry) throw notFound();
+    const txn = {
+      ...entry,
+      accountId: entry.cardAccountId!,
+      transferToAccountId: entry.chargeToCardId,
+    };
 
     if (body.transferToAccountId === null && body.pairTxnId) {
       throw badRequest("チャージを解除するときは紐付け先を指定できません");
@@ -66,18 +70,27 @@ export const PATCH = withApi({
 
       if (body.pairTxnId) {
         if (body.pairTxnId === id) throw badRequest("同じ明細どうしは紐付けできません");
-        const pair = await db.cardTransaction.findFirst({
-          where: { id: body.pairTxnId, account: { tenantId } },
+        const pair = await db.ledgerEntry.findFirst({
+          where: { id: body.pairTxnId, ...CARD },
           select: {
             id: true,
-            accountId: true,
+            cardAccountId: true,
             postedRecordId: true,
             chargeGroupId: true,
-            transferToAccountId: true,
+            chargeToCardId: true,
           },
         });
         if (!pair) throw notFound("チャージ先の明細が見つかりません");
-        const pairError = validateChargePair(pair, target.id);
+        const pairError = validateChargePair(
+          {
+            id: pair.id,
+            accountId: pair.cardAccountId!,
+            postedRecordId: pair.postedRecordId,
+            chargeGroupId: pair.chargeGroupId,
+            transferToAccountId: pair.chargeToCardId,
+          },
+          target.id,
+        );
         if (pairError) throw badRequest(pairError);
         pairTxnId = pair.id;
       }
@@ -88,8 +101,8 @@ export const PATCH = withApi({
     const previousGroupId = txn.chargeGroupId;
     const previousPairIds = previousGroupId
       ? (
-          await db.cardTransaction.findMany({
-            where: { chargeGroupId: previousGroupId, id: { not: id }, account: { tenantId } },
+          await db.ledgerEntry.findMany({
+            where: { chargeGroupId: previousGroupId, id: { not: id }, ...CARD },
             select: { id: true },
           })
         ).map((t) => t.id)
@@ -100,37 +113,34 @@ export const PATCH = withApi({
     // 対の片側だけが更新されて壊れることが無いよう、1 トランザクションでまとめて更新する
     const updated = await db.$transaction(async (tx) => {
       if (previousPairIds.length > 0) {
-        await tx.cardTransaction.updateMany({
+        await tx.ledgerEntry.updateMany({
           where: { id: { in: previousPairIds } },
           data: { chargeGroupId: null },
         });
       }
       if (previousGroupId) {
-        await tx.bankTransaction.updateMany({
-          where: { chargeGroupId: previousGroupId, account: { tenantId } },
+        await tx.ledgerEntry.updateMany({
+          where: { chargeGroupId: previousGroupId, kind: "BANK" },
           data: { chargeGroupId: null },
         });
       }
       if (pairTxnId !== null) {
         // 入金側も収支の対象外にする（付いていた科目は外す）
-        await tx.cardTransaction.update({
+        await tx.ledgerEntry.update({
           where: { id: pairTxnId },
           data: { chargeGroupId, categoryAccountId: null },
         });
       }
-      return tx.cardTransaction.update({
+      return tx.ledgerEntry.update({
         where: { id },
         // チャージにするときは支出ではないので科目を外す。解除時は未紐付けのまま残し、
         // どの科目だったかは覚えていないので改めて選び直してもらう
         data: {
-          transferToAccountId: body.transferToAccountId,
+          chargeToCardId: body.transferToAccountId,
           chargeGroupId,
           ...(body.transferToAccountId !== null ? { categoryAccountId: null } : {}),
         },
-        include: {
-          categoryAccount: { select: { id: true, code: true, name: true } },
-          transferToAccount: { select: { id: true, name: true } },
-        },
+        include: ENTRY_REFS_INCLUDE,
       });
     });
 
@@ -140,6 +150,6 @@ export const PATCH = withApi({
     });
     await invalidateCache(`assets:summary:${tenantId}:*`);
 
-    return NextResponse.json({ data: serializeCardTransaction(updated) });
+    return NextResponse.json({ data: toCardTxn(updated) });
   },
 });

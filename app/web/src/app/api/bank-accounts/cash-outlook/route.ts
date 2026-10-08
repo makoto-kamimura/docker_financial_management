@@ -29,9 +29,9 @@ export const GET = withApi({
         orderBy: { id: "asc" },
         select: { id: true, name: true, balanceAdjustment: true },
       }),
-      db.bankTransaction.findMany({
-        where: { account: { tenantId } },
-        select: { accountId: true, date: true, amount: true },
+      db.ledgerEntry.findMany({
+        where: { kind: "BANK" },
+        select: { bankAccountId: true, date: true, amount: true },
       }),
       db.transfer.findMany({ where: { tenantId } }),
       db.loan.findMany({ where: { tenantId, debitBankAccountId: { not: null } } }),
@@ -54,9 +54,9 @@ export const GET = withApi({
     let firstKey: string | null = null;
     for (const t of txns) {
       const key = ym(t.date.getUTCFullYear(), t.date.getUTCMonth() + 1);
-      const perAccount = monthlyNet.get(t.accountId) ?? new Map<string, number>();
+      const perAccount = monthlyNet.get(t.bankAccountId!) ?? new Map<string, number>();
       perAccount.set(key, (perAccount.get(key) ?? 0) + Number(t.amount));
-      monthlyNet.set(t.accountId, perAccount);
+      monthlyNet.set(t.bankAccountId!, perAccount);
       if (!firstKey || key < firstKey) firstKey = key;
     }
 

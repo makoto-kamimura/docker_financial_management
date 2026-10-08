@@ -60,7 +60,7 @@ beforeAll(async () => {
     "budget_histories",
     "budget_confirmations",
     "linked_accounts",
-    "card_transactions",
+    "ledger_entries",
     "card_recurring_payments",
   ]) {
     await prisma.$executeRawUnsafe(
@@ -93,7 +93,7 @@ afterAll(async () => {
   await prisma.budgetConfirmation.deleteMany({ where });
   await prisma.cardRecurringPayment.deleteMany({ where });
   if (cardA)
-    await prisma.cardTransaction.deleteMany({ where: { accountId: { in: [cardA, cardB] } } });
+    await prisma.ledgerEntry.deleteMany({ where: { cardAccountId: { in: [cardA, cardB] } } });
   await prisma.linkedAccount.deleteMany({ where });
   await prisma.period.deleteMany({ where });
   await prisma.account.deleteMany({ where });
@@ -187,22 +187,28 @@ describe("GET /api/linked-accounts/usage-trend", () => {
     cardB = b.id;
     const now = new Date();
     const thisMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
-    await prisma.cardTransaction.createMany({
+    const cardEntry = (cardAccountId: number) => ({
+      tenantId,
+      kind: "CARD" as const,
+      cardAccountId,
+    });
+    await prisma.ledgerEntry.createMany({
       data: [
-        { accountId: cardA, date: thisMonth, description: "買い物", amount: 5_000 },
-        { accountId: cardA, date: thisMonth, description: "返金", amount: -1_000 },
+        // 明細の表は +入金 / −出金（カードの利用は負）
+        { ...cardEntry(cardA), date: thisMonth, description: "買い物", amount: -5_000 },
+        { ...cardEntry(cardA), date: thisMonth, description: "返金", amount: 1_000 },
         {
-          accountId: cardA,
+          ...cardEntry(cardA),
           date: thisMonth,
           description: "チャージ",
-          amount: 3_000,
-          transferToAccountId: cardB,
+          amount: -3_000,
+          chargeToCardId: cardB,
         },
         {
-          accountId: cardB,
+          ...cardEntry(cardB),
           date: thisMonth,
           description: "入金",
-          amount: -3_000,
+          amount: 3_000,
           chargeGroupId: `g_${SUFFIX}`,
         },
       ],

@@ -119,9 +119,8 @@ beforeAll(async () => {
     "budgets",
     "audit_logs",
     "bank_accounts",
-    "bank_transactions",
+    "ledger_entries",
     "linked_accounts",
-    "card_transactions",
     "financial_records",
   ]) {
     await prisma.$executeRawUnsafe(
@@ -165,9 +164,11 @@ beforeAll(async () => {
   const bank = await prisma.bankAccount.create({
     data: { tenantId, name: "給与口座", bankName: "テスト銀行" },
   });
-  const bankTxn = await prisma.bankTransaction.create({
+  const bankTxn = await prisma.ledgerEntry.create({
     data: {
-      accountId: bank.id,
+      tenantId,
+      kind: "BANK",
+      bankAccountId: bank.id,
       date: new Date(YEAR, 4, 31),
       description: "スーパー",
       amount: -3_000,
@@ -182,8 +183,15 @@ beforeAll(async () => {
     data: { tenantId, name: "テストカード", type: "CREDIT_CARD", institution: "テスト" },
   });
   cardId = card.id;
-  await prisma.cardTransaction.create({
-    data: { accountId: card.id, date: new Date(YEAR, 4, 20), description: "書店", amount: 1_500 },
+  await prisma.ledgerEntry.create({
+    data: {
+      tenantId,
+      kind: "CARD",
+      cardAccountId: card.id,
+      date: new Date(YEAR, 4, 20),
+      description: "書店",
+      amount: -1_500,
+    },
   });
   await prisma.linkedAccount.create({
     data: { tenantId, name: "テスト電子マネー", type: "E_MONEY", institution: "テスト" },
@@ -196,9 +204,8 @@ afterAll(async () => {
   await prisma.budgetConfirmation.deleteMany({ where });
   await prisma.budgetHistory.deleteMany({ where });
   await prisma.budget.deleteMany({ where });
-  await prisma.cardTransaction.deleteMany({ where: { account: { tenantId } } });
+  await prisma.ledgerEntry.deleteMany({ where });
   await prisma.linkedAccount.deleteMany({ where });
-  await prisma.bankTransaction.deleteMany({ where: { account: { tenantId } } });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.financialRecordHistory.deleteMany({ where: { record: { tenantId } } });
   await prisma.financialRecord.deleteMany({ where });
@@ -300,8 +307,15 @@ describe("実績の確定", () => {
 
   it("② 全ソースが月末日まで届くと入力済みになり、実績を確定できる", async () => {
     actingUser = editor;
-    await prisma.cardTransaction.create({
-      data: { accountId: cardId, date: new Date(YEAR, 5, 2), description: "書店", amount: 800 },
+    await prisma.ledgerEntry.create({
+      data: {
+        tenantId,
+        kind: "CARD",
+        cardAccountId: cardId,
+        date: new Date(YEAR, 5, 2),
+        description: "書店",
+        amount: -800,
+      },
     });
     const before = await variance(5);
     expect(before.actuals.entered).toBe(true);
@@ -365,7 +379,7 @@ describe("実績の確定", () => {
       params(bankTxnId),
     );
     expect(post.status).toBe(409);
-    const txn = await prisma.bankTransaction.findUnique({ where: { id: bankTxnId } });
+    const txn = await prisma.ledgerEntry.findUnique({ where: { id: bankTxnId } });
     expect(txn?.postedRecordId).toBeNull();
   });
 

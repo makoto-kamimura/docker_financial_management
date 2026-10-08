@@ -63,7 +63,7 @@ beforeAll(async () => {
     "tenants",
     "users",
     "bank_accounts",
-    "bank_transactions",
+    "ledger_entries",
     "accounts",
     "periods",
     "budgets",
@@ -95,11 +95,12 @@ beforeAll(async () => {
   });
   bankA = a.id;
   bankB = b.id;
-  await prisma.bankTransaction.createMany({
+  const bank = (bankAccountId: number) => ({ tenantId, kind: "BANK" as const, bankAccountId });
+  await prisma.ledgerEntry.createMany({
     data: [
-      { accountId: bankA, date: utcDate(-1, 15), description: "入金", amount: 50_000 },
-      { accountId: bankA, date: utcDate(0, 1), description: "出金", amount: -20_000 },
-      { accountId: bankB, date: utcDate(-2, 10), description: "入金", amount: 30_000 },
+      { ...bank(bankA), date: utcDate(-1, 15), description: "入金", amount: 50_000 },
+      { ...bank(bankA), date: utcDate(0, 1), description: "出金", amount: -20_000 },
+      { ...bank(bankB), date: utcDate(-2, 10), description: "入金", amount: 30_000 },
     ],
   });
 
@@ -146,7 +147,7 @@ afterAll(async () => {
   await prisma.period.deleteMany({ where });
   await prisma.account.deleteMany({ where });
   await prisma.transfer.deleteMany({ where });
-  await prisma.bankTransaction.deleteMany({ where: { accountId: { in: [bankA, bankB] } } });
+  await prisma.ledgerEntry.deleteMany({ where: { bankAccountId: { in: [bankA, bankB] } } });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.tenant.delete({ where: { id: tenantId } });
