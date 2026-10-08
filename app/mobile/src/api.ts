@@ -405,14 +405,15 @@ export async function fetchActuals(year: number, month: number): Promise<ActualE
   return json.data ?? [];
 }
 
+// counterAccountCode を省くと、現金の科目で仕訳を作る（実績のカレンダーの「現金」。web 版と同じ）
 export async function postActual(data: {
   date: string;
   description: string;
   accountCode: string;
-  counterAccountCode: string;
+  counterAccountCode?: string;
   amount: number;
   direction: "income" | "expense";
-  paymentMethod: string;
+  paymentMethod?: string;
 }): Promise<void> {
   await request("/actuals", "登録に失敗しました", jsonInit("POST", data));
 }
@@ -2011,29 +2012,37 @@ export type BusinessProfile = {
   taxationType: string | null;
 };
 export type TaxSetting = { taxYear: number; taxationType: string; simplifiedRate: string | null };
-export type Department = { id: number; name: string; manager: string | null };
-
 export type SettingsSnapshot = {
   profile: BusinessProfile | null;
   taxSettings: TaxSetting[];
   mfaEnabled: boolean;
-  departments: Department[];
+  /** 自分の表示名とログインのメールアドレス */
+  userName: string;
+  email: string;
 };
 
 export async function fetchSettingsSnapshot(): Promise<SettingsSnapshot> {
-  const [profile, tax, me, departments] = await Promise.all([
+  const [profile, tax, me] = await Promise.all([
     request<{ data?: BusinessProfile | null }>(
       "/business-profile",
       "事業者情報の取得に失敗しました",
     ),
     request<{ data?: TaxSetting[] }>("/tax-settings", "消費税設定の取得に失敗しました"),
-    request<{ user?: { mfaEnabled?: boolean } }>("/auth/me", "ユーザー情報の取得に失敗しました"),
-    request<{ data?: Department[] }>("/departments", "部門の取得に失敗しました"),
+    request<{ user?: { mfaEnabled?: boolean; name?: string; email?: string } }>(
+      "/auth/me",
+      "ユーザー情報の取得に失敗しました",
+    ),
   ]);
   return {
     profile: profile.data ?? null,
     taxSettings: tax.data ?? [],
     mfaEnabled: me.user?.mfaEnabled ?? false,
-    departments: departments.data ?? [],
+    userName: me.user?.name ?? "",
+    email: me.user?.email ?? "",
   };
+}
+
+// 自分の表示名を変える（web 版 PATCH /api/auth/me）
+export async function patchMe(name: string): Promise<void> {
+  await request("/auth/me", "表示名の変更に失敗しました", jsonInit("PATCH", { name }));
 }

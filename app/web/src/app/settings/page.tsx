@@ -3,14 +3,14 @@
 import { Suspense, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
-import { SectionLead } from "@/components/Explain";
 import { SETTINGS_HELP } from "@/lib/help-texts";
 // 区分名は予算管理・実績管理と同じ（lib/labels.ts）
 import { CATEGORY_LABEL } from "@/lib/labels";
-import { Notice, PageHeader, Tabs } from "@/components/ui";
+import { PageHeader, Tabs } from "@/components/ui";
+import { SaveNotice, SettingsCard, type SaveMessage } from "@/components/SettingsCard";
 
 // ── 共通型 ──────────────────────────────────────────────────────
 type BusinessProfile = {
@@ -35,7 +35,76 @@ const PAYMENT_METHODS: Record<string, string> = {
   simplified: "簡易課税",
 };
 // ── タブ型 ──────────────────────────────────────────────────────
-type Tab = "profile" | "tax" | "security" | "accountNames" | "departments";
+type Tab = "profile" | "tax" | "security" | "accountNames";
+
+// ── 表示名セクション ─────────────────────────────────────────────
+// 自分の表示名（画面の右上・ユーザー管理・監査ログに出る）。PATCH /api/auth/me。
+function DisplayNameSection() {
+  const qc = useQueryClient();
+  const { data: me } = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: async (): Promise<{ name: string; email: string } | null> => {
+      const res = await fetch("/api/auth/me");
+      if (!res.ok) return null;
+      return (await res.json()).user ?? null;
+    },
+  });
+  const [name, setName] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<SaveMessage>(null);
+  const value = name ?? me?.name ?? "";
+
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    const res = await fetch("/api/auth/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: value }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setMsg({ ok: true, text: "表示名を変更しました" });
+      setName(null);
+      qc.invalidateQueries({ queryKey: ["auth-me"] });
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+    } else {
+      setMsg({ ok: false, text: "変更に失敗しました（1〜50 文字で入力してください）" });
+    }
+  }
+
+  return (
+    <SettingsCard
+      title="あなたの表示名"
+      lead={SETTINGS_HELP.displayName}
+      actions={
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || !me || value.trim() === "" || value === me.name}
+          className="btn-primary"
+        >
+          {saving ? "保存中…" : "保存"}
+        </button>
+      }
+    >
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block">
+          <span className="text-xs font-medium text-slate-600">表示名</span>
+          <input
+            className="input-field mt-1 w-64"
+            value={value}
+            maxLength={50}
+            onChange={(e) => setName(e.target.value)}
+            disabled={!me}
+          />
+        </label>
+        {me && <span className="text-xs text-slate-400 pb-2">ログイン: {me.email}</span>}
+      </div>
+      <SaveNotice msg={msg} />
+    </SettingsCard>
+  );
+}
 
 // ── 決算月セクション ─────────────────────────────────────────────
 // ダッシュボードの累計と年間見込みを、この月で締める 1 年で集計する（tenants.closingMonth）。
@@ -45,7 +114,7 @@ function ClosingMonthSection() {
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [closingMonth, setClosingMonth] = useState(12);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<SaveMessage>(null);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -85,9 +154,20 @@ function ClosingMonthSection() {
 
   const startMonth = (closingMonth % 12) + 1;
   return (
-    <div className="card max-w-xl mb-6">
-      <h2 className="section-title mb-1">決算月</h2>
-      <SectionLead>{SETTINGS_HELP.closingMonth}</SectionLead>
+    <SettingsCard
+      title="決算月"
+      lead={SETTINGS_HELP.closingMonth}
+      actions={
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || tenantId === null}
+          className="btn-primary"
+        >
+          {saving ? "保存中…" : "保存"}
+        </button>
+      }
+    >
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2">
           <span className="text-xs font-medium text-slate-600">決算月</span>
@@ -107,17 +187,9 @@ function ClosingMonthSection() {
         <span className="text-xs text-slate-500">
           1年は {startMonth}月〜{closingMonth}月
         </span>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving || tenantId === null}
-          className="btn-primary"
-        >
-          {saving ? "保存中…" : "保存"}
-        </button>
-        {msg && <Notice tone={msg.ok ? "success" : "error"}>{msg.text}</Notice>}
       </div>
-    </div>
+      <SaveNotice msg={msg} />
+    </SettingsCard>
   );
 }
 
@@ -132,7 +204,7 @@ function BusinessProfileSection() {
     taxationType: "exempt",
   });
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<SaveMessage>(null);
 
   useEffect(() => {
     fetch("/api/business-profile")
@@ -166,9 +238,16 @@ function BusinessProfileSection() {
     setForm((prev) => ({ ...prev, [field]: val }));
 
   return (
-    <div className="card max-w-xl">
-      <h2 className="section-title mb-4">事業者情報（F001）</h2>
-      <div className="space-y-3">
+    <SettingsCard
+      title="事業者情報"
+      lead={SETTINGS_HELP.businessProfile}
+      actions={
+        <button type="button" onClick={save} disabled={saving} className="btn-primary">
+          {saving ? "保存中…" : "保存"}
+        </button>
+      }
+    >
+      <div className="space-y-3 max-w-2xl">
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="text-xs font-medium text-slate-600">屋号</span>
@@ -238,13 +317,8 @@ function BusinessProfileSection() {
           <span className="text-sm text-slate-700">青色申告（65万円控除）</span>
         </label>
       </div>
-      <div className="mt-4 flex items-center gap-3">
-        <button type="button" onClick={save} disabled={saving} className="btn-primary">
-          {saving ? "保存中…" : "保存"}
-        </button>
-        {msg && <Notice tone={msg.ok ? "success" : "error"}>{msg.text}</Notice>}
-      </div>
-    </div>
+      <SaveNotice msg={msg} />
+    </SettingsCard>
   );
 }
 
@@ -258,7 +332,7 @@ function TaxSettingsSection() {
     simplifiedRate: "",
   });
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<SaveMessage>(null);
 
   useEffect(() => {
     fetch("/api/tax-settings")
@@ -295,9 +369,16 @@ function TaxSettingsSection() {
   }
 
   return (
-    <div className="card max-w-xl">
-      <h2 className="section-title mb-4">消費税設定（F012）</h2>
-      <div className="space-y-3">
+    <SettingsCard
+      title="消費税設定"
+      lead={SETTINGS_HELP.tax}
+      actions={
+        <button type="button" onClick={save} disabled={saving} className="btn-primary">
+          {saving ? "保存中…" : "年度設定を保存"}
+        </button>
+      }
+    >
+      <div className="space-y-3 max-w-2xl">
         <div className="grid grid-cols-3 gap-3">
           <label className="block">
             <span className="text-xs font-medium text-slate-600">年度</span>
@@ -334,15 +415,10 @@ function TaxSettingsSection() {
             />
           </label>
         </div>
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={save} disabled={saving} className="btn-primary">
-            {saving ? "保存中…" : "年度設定を保存"}
-          </button>
-          {msg && <Notice tone={msg.ok ? "success" : "error"}>{msg.text}</Notice>}
-        </div>
       </div>
+      <SaveNotice msg={msg} />
       {settings.length > 0 && (
-        <table className="mt-4 w-full text-sm">
+        <table className="mt-4 w-full max-w-2xl text-sm">
           <thead>
             <tr className="text-xs text-slate-500 border-b border-slate-100">
               <th className="text-left py-1.5 font-medium">年度</th>
@@ -365,7 +441,7 @@ function TaxSettingsSection() {
           </tbody>
         </table>
       )}
-    </div>
+    </SettingsCard>
   );
 }
 
@@ -388,7 +464,7 @@ function SecuritySection() {
   const [secret, setSecret] = useState<string | null>(null);
   const [uri, setUri] = useState<string | null>(null);
   const [code, setCode] = useState("");
-  const [mfaMsg, setMfaMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [mfaMsg, setMfaMsg] = useState<SaveMessage>(null);
 
   async function setup() {
     setMfaMsg(null);
@@ -456,7 +532,7 @@ function SecuritySection() {
   const [totpCode, setTotpCode] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [recMsg, setRecMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [recMsg, setRecMsg] = useState<SaveMessage>(null);
 
   async function generateRecovery() {
     if (!confirm("既存のリカバリーコードはすべて無効になります。よろしいですか？")) return;
@@ -480,11 +556,12 @@ function SecuritySection() {
   }
 
   return (
-    <div className="space-y-6 max-w-lg">
+    <>
       {/* MFA セットアップ */}
-      <div className="card">
-        <div className="flex items-center gap-3 mb-1">
-          <h2 className="section-title mb-0">多要素認証（MFA / TOTP）</h2>
+      <SettingsCard
+        title="多要素認証（MFA / TOTP）"
+        lead={SETTINGS_HELP.mfa}
+        badge={
           <span
             className={`text-xs font-medium rounded-full px-2 py-0.5 border ${
               mfaEnabled
@@ -494,16 +571,18 @@ function SecuritySection() {
           >
             {mfaEnabled ? "有効" : "無効"}
           </span>
-        </div>
-        <SectionLead className="mt-2 mb-0">{SETTINGS_HELP.mfa}</SectionLead>
-        <ol className="space-y-1 text-sm text-slate-600 mt-3 mb-4 list-decimal list-inside">
+        }
+        actions={
+          <button type="button" onClick={setup} className="btn-primary">
+            {mfaEnabled ? "シークレットを再発行" : "シークレット発行"}
+          </button>
+        }
+      >
+        <ol className="space-y-1 text-sm text-slate-600 mb-2 list-decimal list-inside">
           <li>「シークレット発行」を押す</li>
           <li>表示されたシークレットを認証アプリに登録</li>
           <li>アプリに表示された 6 桁コードを入力して有効化</li>
         </ol>
-        <button type="button" onClick={setup} className="btn-primary">
-          {mfaEnabled ? "シークレットを再発行（認証アプリの登録し直し）" : "シークレット発行"}
-        </button>
         {mfaEnabled && (
           <p className="mt-2 text-xs text-slate-400">
             再発行すると新しいシークレットに切り替わります。有効化するまでは今の認証アプリのコードが有効です。
@@ -565,19 +644,11 @@ function SecuritySection() {
             </div>
           </div>
         )}
-        {mfaMsg && (
-          <Notice tone={mfaMsg.ok ? "success" : "error"} className="mt-4">
-            {mfaMsg.text}
-          </Notice>
-        )}
-      </div>
+        <SaveNotice msg={mfaMsg} />
+      </SettingsCard>
 
       {/* リカバリーコード */}
-      <div className="card">
-        <h2 className="section-title">MFA リカバリーコード</h2>
-        <p className="text-sm text-slate-500 mb-4">
-          MFA 認証デバイスを紛失した場合に使用できる使い捨てコードです。MFA 有効化後に発行できます。
-        </p>
+      <SettingsCard title="MFA リカバリーコード" lead={SETTINGS_HELP.recovery}>
         <div className="flex gap-2 mb-4">
           <input
             placeholder="現在の TOTP コード（6桁）"
@@ -614,9 +685,9 @@ function SecuritySection() {
             </div>
           </div>
         )}
-        {recMsg && <Notice tone={recMsg.ok ? "success" : "error"}>{recMsg.text}</Notice>}
-      </div>
-    </div>
+        <SaveNotice msg={recMsg} />
+      </SettingsCard>
+    </>
   );
 }
 
@@ -634,7 +705,7 @@ function AccountNamesSection() {
   const [rows, setRows] = useState<AccountNameRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<SaveMessage>(null);
   // 変更中の行（家庭科目名・区分・モード別表示名）
   type NameEdit = {
     code: string;
@@ -764,12 +835,10 @@ function AccountNamesSection() {
   };
 
   return (
-    <div className="card">
-      <div className="flex items-start justify-between mb-2">
-        <div>
-          <h2 className="section-title">科目名設定</h2>
-          <SectionLead className="mt-1 mb-0">{SETTINGS_HELP.accountNames}</SectionLead>
-        </div>
+    <SettingsCard
+      title="科目名設定"
+      lead={SETTINGS_HELP.accountNames}
+      actions={
         <button
           onClick={save}
           disabled={saving || dirtyCount === 0}
@@ -777,13 +846,10 @@ function AccountNamesSection() {
         >
           {saving ? "保存中…" : dirtyCount > 0 ? `変更を保存 (${dirtyCount})` : "変更を保存"}
         </button>
-      </div>
-
-      {msg && (
-        <Notice tone={msg.ok ? "success" : "error"} className="mb-3">
-          {msg.text}
-        </Notice>
-      )}
+      }
+    >
+      {/* 表が長いので、保存の結果は表の上（保存ボタンの近く）に出す */}
+      <SaveNotice msg={msg} className="mb-3" />
 
       {loading ? (
         <p className="text-slate-400 text-sm">読み込み中…</p>
@@ -917,163 +983,7 @@ function AccountNamesSection() {
           </table>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── 部門・担当（実績管理のマスタ管理から移設）─────────────────────
-type Department = { id: number; name: string; manager: string | null };
-
-function DepartmentsSection() {
-  const qc = useQueryClient();
-  const [form, setForm] = useState({ name: "", manager: "" });
-  const [editItem, setEditItem] = useState<Department | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-  const { data: departments } = useQuery({
-    queryKey: ["departments"],
-    queryFn: async (): Promise<Department[]> =>
-      (await (await fetch("/api/departments")).json()).data ?? [],
-  });
-
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["departments"] });
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    setMsg(null);
-    const res = await fetch("/api/departments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: form.name, ...(form.manager ? { manager: form.manager } : {}) }),
-    });
-    if (res.ok) {
-      setForm({ name: "", manager: "" });
-      invalidate();
-    } else {
-      setMsg({ ok: false, text: "部門の追加に失敗しました。" });
-    }
-  }
-
-  async function saveEdit() {
-    if (!editItem) return;
-    await fetch(`/api/departments/${editItem.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: editItem.name, manager: editItem.manager ?? "" }),
-    });
-    setEditItem(null);
-    invalidate();
-  }
-
-  async function remove(d: Department) {
-    if (!confirm(`「${d.name}」を削除してよいですか？`)) return;
-    const res = await fetch(`/api/departments/${d.id}`, { method: "DELETE" });
-    if (res.ok) invalidate();
-    else {
-      const err = await res.json().catch(() => ({}));
-      setMsg({ ok: false, text: err.error ?? "部門の削除に失敗しました。" });
-    }
-  }
-
-  return (
-    <>
-      {editItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl shadow-xl p-5 w-full max-w-sm">
-            <h3 className="text-sm font-semibold text-slate-800 mb-3">部門を編集</h3>
-            <div className="space-y-2">
-              <input
-                className="input-field w-full"
-                value={editItem.name}
-                onChange={(e) => setEditItem({ ...editItem, name: e.target.value })}
-                placeholder="部門名"
-              />
-              <input
-                className="input-field w-full"
-                value={editItem.manager ?? ""}
-                onChange={(e) => setEditItem({ ...editItem, manager: e.target.value })}
-                placeholder="担当者名（任意）"
-              />
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={saveEdit} className="btn-primary flex-1">
-                保存
-              </button>
-              <button onClick={() => setEditItem(null)} className="btn-secondary flex-1">
-                キャンセル
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="card max-w-2xl">
-        <h2 className="section-title mb-1">部門・担当</h2>
-        <p className="text-xs text-slate-500 mb-4">
-          実績を部門別に集計する場合に登録します（実績管理のマスタ管理から移設）。
-        </p>
-
-        {msg && (
-          <Notice tone={msg.ok ? "success" : "error"} className="mb-3">
-            {msg.text}
-          </Notice>
-        )}
-
-        <form onSubmit={add} className="flex gap-2 mb-4 flex-wrap">
-          <input
-            placeholder="部門名"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            required
-            className="input-field flex-1 min-w-32"
-          />
-          <input
-            placeholder="担当者名（任意）"
-            value={form.manager}
-            onChange={(e) => setForm({ ...form, manager: e.target.value })}
-            className="input-field w-36"
-          />
-          <button type="submit" className="btn-primary gap-1">
-            <Plus className="w-4 h-4" aria-hidden="true" />
-            追加
-          </button>
-        </form>
-
-        <ul className="divide-y divide-slate-100">
-          {(departments ?? []).length === 0 && (
-            <p className="text-xs text-slate-400 py-3">登録なし</p>
-          )}
-          {(departments ?? []).map((d) => (
-            <li key={d.id} className="flex items-center gap-2 py-2 group">
-              <span className="text-sm text-slate-800 flex-1">{d.name}</span>
-              {d.manager && (
-                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                  担当: {d.manager}
-                </span>
-              )}
-              <button
-                type="button"
-                aria-label="この部門を編集"
-                title="編集"
-                onClick={() => setEditItem(d)}
-                className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                aria-label="この部門を削除"
-                title="削除"
-                onClick={() => remove(d)}
-                className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </>
+    </SettingsCard>
   );
 }
 
@@ -1082,13 +992,12 @@ const TABS: readonly (readonly [Tab, string])[] = [
   ["profile", "基本設定"],
   ["tax", "消費税設定"],
   ["accountNames", "科目名設定"],
-  ["departments", "部門・担当"],
   ["security", "セキュリティ"],
 ];
 
 function SettingsContent() {
   const searchParams = useSearchParams();
-  // 他画面から ?tab=departments のように開けるようにする
+  // 他画面から ?tab=security のように開けるようにする（部門・担当のタブは削除した。古いリンクは基本設定へ）
   // （予算配分ルールと口座・カード管理は、それぞれ予算管理・銀行/カード管理へ移設した）
   const initialTab = TABS.some(([id]) => id === searchParams.get("tab"))
     ? (searchParams.get("tab") as Tab)
@@ -1103,13 +1012,13 @@ function SettingsContent() {
 
       {tab === "profile" && (
         <>
+          <DisplayNameSection />
           <ClosingMonthSection />
           <BusinessProfileSection />
         </>
       )}
       {tab === "tax" && <TaxSettingsSection />}
       {tab === "accountNames" && <AccountNamesSection />}
-      {tab === "departments" && <DepartmentsSection />}
       {tab === "security" && <SecuritySection />}
     </AppShell>
   );

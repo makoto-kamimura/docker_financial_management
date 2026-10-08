@@ -1,95 +1,121 @@
 "use client";
 
+// ユーザー管理（admin のみ）。借入金管理・銀行管理と同じく、1 枚のカードに枠線つきの行で並べ、
+// 追加と編集はモーダルで行う。表示名は画面の右上・監査ログにも出る（本人は設定の基本設定から変えられる）。
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
+import { SectionLead } from "@/components/Explain";
+import { Notice, PageHeader } from "@/components/ui";
+import { ADMIN_HELP } from "@/lib/help-texts";
 
+type RoleType = "admin" | "editor" | "viewer";
 type User = {
   id: number;
   email: string;
   name: string;
-  role: "admin" | "editor" | "viewer";
+  role: RoleType;
   mfaEnabled: boolean;
   createdAt: string;
 };
 
-const ROLE_BADGE: Record<string, string> = {
+const ROLE_BADGE: Record<RoleType, string> = {
   admin: "bg-red-50 text-red-700",
   editor: "bg-amber-50 text-amber-700",
   viewer: "bg-slate-100 text-slate-600",
 };
-const ROLE_LABEL: Record<string, string> = { admin: "管理者", editor: "編集者", viewer: "閲覧者" };
+const ROLE_LABEL: Record<RoleType, string> = {
+  admin: "管理者",
+  editor: "編集者",
+  viewer: "閲覧者",
+};
+const ROLE_OPTIONS: [RoleType, string][] = [
+  ["viewer", "閲覧者 (viewer)"],
+  ["editor", "編集者 (editor)"],
+  ["admin", "管理者 (admin)"],
+];
 
-type RoleType = "admin" | "editor" | "viewer";
-type UserForm = {
+type CreateForm = {
   email: string;
   name: string;
   role: RoleType;
   password: string;
   newTenant: boolean;
 };
-const BLANK_FORM: UserForm = {
+const BLANK_CREATE: CreateForm = {
   email: "",
   name: "",
   role: "viewer",
   password: "",
   newTenant: false,
 };
+type EditForm = { user: User; name: string; role: RoleType; password: string };
 
 export default function AdminUsersPage() {
   const qc = useQueryClient();
-  const [form, setForm] = useState<UserForm>(BLANK_FORM);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [editUser, setEditUser] = useState<User | null>(null);
-  const [editRole, setEditRole] = useState<string>("viewer");
-  const [resetPw, setResetPw] = useState("");
+  const [create, setCreate] = useState<CreateForm | null>(null);
+  const [edit, setEdit] = useState<EditForm | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data: users, isLoading } = useQuery({
+  const {
+    data: users,
+    isLoading,
+    error: loadError,
+  } = useQuery({
     queryKey: ["admin-users"],
     queryFn: async (): Promise<User[]> => {
       const res = await fetch("/api/admin/users");
       if (!res.ok) throw new Error("forbidden");
       return (await res.json()).data ?? [];
     },
+    retry: false,
   });
 
-  async function createUser(e: { preventDefault(): void }) {
-    e.preventDefault();
-    setFormError(null);
+  async function saveCreate() {
+    if (!create) return;
+    setError(null);
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify(create),
     });
     if (!res.ok) {
-      const d = await res.json();
-      setFormError(typeof d.error === "string" ? d.error : "登録に失敗しました");
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "登録に失敗しました");
       return;
     }
-    setForm(BLANK_FORM);
+    setCreate(null);
     qc.invalidateQueries({ queryKey: ["admin-users"] });
   }
 
   async function saveEdit() {
-    if (!editUser) return;
-    const body: Record<string, string> = { role: editRole };
-    if (resetPw) body.password = resetPw;
-    await fetch(`/api/admin/users/${editUser.id}`, {
+    if (!edit) return;
+    setError(null);
+    const body: Record<string, string> = { role: edit.role };
+    if (edit.name.trim() && edit.name !== edit.user.name) body.name = edit.name.trim();
+    if (edit.password) body.password = edit.password;
+    const res = await fetch(`/api/admin/users/${edit.user.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    setEditUser(null);
-    setResetPw("");
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(typeof d.error === "string" ? d.error : "保存に失敗しました");
+      return;
+    }
+    setEdit(null);
     qc.invalidateQueries({ queryKey: ["admin-users"] });
+    qc.invalidateQueries({ queryKey: ["auth-me"] });
   }
 
   async function deleteUser(u: User) {
     if (!confirm(`「${u.name}」を削除してよいですか？この操作は取り消せません。`)) return;
     const res = await fetch(`/api/admin/users/${u.id}`, { method: "DELETE" });
     if (!res.ok) {
-      const d = await res.json();
+      const d = await res.json().catch(() => ({}));
       alert(d.error ?? "削除に失敗しました");
       return;
     }
@@ -98,186 +124,238 @@ export default function AdminUsersPage() {
 
   return (
     <AppShell>
-      {/* 編集モーダル */}
-      {editUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-80">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1">{editUser.name} を編集</h3>
-            <p className="text-xs text-slate-400 mb-4">{editUser.email}</p>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">ロール</label>
-                <select
-                  className="input-field w-full"
-                  value={editRole}
-                  onChange={(e) => setEditRole(e.target.value)}
-                >
-                  <option value="admin">管理者 (admin)</option>
-                  <option value="editor">編集者 (editor)</option>
-                  <option value="viewer">閲覧者 (viewer)</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">
-                  新しいパスワード（変更する場合のみ）
-                </label>
-                <input
-                  type="password"
-                  className="input-field w-full"
-                  placeholder="8文字以上"
-                  value={resetPw}
-                  onChange={(e) => setResetPw(e.target.value)}
-                />
-              </div>
+      <PageHeader title="ユーザー管理" lead={ADMIN_HELP.users} />
+
+      {loadError && <Notice tone="error">閲覧権限がありません（admin ロールが必要です）。</Notice>}
+
+      {!loadError && (
+        <section className="card mb-6">
+          {/* 説明が長くても「ユーザー追加」が右端に残るよう、折り返さない並びにする */}
+          <div className="flex items-start gap-3 mb-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="section-title mb-1">ユーザー</h2>
+              <SectionLead className="mb-0">{ADMIN_HELP.userList}</SectionLead>
             </div>
-            <div className="flex gap-2 mt-4">
-              <button onClick={saveEdit} className="btn-primary flex-1">
-                保存
-              </button>
-              <button
-                onClick={() => {
-                  setEditUser(null);
-                  setResetPw("");
-                }}
-                className="btn-secondary flex-1"
-              >
-                キャンセル
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setCreate(BLANK_CREATE);
+              }}
+              className="btn-primary shrink-0"
+            >
+              ユーザー追加
+            </button>
           </div>
-        </div>
+          {isLoading ? (
+            <LoadingSpinner />
+          ) : (
+            <div className="space-y-2">
+              {users?.map((u) => (
+                <div
+                  key={u.id}
+                  className="border border-slate-100 rounded-lg px-3 py-3 flex flex-wrap items-center gap-3"
+                >
+                  <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm shrink-0">
+                    {u.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-medium text-slate-800 text-sm">{u.name}</h3>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_BADGE[u.role]}`}
+                      >
+                        {ROLE_LABEL[u.role]}
+                      </span>
+                      {u.mfaEnabled && (
+                        <span className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded-full">
+                          MFA
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400 truncate mt-0.5">
+                      {u.email} ・ 登録 {new Date(u.createdAt).toLocaleDateString("ja-JP")}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError(null);
+                        setEdit({ user: u, name: u.name, role: u.role, password: "" });
+                      }}
+                      className="text-xs text-indigo-500 hover:text-indigo-700"
+                    >
+                      編集
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteUser(u)}
+                      className="text-xs text-red-400 hover:text-red-600"
+                    >
+                      削除
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
-      <div className="mb-6">
-        <h1 className="page-title">ユーザー管理</h1>
-        <p className="text-sm text-slate-500 mt-0.5">ユーザーの一覧・ロール変更・新規作成</p>
-      </div>
+      {/* ユーザー追加 */}
+      {create && (
+        <Modal
+          title="ユーザー追加"
+          onClose={() => setCreate(null)}
+          onSave={saveCreate}
+          saveLabel="作成"
+        >
+          <Field label="表示名">
+            <input
+              placeholder="山田 太郎"
+              className="input-field w-full"
+              value={create.name}
+              onChange={(e) => setCreate({ ...create, name: e.target.value })}
+            />
+          </Field>
+          <Field label="メールアドレス">
+            <input
+              type="email"
+              placeholder="user@example.com"
+              className="input-field w-full"
+              value={create.email}
+              onChange={(e) => setCreate({ ...create, email: e.target.value })}
+            />
+          </Field>
+          <Field label="ロール">
+            <select
+              className="input-field w-full"
+              value={create.role}
+              onChange={(e) => setCreate({ ...create, role: e.target.value as RoleType })}
+            >
+              {ROLE_OPTIONS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="初期パスワード">
+            <input
+              type="password"
+              placeholder="8文字以上"
+              className="input-field w-full"
+              value={create.password}
+              onChange={(e) => setCreate({ ...create, password: e.target.value })}
+            />
+          </Field>
+          <label className="flex items-start gap-2 text-xs text-slate-600 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={create.newTenant}
+              onChange={(e) => setCreate({ ...create, newTenant: e.target.checked })}
+            />
+            <span>
+              専用の新規テナントを作成する
+              <span className="block text-slate-400">{ADMIN_HELP.newTenant}</span>
+            </span>
+          </label>
+          {error && <Notice tone="error">{error}</Notice>}
+        </Modal>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* ユーザー一覧 */}
-        <div className="card lg:col-span-2">
-          <h2 className="section-title">ユーザー一覧</h2>
-          {isLoading && <LoadingSpinner />}
-          <ul className="divide-y divide-slate-100 mt-2">
-            {users?.map((u) => (
-              <li key={u.id} className="flex items-center gap-3 py-3 group">
-                <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm shrink-0">
-                  {u.name.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800">{u.name}</p>
-                  <p className="text-xs text-slate-400 truncate">{u.email}</p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {u.mfaEnabled && (
-                    <span className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded-full">
-                      MFA
-                    </span>
-                  )}
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_BADGE[u.role]}`}
-                  >
-                    {ROLE_LABEL[u.role]}
-                  </span>
-                  <button
-                    onClick={() => {
-                      setEditUser(u);
-                      setEditRole(u.role);
-                    }}
-                    className="text-xs text-slate-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="編集"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={() => deleteUser(u)}
-                    className="text-xs text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="削除"
-                  >
-                    🗑
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* 新規作成フォーム */}
-        <div className="card">
-          <h2 className="section-title">新規ユーザー作成</h2>
-          <form onSubmit={createUser} className="space-y-3 mt-3">
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block">氏名</label>
-              <input
-                placeholder="山田 太郎"
-                required
-                className="input-field w-full"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block">メールアドレス</label>
-              <input
-                type="email"
-                placeholder="user@example.com"
-                required
-                className="input-field w-full"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block">ロール</label>
-              <select
-                className="input-field w-full"
-                value={form.role}
-                onChange={(e) =>
-                  setForm({ ...form, role: e.target.value as "admin" | "editor" | "viewer" })
-                }
-              >
-                <option value="viewer">閲覧者 (viewer)</option>
-                <option value="editor">編集者 (editor)</option>
-                <option value="admin">管理者 (admin)</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block">初期パスワード</label>
-              <input
-                type="password"
-                placeholder="8文字以上"
-                required
-                minLength={8}
-                className="input-field w-full"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-              />
-            </div>
-            <label className="flex items-start gap-2 text-xs text-slate-600 cursor-pointer">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={form.newTenant}
-                onChange={(e) => setForm({ ...form, newTenant: e.target.checked })}
-              />
-              <span>
-                専用の新規テナントを作成する
-                <span className="block text-slate-400">
-                  未チェックの場合は自分と同じテナントに追加され、同じデータを共有します。チェックすると独立した空のテナントで作成されます（作成後は自分のユーザー管理には表示されません）。
-                </span>
-              </span>
-            </label>
-            {formError && (
-              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5">
-                {formError}
-              </p>
-            )}
-            <button type="submit" className="btn-primary w-full">
-              作成
-            </button>
-          </form>
-        </div>
-      </div>
+      {/* ユーザーの編集（表示名・ロール・パスワード） */}
+      {edit && (
+        <Modal
+          title={`${edit.user.name} を編集`}
+          subtitle={edit.user.email}
+          onClose={() => setEdit(null)}
+          onSave={saveEdit}
+          saveLabel="保存"
+        >
+          <Field label="表示名">
+            <input
+              className="input-field w-full"
+              maxLength={50}
+              value={edit.name}
+              onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+            />
+          </Field>
+          <Field label="ロール">
+            <select
+              className="input-field w-full"
+              value={edit.role}
+              onChange={(e) => setEdit({ ...edit, role: e.target.value as RoleType })}
+            >
+              {ROLE_OPTIONS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="新しいパスワード（変更する場合のみ）">
+            <input
+              type="password"
+              className="input-field w-full"
+              placeholder="8文字以上"
+              value={edit.password}
+              onChange={(e) => setEdit({ ...edit, password: e.target.value })}
+            />
+          </Field>
+          {error && <Notice tone="error">{error}</Notice>}
+        </Modal>
+      )}
     </AppShell>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+// 銀行追加・借入追加と同じ形のモーダル
+function Modal({
+  title,
+  subtitle,
+  onClose,
+  onSave,
+  saveLabel,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  onSave: () => void;
+  saveLabel: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-bold text-slate-800 mb-1">{title}</h2>
+        {subtitle && <p className="text-xs text-slate-500 mb-4">{subtitle}</p>}
+        <div className="space-y-3 mt-3">{children}</div>
+        <div className="flex justify-end gap-2 mt-5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+          >
+            キャンセル
+          </button>
+          <button type="button" onClick={onSave} className="btn-primary">
+            {saveLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

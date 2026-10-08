@@ -1,6 +1,6 @@
 // 実績管理のカレンダー（web 版 /entry の「カレンダー」タブと同じ内容）。
 // 日付ごとの入出金（仕訳）を GET/POST/DELETE /actuals で扱う。月の収入・支出合計と日別の増減を表示し、
-// 選んだ日に「収入 / 支出・摘要・科目・入出金口座・金額・支払方法」で登録できる。
+// 選んだ日に「収入 / 支出・摘要・科目・金額」で登録できる。支払元・入金先は現金に決まる（出どころの「現金」）。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
@@ -17,24 +17,15 @@ import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, Field, Input, Notice, Pills } from "./ui";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
-const PAY_METHODS = [
-  { value: "cash", label: "現金" },
-  { value: "bank", label: "銀行" },
-  { value: "card", label: "カード" },
-  { value: "transfer", label: "振込" },
-];
 const INCOME_CATS = ["REVENUE", "PROFIT"];
 const EXPENSE_CATS = ["EXPENSE", "COGS"];
-const ASSET_CATS = ["ASSET"];
 
 type Direction = "income" | "expense";
 const BLANK_FORM = {
   description: "",
   accountCode: "",
-  counterAccountCode: "",
   amount: "",
   direction: "expense" as Direction,
-  paymentMethod: "cash",
 };
 
 // 仕訳 1 件の収入（収入科目の貸方）・支出（費用科目の借方）。web 版 entryAmount と同じ
@@ -61,7 +52,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   const [form, setForm] = useState(BLANK_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [picking, setPicking] = useState<"account" | "counter" | null>(null);
+  const [picking, setPicking] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,8 +109,8 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
 
   async function submit() {
     if (!selectedDay) return;
-    if (!form.description.trim() || !form.accountCode || !form.counterAccountCode) {
-      setError("摘要・科目・口座を入力してください");
+    if (!form.description.trim() || !form.accountCode) {
+      setError("摘要と科目を入力してください");
       return;
     }
     if (!(Number(form.amount) > 0)) {
@@ -133,10 +124,8 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
         date: isoDate(year, month, selectedDay),
         description: form.description.trim(),
         accountCode: form.accountCode,
-        counterAccountCode: form.counterAccountCode,
         amount: Number(form.amount),
         direction: form.direction,
-        paymentMethod: form.paymentMethod,
       });
       setForm(BLANK_FORM);
       await load();
@@ -302,16 +291,9 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
               />
             </Field>
             <Field label={form.direction === "expense" ? "支出科目" : "収入科目"}>
-              <TouchableOpacity style={s.picker} onPress={() => setPicking("account")}>
+              <TouchableOpacity style={s.picker} onPress={() => setPicking(true)}>
                 <Text style={s.pickerText} numberOfLines={1}>
                   {accountLabel(form.accountCode)}
-                </Text>
-              </TouchableOpacity>
-            </Field>
-            <Field label={form.direction === "expense" ? "支払元口座" : "入金先口座"}>
-              <TouchableOpacity style={s.picker} onPress={() => setPicking("counter")}>
-                <Text style={s.pickerText} numberOfLines={1}>
-                  {accountLabel(form.counterAccountCode)}
                 </Text>
               </TouchableOpacity>
             </Field>
@@ -323,14 +305,6 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                 onChangeText={(t) => setForm((f) => ({ ...f, amount: digitsOnly(t) }))}
               />
             </Field>
-            <Field label="支払方法">
-              <Pills
-                scroll={false}
-                options={PAY_METHODS}
-                value={form.paymentMethod}
-                onChange={(v) => setForm((f) => ({ ...f, paymentMethod: v }))}
-              />
-            </Field>
             {error ? <Notice tone="error">{error}</Notice> : null}
             <Button label={saving ? "登録中..." : "登録"} onPress={submit} loading={saving} />
           </Card>
@@ -338,33 +312,16 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
       )}
 
       <AccountPickerModal
-        visible={picking !== null}
+        visible={picking}
         accounts={accounts}
-        categories={picking === "counter" ? ASSET_CATS : mainCats}
-        title={
-          picking === "counter"
-            ? form.direction === "expense"
-              ? "支払元口座"
-              : "入金先口座"
-            : form.direction === "expense"
-              ? "支出科目"
-              : "収入科目"
-        }
-        currentId={
-          accounts.find(
-            (a) => a.code === (picking === "counter" ? form.counterAccountCode : form.accountCode),
-          )?.id ?? null
-        }
+        categories={mainCats}
+        title={form.direction === "expense" ? "支出科目" : "収入科目"}
+        currentId={accounts.find((a) => a.code === form.accountCode)?.id ?? null}
         onSelect={(a) => {
-          if (a)
-            setForm((f) =>
-              picking === "counter"
-                ? { ...f, counterAccountCode: a.code }
-                : { ...f, accountCode: a.code },
-            );
-          setPicking(null);
+          if (a) setForm((f) => ({ ...f, accountCode: a.code }));
+          setPicking(false);
         }}
-        onClose={() => setPicking(null)}
+        onClose={() => setPicking(false)}
       />
     </View>
   );

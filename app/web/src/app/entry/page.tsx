@@ -123,23 +123,15 @@ const ACTION_COLOR: Record<string, string> = {
 };
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
-const PAY_METHODS = [
-  { value: "cash", label: "現金" },
-  { value: "bank", label: "銀行" },
-  { value: "card", label: "カード" },
-  { value: "transfer", label: "振込" },
-];
 const INCOME_CATS = ["REVENUE", "PROFIT"];
 const EXPENSE_CATS = ["EXPENSE", "COGS"];
-const ASSET_CATS = ["ASSET"];
 
+// 現金のカレンダーの登録フォーム。支払元・入金先は現金に固定する（銀行・カードは出どころで選ぶ）
 const BLANK_CAL_FORM = {
   description: "",
   accountCode: "",
-  counterAccountCode: "",
   amount: "",
   direction: "expense" as "income" | "expense",
-  paymentMethod: "cash",
 };
 
 const yen = (v: number) => v.toLocaleString("ja-JP") + "円";
@@ -191,11 +183,11 @@ const TABS: readonly (readonly [Tab, string])[] = [
 
 const TAB_IDS: Tab[] = ["manual", "calendar", "confirm", "csv", "history"];
 
-// カレンダー・履歴で見る出どころ。手動＝実績（支出・収入）、銀行＝入出金の明細、
+// カレンダー・履歴で見る出どころ。現金＝実績（現金での支出・収入）、銀行＝入出金の明細、
 // カード・電子マネー＝利用・返金の明細（銀行管理・カード管理の一覧とカレンダーをここへまとめた）
 type Source = "manual" | "bank" | "card";
 const SOURCES: [Source, string][] = [
-  ["manual", "手動"],
+  ["manual", "現金"],
   ["bank", "銀行"],
   ["card", "カード・電子マネー"],
 ];
@@ -287,7 +279,7 @@ function EntryContent() {
       const json = await res.json();
       return { data: json.data ?? [], total: json.total ?? 0 };
     },
-    // 履歴タブ（出どころが手動）を開いているときだけ取得・更新する
+    // 履歴タブ（出どころが現金）を開いているときだけ取得・更新する
     enabled: tab === "history" && source === "manual",
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
@@ -401,7 +393,6 @@ function EntryContent() {
 
   const incomeAccounts = (accounts ?? []).filter((a) => INCOME_CATS.includes(a.category));
   const expenseAccounts = (accounts ?? []).filter((a) => EXPENSE_CATS.includes(a.category));
-  const assetAccounts = (accounts ?? []).filter((a) => ASSET_CATS.includes(a.category));
   const calMainAccounts = calForm.direction === "income" ? incomeAccounts : expenseAccounts;
 
   const byCategory = (accounts ?? []).reduce<Record<string, Account[]>>((acc, a) => {
@@ -655,10 +646,9 @@ function EntryContent() {
         date: dateStr,
         description: calForm.description,
         accountCode: calForm.accountCode,
-        counterAccountCode: calForm.counterAccountCode,
+        // 対当科目は送らない（API が現金の科目で仕訳を作る）
         amount: Number(calForm.amount),
         direction: calForm.direction,
-        paymentMethod: calForm.paymentMethod,
       }),
     });
     if (res.ok) {
@@ -780,7 +770,7 @@ function EntryContent() {
       {/* ── 実績の確定タブ（② その月の実績。明細の最終日がそろったら確定する）── */}
       {tab === "confirm" && <ActualsConfirmPanel mode={sysMode} initialMonth={initial.month} />}
 
-      {/* ── カレンダータブ（出どころが手動）────────────────────────── */}
+      {/* ── カレンダータブ（出どころが現金）────────────────────────── */}
       {tab === "calendar" && source === "manual" && (
         <div className="flex gap-4 items-start">
           {/* カレンダー */}
@@ -1037,26 +1027,6 @@ function EntryContent() {
                       </select>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="text-[10px] text-slate-500">
-                        {calForm.direction === "expense" ? "支払元口座" : "入金先口座"}
-                      </label>
-                      <select
-                        required
-                        value={calForm.counterAccountCode}
-                        onChange={(e) =>
-                          setCalForm((f) => ({ ...f, counterAccountCode: e.target.value }))
-                        }
-                        className="input-field text-xs"
-                      >
-                        <option value="">選択してください</option>
-                        {assetAccounts.map((a) => (
-                          <option key={a.code} value={a.code}>
-                            {a.code} {a.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-1">
                       <label className="text-[10px] text-slate-500">金額（円）</label>
                       <input
                         type="number"
@@ -1067,22 +1037,6 @@ function EntryContent() {
                         onChange={(e) => setCalForm((f) => ({ ...f, amount: e.target.value }))}
                         className="input-field text-xs"
                       />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] text-slate-500">支払方法</label>
-                      <select
-                        value={calForm.paymentMethod}
-                        onChange={(e) =>
-                          setCalForm((f) => ({ ...f, paymentMethod: e.target.value }))
-                        }
-                        className="input-field text-xs"
-                      >
-                        {PAY_METHODS.map((m) => (
-                          <option key={m.value} value={m.value}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
                     </div>
                     {calError && <p className="text-xs text-red-600">{calError}</p>}
                     <button type="submit" disabled={calSaving} className="btn-primary text-xs mt-1">
@@ -1289,7 +1243,7 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
               </>
             ))}
 
-          {/* ── 履歴（出どころが手動 = 実績の変更記録）。銀行・カードと同じ共通の表 ── */}
+          {/* ── 履歴（出どころが現金 = 実績の変更記録）。銀行・カードと同じ共通の表 ── */}
           {tab === "history" &&
             source === "manual" &&
             (histLoading && !recentHistory ? (
@@ -1348,7 +1302,7 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
                 rows={(recentHistory ?? []).map((h) => ({
                   key: h.historyId,
                   date: fmtDate(h.changedAt),
-                  account: "手動",
+                  account: "現金",
                   description: `${h.period.fiscalYear}年${h.period.month}月の実績`,
                   amount: yen(h.amount),
                   tone: "none" as const,

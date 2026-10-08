@@ -49,7 +49,7 @@ type Props = {
   loading: boolean;
   viewMode: ViewMode;
   emptyText: string;
-  /** 共通の行の「口座」に出す名前（実績の履歴は「手動」、予算の履歴は「予算」） */
+  /** 共通の行の「口座」に出す名前（実績の履歴は「現金」、予算の履歴は「予算」） */
   sourceLabel?: string;
   /**
    * 指定すると、削除以外の行の勘定科目を押して付け替えられる（実績の履歴のみ。
@@ -69,7 +69,7 @@ export function ChangeHistoryList({
   loading,
   viewMode,
   emptyText,
-  sourceLabel = "手動",
+  sourceLabel = "現金",
   accountEdit,
 }: Props) {
   const [editing, setEditing] = useState<ChangeHistoryRow | null>(null);
