@@ -327,8 +327,9 @@ export default function LoansPage() {
                                 <td
                                   className={`pr-4 whitespace-nowrap ${diff > 0 ? "text-red-600" : diff < 0 ? "text-green-600" : "text-slate-400"}`}
                                 >
-                                  {diff > 0 ? "+" : ""}
-                                  {diff.toFixed(2)}pt
+                                  {diff === 0
+                                    ? "変わらず"
+                                    : `${Math.abs(diff).toFixed(2)}pt ${diff > 0 ? "上昇" : "低下"}`}
                                 </td>
                                 <td className="pr-4">
                                   <span className="whitespace-nowrap">
@@ -394,8 +395,9 @@ export default function LoansPage() {
                               <div
                                 className={`text-xs font-semibold ${diffTotal > 0 ? "text-red-600" : "text-green-600"}`}
                               >
-                                {diffTotal > 0 ? "+" : ""}
-                                {yen(diffTotal)}
+                                {diffTotal === 0
+                                  ? "変わらず"
+                                  : `${yen(Math.abs(diffTotal))} ${diffTotal > 0 ? "増える" : "減る"}`}
                               </div>
                             </div>
                           </div>

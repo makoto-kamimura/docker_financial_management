@@ -27,7 +27,8 @@ import {
   type ViewMode,
 } from "../../api";
 import { displayName } from "../../shared/display-name";
-import { fmtDate, yen } from "../../format";
+import { fmtDate, yen, yenAbs } from "../../format";
+import { flowLabel, flowSide } from "../../shared/amount-direction";
 import { TRANSFER_CHANNEL_LABELS, TXN_SOURCE_LABEL as SOURCE_LABELS } from "../../shared/labels";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "../../shared/linked-account-type";
 import { CategoryPickerModal } from "../CategoryPickerModal";
@@ -310,8 +311,9 @@ export function BankTransactionsList({
               date={fmtDate(t.date)}
               account={accounts.find((a) => a.id === t.accountId)?.name ?? ""}
               description={t.description}
-              amount={yen(t.amount)}
-              tone={t.amount < 0 ? "out" : "in"}
+              amount={yenAbs(t.amount)}
+              tone={flowSide("bank", t.amount)}
+              directionLabel={flowLabel("bank", t.amount)}
               category={
                 <>
                   {t.transferGroupId ? (
@@ -472,7 +474,7 @@ function TxnActionsSheet({
     <SheetModal
       visible
       title="明細の操作"
-      subtitle={`${fmtDate(txn.date)} ${txn.description} ${yen(txn.amount)}`}
+      subtitle={`${fmtDate(txn.date)} ${txn.description} ${flowLabel("bank", txn.amount)} ${yenAbs(txn.amount)}`}
       onClose={onClose}
     >
       <Text style={s.sheetSection}>チャージ先</Text>

@@ -262,7 +262,9 @@ function BankAccountsContent() {
                             「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
                       {a.balanceAdjustment ? (
                         <div className="text-xs text-slate-500 mt-0.5">
-                          明細合計 {yen(a.transactionSum ?? 0)} ＋ 差額 {yen(a.balanceAdjustment)}
+                          明細合計 {yen(a.transactionSum ?? 0)}・差額{" "}
+                          {yen(Math.abs(a.balanceAdjustment))}
+                          {a.balanceAdjustment < 0 ? "を引く" : "を足す"}
                         </div>
                       ) : a.balanceCheckedAt ? (
                         <div className="text-xs text-slate-400 mt-0.5">
@@ -482,7 +484,7 @@ function BankAccountsContent() {
               </label>
               <p className="text-xs text-slate-500 mb-2">
                 取得できる明細を登録したのに現在の残高と差異がある場合は、差額を入力してください。
-                取込開始前から口座にあった残高（期首残高）などが該当します。
+                取込開始前から口座にあった残高（期首残高）などが該当します。残高を減らす向きの差額は、マイナスの数で入力します。
               </p>
               <input
                 type="number"
@@ -494,8 +496,9 @@ function BankAccountsContent() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
               />
               <p className="text-xs text-slate-500 mt-2">
-                明細合計 {yen(editAccount.transactionSum)} ＋ 差額{" "}
-                {yen(Number(editAccount.balanceAdjustment || 0))} ＝{" "}
+                明細合計 {yen(editAccount.transactionSum)} に差額{" "}
+                {yen(Math.abs(Number(editAccount.balanceAdjustment || 0)))}
+                {Number(editAccount.balanceAdjustment || 0) < 0 ? "を引いて" : "を足して"} 残高{" "}
                 <span className="font-semibold text-indigo-600">
                   {yen(editAccount.transactionSum + Number(editAccount.balanceAdjustment || 0))}
                 </span>

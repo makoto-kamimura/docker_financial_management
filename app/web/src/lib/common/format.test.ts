@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountText, yen, yenShort, yenSigned } from "./format";
+import { amountText, yen, yenAbs, yenNet, yenShort } from "./format";
 
 describe("金額の表示", () => {
   it("yen: 「1,234円」。四捨五入し、負の数は全角のマイナス", () => {
@@ -9,11 +9,18 @@ describe("金額の表示", () => {
     expect(yen(0)).toBe("0円");
   });
 
-  it("yenSigned: 向きのある金額は符号を付ける（0 は付けない）", () => {
-    expect(yenSigned(1234)).toBe("+1,234円");
-    expect(yenSigned(-1234)).toBe("−1,234円");
-    expect(yenSigned(0)).toBe("0円");
-    expect(yenSigned(-0.4)).toBe("0円");
+  it("yenAbs: 向きのある金額は符号を付けず絶対値で出す", () => {
+    expect(yenAbs(1234)).toBe("1,234円");
+    expect(yenAbs(-1234)).toBe("1,234円");
+    expect(yenAbs(0)).toBe("0円");
+    expect(yenAbs(-0.4)).toBe("0円");
+  });
+
+  it("yenNet: 負のときは符号の代わりに言葉を付ける", () => {
+    expect(yenNet(1234)).toBe("1,234円");
+    expect(yenNet(-1234)).toBe("赤字 1,234円");
+    expect(yenNet(-1234, "債務超過")).toBe("債務超過 1,234円");
+    expect(yenNet(0)).toBe("0円");
   });
 
   it("yenShort: 1 万円以上は万円（小数 1 桁）", () => {

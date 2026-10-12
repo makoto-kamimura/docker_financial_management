@@ -669,8 +669,11 @@ export function LoansScreen({ viewMode }: Props) {
                                         diff > 0 ? "#dc2626" : diff < 0 ? "#16a34a" : "#94a3b8",
                                     }}
                                   >
-                                    ({diff > 0 ? "+" : ""}
-                                    {diff.toFixed(2)}pt)
+                                    （
+                                    {diff === 0
+                                      ? "変わらず"
+                                      : `${Math.abs(diff).toFixed(2)}pt ${diff > 0 ? "上昇" : "低下"}`}
+                                    ）
                                   </Text>
                                 </Text>
                                 <Text style={s.historyRow}>
@@ -735,8 +738,9 @@ export function LoansScreen({ viewMode }: Props) {
                                       },
                                     ]}
                                   >
-                                    {cmp.afterTotal > cmp.beforeTotal ? "+" : ""}
-                                    {yen(cmp.afterTotal - cmp.beforeTotal)}
+                                    {cmp.afterTotal === cmp.beforeTotal
+                                      ? "変わらず"
+                                      : `${yen(Math.abs(cmp.afterTotal - cmp.beforeTotal))} ${cmp.afterTotal > cmp.beforeTotal ? "増える" : "減る"}`}
                                   </Text>
                                 </View>
                               </View>

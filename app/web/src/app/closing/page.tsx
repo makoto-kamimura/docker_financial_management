@@ -58,6 +58,8 @@ type Statements = {
 };
 
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
+// 利益・純資産が負のときは「−」の代わりに言葉を付ける（「損失 ￥1,234」「債務超過 ￥1,234」）
+const yenNet = (v: number, negative = "赤字") => (v < 0 ? `${negative} ${yen(-v)}` : yen(v));
 
 const CATEGORY_LABELS: Record<string, string> = {
   REVENUE: "収入",
@@ -128,7 +130,7 @@ function PnlTab({ pnl, sysMode }: { pnl: Statements["pnl"]; sysMode: ViewMode })
       {/* 売上総利益 */}
       <div className="bg-indigo-50 border border-indigo-100 rounded-lg px-4 py-3 flex justify-between items-center">
         <span className="font-semibold text-indigo-800">売上総利益</span>
-        <span className="text-lg font-bold text-indigo-700">{yen(pnl.grossProfit)}</span>
+        <span className="text-lg font-bold text-indigo-700">{yenNet(pnl.grossProfit)}</span>
       </div>
 
       {/* 経費 */}
@@ -203,7 +205,7 @@ function PnlTab({ pnl, sysMode }: { pnl: Statements["pnl"]; sysMode: ViewMode })
         <span
           className={`text-2xl font-bold ${pnl.netIncome >= 0 ? "text-emerald-700" : "text-red-600"}`}
         >
-          {yen(pnl.netIncome)}
+          {yenNet(pnl.netIncome, "損失")}
         </span>
       </div>
     </div>
@@ -262,7 +264,7 @@ function BsTab({ bs, sysMode }: { bs: Statements["bs"]; sysMode: ViewMode }) {
               <td
                 className={`py-2 text-right font-bold ${bs.equity >= 0 ? "text-indigo-700" : "text-red-600"}`}
               >
-                {yen(bs.equity)}
+                {yenNet(bs.equity, "債務超過")}
               </td>
             </tr>
           </tbody>
@@ -414,7 +416,7 @@ function RatiosTab({
           </div>
           <div>
             <p className="text-slate-500 text-xs mb-0.5">純資産</p>
-            <p className="font-semibold">{yen(bs.equity)}</p>
+            <p className="font-semibold">{yenNet(bs.equity, "債務超過")}</p>
           </div>
           <div>
             <p className="text-slate-500 text-xs mb-0.5">売上高</p>
@@ -422,11 +424,11 @@ function RatiosTab({
           </div>
           <div>
             <p className="text-slate-500 text-xs mb-0.5">売上総利益</p>
-            <p className="font-semibold">{yen(pnl.grossProfit)}</p>
+            <p className="font-semibold">{yenNet(pnl.grossProfit)}</p>
           </div>
           <div>
             <p className="text-slate-500 text-xs mb-0.5">当期純利益</p>
-            <p className="font-semibold">{yen(pnl.netIncome)}</p>
+            <p className="font-semibold">{yenNet(pnl.netIncome, "損失")}</p>
           </div>
         </div>
       </div>
@@ -483,7 +485,7 @@ function MonthlyTab({
                 <td
                   className={`py-1.5 text-right font-medium ${profit >= 0 ? "text-slate-800" : "text-red-600"}`}
                 >
-                  {yen(profit)}
+                  {yenNet(profit)}
                 </td>
               </tr>
             );
@@ -500,7 +502,7 @@ function MonthlyTab({
                   : "text-red-600"
               }`}
             >
-              {yen(totals.revenue - totals.cogs - totals.expense)}
+              {yenNet(totals.revenue - totals.cogs - totals.expense)}
             </td>
           </tr>
         </tbody>
@@ -624,7 +626,7 @@ export default function ClosingPage() {
                 if (!data) return;
                 if (
                   !confirm(
-                    `${year}年度の決算を確定しますか？\n事業所得: ${yen(data.pnl.netIncome)}`,
+                    `${year}年度の決算を確定しますか？\n事業所得: ${yenNet(data.pnl.netIncome, "損失")}`,
                   )
                 )
                   return;
@@ -675,12 +677,14 @@ export default function ClosingPage() {
               <p
                 className={`text-lg font-bold ${data.pnl.netIncome >= 0 ? "text-indigo-700" : "text-red-600"}`}
               >
-                {yen(data.pnl.netIncome)}
+                {yenNet(data.pnl.netIncome, "損失")}
               </p>
             </div>
             <div className="card">
               <p className="text-xs font-medium text-slate-500 mb-1">純資産</p>
-              <p className="text-lg font-bold text-slate-800">{yen(data.bs.equity)}</p>
+              <p className="text-lg font-bold text-slate-800">
+                {yenNet(data.bs.equity, "債務超過")}
+              </p>
             </div>
           </div>
 

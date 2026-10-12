@@ -12,10 +12,11 @@ import { CycleSteps, type CycleStatus } from "@/components/CycleSteps";
 import { MonthPicker } from "@/components/MonthPicker";
 import { BUDGET_HELP, textFor } from "@/lib/shared/help-texts";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
-import { isExpenseCategory, nextYearMonth, type VarianceRow } from "@/lib/shared/budget-cycle";
+import { nextYearMonth, type VarianceRow } from "@/lib/shared/budget-cycle";
+import { differenceLabel } from "@/lib/shared/amount-direction";
 import { cycleKey } from "@/lib/shared/cycle-month";
 import { useCycleMonth } from "@/lib/client/use-cycle-month";
-import { yen, yenSigned } from "@/lib/common/format";
+import { yen, yenAbs } from "@/lib/common/format";
 
 export type VarianceRowWithNames = VarianceRow & {
   soleName: string | null;
@@ -35,12 +36,8 @@ export type VarianceResponse = CycleStatus & {
 /** 差の色（有利なら緑、不利なら赤） */
 export const diffClass = (r: VarianceRow) =>
   r.favorable === null ? "text-slate-500" : r.favorable ? "text-emerald-700" : "text-red-600";
-/** 差の呼び方（費用は余り・超過、収入は上振れ・不足） */
-export const diffLabel = (r: VarianceRow) => {
-  if (r.difference === 0) return "予算どおり";
-  if (isExpenseCategory(r.category)) return r.difference < 0 ? "余り" : "超過";
-  return r.difference > 0 ? "上振れ" : "不足";
-};
+/** 差の呼び方（費用は余り・超過、収入は上振れ・不足）。金額は符号を付けず絶対値で添える */
+export const diffLabel = (r: VarianceRow) => differenceLabel(r.category, r.difference);
 
 export function BudgetVariancePanel({
   mode,
@@ -148,7 +145,7 @@ export function BudgetVariancePanel({
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{yen(r.actual)}</td>
                       <td className={`px-3 py-2 text-right tabular-nums ${diffClass(r)}`}>
-                        {yenSigned(r.difference)}
+                        {yenAbs(r.difference)}
                         <div className="text-[10px]">{diffLabel(r)}</div>
                       </td>
                     </tr>

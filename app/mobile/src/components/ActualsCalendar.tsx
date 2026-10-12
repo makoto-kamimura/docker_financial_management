@@ -17,6 +17,7 @@ import { digitsOnly, isoDate, yen } from "../format";
 import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, Field, Input, Notice, Pills } from "./ui";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "./MonthCalendar";
+import { flowLabel } from "../shared/amount-direction";
 
 const INCOME_CATS = ["REVENUE", "PROFIT"];
 const EXPENSE_CATS = ["EXPENSE", "COGS"];
@@ -170,6 +171,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
             <DayAmounts
               income={dayEntries.reduce((sum, e) => sum + entryAmount(e).income, 0)}
               expense={dayEntries.reduce((sum, e) => sum + entryAmount(e).expense, 0)}
+              kind="cash"
             />
           );
         }}
@@ -198,8 +200,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                     </Text>
                   </View>
                   <Text style={isIncome ? s.income : s.expense}>
-                    {isIncome ? "+" : "−"}
-                    {yen(isIncome ? income : expense)}
+                    {flowLabel("cash", isIncome ? 1 : -1)} {yen(isIncome ? income : expense)}
                   </Text>
                   <TouchableOpacity onPress={() => confirmDelete(e)} hitSlop={8}>
                     <Text style={s.remove}>✕</Text>

@@ -144,7 +144,7 @@ export function describeRule(
     case "rate":
       return rule.ratePercent === 0
         ? "横ばい（年 0%）"
-        : `年 ${rule.ratePercent > 0 ? "+" : ""}${rule.ratePercent}%`;
+        : `年 ${Math.abs(rule.ratePercent)}% ${rule.ratePercent > 0 ? "上昇" : "下落"}`;
     case "declining":
       return `毎年 ${rule.ratePercent}% ずつ減る（定率）`;
     case "straight_line": {

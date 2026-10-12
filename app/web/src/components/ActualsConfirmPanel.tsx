@@ -28,7 +28,7 @@ import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "@/lib/shared/help-text
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { Notice } from "@/components/ui";
-import { yenSigned } from "@/lib/common/format";
+import { DirectedAmount } from "@/components/DirectedAmount";
 
 export function ActualsConfirmPanel({
   mode,
@@ -549,10 +549,9 @@ function UnassignedCard({
                     {KIND_LABEL[e.kind]}・{e.sourceName}
                   </td>
                   <td className="px-3 py-2">{e.description}</td>
-                  <td
-                    className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${e.amount < 0 ? "text-rose-600" : "text-emerald-600"}`}
-                  >
-                    {yenSigned(e.amount)}
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {/* 明細の金額は入金が正（カードの利用も出金として負） */}
+                    <DirectedAmount kind="bank" amount={e.amount} />
                   </td>
                   <td className="px-3 py-2">
                     <select

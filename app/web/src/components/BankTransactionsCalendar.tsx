@@ -9,12 +9,12 @@ import { useQueries, useQueryClient, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
+import { DirectedAmount } from "@/components/DirectedAmount";
 import { SectionLead } from "@/components/Explain";
 import { Notice } from "@/components/ui";
 import { BANK_HELP } from "@/lib/shared/help-texts";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
-import { yen } from "@/lib/common/format";
 
 type BankAccount = { id: number; name: string; bankName: string };
 type Txn = {
@@ -212,7 +212,7 @@ export function BankTransactionsCalendar({ accountId }: Props) {
               items={[
                 { label: "入金合計", value: monthTotals.income, tone: "in" },
                 { label: "出金合計", value: monthTotals.expense, tone: "out" },
-                { label: "差引", value: monthTotals.net, tone: "net" },
+                { label: "差引", value: monthTotals.net, tone: "net", negativeLabel: "出金超過" },
               ]}
               note={`${monthTotals.count} 件の明細`}
             />
@@ -226,6 +226,7 @@ export function BankTransactionsCalendar({ accountId }: Props) {
               <DayAmounts
                 income={dayEntries.reduce((s, t) => s + Math.max(t.amount, 0), 0)}
                 expense={dayEntries.reduce((s, t) => s + Math.max(-t.amount, 0), 0)}
+                kind="bank"
               />
             );
           }}
@@ -263,12 +264,11 @@ export function BankTransactionsCalendar({ accountId }: Props) {
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <span
-                            className={`text-xs font-semibold tabular-nums ${t.amount > 0 ? "text-emerald-600" : "text-rose-600"}`}
-                          >
-                            {t.amount > 0 ? "+" : "−"}
-                            {yen(Math.abs(t.amount))}
-                          </span>
+                          <DirectedAmount
+                            kind="bank"
+                            amount={t.amount}
+                            className="text-xs font-semibold"
+                          />
                           <button
                             onClick={() => remove(t)}
                             className="text-slate-300 hover:text-red-400 text-xs"

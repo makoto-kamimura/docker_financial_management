@@ -46,7 +46,8 @@ export function NetWorthSummaryCard({
         <View style={s.stat}>
           <Text style={s.statLabel}>純資産</Text>
           <Text style={[s.statValue, { color: data.netWorth >= 0 ? "#4f46e5" : "#dc2626" }]}>
-            {yenShort(data.netWorth)}
+            {/* 負のときは「−」の代わりに「債務超過」を付ける */}
+            {data.netWorth < 0 ? `債務超過 ${yenShort(-data.netWorth)}` : yenShort(data.netWorth)}
           </Text>
         </View>
       </View>

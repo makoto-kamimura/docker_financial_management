@@ -17,6 +17,7 @@ import { digitsOnly, isoDate, yen } from "../format";
 import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, Field, Input, Lead, Notice, Pills } from "./ui";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "./MonthCalendar";
+import { flowLabel } from "../shared/amount-direction";
 
 const INCOME_CATS = ["REVENUE"];
 const EXPENSE_CATS = ["EXPENSE", "COGS"];
@@ -180,6 +181,7 @@ export function BudgetCalendar({
             <DayAmounts
               income={dayEntries.filter(isIncome).reduce((sum, x) => sum + x.amount, 0)}
               expense={dayEntries.filter((x) => !isIncome(x)).reduce((sum, x) => sum + x.amount, 0)}
+              kind="budget"
             />
           );
         }}
@@ -205,8 +207,7 @@ export function BudgetCalendar({
                   </Text>
                 </View>
                 <Text style={isIncome(i) ? s.income : s.expense}>
-                  {isIncome(i) ? "+" : "−"}
-                  {yen(i.amount)}
+                  {flowLabel("budget", isIncome(i) ? 1 : -1)} {yen(i.amount)}
                 </Text>
                 {!locked && (
                   <TouchableOpacity onPress={() => confirmDelete(i)} hitSlop={8}>

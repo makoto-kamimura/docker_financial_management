@@ -11,9 +11,12 @@ type Props = {
   date: string;
   account: string;
   description: string;
+  /** 金額（符号は付けず絶対値。向きは directionLabel と tone で示す） */
   amount: string;
-  /** in = 入金・収入（緑）、out = 出金・支出（赤）、none = 色なし */
+  /** in = 入金・収入・返金（緑）、out = 出金・支出・利用（赤）、none = 色なし */
   tone: "in" | "out" | "none";
+  /** 金額の前に付ける向きのラベル（入金・出金・利用・返金など） */
+  directionLabel?: string;
   category?: ReactNode;
   status?: ReactNode;
   actions?: ReactNode;
@@ -25,6 +28,7 @@ export function LedgerRow({
   description,
   amount,
   tone,
+  directionLabel,
   category,
   status,
   actions,
@@ -36,6 +40,7 @@ export function LedgerRow({
           {date} · {account}
         </Text>
         <Text style={[s.amount, tone === "in" ? s.in : tone === "out" ? s.out : null]}>
+          {directionLabel ? <Text style={s.direction}>{directionLabel} </Text> : null}
           {amount}
         </Text>
       </View>
@@ -103,6 +108,7 @@ const s = StyleSheet.create({
   amount: { fontSize: 14, fontWeight: "700", color: "#334155" },
   out: { color: "#dc2626" },
   in: { color: "#059669" },
+  direction: { fontSize: 10, fontWeight: "600" },
   desc: { fontSize: 13, color: "#334155", marginTop: 3 },
   foot: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 6 },
   actions: { flexDirection: "row", alignItems: "center", gap: 10, marginLeft: "auto" },

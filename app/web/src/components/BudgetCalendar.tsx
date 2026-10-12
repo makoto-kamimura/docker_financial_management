@@ -7,6 +7,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
+import { DirectedAmount } from "@/components/DirectedAmount";
 import { SectionLead } from "@/components/Explain";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { BUDGET_HELP } from "@/lib/shared/help-texts";
@@ -178,6 +179,7 @@ export function BudgetCalendar({ mode, accounts, confirmedMonths }: Props) {
               <DayAmounts
                 income={dayItems.filter(isIncome).reduce((s, x) => s + x.amount, 0)}
                 expense={dayItems.filter((x) => !isIncome(x)).reduce((s, x) => s + x.amount, 0)}
+                kind="budget"
               />
             );
           }}
@@ -211,12 +213,11 @@ export function BudgetCalendar({ mode, accounts, confirmedMonths }: Props) {
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <span
-                            className={`text-xs font-semibold tabular-nums ${isIncome(i) ? "text-emerald-600" : "text-rose-600"}`}
-                          >
-                            {isIncome(i) ? "+" : "−"}
-                            {yen(i.amount)}
-                          </span>
+                          <DirectedAmount
+                            kind="budget"
+                            amount={isIncome(i) ? i.amount : -i.amount}
+                            className="text-xs font-semibold"
+                          />
                           {!locked && (
                             <button
                               onClick={() => remove(i)}

@@ -22,6 +22,8 @@ type PortalResponse = {
 };
 
 const yen = (v: number) => v.toLocaleString("ja-JP", { style: "currency", currency: "JPY" });
+// 純利益が負のときは「−」の代わりに「赤字」を付ける
+const yenNet = (v: number) => (v < 0 ? `赤字 ${yen(-v)}` : yen(v));
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   OPEN: { label: "未締め", cls: "bg-amber-100 text-amber-700" },
@@ -69,7 +71,11 @@ export default function PortalPage() {
           {[
             { label: "総収益", value: yen(totalRevenue), sub: `${data.tenants.length} テナント` },
             { label: "総費用", value: yen(totalExpense), sub: "経費＋原価" },
-            { label: "総純利益", value: yen(totalNet), sub: totalNet >= 0 ? "黒字" : "赤字" },
+            {
+              label: "総純利益",
+              value: yenNet(totalNet),
+              sub: totalNet >= 0 ? "黒字" : "支出が収益を上回っています",
+            },
             { label: "未承認仕訳", value: String(totalPending), sub: "件の承認待ち" },
           ].map(({ label, value, sub }) => (
             <div key={label} className="card p-4">
@@ -131,7 +137,7 @@ export default function PortalPage() {
                     <td
                       className={`px-4 py-3 text-right font-semibold ${t.netIncome >= 0 ? "text-emerald-700" : "text-red-600"}`}
                     >
-                      {yen(t.netIncome)}
+                      {yenNet(t.netIncome)}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span

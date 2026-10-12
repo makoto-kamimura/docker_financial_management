@@ -3,7 +3,8 @@
 // マスの中身（その日の収入・支出など）と、選んだ日の一覧・登録フォームは呼び出し側が持つ。
 import type { ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { amountText, yen } from "../format";
+import { amountText, yenAbs, yenNet } from "../format";
+import { FLOW_LABELS, type FlowKind } from "../shared/amount-direction";
 import { Card } from "./ui";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -115,7 +116,8 @@ export function CalendarTotals({
   items,
   note,
 }: {
-  items: { label: string; value: number; tone: "in" | "out" | "net" }[];
+  /** net は負のとき negativeLabel（既定「赤字」）を付けて絶対値で出す */
+  items: { label: string; value: number; tone: "in" | "out" | "net"; negativeLabel?: string }[];
   /** 件数など */
   note?: string;
 }) {
@@ -135,7 +137,7 @@ export function CalendarTotals({
                     : s.net
             }
           >
-            {yen(it.value)}
+            {it.tone === "net" ? yenNet(it.value, it.negativeLabel) : yenAbs(it.value)}
           </Text>
         </Text>
       ))}
@@ -144,18 +146,32 @@ export function CalendarTotals({
   );
 }
 
-/** マスの中の、その日の入金（+）と出金（−）の合計。幅が狭いので数字だけ出す */
-export function DayAmounts({ income, expense }: { income: number; expense: number }) {
+/**
+ * マスの中の、その日の入ってくる向き（緑）と出ていく向き（赤）の合計。幅が狭いので数字だけ出し、
+ * 符号の代わりに 1 文字のラベル（入・出、収・支、返・利）を添える。
+ */
+export function DayAmounts({
+  income,
+  expense,
+  kind,
+}: {
+  income: number;
+  expense: number;
+  kind: FlowKind;
+}) {
+  const labels = FLOW_LABELS[kind];
   return (
     <>
       {income > 0 && (
         <Text style={s.dayIncome} numberOfLines={1}>
-          +{amountText(income)}
+          {labels.shortIn}
+          {amountText(income)}
         </Text>
       )}
       {expense > 0 && (
         <Text style={s.dayExpense} numberOfLines={1}>
-          −{amountText(expense)}
+          {labels.shortOut}
+          {amountText(expense)}
         </Text>
       )}
     </>

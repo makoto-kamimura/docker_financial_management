@@ -12,6 +12,7 @@ import { Check, Lock, Pencil, Trash2 } from "lucide-react";
 import { useMonthColumnScroll } from "@/hooks/useMonthColumnScroll";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { CATEGORY_LABEL, categoryRank } from "@/lib/shared/labels";
+import { negativeAmountWord } from "@/lib/shared/amount-direction";
 import { amountText } from "@/lib/common/format";
 
 export type MatrixAccount = {
@@ -165,7 +166,24 @@ export function AccountMonthMatrix({
     </div>
   );
 
-  const totalRow = (label: string, values: number[], total: number, tone?: boolean) => (
+  // 負の金額は「−」の代わりに言葉を付ける（差引は赤字、費用は戻り＝返金が上回った月、収入は減額）
+  const cellAmount = (v: number, negative: string) =>
+    v < 0 ? (
+      <>
+        <span className="mr-0.5 text-[10px]">{negative}</span>
+        {amountText(Math.abs(v))}
+      </>
+    ) : (
+      amountText(v)
+    );
+
+  const totalRow = (
+    label: string,
+    values: number[],
+    total: number,
+    negative: string,
+    tone?: boolean,
+  ) => (
     <tr className="bg-slate-50 text-xs">
       <td className="sticky left-0 bg-slate-50 px-4 py-2 font-semibold text-slate-600">{label}</td>
       {values.map((v, i) => (
@@ -173,13 +191,13 @@ export function AccountMonthMatrix({
           key={i}
           className={`px-3 py-2 text-right tabular-nums font-medium ${tone && v < 0 ? "text-red-600" : "text-slate-700"}`}
         >
-          {v === 0 ? "—" : amountText(v)}
+          {v === 0 ? "—" : cellAmount(v, negative)}
         </td>
       ))}
       <td
         className={`px-3 py-2 text-right tabular-nums font-semibold ${tone && total < 0 ? "text-red-600" : "text-slate-800"}`}
       >
-        {total === 0 ? "—" : amountText(total)}
+        {total === 0 ? "—" : cellAmount(total, negative)}
       </td>
     </tr>
   );
@@ -260,7 +278,9 @@ export function AccountMonthMatrix({
                           ) : cell ? (
                             <div>
                               <div className="flex items-center justify-end gap-1 group/cell">
-                                <span>{amountText(cell.amount)}</span>
+                                <span>
+                                  {cellAmount(cell.amount, negativeAmountWord(acct.category))}
+                                </span>
                                 {cell.action ??
                                   (cell.editable && !locked && onDelete && (
                                     <>
@@ -320,7 +340,7 @@ export function AccountMonthMatrix({
                       );
                     })}
                     <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700">
-                      {annual === 0 ? "—" : amountText(annual)}
+                      {annual === 0 ? "—" : cellAmount(annual, negativeAmountWord(acct.category))}
                     </td>
                   </tr>
                 );
@@ -331,16 +351,19 @@ export function AccountMonthMatrix({
                 "収入計",
                 totals.map((t) => t.income),
                 sum((t) => t.income),
+                "減額",
               )}
               {totalRow(
                 "支出計",
                 totals.map((t) => t.spending),
                 sum((t) => t.spending),
+                "戻り",
               )}
               {totalRow(
                 "差引",
                 totals.map((t) => t.income - t.spending),
                 sum((t) => t.income - t.spending),
+                "赤字",
                 true,
               )}
             </tfoot>

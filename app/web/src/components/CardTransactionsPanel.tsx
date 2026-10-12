@@ -7,6 +7,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
+import { DirectedAmount } from "@/components/DirectedAmount";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
 import { useState, useMemo } from "react";
@@ -28,7 +29,8 @@ import {
   LedgerMoreSection,
   LedgerTable,
 } from "@/components/LedgerTable";
-import { yen } from "@/lib/common/format";
+import { yen, yenAbs } from "@/lib/common/format";
+import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -508,9 +510,10 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                 date: new Date(t.date).toLocaleDateString("ja-JP"),
                 account: selectedAccount?.name ?? "",
                 description: t.description,
-                amount: yen(t.amount),
+                amount: yenAbs(t.amount),
                 // カードは利用＝正（支出）、返金＝負
-                tone: t.amount > 0 ? "out" : "in",
+                tone: flowSide("card", t.amount),
+                directionLabel: flowLabel("card", t.amount),
                 category: (
                   <>
                     {/* チャージは資金の移動なので科目に紐付けない（二重計上の防止） */}
@@ -714,6 +717,7 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                 <DayAmounts
                   income={dayEntries.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0)}
                   expense={dayEntries.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)}
+                  kind="card"
                 />
               );
             }}
@@ -746,11 +750,11 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <span
-                              className={`text-xs font-semibold ${t.amount > 0 ? "text-red-600" : "text-emerald-600"}`}
-                            >
-                              {yen(t.amount)}
-                            </span>
+                            <DirectedAmount
+                              kind="card"
+                              amount={t.amount}
+                              className="text-xs font-semibold"
+                            />
                             <button
                               onClick={() => deleteTxn(t.id)}
                               className="text-slate-300 hover:text-red-400 text-xs"

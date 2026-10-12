@@ -14,10 +14,11 @@ import {
   type ViewMode,
 } from "../../api";
 import { categoryPayload, EntryCategoryField } from "../EntryCategoryField";
-import { digitsOnly, isoDate, yen } from "../../format";
+import { digitsOnly, isoDate, yenAbs } from "../../format";
 import { BANK_HELP } from "../../shared/help-texts";
 import { Button, Card, Field, Input, Lead, Notice, Pills, SelectField } from "../ui";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "../MonthCalendar";
+import { flowLabel } from "../../shared/amount-direction";
 
 type Direction = "income" | "expense";
 const BLANK_FORM = {
@@ -182,7 +183,7 @@ export function BankTransactionsCalendar({
             items={[
               { label: "入金合計", value: monthTotals.income, tone: "in" },
               { label: "出金合計", value: monthTotals.expense, tone: "out" },
-              { label: "差引", value: monthTotals.net, tone: "net" },
+              { label: "差引", value: monthTotals.net, tone: "net", negativeLabel: "出金超過" },
             ]}
             note={`${monthTotals.count} 件の明細`}
           />
@@ -196,6 +197,7 @@ export function BankTransactionsCalendar({
             <DayAmounts
               income={dayEntries.reduce((sum, t) => sum + Math.max(t.amount, 0), 0)}
               expense={dayEntries.reduce((sum, t) => sum + Math.max(-t.amount, 0), 0)}
+              kind="bank"
             />
           );
         }}
@@ -229,8 +231,7 @@ export function BankTransactionsCalendar({
                   </Text>
                 </View>
                 <Text style={t.amount > 0 ? s.income : s.expense}>
-                  {t.amount > 0 ? "+" : "−"}
-                  {yen(Math.abs(t.amount))}
+                  {flowLabel("bank", t.amount)} {yenAbs(t.amount)}
                 </Text>
                 <TouchableOpacity onPress={() => confirmDelete(t)} hitSlop={8}>
                   <Text style={s.remove}>✕</Text>

@@ -9,7 +9,8 @@ import { Notice } from "@/components/ui";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { CATEGORY_LABEL as GROUP_LABELS, CATEGORY_ORDER as GROUP_ORDER } from "@/lib/shared/labels";
-import { yen } from "@/lib/common/format";
+import { yenAbs } from "@/lib/common/format";
+import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
 import { EXPENSE_CATS, INCOME_CATS, type Account, type CashEntry } from "@/components/entry/types";
 
 // 現金の履歴のページ送り（銀行・カードの履歴と同じ 30 件ずつ）
@@ -85,8 +86,9 @@ export function CashHistoryTab({
           date: new Date(e.date).toLocaleDateString("ja-JP"),
           account: "現金",
           description: e.description,
-          amount: yen(e.amount),
-          tone: e.amount < 0 ? ("out" as const) : ("in" as const),
+          amount: yenAbs(e.amount),
+          tone: flowSide("cash", e.amount),
+          directionLabel: flowLabel("cash", e.amount),
           category: (
             <select
               value={e.categoryAccountId ?? ""}

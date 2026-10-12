@@ -54,7 +54,8 @@ describe("resolveRule（自動は種別から決める）", () => {
     expect(trendOf(resolveRule(base({ category: "LAND" })))).toBe("flat");
     const building = base({ category: "BUILDING", structure: "wood" });
     expect(describeRule(resolveRule(building), building)).toBe("木造 22 年で 0 円へ（定額）");
-    expect(describeRule({ kind: "rate", ratePercent: -2 })).toBe("年 -2%");
+    expect(describeRule({ kind: "rate", ratePercent: -2 })).toBe("年 2% 下落");
+    expect(describeRule({ kind: "rate", ratePercent: 1.5 })).toBe("年 1.5% 上昇");
   });
 });
 

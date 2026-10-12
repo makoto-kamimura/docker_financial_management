@@ -10,8 +10,9 @@ import {
   type BudgetVarianceRow,
   type ViewMode,
 } from "../api";
-import { yen } from "../format";
-import { isExpenseCategory, nextYearMonth } from "../shared/budget-cycle";
+import { yen, yenAbs } from "../format";
+import { differenceLabel } from "../shared/amount-direction";
+import { nextYearMonth } from "../shared/budget-cycle";
 import { cycleKey } from "../shared/cycle-month";
 import { displayName } from "../shared/display-name";
 import { BUDGET_HELP, textFor } from "../shared/help-texts";
@@ -20,17 +21,11 @@ import { CycleSteps } from "./CycleSteps";
 import { MonthPills } from "./MonthPills";
 import { Button, COLORS, Notice } from "./ui";
 
-export const signedYen = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${yen(Math.abs(v))}`;
-
 /** 差の色（有利なら緑、不利なら赤） */
 export const diffColor = (r: BudgetVarianceRow) =>
   r.favorable === null ? COLORS.sub : r.favorable ? COLORS.success : COLORS.danger;
-/** 差の呼び方（費用は余り・超過、収入は上振れ・不足） */
-export const diffLabel = (r: BudgetVarianceRow) => {
-  if (r.difference === 0) return "予算どおり";
-  if (isExpenseCategory(r.category)) return r.difference < 0 ? "余り" : "超過";
-  return r.difference > 0 ? "上振れ" : "不足";
-};
+/** 差の呼び方（費用は余り・超過、収入は上振れ・不足）。金額は符号を付けず絶対値で添える */
+export const diffLabel = (r: BudgetVarianceRow) => differenceLabel(r.category, r.difference);
 
 type Props = {
   viewMode: ViewMode;
@@ -141,7 +136,7 @@ export function BudgetVarianceSection({
                 <Figure label="実績" value={yen(r.actual)} />
                 <Figure
                   label="差（実績−予算）"
-                  value={signedYen(r.difference)}
+                  value={yenAbs(r.difference)}
                   sub={diffLabel(r)}
                   color={diffColor(r)}
                 />

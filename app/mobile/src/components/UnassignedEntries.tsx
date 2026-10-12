@@ -13,7 +13,8 @@ import {
   type UnassignedEntry,
 } from "../api";
 import { ENTRY_HELP, LEARNING_RULE_TERMS } from "../shared/help-texts";
-import { fmtDate, yen } from "../format";
+import { fmtDate, yenAbs } from "../format";
+import { flowLabel, flowSide } from "../shared/amount-direction";
 import { CategoryPickerModal } from "./CategoryPickerModal";
 import { LedgerRow } from "./LedgerRow";
 import { Button, COLORS, Notice, TermList } from "./ui";
@@ -128,8 +129,10 @@ export function UnassignedEntries({
             date={fmtDate(e.date)}
             account={`${KIND_LABEL[e.kind]}・${e.sourceName}`}
             description={e.description}
-            amount={yen(e.amount)}
-            tone={e.amount < 0 ? "out" : "in"}
+            amount={yenAbs(e.amount)}
+            // 明細の金額は入金が正（カードの利用も出金として負）
+            tone={flowSide("bank", e.amount)}
+            directionLabel={flowLabel("bank", e.amount)}
             category={
               <TouchableOpacity onPress={() => setPicking(e)}>
                 <Text style={s.link}>科目を選ぶ</Text>
