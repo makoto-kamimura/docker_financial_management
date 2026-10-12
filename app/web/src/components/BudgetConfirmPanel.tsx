@@ -6,6 +6,7 @@
 //     期ズレ・回し先へ）を選ぶと B の予算案ができる。「確定」で B の予算を確定する（POST /api/budgets/confirm）
 //     （計算は lib/shared/budget-cycle.ts。案の金額は手で直せる＝流用）。これが C から見た ③
 //   - はじめて使うときなどは、B の予算をいま入っている金額のまま確定できる（B から見た ①）
+//   - B が期の最初の月（設定の開始月）なら、C の実績が未確定でも「そのまま確定」できる
 //   - C の実績の確定（②）は実績管理の「実績の確定」タブ、C の予算と実績を見比べるのは「予実差確認」タブ
 //   年は左のメニュー、月は上のボタンで選ぶ（lib/client/use-cycle-month.ts）。
 
@@ -264,7 +265,7 @@ export function BudgetConfirmPanel({
 
   return (
     <div className="space-y-5 mb-6">
-      <SectionLead className="-mb-2">{textFor(BUDGET_HELP.confirm, mode)}</SectionLead>
+      <SectionLead>{textFor(BUDGET_HELP.confirm, mode)}</SectionLead>
 
       {/* 予算の月と、比べる月から見た確定状況（① 比べる月の予算 → ② 実績 → ③ この月の予算） */}
       <div className="card flex flex-col gap-3">
@@ -280,7 +281,9 @@ export function BudgetConfirmPanel({
               title={
                 own?.prevActualsPending
                   ? "前月の実績が確定していないため、まだ確定できません。実績管理の「実績の確定」で前月の実績を確定してください"
-                  : "この月の予算を、いま入っている金額のまま確定します（はじめて使うときなど）"
+                  : own?.fiscalStart
+                    ? "期の最初の月なので、前月の実績を確定しなくても、いま入っている金額のまま確定できます"
+                    : "この月の予算を、いま入っている金額のまま確定します（はじめて使うときなど）"
               }
             >
               {month}月の予算をそのまま確定

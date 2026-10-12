@@ -1,10 +1,12 @@
 import type { TenantDbClient } from "@/lib/server/tenant-db";
 import { loadActualsCoverage, type CoverageSnapshot } from "@/lib/ledger/actuals-coverage";
 import { nextYearMonth, prevYearMonth } from "@/lib/shared/budget-cycle";
+import { isFiscalStartMonth } from "@/lib/accounting/fiscal-months";
 
 // 月ごとの流れ「① 予算確定 → ② 実績確定 → ③ 翌月の予算確定」の状況。
 // 予算管理の「予算の確定」（GET /api/budgets/variance）、実績管理の「実績の確定」と
 // ダッシュボードの状況の 1 行（GET /api/cycle-status）が同じものを使う。
+// 期の最初の月（tenants.startMonth）は、前月の実績が未確定でも予算を確定できる（POST /api/budgets/confirm と同じ判定）。
 export async function loadCycleStatus(
   db: TenantDbClient,
   tenantId: number,
@@ -19,12 +21,14 @@ export async function loadCycleStatus(
       include: { budgetConfirmation: true, actualsConfirmation: true },
     });
 
-  const [period, nextPeriod, prevPeriod, coverage] = await Promise.all([
+  const [period, nextPeriod, prevPeriod, coverage, tenant] = await Promise.all([
     periodOf(year, month),
     periodOf(next.year, next.month),
     periodOf(prev.year, prev.month),
     loadActualsCoverage(db, tenantId, year, month),
+    db.tenant.findUnique({ where: { id: tenantId }, select: { startMonth: true } }),
   ]);
+  const fiscalStart = isFiscalStartMonth(month, tenant?.startMonth ?? 1);
 
   return {
     periodId: period?.id ?? null,
@@ -37,8 +41,11 @@ export async function loadCycleStatus(
       confirmedAt: period?.budgetConfirmation?.confirmedAt ?? null,
       /** ③ 翌月の予算の確定日時 */
       nextConfirmedAt: nextPeriod?.budgetConfirmation?.confirmedAt ?? null,
-      // 前月の予算が確定済みで実績が未確定なら、その月の予算はまだ確定できない
-      prevActualsPending: !!prevPeriod?.budgetConfirmation && !prevPeriod.actualsConfirmation,
+      /** 期の最初の月か（前月の実績を待たずに予算を確定できる） */
+      fiscalStart,
+      // 前月の予算が確定済みで実績が未確定なら、その月の予算はまだ確定できない（期の最初の月を除く）
+      prevActualsPending:
+        !fiscalStart && !!prevPeriod?.budgetConfirmation && !prevPeriod.actualsConfirmation,
       /** ② その月の実績の入力状況と確定状況 */
       actuals: {
         confirmedAt: period?.actualsConfirmation?.confirmedAt ?? null,

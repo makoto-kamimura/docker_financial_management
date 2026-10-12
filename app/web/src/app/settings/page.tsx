@@ -8,7 +8,7 @@ import { SETTINGS_HELP } from "@/lib/shared/help-texts";
 import { PageHeader, Tabs } from "@/components/ui";
 import {
   DisplayNameSection,
-  ClosingMonthSection,
+  FiscalPeriodSection,
   BusinessProfileSection,
 } from "@/components/settings/ProfileSections";
 import { TaxSettingsSection } from "@/components/settings/TaxSettingsSection";
@@ -44,7 +44,7 @@ function SettingsContent() {
       {tab === "profile" && (
         <>
           <DisplayNameSection />
-          <ClosingMonthSection />
+          <FiscalPeriodSection />
           <BusinessProfileSection />
         </>
       )}

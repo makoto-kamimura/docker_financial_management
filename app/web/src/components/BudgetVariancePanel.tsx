@@ -71,7 +71,7 @@ export function BudgetVariancePanel({
 
   return (
     <div className="space-y-5 mb-6">
-      <SectionLead className="-mb-2">{textFor(BUDGET_HELP.variance, mode)}</SectionLead>
+      <SectionLead>{textFor(BUDGET_HELP.variance, mode)}</SectionLead>
 
       <div className="card flex flex-col gap-3">
         <MonthPicker year={year} month={month} onChange={setMonth} label="比べる月" />

@@ -615,7 +615,9 @@ export type CycleStatus = {
   next: { year: number; month: number };
   confirmedAt: string | null;
   nextConfirmedAt: string | null;
-  /** 前月の予算が確定済みで実績が未確定（この月の予算はまだ確定できない） */
+  /** 期の最初の月（設定の開始月）か。前月の実績を待たずに予算を確定できる */
+  fiscalStart: boolean;
+  /** 前月の予算が確定済みで実績が未確定（この月の予算はまだ確定できない。期の最初の月は false） */
   prevActualsPending: boolean;
   /** この月の実績の入力状況と確定状況 */
   actuals: {

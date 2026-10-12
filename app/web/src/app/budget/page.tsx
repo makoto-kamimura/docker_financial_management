@@ -405,7 +405,7 @@ function BudgetContent() {
       {/* ── CSV インポートタブ ──────────────────────────── */}
       {tab === "csv" && (
         <div className="max-w-2xl space-y-6 mb-6">
-          <SectionLead className="-mb-3">{BUDGET_HELP.csv}</SectionLead>
+          <SectionLead>{BUDGET_HELP.csv}</SectionLead>
           <CsvDropzone busy={importing} onFile={importFile} />
 
           {/* インポート結果 */}

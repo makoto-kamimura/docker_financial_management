@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/server/prisma";
 import { withApi } from "@/lib/server/api-handler";
+import { badRequest } from "@/lib/server/api-error";
+import { fiscalMonthsError, isValidFiscalMonths } from "@/lib/accounting/fiscal-months";
 import { seedDefaultAccountsForTenant } from "@/lib/accounting/default-accounts";
 import { seedDefaultAllocationRulesForTenant } from "@/lib/budget/default-allocation-rules";
 
@@ -12,6 +14,7 @@ const TenantSchema = z.object({
   capitalAmount: z.number().optional(),
   establishedOn: z.string().optional(),
   closingMonth: z.number().int().min(1).max(12).default(12),
+  startMonth: z.number().int().min(1).max(12).default(1),
 });
 
 // GET /api/tenants … 自テナントのみ返す
@@ -28,6 +31,10 @@ export const POST = withApi({
   role: "admin",
   schema: TenantSchema,
   handler: async ({ body }) => {
+    // 開始月は決算月の翌月でなければならない（tenants の CHECK 制約と同じ条件）
+    if (!isValidFiscalMonths(body.startMonth, body.closingMonth)) {
+      throw badRequest(fiscalMonthsError(body.closingMonth));
+    }
     const tenant = await prisma.tenant.create({
       data: {
         type: body.type,
@@ -36,6 +43,7 @@ export const POST = withApi({
         capitalAmount: body.capitalAmount ?? null,
         establishedOn: body.establishedOn ? new Date(body.establishedOn) : null,
         closingMonth: body.closingMonth,
+        startMonth: body.startMonth,
       },
     });
     // 新規テナントには家庭モードの既定勘定科目一式と予算配分ルールを自動登録する

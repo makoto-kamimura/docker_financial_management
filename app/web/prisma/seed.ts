@@ -142,6 +142,7 @@ async function main() {
       capitalAmount: 10_000_000,
       establishedOn: new Date("2018-04-01"),
       closingMonth: 3,
+      startMonth: 4,
     },
   });
   const tid = demoTenant.id;

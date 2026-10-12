@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { fiscalMonthsError, isValidFiscalMonths } from "@/lib/accounting/fiscal-months";
 
 type Tenant = {
   id: number;
@@ -11,6 +12,7 @@ type Tenant = {
   capitalAmount: string | null;
   establishedOn: string | null;
   closingMonth: number;
+  startMonth: number;
 };
 
 export default function CorporatePage() {
@@ -18,6 +20,7 @@ export default function CorporatePage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Tenant | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [form, setForm] = useState({
     type: "CORPORATION",
     name: "",
@@ -25,6 +28,7 @@ export default function CorporatePage() {
     capitalAmount: "",
     establishedOn: "",
     closingMonth: "12",
+    startMonth: "1",
   });
 
   const load = () => {
@@ -50,7 +54,9 @@ export default function CorporatePage() {
       capitalAmount: "",
       establishedOn: "",
       closingMonth: "12",
+      startMonth: "1",
     });
+    setSaveError(null);
     setShowForm(true);
   };
 
@@ -63,9 +69,14 @@ export default function CorporatePage() {
       capitalAmount: t.capitalAmount ?? "",
       establishedOn: t.establishedOn ? t.establishedOn.slice(0, 10) : "",
       closingMonth: String(t.closingMonth),
+      startMonth: String(t.startMonth),
     });
+    setSaveError(null);
     setShowForm(true);
   };
+
+  // 開始月は決算月の翌月でなければ保存できない（API と DB の CHECK 制約でも検査する）
+  const fiscalMonthsValid = isValidFiscalMonths(Number(form.startMonth), Number(form.closingMonth));
 
   const save = async () => {
     const body = {
@@ -75,6 +86,7 @@ export default function CorporatePage() {
       capitalAmount: form.capitalAmount ? Number(form.capitalAmount) : undefined,
       establishedOn: form.establishedOn || undefined,
       closingMonth: Number(form.closingMonth),
+      startMonth: Number(form.startMonth),
     };
     const url = editing ? `/api/tenants/${editing.id}` : "/api/tenants";
     const method = editing ? "PUT" : "POST";
@@ -86,6 +98,9 @@ export default function CorporatePage() {
     if (r.ok) {
       setShowForm(false);
       load();
+    } else {
+      const err = await r.json().catch(() => ({}));
+      setSaveError(typeof err.error === "string" ? err.error : "保存に失敗しました");
     }
   };
 
@@ -134,7 +149,9 @@ export default function CorporatePage() {
                     {t.corporateNumber && <p>法人番号: {t.corporateNumber}</p>}
                     {t.capitalAmount && <p>資本金: ¥{Number(t.capitalAmount).toLocaleString()}</p>}
                     {t.establishedOn && <p>設立日: {t.establishedOn.slice(0, 10)}</p>}
-                    <p>決算月: {t.closingMonth}月</p>
+                    <p>
+                      会計期間: {t.startMonth}月〜{t.closingMonth}月
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -221,21 +238,36 @@ export default function CorporatePage() {
                   </div>
                 </>
               )}
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">決算月</label>
-                <select
-                  value={form.closingMonth}
-                  onChange={(e) => setForm((f) => ({ ...f, closingMonth: e.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                >
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>
-                      {m}月
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                {(
+                  [
+                    ["startMonth", "開始月"],
+                    ["closingMonth", "決算月"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <div key={key}>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
+                    <select
+                      value={form[key]}
+                      onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={m}>
+                          {m}月
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
               </div>
+              {!fiscalMonthsValid && (
+                <p className="text-xs text-red-600">
+                  {fiscalMonthsError(Number(form.closingMonth))}
+                </p>
+              )}
             </div>
+            {saveError && <p className="text-sm text-red-600 mt-3">{saveError}</p>}
             <div className="flex justify-end gap-2 mt-5">
               <button
                 onClick={() => setShowForm(false)}
@@ -245,7 +277,8 @@ export default function CorporatePage() {
               </button>
               <button
                 onClick={save}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                disabled={!fiscalMonthsValid}
+                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40"
               >
                 保存
               </button>

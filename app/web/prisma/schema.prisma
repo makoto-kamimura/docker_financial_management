@@ -897,6 +897,7 @@ model Tenant {
   capitalAmount   Decimal?  @db.Decimal(18, 2) // 資本金
   establishedOn   DateTime?
   closingMonth    Int       @default(12) // 決算月（1-12）
+  startMonth      Int       @default(1) // 開始月（1-12）。決算月の翌月でなければならない（DB の CHECK 制約）
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
