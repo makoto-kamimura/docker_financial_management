@@ -5,7 +5,24 @@
 
 ## 1. 不具合
 
-今わかっているものはない。見つけたらここに書く。
+readme とコードの突き合わせ（2026-10）で見つかったもの。
+
+- [ ] **仕訳テンプレートの画面で科目を読み込めない**
+  - `app/web/src/app/journal-templates/page.tsx` が、存在しない `/api/masters/accounts` を呼んでいる（`/api/accounts` に直す）。仕訳帳から雛形を呼び出す操作も無い。
+- [ ] **インボイスの「印刷」が 404 になる**
+  - `app/web/src/app/invoices/page.tsx` が `/invoices/print?id=` を開くが、その画面が無い。
+- [ ] **インボイスの「入金」が必ず 400 になる**
+  - 発行すると売掛金を作るので、`PUT /api/invoices/[id]` は入金済みへの直接の変更を断る（売掛金の入金登録で切り替わる作り）。ボタンを売掛金の入金へ案内するか、消す。
+- [ ] **accountant ロールを付けられない**
+  - 権限の判定は accountant に対応しているが、`/api/admin/users`（作成・変更）の Zod と、ユーザー管理の画面の選択肢が admin / editor / viewer だけ。
+- [ ] **決算のキャッシュが消えない操作がある**
+  - 決算確定の取り消し（`DELETE /api/closing/finalize`）と、自動で作る仕訳（減価償却・棚卸の確定・売掛金と買掛金の消込）で、`invalidateClosingCaches` を呼んでいない。
+- [ ] **実績を確定した月でも振替の組を解除できる**
+  - `DELETE /api/bank-transfers/link` が実績の確定を確かめていない（チャージの紐付けは確かめている）。解除すると、確定した月に未割り当ての明細が増える。
+- [ ] **空白だけの摘要を学習すると、全明細に当たるルールができるおそれ**
+  - CSV の摘要は空でないことだけを確かめる。空白だけの摘要に科目を付けると、`normalizeKeyword` が空のキーワードを保存し、`classifyByRules` で全明細に当たる（実際に起きるかは未確認）。
+- [ ] **使っていない残り物**
+  - スキーマの `RecurringSuggestionDismissal`（`recurring_suggestion_dismissals`）と `BankAccount.role`、借入金管理の画面の「資金繰り」という文言、`app/web/sample-data/financials.csv`（廃止した科目×月の CSV の見本）。
 
 ## 2. 本番運用の準備
 
