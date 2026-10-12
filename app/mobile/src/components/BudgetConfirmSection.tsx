@@ -344,11 +344,6 @@ export function BudgetConfirmSection({
               前月の実績が確定していないため、まだ確定できません。実績の画面の「実績の確定」で前月の実績を確定してください。
             </Text>
           )}
-          {own?.fiscalStart && (
-            <Text style={s.note}>
-              期の最初の月なので、前月の実績を確定しなくても、いま入っている金額のまま確定できます。
-            </Text>
-          )}
         </>
       )}
 
