@@ -863,7 +863,7 @@ export type AllocationSuggestion = {
   month: number;
   basis: AllocationBasis;
   basisAmount: number;
-  /** 配分可能額（手入力は基準額と同じ。実績・予算はローン等控除後） */
+  /** 配分可能額（手入力は基準額と同じ。実績・予算は、どの目安にも入っていないローン等を控除した後） */
   available: number;
   items: {
     rule: {
@@ -878,12 +878,16 @@ export type AllocationSuggestion = {
     min: number;
     max: number | null;
     recommended: number;
+    /** このルールに入っている自動反映（ローン返済など）の合計 */
+    overlay: number;
     /** このルールの科目と、按分の重み・按分した推奨額・その月に入っている予算 */
     accounts: (AllocationMember & {
       weight: number;
       recommended: number;
-      /** null = 予算が未設定 */
+      /** 自動反映を含む。null = 予算が未設定 */
       budget: number | null;
+      /** その月の自動反映（ローン返済など） */
+      overlay: number;
     })[];
   }[];
   totalRecommended: number;

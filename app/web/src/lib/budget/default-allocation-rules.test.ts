@@ -23,6 +23,14 @@ describe("既定の予算配分ルール", () => {
     expect(totalMin).toBeLessThanOrEqual(100);
   });
 
+  it("推奨（幅の中央、上限なしは下限）の合計がちょうど 100%（収入を超えて配分しない）", () => {
+    const total = DEFAULT_ALLOCATION_RULES.reduce(
+      (s, r) => s + (r.maxPercent === null ? r.minPercent : (r.minPercent + r.maxPercent) / 2),
+      0,
+    );
+    expect(total).toBe(100);
+  });
+
   it("受け皿は区分ごとに 1 つだけ", () => {
     const fallbacks = DEFAULT_ALLOCATION_RULES.filter((r) => r.fallbackCategory).map(
       (r) => r.fallbackCategory,
