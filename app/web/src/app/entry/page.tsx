@@ -17,19 +17,22 @@ import { ActualsMatrixTab } from "@/components/entry/ActualsMatrixTab";
 import { CashCalendarTab } from "@/components/entry/CashCalendarTab";
 import { CashHistoryTab } from "@/components/entry/CashHistoryTab";
 import { CsvImportTab } from "@/components/entry/CsvImportTab";
+import { LearningRulesPanel } from "@/components/entry/LearningRulesPanel";
 import { type Account, type Source, type SourceAccount } from "@/components/entry/types";
 
 // 各タブの中身は components/entry/（現金の一覧・カレンダー・CSV・履歴）と、銀行・カードの部品に置く
-type Tab = "manual" | "calendar" | "confirm" | "csv" | "history";
+// 並びは 一覧 → カレンダー → CSV インポート → 実績の確定 → 履歴 → 設定（予算管理と同じく設定は右端）
+type Tab = "manual" | "calendar" | "csv" | "confirm" | "history" | "settings";
 const TABS: readonly (readonly [Tab, string])[] = [
   ["manual", "一覧"],
   ["calendar", "カレンダー"],
-  ["confirm", "実績の確定"],
   ["csv", "CSV インポート"],
+  ["confirm", "実績の確定"],
   ["history", "履歴"],
+  ["settings", "設定"],
 ];
 
-const TAB_IDS: Tab[] = ["manual", "calendar", "confirm", "csv", "history"];
+const TAB_IDS: Tab[] = ["manual", "calendar", "csv", "confirm", "history", "settings"];
 
 const SOURCES: [Source, string][] = [
   ["manual", "現金"],
@@ -120,8 +123,8 @@ function EntryContent() {
         }}
       />
 
-      {/* 開いているタブで何ができるかの説明（実績の確定タブは中に説明がある） */}
-      {tab !== "confirm" && (
+      {/* 開いているタブで何ができるかの説明（実績の確定タブと設定タブは中に説明がある） */}
+      {tab !== "confirm" && tab !== "settings" && (
         <SectionLead className="-mt-3 mb-4">
           {
             {
@@ -217,6 +220,9 @@ function EntryContent() {
       {tab === "history" && source === "manual" && (
         <CashHistoryTab accounts={accounts} mode={sysMode} />
       )}
+
+      {/* ── 設定タブ（学習ルールの一覧と変更。予算管理の設定と同じ形）── */}
+      {tab === "settings" && <LearningRulesPanel mode={sysMode} accounts={accounts} />}
     </AppShell>
   );
 }

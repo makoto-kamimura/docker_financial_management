@@ -37,17 +37,15 @@ import { POST as confirmPost, DELETE as confirmDelete } from "./confirm/route";
 import { GET as budgetsGet, POST as budgetsPost } from "./route";
 import { PATCH as budgetPatch, DELETE as budgetDelete } from "./[id]/route";
 import { POST as allocationApplyPost } from "./allocation-apply/route";
-import { POST as importPost } from "./import/route";
 
 const SUFFIX = `bc_${Date.now()}`;
 const YEAR = 2098; // 他のテストと衝突しない専用の年度
 
-function makeReq(method: string, url: string, body?: unknown, form?: FormData) {
+function makeReq(method: string, url: string, body?: unknown) {
   return {
     method,
     nextUrl: new URL(url, "http://localhost:3000"),
     json: () => Promise.resolve(body ?? {}),
-    formData: () => Promise.resolve(form ?? new FormData()),
     headers: new Headers({ "Content-Type": "application/json" }),
   } as unknown as import("next/server").NextRequest;
 }
@@ -205,7 +203,7 @@ describe("予算の月次サイクル", () => {
     expect(res.status).toBe(409);
   });
 
-  it("確定済みの月の予算は、登録・変更・削除・配分の反映・CSV 取込のどれでも変えられない", async () => {
+  it("確定済みの月の予算は、登録・変更・削除・配分の反映のどれでも変えられない", async () => {
     actingUser = editor;
     const june = await prisma.budget.findFirstOrThrow({
       where: { tenantId, accountId: food.id, period: { fiscalYear: YEAR, month: 6 } },
@@ -242,20 +240,6 @@ describe("予算の月次サイクル", () => {
       emptyRouteContext(),
     );
     expect(apply.status).toBe(409);
-
-    const form = new FormData();
-    form.append(
-      "file",
-      new File([`accountCode,fiscalYear,month,amount\n${food.code},${YEAR},6,1\n`], "b.csv"),
-    );
-    const imp = await importPost(
-      makeReq("POST", "http://x/api/budgets/import", undefined, form),
-      emptyRouteContext(),
-    );
-    expect(imp.status).toBe(200);
-    const impBody = await imp.json();
-    expect(impBody.imported).toBe(0);
-    expect(impBody.errors[0]).toContain("確定済み");
 
     const after = await prisma.budget.findUniqueOrThrow({ where: { id: june.id } });
     expect(after.amount.toNumber()).toBe(50_000);

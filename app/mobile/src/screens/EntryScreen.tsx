@@ -53,15 +53,18 @@ import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 import { fmtDate, fmtDateTime, MONTHS, yen, yenAbs } from "../format";
 import { flowLabel, flowSide, negativeAmountWord } from "../shared/amount-direction";
 import { ActualsConfirmSection } from "../components/ActualsConfirmSection";
+import { LearningRulesSection } from "../components/LearningRulesSection";
 import { useFiscalYear } from "../fiscal-year";
 
-export type EntryTab = "manual" | "calendar" | "confirm" | "history";
+// 並びは web 版と同じ（CSV インポートは web 版のみ）。設定（学習ルール）は右端
+export type EntryTab = "manual" | "calendar" | "confirm" | "history" | "settings";
 type Tab = EntryTab;
 const TABS = [
   ["manual", "一覧"],
   ["calendar", "カレンダー"],
   ["confirm", "実績の確定"],
   ["history", "履歴"],
+  ["settings", "設定"],
 ] as const;
 
 // カレンダー・履歴で見る出どころ（web 版と同じ）。現金＝実績（現金での支出・収入）、銀行＝入出金の明細、
@@ -198,9 +201,13 @@ export function EntryScreen({
     if (tab === "history" && source === "manual") loadHistory();
   }, [tab, source, loadHistory]);
 
+  // 設定タブ（学習ルール）は、値を変えると読み直す
+  const [rulesKey, setRulesKey] = useState(0);
+
   async function onRefresh() {
     setRefreshing(true);
-    await (tab === "history" ? loadHistory() : loadMatrix());
+    if (tab === "settings") setRulesKey((k) => k + 1);
+    else await (tab === "history" ? loadHistory() : loadMatrix());
     setRefreshing(false);
   }
 
@@ -328,6 +335,9 @@ export function EntryScreen({
             onFlowChanged={loadSourceAccounts}
           />
         )}
+
+        {/* 設定（学習ルールの一覧と変更。予算の設定と同じ形） */}
+        {tab === "settings" && <LearningRulesSection viewMode={viewMode} refreshKey={rulesKey} />}
 
         {/* 実績の確定（② 明細の最終日がそろったら確定する） */}
         {tab === "confirm" && (
