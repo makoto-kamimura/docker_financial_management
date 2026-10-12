@@ -11,7 +11,8 @@ import { ENTRY_HELP } from "@/lib/shared/help-texts";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { buildFinancialMatrix, type MatrixRecord } from "@/lib/shared/financial-matrix";
 import { categoryRank } from "@/lib/shared/labels";
-import { yen } from "@/lib/common/format";
+import { yen, yenAbs } from "@/lib/common/format";
+import { negativeAmountWord } from "@/lib/shared/amount-direction";
 import { type Account } from "@/components/entry/types";
 
 // 実績 1 行の出どころ（GET /api/financials/matrix）。セルの内訳モーダルで表示する
@@ -97,6 +98,9 @@ export function ActualsMatrixTab({
   const detailAccount = cellDetail
     ? (matrixRows.find((r) => r.account.code === cellDetail.accountCode)?.account ?? null)
     : null;
+  // 負の金額は「−」の代わりに言葉を付ける（費用は戻り、収入は減額）
+  const detailYen = (v: number) =>
+    v < 0 && detailAccount ? `${negativeAmountWord(detailAccount.category)} ${yenAbs(v)}` : yen(v);
 
   // 一覧のセル（見るだけ）。実績は明細に科目を付けると入るので、ここでは直接変えない。
   // セルを押すと、どの明細・仕訳から入った実績かの内訳を出す
@@ -164,7 +168,7 @@ export function ActualsMatrixTab({
             </button>
           </div>
           <p className="text-xs text-slate-500 mb-4">
-            このセルの実績の一覧です。合計 {yen(detailCell?.total ?? 0)}（
+            このセルの実績の一覧です。合計 {detailYen(detailCell?.total ?? 0)}（
             {detailCell?.records.length ?? 0} 件）。明細の科目は履歴から変えられます。
           </p>
 
@@ -207,7 +211,7 @@ export function ActualsMatrixTab({
                         )}
                       </td>
                       <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
-                        {yen(Number(r.amount))}
+                        {detailYen(Number(r.amount))}
                       </td>
                     </tr>
                   ))}

@@ -49,7 +49,7 @@ function BarRow({
   return (
     <li
       className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)_13rem] items-center gap-x-3 gap-y-1 py-1.5"
-      title={`${bar.label}：予算 ${yen(bar.plan)} / 実績 ${yen(bar.actual)}（差 ${bar.difference >= 0 ? "+" : "−"}${yen(Math.abs(bar.difference))}）`}
+      title={`${bar.label}：予算 ${yen(bar.plan)} / 実績 ${yen(bar.actual)}（${state.label}${bar.difference !== 0 ? ` ${yen(Math.abs(bar.difference))}` : ""}）`}
     >
       <span
         className={`text-xs truncate ${strong ? "font-semibold text-slate-800" : "text-slate-600"}`}

@@ -5,7 +5,8 @@
 // マスの中身（その日の収入・支出など）と、選んだ日の一覧・登録フォームは呼び出し側が持つ。
 
 import type { ReactNode } from "react";
-import { yen } from "@/lib/common/format";
+import { yen, yenAbs } from "@/lib/common/format";
+import { FLOW_LABELS, netWord, type FlowKind } from "@/lib/shared/amount-direction";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -160,7 +161,8 @@ export function CalendarTotals({
   items,
   note,
 }: {
-  items: { label: string; value: number; tone: "in" | "out" | "net" }[];
+  /** net は負のとき negativeLabel（既定「赤字」）を付けて絶対値で出す */
+  items: { label: string; value: number; tone: "in" | "out" | "net"; negativeLabel?: string }[];
   /** 右端に出す件数など */
   note?: ReactNode;
 }) {
@@ -178,7 +180,9 @@ export function CalendarTotals({
         <span key={it.label} className="text-xs text-slate-500">
           {it.label}{" "}
           <span className={`text-sm font-semibold tabular-nums ${color(it.tone, it.value)}`}>
-            {yen(it.value)}
+            {it.tone === "net" && netWord(it.value, it.negativeLabel)
+              ? `${netWord(it.value, it.negativeLabel)} ${yenAbs(it.value)}`
+              : yenAbs(it.value)}
           </span>
         </span>
       ))}
@@ -187,15 +191,31 @@ export function CalendarTotals({
   );
 }
 
-/** マスの中の、その日の入金（+）と出金（−）の合計。0 の側は出さない */
-export function DayAmounts({ income, expense }: { income: number; expense: number }) {
+/**
+ * マスの中の、その日の入ってくる向き（緑）と出ていく向き（赤）の合計。0 の側は出さない。
+ * 金額に符号は付けず、1 文字のラベル（入・出、収・支、返・利）を添える。
+ */
+export function DayAmounts({
+  income,
+  expense,
+  kind,
+}: {
+  income: number;
+  expense: number;
+  kind: FlowKind;
+}) {
+  const labels = FLOW_LABELS[kind];
   return (
     <>
       {income > 0 && (
-        <p className="text-[10px] text-emerald-600 truncate leading-tight">+{yen(income)}</p>
+        <p className="text-[10px] text-emerald-600 truncate leading-tight">
+          {labels.shortIn} {yen(income)}
+        </p>
       )}
       {expense > 0 && (
-        <p className="text-[10px] text-rose-600 truncate leading-tight">−{yen(expense)}</p>
+        <p className="text-[10px] text-rose-600 truncate leading-tight">
+          {labels.shortOut} {yen(expense)}
+        </p>
       )}
     </>
   );

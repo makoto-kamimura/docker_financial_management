@@ -69,7 +69,8 @@ export function NetWorthSummaryCard({ period }: { period: string | null }) {
           <p
             className={`text-2xl font-bold tabular-nums ${data.netWorth >= 0 ? "text-indigo-600" : "text-red-600"}`}
           >
-            {yenShort(data.netWorth)}
+            {/* 負のときは「−」の代わりに「債務超過」を付ける */}
+            {data.netWorth < 0 ? `債務超過 ${yenShort(-data.netWorth)}` : yenShort(data.netWorth)}
           </p>
         </div>
       </div>

@@ -19,7 +19,8 @@ import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
 import { actualsConfirmHref, CycleSteps, type CycleStatus } from "@/components/CycleSteps";
 import { MonthPicker } from "@/components/MonthPicker";
 import { diffClass, diffLabel, type VarianceResponse } from "@/components/BudgetVariancePanel";
-import { yen, yenSigned } from "@/lib/common/format";
+import { yen, yenAbs } from "@/lib/common/format";
+import { changeWord, netWord } from "@/lib/shared/amount-direction";
 import { BUDGET_HELP, textFor } from "@/lib/shared/help-texts";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import {
@@ -381,8 +382,8 @@ export function BudgetConfirmPanel({
                               {item.notes
                                 .map((n) =>
                                   n.kind === "timing"
-                                    ? `期ズレ ${yenSigned(n.amount)}`
-                                    : `${nameOf(n.fromAccountId)}の余り ${yenSigned(n.amount)}`,
+                                    ? `期ズレで ${yenAbs(n.amount)}${changeWord(n.amount)}`
+                                    : `${nameOf(n.fromAccountId)}の余りで ${yenAbs(n.amount)}${changeWord(n.amount)}`,
                                 )
                                 .join("、")}
                             </div>
@@ -398,7 +399,7 @@ export function BudgetConfirmPanel({
                         >
                           {row ? (
                             <>
-                              {yenSigned(row.difference)}
+                              {yenAbs(row.difference)}
                               <div className="text-[10px]">{diffLabel(row)}</div>
                             </>
                           ) : (
@@ -437,7 +438,9 @@ export function BudgetConfirmPanel({
                           {item ? yen(item.base) : "—"}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
-                          {!item || item.adjustment === 0 ? "—" : yenSigned(item.adjustment)}
+                          {!item || item.adjustment === 0
+                            ? "—"
+                            : `${yenAbs(item.adjustment)}${changeWord(item.adjustment)}`}
                         </td>
                         <td className="px-3 py-2 text-right">
                           {item ? (
@@ -483,13 +486,15 @@ export function BudgetConfirmPanel({
                   <tfoot>
                     <tr className="border-t border-slate-200 bg-slate-50 text-xs">
                       <td colSpan={5} className="px-4 py-2 text-right text-slate-600">
-                        {household ? "収入" : "売上・収入"} {yen(totals.revenue)} −{" "}
-                        {household ? "支出" : "費用"} {yen(totals.expense)}
+                        {household ? "収入" : "売上・収入"} {yen(totals.revenue)}・
+                        {household ? "支出" : "費用"} {yen(totals.expense)}・差引
                       </td>
                       <td
                         className={`px-3 py-2 text-right font-semibold tabular-nums ${totals.revenue - totals.expense < 0 ? "text-red-600" : "text-slate-800"}`}
                       >
-                        {yenSigned(totals.revenue - totals.expense)}
+                        {netWord(totals.revenue - totals.expense)}
+                        {netWord(totals.revenue - totals.expense) && " "}
+                        {yenAbs(totals.revenue - totals.expense)}
                       </td>
                     </tr>
                   </tfoot>

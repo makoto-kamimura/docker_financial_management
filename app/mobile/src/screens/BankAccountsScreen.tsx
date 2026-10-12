@@ -265,7 +265,9 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
                           「明細合計どおり」と出し、まだ確かめていない口座にだけ案内を出す */}
                     {a.balanceAdjustment ? (
                       <Text style={s.muted}>
-                        明細合計 {yen(a.transactionSum ?? 0)} ＋ 差額 {yen(a.balanceAdjustment)}
+                        明細合計 {yen(a.transactionSum ?? 0)}・差額{" "}
+                        {yen(Math.abs(a.balanceAdjustment))}
+                        {a.balanceAdjustment < 0 ? "を引く" : "を足す"}
                       </Text>
                     ) : a.balanceCheckedAt ? (
                       <Text style={s.muted}>明細合計どおり（差額なし）</Text>
@@ -373,7 +375,7 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
                 <Field label="残高の差額（円）">
                   <Text style={s.muted}>
                     取得できる明細を登録したのに現在の残高と差異がある場合は、差額を入力してください。
-                    取込開始前から口座にあった残高（期首残高）などが該当します。
+                    取込開始前から口座にあった残高（期首残高）などが該当します。残高を減らす向きの差額は、マイナスの数で入力します。
                   </Text>
                   <Input
                     keyboardType="numbers-and-punctuation"
@@ -385,8 +387,9 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
                   />
                 </Field>
                 <Text style={s.muted}>
-                  明細合計 {yen(form.transactionSum)} ＋ 差額{" "}
-                  {yen(Number(form.balanceAdjustment || 0))} ＝{" "}
+                  明細合計 {yen(form.transactionSum)} に差額{" "}
+                  {yen(Math.abs(Number(form.balanceAdjustment || 0)))}
+                  {Number(form.balanceAdjustment || 0) < 0 ? "を引いて" : "を足して"} 残高{" "}
                   <Text style={s.linked}>
                     {yen(form.transactionSum + Number(form.balanceAdjustment || 0))}
                   </Text>

@@ -25,13 +25,16 @@ import { computeStepChecklist } from "../shared/step-checklist";
 import { useFiscalYear } from "../fiscal-year";
 import { yenShort } from "../format";
 
+// 収支・利益などが負のときは「−」の代わりに「赤字」を付ける
+const shortNet = (v: number) => (v < 0 ? `赤字 ${yenShort(-v)}` : yenShort(v));
+
 // 達成率・消化率は増減ではないので符号を付けない
 const rate = (v: number | null) => (v == null ? "—" : (v * 100).toFixed(1) + "%");
 const periodLabel = (key: string) => `${key.slice(0, 4)}年${Number(key.slice(5, 7))}月`;
 
 // 予算が未登録の月は「予算 未設定」を出して欠落と 0 円を区別する（web 版と同じ文言）
 const budgetSub = (amount: number | undefined, r: number | null, rateLabel: string) =>
-  amount == null ? "予算 未設定" : `予算 ${yenShort(amount)}（${rateLabel} ${rate(r)}）`;
+  amount == null ? "予算 未設定" : `予算 ${shortNet(amount)}（${rateLabel} ${rate(r)}）`;
 
 // 累計カードの補助表示（web 版 KPI カードと同じ文言）。
 // 未入力の月（平均で按分）と予測で埋めた月（実績を確定した月の翌月から）の内訳を添える
@@ -42,7 +45,7 @@ function ytdSub(annual: AnnualOutlook | null): string | undefined {
     annual.missingMonths > 0 ? `未入力${annual.missingMonths}か月は平均` : null,
     annual.remainingMonths > 0 ? `${forecastFrom}月以降は予測` : null,
   ].filter(Boolean);
-  return `年間見込み ${yenShort(annual.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
+  return `年間見込み ${shortNet(annual.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
 }
 
 function KpiCard({
@@ -279,7 +282,7 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
                   <View style={s.kpiRow}>
                     <KpiCard
                       label={klabels.profit}
-                      value={yenShort(kpi.operatingProfit)}
+                      value={shortNet(kpi.operatingProfit)}
                       color={kpi.operatingProfit >= 0 ? "#16a34a" : "#dc2626"}
                       warn={kpi.operatingProfit < 0}
                       sub={profitSub}
@@ -291,7 +294,7 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
                     />
                     <KpiCard
                       label={ytdLabel}
-                      value={yenShort(kpi.ytd)}
+                      value={shortNet(kpi.ytd)}
                       sub={ytdSub(annual)}
                       budget={ytdProgress}
                     />
@@ -307,16 +310,16 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
                     />
                     <KpiCard
                       label={klabels.grossProfit}
-                      value={yenShort(kpi.grossProfit)}
+                      value={shortNet(kpi.grossProfit)}
                       sub={`${klabels.grossMargin} ${rate(kpi.grossMargin)}`}
                       color={kpi.grossProfit >= 0 ? "#16a34a" : "#dc2626"}
-                      budget={budget ? `予算 ${yenShort(budget.grossProfit)}` : "予算 未設定"}
+                      budget={budget ? `予算 ${shortNet(budget.grossProfit)}` : "予算 未設定"}
                     />
                   </View>
                   <View style={s.kpiRow}>
                     <KpiCard
                       label={klabels.profit}
-                      value={yenShort(kpi.operatingProfit)}
+                      value={shortNet(kpi.operatingProfit)}
                       color={kpi.operatingProfit >= 0 ? "#16a34a" : "#dc2626"}
                       sub={profitSub}
                       budget={budgetSub(
@@ -327,7 +330,7 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
                     />
                     <KpiCard
                       label={ytdLabel}
-                      value={yenShort(kpi.ytd)}
+                      value={shortNet(kpi.ytd)}
                       sub={ytdSub(annual)}
                       budget={ytdProgress}
                     />

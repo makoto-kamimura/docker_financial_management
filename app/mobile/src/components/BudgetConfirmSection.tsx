@@ -19,7 +19,8 @@ import {
   type CycleStatus,
   type ViewMode,
 } from "../api";
-import { digitsOnly, yen } from "../format";
+import { digitsOnly, yen, yenAbs, yenNet } from "../format";
+import { changeWord } from "../shared/amount-direction";
 import {
   defaultTreatment,
   isTreatmentAllowed,
@@ -32,7 +33,7 @@ import { cycleKey } from "../shared/cycle-month";
 import { displayName } from "../shared/display-name";
 import { BUDGET_HELP, textFor } from "../shared/help-texts";
 import { useCycleMonth } from "../use-cycle-month";
-import { diffColor, diffLabel, Figure, signedYen } from "./BudgetVarianceSection";
+import { diffColor, diffLabel, Figure } from "./BudgetVarianceSection";
 import { AccountPickerModal } from "./CategoryPickerModal";
 import { CycleSteps } from "./CycleSteps";
 import { MonthPills } from "./MonthPills";
@@ -267,7 +268,9 @@ export function BudgetConfirmSection({
           <Text style={s.planLabel}>{month}月の予算案</Text>
           <Text style={s.planCalc}>
             基準 {yen(item.base)}
-            {item.adjustment !== 0 ? `　増減 ${signedYen(item.adjustment)}` : ""}
+            {item.adjustment !== 0
+              ? `　${yenAbs(item.adjustment)}${changeWord(item.adjustment)}`
+              : ""}
           </Text>
         </View>
         {item.notes.length > 0 && (
@@ -275,8 +278,8 @@ export function BudgetConfirmSection({
             {item.notes
               .map((n) =>
                 n.kind === "timing"
-                  ? `期ズレ ${signedYen(n.amount)}`
-                  : `${nameOf(n.fromAccountId)}の余り ${signedYen(n.amount)}`,
+                  ? `期ズレで ${yenAbs(n.amount)}${changeWord(n.amount)}`
+                  : `${nameOf(n.fromAccountId)}の余りで ${yenAbs(n.amount)}${changeWord(n.amount)}`,
               )
               .join("、")}
           </Text>
@@ -407,7 +410,7 @@ export function BudgetConfirmSection({
                 <View style={s.figures}>
                   <Figure
                     label={`${prev.month}月の差（実績−予算）`}
-                    value={signedYen(r.difference)}
+                    value={yenAbs(r.difference)}
                     sub={diffLabel(r)}
                     color={diffColor(r)}
                   />
@@ -439,15 +442,15 @@ export function BudgetConfirmSection({
           <View style={s.footer}>
             {plan.length > 0 && (
               <Text style={s.totals}>
-                {month}月の予算案：{household ? "収入" : "売上・収入"} {yen(totals.revenue)} −{" "}
-                {household ? "支出" : "費用"} {yen(totals.expense)} ={" "}
+                {month}月の予算案：{household ? "収入" : "売上・収入"} {yen(totals.revenue)}・
+                {household ? "支出" : "費用"} {yen(totals.expense)}・差引{" "}
                 <Text
                   style={{
                     color: totals.revenue - totals.expense < 0 ? COLORS.danger : COLORS.text,
                     fontWeight: "600",
                   }}
                 >
-                  {signedYen(totals.revenue - totals.expense)}
+                  {yenNet(totals.revenue - totals.expense)}
                 </Text>
               </Text>
             )}

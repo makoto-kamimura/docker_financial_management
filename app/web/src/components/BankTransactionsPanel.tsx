@@ -23,7 +23,8 @@ import {
   TXN_SOURCE_LABEL as SOURCE_LABELS,
 } from "@/lib/shared/labels";
 import { Notice } from "@/components/ui";
-import { yen } from "@/lib/common/format";
+import { yen, yenAbs } from "@/lib/common/format";
+import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
@@ -475,8 +476,9 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
             date: new Date(t.date).toLocaleDateString("ja-JP"),
             account: accountNameById(t.accountId),
             description: t.description,
-            amount: yen(t.amount),
-            tone: t.amount < 0 ? "out" : "in",
+            amount: yenAbs(t.amount),
+            tone: flowSide("bank", t.amount),
+            directionLabel: flowLabel("bank", t.amount),
             category: (
               <>
                 {/* 口座間振替は自己資金の移動なので科目に紐付けない（二重計上の防止） */}

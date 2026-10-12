@@ -1,9 +1,13 @@
 // 画面共通の書式。金額は web 版（app/web/src/lib/common/format.ts）と同じく「1,234円」にそろえる。
 //   - yen: ふつうの金額。負の数は「−1,234円」
-//   - yenSigned: 入出金・差のように向きのある金額。「+1,234円」「−1,234円」（0 は「0円」）
+//   - yenAbs: 向きのある金額（入出金・差・増減）。符号は付けず絶対値で出し、向きはラベルと色で示す
+//     （言葉は lib/shared/amount-direction.ts）
+//   - yenNet: 差引・利益など。負のときは「赤字 1,234円」のように言葉を付ける
 //   - yenShort: 幅の狭いカード・グラフ。1 万円以上は「12.3万円」
 //   - amountText: 表の中の数字だけ
 // どれも円未満は四捨五入する。
+
+import { netWord } from "./shared/amount-direction";
 
 const MINUS = "−";
 
@@ -18,10 +22,15 @@ export function yen(v: number): string {
   return `${amountText(v)}円`;
 }
 
-/** 「+1,234円」「−1,234円」「0円」 */
-export function yenSigned(v: number): string {
-  const n = Math.round(v);
-  return `${n > 0 ? "+" : ""}${yen(n)}`;
+/** 絶対値の「1,234円」（向きはラベルと色で示す） */
+export function yenAbs(v: number): string {
+  return yen(Math.abs(v));
+}
+
+/** 差引・利益など。負のときは「−」の代わりに言葉を付ける（既定「赤字 1,234円」） */
+export function yenNet(v: number, negative = "赤字"): string {
+  const word = netWord(v, negative);
+  return word ? `${word} ${yenAbs(v)}` : yen(v);
 }
 
 /** 1 万円以上は「12.3万円」（小数 1 桁）、それ未満は「1,234円」 */

@@ -7,6 +7,7 @@
 
 import type { ReactNode } from "react";
 import { Pager } from "@/components/ui";
+import { DirectionTag } from "@/components/DirectedAmount";
 
 export type LedgerColumn =
   | "date"
@@ -32,10 +33,12 @@ export type LedgerRow = {
   date: ReactNode;
   account: ReactNode;
   description: ReactNode;
-  /** 金額の表示（符号つきの円など） */
+  /** 金額の表示（符号は付けず絶対値。向きは directionLabel と tone で示す） */
   amount: ReactNode;
-  /** 金額の色。in = 入金・収入（緑）、out = 出金・支出（赤）、none = 色なし */
+  /** 金額の色。in = 入金・収入・返金（緑）、out = 出金・支出・利用（赤）、none = 色なし */
   tone: "in" | "out" | "none";
+  /** 金額の前に付ける向きのラベル（入金・出金・利用・返金など） */
+  directionLabel?: string;
   category: ReactNode;
   status: ReactNode;
   /** すぐ押せる操作（削除など） */
@@ -44,7 +47,7 @@ export type LedgerRow = {
   more?: ReactNode;
 };
 
-const yenTone = { in: "text-emerald-600", out: "text-red-600", none: "text-slate-700" };
+const yenTone = { in: "text-emerald-600", out: "text-rose-600", none: "text-slate-700" };
 
 export function LedgerTable({
   rows,
@@ -104,6 +107,7 @@ export function LedgerTable({
                   <td
                     className={`px-3 py-2.5 text-right tabular-nums whitespace-nowrap ${yenTone[r.tone]}`}
                   >
+                    {r.directionLabel && <DirectionTag label={r.directionLabel} side={r.tone} />}
                     {r.amount}
                   </td>
                   <td className="px-3 py-2.5">{r.category}</td>

@@ -4,6 +4,7 @@
 // shared-with-mobile.test.ts が検査する。挙げるファイルは src/lib/shared/ 内の相対 import だけに依存させること。
 export const SHARED_WITH_MOBILE = [
   "allocation-assign.ts",
+  "amount-direction.ts",
   "asset-valuation.ts",
   "budget-actual-chart.ts",
   "budget-cell-detail.ts",

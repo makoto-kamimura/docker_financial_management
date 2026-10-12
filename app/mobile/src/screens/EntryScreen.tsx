@@ -50,7 +50,8 @@ import { displayName } from "../shared/display-name";
 import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "../shared/help-texts";
 import { buildFinancialMatrix, type MatrixCell } from "../shared/financial-matrix";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
-import { fmtDate, fmtDateTime, MONTHS, yen } from "../format";
+import { fmtDate, fmtDateTime, MONTHS, yen, yenAbs } from "../format";
+import { flowLabel, flowSide, negativeAmountWord } from "../shared/amount-direction";
 import { ActualsConfirmSection } from "../components/ActualsConfirmSection";
 import { useFiscalYear } from "../fiscal-year";
 
@@ -97,6 +98,9 @@ type Props = {
   initialAccountId?: number;
 };
 
+// 科目の実績が負のとき（返金などが上回った月）は「−」の代わりに言葉を付ける（費用は戻り、収入は減額）
+const accountYen = (v: number, category: string) =>
+  v < 0 ? `${negativeAmountWord(category)} ${yenAbs(v)}` : yen(v);
 export function EntryScreen({
   viewMode,
   initialTab,
@@ -378,11 +382,15 @@ export function EntryScreen({
                           <Text style={s.name} numberOfLines={1}>
                             {nameOf(row.account)}
                           </Text>
-                          <Text style={s.annual}>年間合計 {yen(row.annual)}</Text>
+                          <Text style={s.annual}>
+                            年間合計 {accountYen(row.annual, row.account.category)}
+                          </Text>
                         </View>
                         {cell ? (
                           <View style={s.cellRight}>
-                            <Text style={s.amount}>{yen(cell.total)}</Text>
+                            <Text style={s.amount}>
+                              {accountYen(cell.total, row.account.category)}
+                            </Text>
                             <TouchableOpacity onPress={() => setDetailCode(row.account.code)}>
                               <Text style={s.link}>{cell.records.length}件の内訳</Text>
                             </TouchableOpacity>
@@ -423,8 +431,9 @@ export function EntryScreen({
                     date={fmtDate(e.date)}
                     account="現金"
                     description={e.description}
-                    amount={yen(e.amount)}
-                    tone={e.amount < 0 ? "out" : "in"}
+                    amount={yenAbs(e.amount)}
+                    tone={flowSide("cash", e.amount)}
+                    directionLabel={flowLabel("cash", e.amount)}
                     category={
                       <TouchableOpacity onPress={() => setPicking(e)}>
                         <Text style={s.link} numberOfLines={1}>
@@ -475,7 +484,7 @@ export function EntryScreen({
       <SheetModal
         visible={detailCode !== null}
         title={detailRow ? nameOf(detailRow.account) : "実績の内訳"}
-        subtitle={`${matrix.year}年${month}月 ・ 合計 ${yen(detailCell?.total ?? 0)}（${detailCell?.records.length ?? 0} 件）`}
+        subtitle={`${matrix.year}年${month}月 ・ 合計 ${accountYen(detailCell?.total ?? 0, detailRow?.account.category ?? "")}（${detailCell?.records.length ?? 0} 件）`}
         onClose={() => setDetailCode(null)}
       >
         {!detailCell || detailCell.records.length === 0 ? (
@@ -493,7 +502,9 @@ export function EntryScreen({
                 </Text>
                 <Text style={s.muted}>登録 {fmtDateTime(r.createdAt)}</Text>
               </View>
-              <Text style={s.amount}>{yen(r.amount)}</Text>
+              <Text style={s.amount}>
+                {accountYen(Number(r.amount), detailRow?.account.category ?? "")}
+              </Text>
             </View>
           ))
         )}

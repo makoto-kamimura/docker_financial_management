@@ -14,8 +14,9 @@ import {
 import { Button, Card, EmptyText, Field, Input, Notice, Pills } from "../ui";
 import { categoryPayload, EntryCategoryField } from "../EntryCategoryField";
 import { displayName } from "../../shared/display-name";
-import { digitsOnly, isoDate, yen } from "../../format";
+import { digitsOnly, isoDate, yenAbs } from "../../format";
 import { DayAmounts, MonthCalendar } from "../MonthCalendar";
+import { flowLabel } from "../../shared/amount-direction";
 
 export function CardCalendar({
   account,
@@ -131,6 +132,7 @@ export function CardCalendar({
             <DayAmounts
               income={dayEntries.filter((t) => t.amount < 0).reduce((sum, t) => sum - t.amount, 0)}
               expense={dayEntries.filter((t) => t.amount > 0).reduce((sum, t) => sum + t.amount, 0)}
+              kind="card"
             />
           );
         }}
@@ -153,7 +155,9 @@ export function CardCalendar({
                   </Text>
                   {categoryName(t) && <Text style={s.muted}>{categoryName(t)}</Text>}
                 </View>
-                <Text style={t.amount > 0 ? s.charge : s.refund}>{yen(t.amount)}</Text>
+                <Text style={t.amount > 0 ? s.charge : s.refund}>
+                  {flowLabel("card", t.amount)} {yenAbs(t.amount)}
+                </Text>
                 <TouchableOpacity onPress={() => remove(t)} hitSlop={8}>
                   <Text style={s.remove}>✕</Text>
                 </TouchableOpacity>

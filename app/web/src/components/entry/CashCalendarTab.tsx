@@ -4,6 +4,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
+import { DirectedAmount } from "@/components/DirectedAmount";
 import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
@@ -159,6 +160,7 @@ export function CashCalendarTab({
             <DayAmounts
               income={dayEntries.reduce((s, e) => s + entryAmount(e).income, 0)}
               expense={dayEntries.reduce((s, e) => s + entryAmount(e).expense, 0)}
+              kind="cash"
             />
           );
         }}
@@ -211,12 +213,11 @@ export function CashCalendarTab({
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <span
-                            className={`text-xs font-semibold ${isIncome ? "text-emerald-600" : "text-rose-600"}`}
-                          >
-                            {isIncome ? "+" : "−"}
-                            {yen(isIncome ? income : expense)}
-                          </span>
+                          <DirectedAmount
+                            kind="cash"
+                            amount={isIncome ? income : -expense}
+                            className="text-xs font-semibold"
+                          />
                           <button
                             onClick={() => handleCalDelete(e.id)}
                             className="text-slate-300 hover:text-red-400 text-xs"

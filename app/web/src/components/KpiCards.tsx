@@ -8,7 +8,7 @@ import type { ViewMode } from "@/lib/shared/display-name";
 import { KPI_LABELS } from "@/lib/shared/mode-labels";
 import { kpiTermHelp } from "@/lib/shared/help-texts";
 import { useFiscalYear } from "@/lib/client/use-fiscal-year";
-import { yen } from "@/lib/common/format";
+import { yen, yenNet } from "@/lib/common/format";
 
 type Kpi = {
   period: string;
@@ -51,7 +51,7 @@ const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%
 
 // 予算行の文言。予算が未登録の月は「予算 未設定」を出して欠落と 0 円を区別する。
 const budgetSub = (amount: number | undefined, rate: number | null, rateLabel: string) =>
-  amount == null ? "予算 未設定" : `予算 ${yen(amount)}（${rateLabel} ${pct(rate)}）`;
+  amount == null ? "予算 未設定" : `予算 ${yenNet(amount)}（${rateLabel} ${pct(rate)}）`;
 
 // "2026-07" → "2026年7月"
 const periodLabel = (key: string) => {
@@ -67,7 +67,7 @@ const outlookSub = (a: AnnualOutlook) => {
     a.missingMonths > 0 ? `未入力${a.missingMonths}か月は平均` : null,
     a.remainingMonths > 0 ? `${forecastFrom}月以降は予測` : null,
   ].filter(Boolean);
-  return `年間見込み ${yen(a.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
+  return `年間見込み ${yenNet(a.projected)}（${notes.length > 0 ? notes.join("・") : "実績確定"}）`;
 };
 
 const periodKey = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
@@ -265,7 +265,7 @@ export function KpiCards({
           />
           <KpiCard
             label={labels.profit}
-            value={yen(kpi.operatingProfit)}
+            value={yenNet(kpi.operatingProfit)}
             sub={profitSub}
             budget={budgetSub(
               budget?.operatingProfit,
@@ -277,7 +277,7 @@ export function KpiCards({
           />
           <KpiCard
             label={ytdLabel}
-            value={yen(kpi.ytd)}
+            value={yenNet(kpi.ytd)}
             sub={ytdSub}
             budget={ytdProgress}
             help={help.ytd}
@@ -299,20 +299,22 @@ export function KpiCards({
         />
         <KpiCard
           label={labels.grossProfit}
-          value={yen(kpi.grossProfit)}
+          value={yenNet(kpi.grossProfit)}
+          warn={kpi.grossProfit < 0}
           sub={`${labels.grossMargin} ${pct(kpi.grossMargin)}`}
-          budget={budget ? `予算 ${yen(budget.grossProfit)}` : "予算 未設定"}
+          budget={budget ? `予算 ${yenNet(budget.grossProfit)}` : "予算 未設定"}
         />
         <KpiCard
           label={labels.profit}
-          value={yen(kpi.operatingProfit)}
+          value={yenNet(kpi.operatingProfit)}
           sub={profitSub}
           budget={budgetSub(budget?.operatingProfit, budget?.operatingProfitRate ?? null, "達成率")}
           help={help.profit}
+          warn={kpi.operatingProfit < 0}
         />
         <KpiCard
           label={ytdLabel}
-          value={yen(kpi.ytd)}
+          value={yenNet(kpi.ytd)}
           sub={ytdSub}
           budget={ytdProgress}
           help={help.ytd}

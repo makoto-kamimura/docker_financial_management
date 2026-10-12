@@ -15,7 +15,7 @@ import {
   type ViewMode,
 } from "../api";
 import { Card, Notice, Pills, SectionTitle, TabBar } from "../components/ui";
-import { MONTHS, yen } from "../format";
+import { MONTHS, yen, yenNet } from "../format";
 import { displayName } from "../shared/display-name";
 import { useFiscalYear } from "../fiscal-year";
 
@@ -68,11 +68,24 @@ function AccountLines({
   );
 }
 
-function TotalLine({ label, value, color }: { label: string; value: number; color: string }) {
+// negative を渡すと、負のときに「−」の代わりにその言葉を付ける（差引利益・純資産）
+function TotalLine({
+  label,
+  value,
+  color,
+  negative,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  negative?: string;
+}) {
   return (
     <View style={[s.line, s.totalLine]}>
       <Text style={s.totalLabel}>{label}</Text>
-      <Text style={[s.totalValue, { color }]}>{yen(value)}</Text>
+      <Text style={[s.totalValue, { color }]}>
+        {negative ? yenNet(value, negative) : yen(value)}
+      </Text>
     </View>
   );
 }
@@ -171,15 +184,17 @@ export function ClosingScreen({ viewMode }: Props) {
           <View style={s.kpis}>
             {(
               [
-                ["収入合計", pnl.revenueTotal, "#047857"],
-                ["経費合計（按分後）", pnl.expenseDeductible, "#dc2626"],
-                ["事業所得", pnl.netIncome, pnl.netIncome >= 0 ? "#4338ca" : "#dc2626"],
-                ["純資産", bs.equity, "#1e293b"],
-              ] as [string, number, string][]
-            ).map(([label, value, color]) => (
+                ["収入合計", pnl.revenueTotal, "#047857", ""],
+                ["経費合計（按分後）", pnl.expenseDeductible, "#dc2626", ""],
+                ["事業所得", pnl.netIncome, pnl.netIncome >= 0 ? "#4338ca" : "#dc2626", "損失"],
+                ["純資産", bs.equity, "#1e293b", "債務超過"],
+              ] as [string, number, string, string][]
+            ).map(([label, value, color, negative]) => (
               <Card key={label} style={s.kpi}>
                 <Text style={s.kpiLabel}>{label}</Text>
-                <Text style={[s.kpiValue, { color }]}>{yen(value)}</Text>
+                <Text style={[s.kpiValue, { color }]}>
+                  {negative ? yenNet(value, negative) : yen(value)}
+                </Text>
               </Card>
             ))}
           </View>
@@ -200,7 +215,7 @@ export function ClosingScreen({ viewMode }: Props) {
                 )}
                 <View style={s.highlight}>
                   <Text style={s.highlightLabel}>売上総利益</Text>
-                  <Text style={s.highlightValue}>{yen(pnl.grossProfit)}</Text>
+                  <Text style={s.highlightValue}>{yenNet(pnl.grossProfit)}</Text>
                 </View>
                 <SectionTitle>
                   経費{pnl.expenseTotal !== pnl.expenseDeductible ? "（家事按分後）" : ""}
@@ -227,7 +242,7 @@ export function ClosingScreen({ viewMode }: Props) {
                       { color: pnl.netIncome >= 0 ? "#047857" : "#dc2626" },
                     ]}
                   >
-                    {yen(pnl.netIncome)}
+                    {yenNet(pnl.netIncome, "損失")}
                   </Text>
                 </View>
               </>
@@ -245,6 +260,7 @@ export function ClosingScreen({ viewMode }: Props) {
                   label="純資産（資産−負債）"
                   value={bs.equity}
                   color={bs.equity >= 0 ? "#4338ca" : "#dc2626"}
+                  negative="債務超過"
                 />
               </>
             )}
@@ -265,7 +281,7 @@ export function ClosingScreen({ viewMode }: Props) {
                         {d.expense > 0 ? yen(d.expense) : "—"}
                       </Text>
                       <Text style={[s.monthProfit, { color: profit >= 0 ? "#1e293b" : "#dc2626" }]}>
-                        差引利益 {yen(profit)}
+                        差引利益 {yenNet(profit)}
                       </Text>
                     </View>
                   );
@@ -273,6 +289,7 @@ export function ClosingScreen({ viewMode }: Props) {
                 <TotalLine
                   label="年間合計（差引利益）"
                   value={monthlyTotals.revenue - monthlyTotals.cogs - monthlyTotals.expense}
+                  negative="赤字"
                   color={
                     monthlyTotals.revenue - monthlyTotals.cogs - monthlyTotals.expense >= 0
                       ? "#4338ca"
@@ -358,11 +375,11 @@ export function ClosingScreen({ viewMode }: Props) {
                 <SectionTitle>計算の元データ</SectionTitle>
                 <Text style={s.muted}>
                   総資産 {yen(bs.assetTotal)} ・ 総負債 {yen(bs.liabilityTotal)} ・ 純資産{" "}
-                  {yen(bs.equity)}
+                  {yenNet(bs.equity, "債務超過")}
                 </Text>
                 <Text style={s.muted}>
-                  売上高 {yen(pnl.revenueTotal)} ・ 売上総利益 {yen(pnl.grossProfit)} ・ 当期純利益{" "}
-                  {yen(pnl.netIncome)}
+                  売上高 {yen(pnl.revenueTotal)} ・ 売上総利益 {yenNet(pnl.grossProfit)} ・
+                  当期純利益 {yenNet(pnl.netIncome, "損失")}
                 </Text>
               </>
             )}
