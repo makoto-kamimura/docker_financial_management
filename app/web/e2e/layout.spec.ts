@@ -27,10 +27,15 @@ test.describe("共通の作り", () => {
       .click();
   });
 
-  test("予算管理のタブは 一覧 → 予算の確定 → CSV → 履歴 → 設定 の順", async ({ page }) => {
+  // タブの順は readme「5. 画面一覧」と同じ
+  test("予算管理のタブは 一覧 → カレンダー → 予実差確認 → 予算の確定 → CSV → 履歴 → 設定 の順", async ({
+    page,
+  }) => {
     await page.goto("/budget");
     await expect(page.getByRole("tab")).toHaveText([
       "一覧",
+      "カレンダー",
+      "予実差確認",
       "予算の確定",
       "CSV インポート",
       "履歴",
@@ -38,12 +43,12 @@ test.describe("共通の作り", () => {
     ]);
   });
 
-  test("実績管理のタブは 一覧 → 実績の確定 → カレンダー → CSV → 履歴 の順", async ({ page }) => {
+  test("実績管理のタブは 一覧 → カレンダー → 実績の確定 → CSV → 履歴 の順", async ({ page }) => {
     await page.goto("/entry");
     await expect(page.getByRole("tab")).toHaveText([
       "一覧",
-      "実績の確定",
       "カレンダー",
+      "実績の確定",
       "CSV インポート",
       "履歴",
     ]);
