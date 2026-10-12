@@ -3,7 +3,8 @@
  *
  * 科目名のキーワードと受け皿の区分で、追加した科目も自動で配分ルールに入ること、
  * 手で移した割り当てが優先されること、適正金額がメンバー科目へ按分されること、
- * 予算への反映が予算未設定の科目だけに入ることを、実際のルートハンドラ経由で確かめる。
+ * 予算への反映が予算未設定の科目だけに入ること、家賃に連携したローン返済を家賃の枠の一部として
+ * 数えること（住居費を二重に数えない）を、実際のルートハンドラ経由で確かめる。
  *
  * 実行: `npm run test:integration`（platform-db 起動が前提）
  */
@@ -111,6 +112,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const where = { tenantId };
+  await prisma.loan.deleteMany({ where });
   await prisma.budgetHistory.deleteMany({ where });
   await prisma.budget.deleteMany({ where });
   await prisma.financialRecord.deleteMany({ where });
@@ -152,9 +154,9 @@ describe("予算配分の自動振り分け", () => {
       data.find(
         (r: { accountId: number; month: number }) => r.accountId === accountId && r.month === 5,
       )?.amount;
-    // 光熱費の推奨 = 300,000 × 6.5% = 19,500 → 電気 3 : ガス 1
-    expect(may(ids.power)).toBe(14_625);
-    expect(may(ids.gas)).toBe(4_875);
+    // 光熱費の推奨 = 300,000 × 5% = 15,000 → 電気 3 : ガス 1
+    expect(may(ids.power)).toBe(11_250);
+    expect(may(ids.gas)).toBe(3_750);
   });
 
   it("手で移すと優先され、自動に戻すと元に戻る", async () => {
@@ -220,7 +222,7 @@ describe("予算配分の自動振り分け", () => {
     );
     const { data } = await res.json();
     const utilities = data.items.find((i: { rule: { key: string } }) => i.rule.key === "utilities");
-    expect(utilities.recommended).toBe(19_500);
+    expect(utilities.recommended).toBe(15_000);
     expect(
       utilities.accounts.map((a: { id: number; recommended: number; budget: number | null }) => [
         a.id,
@@ -228,8 +230,8 @@ describe("予算配分の自動振り分け", () => {
         a.budget,
       ]),
     ).toEqual([
-      [ids.power, 14_625, 10_000],
-      [ids.gas, 4_875, null],
+      [ids.power, 11_250, 10_000],
+      [ids.gas, 3_750, null],
     ]);
   });
 
@@ -253,5 +255,64 @@ describe("予算配分の自動振り分け", () => {
     const byId = new Map(budgets.map((b) => [b.accountId, Number(b.amount)]));
     expect(byId.get(ids.power)).toBe(10_000);
     expect(byId.get(ids.gas)).toBe(9_500);
+  });
+
+  it("家賃に連携したローン返済は、家賃の枠の一部として数え、基準額からは引かない", async () => {
+    for (const [key, name] of [
+      ["rent", "家賃"],
+      ["mgmt", "管理費・修繕積立金"],
+    ] as const) {
+      const a = await prisma.account.create({
+        data: { tenantId, code: `${key}_${SUFFIX}`, name, category: "EXPENSE" },
+      });
+      ids[key] = a.id;
+    }
+    await prisma.loan.create({
+      data: {
+        tenantId,
+        lenderName: "テスト銀行",
+        amount: 30_000_000,
+        interestRate: 0.01,
+        borrowedOn: new Date(YEAR - 1, 0, 1),
+        repaymentDate: new Date(YEAR + 30, 0, 1),
+        remainingAmount: 30_000_000,
+        loanType: "housing",
+        linkedAccountId: ids.rent,
+        monthlyPayment: 60_000,
+      },
+    });
+
+    // 収入の実績 300,000 → 家賃の枠 75,000（25%）のうち 60,000 は返済で埋まり、残り 15,000 を管理費へ
+    const res = await suggestGet(
+      makeReq("GET", `http://x/api/budgets/allocation-suggest?year=${YEAR}&month=5&basis=actual`),
+      emptyRouteContext(),
+    );
+    const { data } = await res.json();
+    expect(data.available).toBe(300_000);
+    const rent = data.items.find((i: { rule: { key: string } }) => i.rule.key === "rent");
+    expect(rent.recommended).toBe(75_000);
+    expect(rent.overlay).toBe(60_000);
+    const row = (id: number) =>
+      rent.accounts.find((a: { id: number }) => a.id === id) as {
+        recommended: number;
+        budget: number | null;
+        overlay: number;
+      };
+    expect(row(ids.rent)).toMatchObject({ recommended: 0, budget: 60_000, overlay: 60_000 });
+    expect(row(ids.mgmt)).toMatchObject({ recommended: 15_000, budget: null, overlay: 0 });
+    // ほかのルールの基準も 300,000 のまま（返済を引いて小さくならない）
+    const utilities = data.items.find((i: { rule: { key: string } }) => i.rule.key === "utilities");
+    expect(utilities.recommended).toBe(15_000);
+
+    const guide = await guideGet(
+      makeReq("GET", `http://x/api/budgets/allocation-guide?year=${YEAR}`),
+      emptyRouteContext(),
+    );
+    const guideRows: { accountId: number; month: number; amount: number }[] = (await guide.json())
+      .data;
+    const may = (accountId: number) =>
+      guideRows.find((r) => r.accountId === accountId && r.month === 5)?.amount;
+    expect(may(ids.mgmt)).toBe(15_000);
+    expect(may(ids.rent)).toBeUndefined();
   });
 });

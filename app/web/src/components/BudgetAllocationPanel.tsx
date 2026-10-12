@@ -516,14 +516,18 @@ type SuggestAccount = MemberAccount & {
   weight: number;
   /** 推奨額をこの科目に按分した額 */
   recommended: number;
-  /** その月にすでに入っている予算（null = 未設定） */
+  /** その月にすでに入っている予算（自動反映を含む。null = 未設定） */
   budget: number | null;
+  /** その月の自動反映（ローン返済など） */
+  overlay: number;
 };
 type AllocationItem = {
   rule: AllocationRuleRef;
   min: number;
   max: number | null;
   recommended: number;
+  /** このルールに入っている自動反映の合計 */
+  overlay: number;
   accounts: SuggestAccount[];
 };
 type AllocationSuggestion = {
@@ -716,7 +720,7 @@ function AllocationSuggestSection() {
             </div>
             {/* 手入力は控除しないので基準額＝配分額。二重表示を避けて振り分け対象額だけ出す */}
             <div>
-              {data.basis === "manual" ? "配分対象額" : "配分可能額（ローン等控除後）"}:{" "}
+              {data.basis === "manual" ? "配分対象額" : "配分可能額（目安の外のローン等を控除後）"}:{" "}
               <span className="font-semibold text-indigo-700">{yen(data.available)}</span>
             </div>
           </div>
@@ -796,7 +800,10 @@ function AllocationSuggestSection() {
                                 <span className="tabular-nums">
                                   {a.budget !== null ? (
                                     <span className="text-slate-400">
-                                      予算 {yen(a.budget)}（そのまま）
+                                      予算 {yen(a.budget)}
+                                      {a.overlay > 0
+                                        ? `（返済の自動反映 ${yen(a.overlay)} を含む）`
+                                        : "（そのまま）"}
                                     </span>
                                   ) : addedById.has(a.id) ? (
                                     <span className="text-indigo-700">

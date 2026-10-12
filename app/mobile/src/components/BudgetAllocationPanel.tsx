@@ -324,7 +324,8 @@ function AllocationSuggestSection({
     }
   }
 
-  const availableLabel = data?.basis === "manual" ? "配分対象額" : "配分可能額（ローン等控除後）";
+  const availableLabel =
+    data?.basis === "manual" ? "配分対象額" : "配分可能額（目安の外のローン等を控除後）";
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
 
   return (
@@ -444,7 +445,7 @@ function AllocationSuggestSection({
                       <Text key={a.id} style={s.itemMeta}>
                         {displayName(a, viewMode)}{" "}
                         {a.budget !== null
-                          ? `予算 ${yen(a.budget)}（そのまま）`
+                          ? `予算 ${yen(a.budget)}${a.overlay > 0 ? `（返済の自動反映 ${yen(a.overlay)} を含む）` : "（そのまま）"}`
                           : added.has(a.id)
                             ? `→ ${yen(added.get(a.id)!)}`
                             : "—"}
