@@ -7,7 +7,7 @@ import {
   JOURNAL_DETAILS_INCLUDE,
   syncJournalToFinancialRecords,
 } from "@/lib/accounting/journal";
-import { invalidateCache } from "@/lib/server/redis";
+import { invalidateClosingCaches } from "@/lib/server/closing-cache";
 import { resolveReceiptFileUrl } from "@/lib/server/upload";
 
 const INCLUDE_WITH_RECEIPTS = {
@@ -140,9 +140,7 @@ export const POST = withApi({
       })),
     );
 
-    const year = entry.transactionDate.getFullYear();
-    await invalidateCache(`closing:statements:${year}`);
-    await invalidateCache(`reports:ledger:${year}:*`);
+    await invalidateClosingCaches(tenantId, entry.transactionDate.getFullYear());
 
     return NextResponse.json({ data: withResolvedReceiptUrls(entry) }, { status: 201 });
   },

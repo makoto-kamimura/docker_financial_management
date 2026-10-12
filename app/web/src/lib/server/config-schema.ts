@@ -7,8 +7,13 @@ export const Env = z.object({
   REDIS_URL: z.string().url().optional(),
   CLEANUP_SERVICE_KEY: z.string().min(32).optional(), // 短い鍵を拒否
   COOKIE_SECURE: z.enum(["true", "false"]).default("true"),
-  SESSION_IDLE_HOURS: z.coerce.number().default(24),
-  SESSION_ABSOLUTE_DAYS: z.coerce.number().default(7),
-  UPLOAD_MAX_BYTES: z.coerce.number().default(10 * 1024 * 1024),
+  SESSION_IDLE_HOURS: z.coerce.number().positive().default(24),
+  SESSION_ABSOLUTE_DAYS: z.coerce.number().positive().default(7),
+  UPLOAD_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10 * 1024 * 1024),
   APP_ORIGIN: z.string().url().optional(),
 });
+export type Env = z.infer<typeof Env>;

@@ -55,7 +55,7 @@ export default function PortalPage() {
         <div>
           <h1 className="page-title">税理士ポータル</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            複数テナント横断 財務サマリ（accountant 以上）
+            自分のテナントの財務サマリ（accountant 以上）
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -81,7 +81,7 @@ export const GET = withApi({
 
 const SnapshotSchema = z.object({
   accountCode: z.string().min(1),
-  method: z.string().default("linear_regression"),
+  method: z.enum(METHODS).default("linear_regression"),
   scenario: z.string().default("base"),
   startYear: z.number().int(),
   startMonth: z.number().int().min(1).max(12).default(1),

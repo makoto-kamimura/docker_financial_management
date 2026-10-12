@@ -1,9 +1,17 @@
 // アップロードファイルの検証・保存名決定ロジック。
 // journals/[id]/receipts（証憑アップロード）で使用する。
 import path from "node:path";
+import { getConfig } from "@/lib/server/config";
 
 export const UPLOAD_DIR = path.join(process.cwd(), "uploads");
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB
+/** 1 ファイルの上限（環境変数 UPLOAD_MAX_BYTES、既定 10MB） */
+export const maxUploadBytes = (): number => getConfig().UPLOAD_MAX_BYTES;
+
+/** 上限を超えたときの文言（「10MB」のように MB で示す） */
+export function uploadTooLargeMessage(maxBytes: number = maxUploadBytes()): string {
+  const mb = maxBytes / (1024 * 1024);
+  return `ファイルサイズは ${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB 以下にしてください`;
+}
 
 // S-8: 証憑ファイルはテナントごとにディレクトリを分離して保存する
 // （旧: uploads/<savedName> 直下フラット構成。既存ファイルは uploads/[filename] の GET で

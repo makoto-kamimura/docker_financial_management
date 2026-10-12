@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { cookies, headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/prisma";
+import { getConfig } from "@/lib/server/config";
 import {
   isCookieSecure,
   sessionCookieName,
@@ -16,9 +17,11 @@ const scryptAsync = promisify(scrypt) as (
   options: { N: number; r: number; p: number; maxmem: number },
 ) => Promise<Buffer>;
 
-const ABSOLUTE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 日（絶対期限）
-const IDLE_TTL_MS = 1000 * 60 * 60 * 24; // 24 時間（アイドルタイムアウト）
-const LAST_SEEN_UPDATE_THRESHOLD_MS = 1000 * 60 * 60; // lastSeenAt 更新の間引き（1時間）
+const HOUR_MS = 1000 * 60 * 60;
+// セッションの期限は環境変数で変えられる（既定は絶対期限 7 日・アイドルタイムアウト 24 時間。lib/server/config-schema.ts）
+const absoluteTtlMs = () => getConfig().SESSION_ABSOLUTE_DAYS * 24 * HOUR_MS; // 絶対期限
+const idleTtlMs = () => getConfig().SESSION_IDLE_HOURS * HOUR_MS; // アイドルタイムアウト
+const LAST_SEEN_UPDATE_THRESHOLD_MS = HOUR_MS; // lastSeenAt 更新の間引き（1時間）
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -110,7 +113,7 @@ function clientMeta(req?: NextRequest): { ip?: string; userAgent?: string } {
 export async function createSession(userId: number, req?: NextRequest): Promise<string> {
   const token = SESSION_TOKEN_PREFIX + randomBytes(32).toString("hex");
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + ABSOLUTE_TTL_MS);
+  const expiresAt = new Date(now.getTime() + absoluteTtlMs());
   const { ip, userAgent } = clientMeta(req);
   await prisma.session.create({
     data: { id: hashToken(token), userId, expiresAt, lastSeenAt: now, ip, userAgent },
@@ -149,7 +152,7 @@ export async function getCurrentUser() {
 
   const now = new Date();
   if (session.expiresAt < now) return null; // 絶対期限
-  if (session.lastSeenAt.getTime() + IDLE_TTL_MS < now.getTime()) return null; // アイドルタイムアウト
+  if (session.lastSeenAt.getTime() + idleTtlMs() < now.getTime()) return null; // アイドルタイムアウト
 
   // 書き込み頻度を抑えるため、一定時間以上古い場合のみ lastSeenAt を更新する
   if (now.getTime() - session.lastSeenAt.getTime() > LAST_SEEN_UPDATE_THRESHOLD_MS) {

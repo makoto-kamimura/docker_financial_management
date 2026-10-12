@@ -206,18 +206,22 @@ export function evaluateForecastAccuracy(
 }
 
 // ── DB enum への写像 ────────────────────────────────────────────────────
-// DB の ForecastMethod enum は 3 値のため、Holt 系は LINEAR_REGRESSION として保存する
-// （仕様書 付録 B「Forecast enum」参照）。
+// 画面と API の手法名（小文字）を DB の ForecastMethod enum に写す。5 手法とも同じ名前の値がある。
 
-export type DbForecastMethod = "MOVING_AVERAGE" | "LINEAR_REGRESSION" | "GROWTH_RATE";
+export type DbForecastMethod =
+  | "MOVING_AVERAGE"
+  | "LINEAR_REGRESSION"
+  | "GROWTH_RATE"
+  | "HOLT"
+  | "HOLT_WINTERS";
 export type DbForecastScenario = "OPTIMISTIC" | "BASE" | "PESSIMISTIC";
 
-const DB_METHOD_MAP: Record<string, DbForecastMethod> = {
+const DB_METHOD_MAP: Record<ForecastMethod, DbForecastMethod> = {
   moving_average: "MOVING_AVERAGE",
   linear_regression: "LINEAR_REGRESSION",
   growth_rate: "GROWTH_RATE",
-  holt: "LINEAR_REGRESSION",
-  holt_winters: "LINEAR_REGRESSION",
+  holt: "HOLT",
+  holt_winters: "HOLT_WINTERS",
 };
 
 const DB_SCENARIO_MAP: Record<string, DbForecastScenario> = {
@@ -226,8 +230,8 @@ const DB_SCENARIO_MAP: Record<string, DbForecastScenario> = {
   pessimistic: "PESSIMISTIC",
 };
 
-export function toDbForecastMethod(method: string): DbForecastMethod {
-  return DB_METHOD_MAP[method] ?? "LINEAR_REGRESSION";
+export function toDbForecastMethod(method: ForecastMethod): DbForecastMethod {
+  return DB_METHOD_MAP[method];
 }
 
 export function toDbForecastScenario(scenario: string): DbForecastScenario {
