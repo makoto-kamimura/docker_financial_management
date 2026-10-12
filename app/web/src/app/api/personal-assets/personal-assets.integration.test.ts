@@ -165,10 +165,10 @@ describe("実物資産の内訳", () => {
     expect(asset.estimatedValue).toBe(28_000_000);
   });
 
-  it("内訳ごとに価値の変わり方と向きを返す（土地は年 +1%、建物は木造 22 年で 0 円へ）", async () => {
+  it("内訳ごとに価値の変わり方と向きを返す（土地は年 1% 上昇、建物は木造 22 年で 0 円へ）", async () => {
     const [house] = await list();
     const [land, building] = house.parts;
-    expect(land).toMatchObject({ ruleLabel: "年 +1%", trend: "up" });
+    expect(land).toMatchObject({ ruleLabel: "年 1% 上昇", trend: "up" });
     expect(building).toMatchObject({ ruleLabel: "木造 22 年で 0 円へ（定額）", trend: "down" });
     expect(house.ruleLabel).toBeNull();
   });

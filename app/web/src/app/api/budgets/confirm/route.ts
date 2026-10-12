@@ -5,7 +5,6 @@ import { badRequest, conflict, notFound } from "@/lib/server/api-error";
 import { recordBudgetHistory } from "@/lib/budget/budget-history";
 import { prevYearMonth } from "@/lib/shared/budget-cycle";
 import { resolvePeriod } from "@/lib/accounting/period";
-import { isFiscalStartMonth } from "@/lib/accounting/fiscal-months";
 import { zMoney } from "@/lib/common/schemas";
 
 const ConfirmSchema = z.object({
@@ -23,8 +22,8 @@ const ConfirmSchema = z.object({
 //   すでに確定済みの月は 409。確定後は、その月の予算の登録・変更・削除を受け付けない。
 //   月ごとの流れ「① 予算確定 → ② 実績確定 → ③ 翌月の予算確定」の ①③。前月の予算が確定済み
 //   （サイクルが回っている）なら、前月の実績も確定済みでないと 409。前月の予算が未確定なら
-//   サイクルの初回なので、そのまま確定できる。期の最初の月（tenants.startMonth）も、前月の実績を待たずに
-//   確定できる（前の期の締めを待たずに新しい期の予算を立てられるようにする）。
+//   サイクルの初回なので、そのまま確定できる（初回の予算は、予算の確定タブの配分提案で入れられる）。
+//   期の最初の月にも例外は無い（前の期の最後の月の実績を確定してから、新しい期の予算を確定する）。
 export const POST = withApi({
   role: "editor",
   schema: ConfirmSchema,
@@ -45,17 +44,13 @@ export const POST = withApi({
       if (already) throw conflict(`${year}年${month}月の予算はすでに確定済みです`);
 
       const prev = prevYearMonth(year, month);
-      const [prevPeriod, tenant] = await Promise.all([
-        tx.period.findUnique({
-          where: {
-            tenantId_fiscalYear_month: { tenantId, fiscalYear: prev.year, month: prev.month },
-          },
-          include: { budgetConfirmation: true, actualsConfirmation: true },
-        }),
-        tx.tenant.findUnique({ where: { id: tenantId }, select: { startMonth: true } }),
-      ]);
-      const fiscalStart = isFiscalStartMonth(month, tenant?.startMonth ?? 1);
-      if (!fiscalStart && prevPeriod?.budgetConfirmation && !prevPeriod.actualsConfirmation) {
+      const prevPeriod = await tx.period.findUnique({
+        where: {
+          tenantId_fiscalYear_month: { tenantId, fiscalYear: prev.year, month: prev.month },
+        },
+        include: { budgetConfirmation: true, actualsConfirmation: true },
+      });
+      if (prevPeriod?.budgetConfirmation && !prevPeriod.actualsConfirmation) {
         throw conflict(
           `${prev.year}年${prev.month}月の実績が確定していません。先に${prev.month}月の実績を確定してください`,
         );

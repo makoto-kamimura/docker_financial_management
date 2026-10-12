@@ -411,7 +411,8 @@ describe("実績の確定", () => {
       month: 5,
       next: { year: YEAR, month: 6 },
       prevActualsPending: false,
-      actuals: { entered: true, monthEnd: `${YEAR}-05-31`, unassigned: 0 },
+      // 5 月は実績が記録されている（初回の予算の確定ではない）
+      actuals: { entered: true, recorded: true, monthEnd: `${YEAR}-05-31`, unassigned: 0 },
     });
     expect(data.confirmedAt).not.toBeNull();
     expect(data.actuals.confirmedAt).not.toBeNull();
@@ -429,6 +430,14 @@ describe("実績の確定", () => {
       )
     ).json();
     expect(june.data.prevActualsPending).toBe(false);
+    // 実績が 1 件も無い月（9 月）は recorded が false（初回の予算の確定の判定に使う）
+    const september = await (
+      await cycleStatusGet(
+        makeReq("GET", `http://x/api/cycle-status?year=${YEAR}&month=9`),
+        emptyRouteContext(),
+      )
+    ).json();
+    expect(september.data.actuals.recorded).toBe(false);
   });
 
   it("解除は逆順・admin のみ: 予算 → 実績の順には外せず、翌月予算 → 実績 → 予算の順で外せる", async () => {
