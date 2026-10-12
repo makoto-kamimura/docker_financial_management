@@ -8,10 +8,11 @@ import { badRequest, notFound } from "@/lib/server/api-error";
 import {
   classifyFileType,
   matchesMagicBytes,
-  MAX_UPLOAD_BYTES,
+  maxUploadBytes,
   resolveReceiptFileUrl,
   resolveUploadExtension,
   tenantUploadDir,
+  uploadTooLargeMessage,
 } from "@/lib/server/upload";
 
 // GET /api/journals/[id]/receipts … 証憑一覧
@@ -44,11 +45,11 @@ export const POST = withApi({
     try {
       formData = await req.formData();
     } catch {
-      throw badRequest("ファイルサイズは 10MB 以下にしてください");
+      throw badRequest(uploadTooLargeMessage());
     }
     const file = formData.get("file") as File | null;
     if (!file) throw badRequest("file is required");
-    if (file.size > MAX_UPLOAD_BYTES) throw badRequest("ファイルサイズは 10MB 以下にしてください");
+    if (file.size > maxUploadBytes()) throw badRequest(uploadTooLargeMessage());
 
     const ext = resolveUploadExtension(file.name, file.type);
     if (!ext) throw badRequest("許可されていないファイル形式です（pdf/jpg/png/gif/webp のみ）");

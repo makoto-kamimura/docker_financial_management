@@ -96,11 +96,12 @@ describe("精度評価と DB enum 写像", () => {
     expect(result!.mape).toBe(0); // 完全な線形なので誤差ゼロ
   });
 
-  it("toDbForecastMethod: Holt 系は LINEAR_REGRESSION に写像し、未知値はフォールバックする", () => {
+  it("toDbForecastMethod: 5 手法とも同じ名前の DB の値に写す（Holt 系も線形回帰にしない）", () => {
     expect(toDbForecastMethod("moving_average")).toBe("MOVING_AVERAGE");
-    expect(toDbForecastMethod("holt")).toBe("LINEAR_REGRESSION");
-    expect(toDbForecastMethod("holt_winters")).toBe("LINEAR_REGRESSION");
-    expect(toDbForecastMethod("unknown")).toBe("LINEAR_REGRESSION");
+    expect(toDbForecastMethod("linear_regression")).toBe("LINEAR_REGRESSION");
+    expect(toDbForecastMethod("growth_rate")).toBe("GROWTH_RATE");
+    expect(toDbForecastMethod("holt")).toBe("HOLT");
+    expect(toDbForecastMethod("holt_winters")).toBe("HOLT_WINTERS");
     expect(toDbForecastScenario("optimistic")).toBe("OPTIMISTIC");
     expect(toDbForecastScenario("unknown")).toBe("BASE");
   });

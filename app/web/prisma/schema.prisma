@@ -26,6 +26,8 @@ enum ForecastMethod {
   MOVING_AVERAGE
   LINEAR_REGRESSION
   GROWTH_RATE
+  HOLT
+  HOLT_WINTERS
 }
 
 // 予測シナリオ

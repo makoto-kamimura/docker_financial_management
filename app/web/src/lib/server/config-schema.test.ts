@@ -43,4 +43,10 @@ describe("Env スキーマ (S-13)", () => {
     const result = Env.parse({ ...BASE_ENV, SESSION_IDLE_HOURS: "48" });
     expect(result.SESSION_IDLE_HOURS).toBe(48);
   });
+
+  it("セッションの期限とアップロードの上限は正の数だけを受け付ける", () => {
+    expect(() => Env.parse({ ...BASE_ENV, SESSION_IDLE_HOURS: "0" })).toThrow();
+    expect(() => Env.parse({ ...BASE_ENV, SESSION_ABSOLUTE_DAYS: "-1" })).toThrow();
+    expect(() => Env.parse({ ...BASE_ENV, UPLOAD_MAX_BYTES: "0" })).toThrow();
+  });
 });

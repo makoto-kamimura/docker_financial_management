@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useLocale } from "@/hooks/useLocale";
-import type { Locale } from "@/lib/client/i18n";
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
@@ -212,7 +210,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // 既存ユーザーは下の useEffect で保存済みの viewMode に上書きされるため影響しない。
   const [viewMode, setViewMode] = useState<ViewMode>("household");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { locale, changeLocale } = useLocale();
 
   useEffect(() => {
     const saved = localStorage.getItem("viewMode") as ViewMode | null;
@@ -338,30 +335,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="px-3 py-4 border-t border-slate-700/60 space-y-2">
-          {/* 言語切り替え */}
-          <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
-            {(["ja", "en"] as Locale[]).map((lang) => (
-              <button
-                key={lang}
-                type="button"
-                onClick={() => changeLocale(lang)}
-                aria-pressed={locale === lang}
-                className={`flex-1 py-1 font-medium transition-colors ${
-                  locale === lang
-                    ? "bg-slate-600 text-white"
-                    : "text-slate-500 hover:text-white hover:bg-slate-700"
-                }`}
-              >
-                {lang === "ja" ? "日本語" : "English"}
-              </button>
-            ))}
-          </div>
           <button
             type="button"
             onClick={logout}
             className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
           >
-            {locale === "en" ? "Logout" : "ログアウト"}
+            ログアウト
           </button>
         </div>
       </aside>

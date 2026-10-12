@@ -12,6 +12,8 @@ services:
       REDIS_URL: redis://redis:6379
       NODE_ENV: production
       COOKIE_SECURE: "false"
+      # session-cleanup と同じ鍵（32 文字以上。短い鍵は起動時の設定の検査で拒否される）
+      CLEANUP_SERVICE_KEY: ${CLEANUP_SERVICE_KEY:-local-dev-cleanup-key-0123456789abcdef}
     volumes:
       - uploads_data:/app/uploads
     depends_on:
@@ -52,7 +54,7 @@ services:
   session-cleanup:
     image: alpine:3.20
     environment:
-      CLEANUP_SERVICE_KEY: ${CLEANUP_SERVICE_KEY:-local-cleanup-key}
+      CLEANUP_SERVICE_KEY: ${CLEANUP_SERVICE_KEY:-local-dev-cleanup-key-0123456789abcdef}
     command: >
       sh -c "
         echo '0 2 * * * wget -qO- --header=\"Authorization: Bearer $${CLEANUP_SERVICE_KEY}\"

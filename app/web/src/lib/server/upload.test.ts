@@ -5,6 +5,7 @@ import {
   matchesMagicBytes,
   resolveReceiptFileUrl,
   resolveUploadExtension,
+  uploadTooLargeMessage,
 } from "./upload";
 
 describe("resolveUploadExtension", () => {
@@ -95,6 +96,17 @@ describe("resolveReceiptFileUrl (D-7)", () => {
   it("savedName が null の旧行は保存済み fileUrl にフォールバックする", () => {
     expect(resolveReceiptFileUrl({ savedName: null, fileUrl: "/legacy/old-receipt.pdf" })).toBe(
       "/legacy/old-receipt.pdf",
+    );
+  });
+});
+
+describe("uploadTooLargeMessage", () => {
+  it("上限を MB で示す（端数は小数 1 桁）", () => {
+    expect(uploadTooLargeMessage(10 * 1024 * 1024)).toBe(
+      "ファイルサイズは 10MB 以下にしてください",
+    );
+    expect(uploadTooLargeMessage(2.5 * 1024 * 1024)).toBe(
+      "ファイルサイズは 2.5MB 以下にしてください",
     );
   });
 });

@@ -696,7 +696,7 @@ KPI の下に、次の順で置く。
 ### 13.1 仕訳帳と承認
 
 - 仕訳を、日付・摘要・支払方法・課税区分と、借方・貸方の明細（科目・金額・税率・仕入税額控除の対象か）で入力する。
-- 仕訳には領収書などの証憑（画像・PDF）を添付できる。
+- 仕訳には領収書などの証憑（画像・PDF）を添付できる。1 ファイルの上限は既定 10MB（環境変数 `UPLOAD_MAX_BYTES`）。
 - 承認のワークフロー：下書き → 承認申請 → 承認済 / 差戻し。承認は accountant 以上が行う（電子帳簿保存法への対応）。
 - 仕訳は、損益の科目について実績に自動で同期する。
 
@@ -1106,8 +1106,10 @@ npm run typecheck && npm run format:check
 | キー | 内容 | 消すタイミング |
 |---|---|---|
 | `assets:summary:{tenantId}:{年月}` | 総資産サマリ | 期限切れ |
-| `closing:statements:{tenantId}:{年}[:dept:{部門}]` | 決算書 | 決算確定・取り消し、仕訳の登録 |
-| `reports:ledger:{tenantId}:{年}:{科目}` | 総勘定元帳 | 決算確定・取り消し、仕訳の登録 |
+| `closing:statements:{tenantId}:{年}[:dept:{部門}]` | 決算書 | 決算確定・取り消し、仕訳の登録・削除 |
+| `reports:ledger:{tenantId}:{年}:{科目}` | 総勘定元帳 | 決算確定・取り消し、仕訳の登録・削除 |
+
+決算書と総勘定元帳のキーは `src/lib/server/closing-cache.ts` の `invalidateClosingCaches(tenantId, 年)` でまとめて消す。
 
 ### 20.9 勘定科目変換の判定
 
@@ -1243,7 +1245,7 @@ npm run typecheck && npm run format:check
 | 列挙型 | 値 |
 |---|---|
 | AccountCategory | REVENUE, COGS, EXPENSE, PROFIT, ASSET, LIABILITY, OTHER |
-| ForecastMethod | MOVING_AVERAGE, LINEAR_REGRESSION, GROWTH_RATE |
+| ForecastMethod | MOVING_AVERAGE, LINEAR_REGRESSION, GROWTH_RATE, HOLT, HOLT_WINTERS |
 | ForecastScenario | OPTIMISTIC, BASE, PESSIMISTIC |
 | BankAccountRole | SALARY, WITHDRAWAL, SAVINGS, OTHER |
 | TransferKind | MANUAL, AUTO |
@@ -1423,11 +1425,11 @@ npm run typecheck && npm run format:check
 |---|---|
 | 認証 | パスワード（scrypt）＋ 多要素認証（TOTP）、アカウントのロック、レート制限（[19章](#19-認証の実装)） |
 | 認可 | 4段階のロールと、テナントによるデータ分離（[20.1節](#201-テナント分離)） |
-| セッション | ハッシュで保存、アイドル24時間・最長7日、ログインのたびに作り直す |
+| セッション | ハッシュで保存、アイドル24時間・最長7日（環境変数 `SESSION_IDLE_HOURS`・`SESSION_ABSOLUTE_DAYS` で変えられる）、ログインのたびに作り直す |
 | CSRF | Origin・Sec-Fetch-Site の確認 |
 | 通信 | 本番は TLS。Cookie は `__Host-` 付き・Secure |
 | 監査 | 変更前後の内容を監査ログに残す（秘密の値は伏せる） |
-| 設定 | 環境変数を起動時に Zod で検査する（`src/lib/server/config-schema.ts`） |
+| 設定 | 環境変数を、最初に使うときに Zod で検査する（`src/lib/server/config.ts` の `getConfig()`。スキーマは `config-schema.ts`） |
 
 ### 23.3 可用性とデータ保全
 
@@ -1476,6 +1478,7 @@ npm run typecheck && npm run format:check
 | — | 明細が月末まで届かないソースは「当月末まで変動なし」の申告で確定できるようにし、申告と確定時点の最終日を記録する | 引き落としの少ないカードなどで確定が止まらないようにしつつ、何を根拠に確定したかを後から確かめられるようにするため |
 | — | 予算配分のルールと科目は保存した結び付けではなく、キーワードと区分でその場で振り分ける。手で移した分だけ保存する。予算への反映は予算未設定の科目だけに入れる | 追加した科目も自動で配分に入れ、1 ルールに複数の科目をまとめられるようにするため。入力済みの予算を配分で上書きしないため |
 | — | 実績の Excel 取り込みは廃止し、CSV だけにする | 依存するライブラリの管理の負担を減らすため |
+| — | 言語の切り替え（日本語 / English）はなくし、画面は日本語だけにする | 切り替えてもログアウトの表記しか変わらず、英語の画面が実質なかったため |
 
 ## 25. 未決事項
 
@@ -1485,6 +1488,4 @@ npm run typecheck && npm run format:check
 | 実際の銀行との連携 | 自動取得は今はモックだけ。口座アグリゲーションの事業者（Plaid・Moneytree など）を選び、契約と認証情報を用意する |
 | 有料の AI 科目変換 | テーブルだけがあり、仕様（料金・キャッシュ・PDF の報告書）は [account-conversion-system.md](docs/design/account-conversion-system.md) の Phase 6 のまま |
 | 発生主義の家計 | [home-mode-accrual-basis.md](docs/design/home-mode-accrual-basis.md) の設計を取り入れるか |
-| 税理士ポータル | 画面は「複数テナント横断」とうたうが、API は自分のテナントだけを返す。複数のテナントを見る権限をどう設計するか |
-| 多言語 | 言語の切り替えはログアウトの表記しか変えていない。対応を広げるか、切り替えをなくすか |
-| 見つかった不具合 | 仕訳の登録でキャッシュが消えない、Holt 系の予測の保存先の手法など。[docs/tasks/task.md](docs/tasks/task.md) に記録した |
+| 税理士ポータル | 画面と API は自分のテナントだけを扱う。顧問先など複数のテナントを見られるようにするなら、その権限をどう設計するか |

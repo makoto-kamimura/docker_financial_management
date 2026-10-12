@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { badRequest } from "@/lib/server/api-error";
-import { invalidateCache } from "@/lib/server/redis";
+import { invalidateClosingCaches } from "@/lib/server/closing-cache";
 
 const FinalizeSchema = z.object({
   fiscalYear: z.number().int(),
@@ -46,8 +46,7 @@ export const POST = withApi({
           },
         });
 
-    await invalidateCache(`closing:statements:${tenantId}:${body.fiscalYear}`);
-    await invalidateCache(`reports:ledger:${tenantId}:${body.fiscalYear}:*`);
+    await invalidateClosingCaches(tenantId, body.fiscalYear);
 
     return NextResponse.json({ data: close });
   },

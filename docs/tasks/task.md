@@ -3,23 +3,9 @@
 主要な機能は Web・モバイルともに実装した（[readme 17章](../../readme.md#17-開発ロードマップ)の Phase 0〜7）。
 ここには、残っている作業（不具合の修正・本番運用の準備・手作業・将来の機能）だけをまとめる。仕様は [readme.md](../../readme.md) を参照する。
 
-## 1. 不具合（ドキュメントの整理のときにコードと突き合わせて見つかったもの）
+## 1. 不具合
 
-- [ ] **仕訳の登録で決算書・総勘定元帳のキャッシュが消えない**
-  - `app/web/src/app/api/journals/route.ts` が `closing:statements:${year}`・`reports:ledger:${year}:*` を消しているが、実際のキーには tenantId が入っている（`closing:statements:${tenantId}:${year}` など。readme 20.8節）。`closing/finalize` と同じキーに直す。
-- [ ] **Holt / Holt-Winters の予測が線形回帰として保存される**
-  - 画面と API は `holt`・`holt_winters` を受け付けるが、`ForecastMethod` の列挙型に値がなく、`src/lib/forecast.ts` の `toDbForecastMethod` で `LINEAR_REGRESSION` に変わる。列挙型に値を足すマイグレーションを作る。
-- [ ] **開発環境のセッションの掃除（`session-cleanup`）が成功しない**
-  - `session-cleanup` は `CLEANUP_SERVICE_KEY` の Bearer で呼ぶが、`web` にはこの値を渡していないので、admin のセッションを求められて失敗する。既定値 `local-cleanup-key` は、設定の検査の条件（32文字以上）も満たさない。
-- [ ] **`/card-transactions` がページの保護の対象に入っていない**
-  - `app/web/src/middleware.ts` の保護するパスの一覧と matcher に `/card-transactions` を足す（API はログインを求めるので、データは漏れない）。
-- [ ] **設定の値が読まれていない**
-  - `SESSION_IDLE_HOURS`・`SESSION_ABSOLUTE_DAYS`・`UPLOAD_MAX_BYTES` は `config-schema.ts` で検査するが、使われていない（`auth.ts` は24時間・7日を直接書いている）。使うか、消す。
-- [ ] **文言と実際の動きのずれ**
-  - 税理士ポータルの説明が「複数テナント横断」だが、`/api/portal` は自分のテナントだけを返す（readme 25章の未決事項と合わせて決める）。
-  - `/card-transactions` の説明が「引き落とし自体の登録は銀行管理の『資金移動』で行います」だが、タブの名前は「振替」。
-  - モバイルの `app.json` の `extra.apiBaseUrl` は、どこからも読まれていない（接続先は `EXPO_PUBLIC_API_BASE_URL`）。消すか、既定値として読む。
-  - 言語の切り替え（日本語 / English）がログアウトの表記しか変えない。
+今わかっているものはない。見つけたらここに書く。
 
 ## 2. 本番運用の準備
 

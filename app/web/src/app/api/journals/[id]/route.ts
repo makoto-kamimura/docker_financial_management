@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/server/api-handler";
 import { notFound } from "@/lib/server/api-error";
+import { invalidateClosingCaches } from "@/lib/server/closing-cache";
 import {
   deleteFinancialRecordsForJournalEntry,
   JOURNAL_DETAILS_INCLUDE,
@@ -31,6 +32,7 @@ export const DELETE = withApi({
       await deleteFinancialRecordsForJournalEntry(tx, id);
       await tx.journalEntry.delete({ where: { id } });
     });
+    await invalidateClosingCaches(user.tenantId, entry.transactionDate.getFullYear());
     return NextResponse.json({ ok: true });
   },
 });

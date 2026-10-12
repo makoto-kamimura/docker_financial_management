@@ -3521,6 +3521,14 @@ async function main() {
   const allocationCreated = await seedDefaultAllocationRulesForTenant(prisma, tid);
   console.log(`  ✓ Seeded allocation rules (${allocationCreated} created)`);
 
+  // 明示 ID で upsert した表は、autoincrement のシーケンスを実データに同期させる
+  // （ずれたままだと、画面からの最初の口座・部門の登録が id 重複で失敗する。tenants は作成直後に同期済み）
+  for (const table of ["bank_accounts", "departments"]) {
+    await prisma.$executeRawUnsafe(
+      `SELECT setval(pg_get_serial_sequence('${table}', 'id'), GREATEST((SELECT MAX(id) FROM ${table}), 1))`,
+    );
+  }
+
   console.log("🎉 Seed completed!");
 }
 
