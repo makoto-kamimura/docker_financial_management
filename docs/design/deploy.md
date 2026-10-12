@@ -127,10 +127,10 @@ push(main) / tag(v*)
 ## 8. 本番サーバーの前提
 
 - Docker / Docker Compose v2 インストール済み。
-- `DEPLOY_PATH` に `.env`（`WEB_IMAGE`・`DATABASE_URL`・`POSTGRES_*`）を置く。内容と準備の手順は [runbooks/production-server-setup.md](../runbooks/production-server-setup.md)。
+- `DEPLOY_PATH` に `.env`（`WEB_IMAGE`・`DATABASE_URL`・`POSTGRES_*`・`APP_ORIGIN`・`CLEANUP_SERVICE_KEY`）を置く。compose は `--env-file .env` で読む。内容と準備の手順は [runbooks/production-server-setup.md](../runbooks/production-server-setup.md)。
 - 初期データの投入は要らない。web の entrypoint が起動時に `prisma migrate deploy` を実行し、ユーザーが1人もいなければ `db:seed` を実行する。
   - そのため、deploy ジョブの `compose run --rm web npx prisma migrate deploy` と合わせて、マイグレーションは2回実行される（2回目は適用済みで何もしない）。
-- 本番の compose（`docker-compose.prod.yml`）は `web` と `db` だけを起動する。開発環境にある `redis`・`session-cleanup`・証憑のボリューム（`uploads_data`）はない（[readme 25章](../../readme.md#25-未決事項)）。
+- 本番の compose（`docker-compose.prod.yml`）は、開発環境と同じく `web`・`db`・`redis`・`session-cleanup` を起動し、証憑をボリューム（`uploads-data`）に置く。redis のポートは外に出さない。
 
 ---
 

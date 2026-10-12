@@ -103,7 +103,8 @@ jobs:
               echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
             fi
             export WEB_IMAGE
-            COMPOSE="docker compose -f platform/docker-compose.prod.yml"
+            # .env は DEPLOY_PATH に置く。-f だけだと compose は platform/ の .env を探すので、明示する
+            COMPOSE="docker compose --env-file .env -f platform/docker-compose.prod.yml"
 
             # ロールバック用に「現在稼働中の web イメージ ID」を控える（初回は空）
             PREV_IMAGE_ID="$(docker inspect --format '{{.Image}}' "$($COMPOSE ps -q web 2>/dev/null)" 2>/dev/null || echo "")"
