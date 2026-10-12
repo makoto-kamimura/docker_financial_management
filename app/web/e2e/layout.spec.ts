@@ -28,7 +28,7 @@ test.describe("共通の作り", () => {
   });
 
   // タブの順は readme「5. 画面一覧」と同じ
-  test("予算管理のタブは 一覧 → カレンダー → 予実差確認 → 予算の確定 → CSV → 履歴 → 設定 の順", async ({
+  test("予算管理のタブは 一覧 → カレンダー → 予実差確認 → 予算の確定 → 履歴 → 設定 の順", async ({
     page,
   }) => {
     await page.goto("/budget");
@@ -37,20 +37,22 @@ test.describe("共通の作り", () => {
       "カレンダー",
       "予実差確認",
       "予算の確定",
-      "CSV インポート",
       "履歴",
       "設定",
     ]);
   });
 
-  test("実績管理のタブは 一覧 → カレンダー → 実績の確定 → CSV → 履歴 の順", async ({ page }) => {
+  test("実績管理のタブは 一覧 → カレンダー → CSV → 実績の確定 → 履歴 → 設定 の順", async ({
+    page,
+  }) => {
     await page.goto("/entry");
     await expect(page.getByRole("tab")).toHaveText([
       "一覧",
       "カレンダー",
-      "実績の確定",
       "CSV インポート",
+      "実績の確定",
       "履歴",
+      "設定",
     ]);
     // 一覧は予算と同じ表（月ごとの合計の行がある）
     await expect(page.getByRole("cell", { name: "差引" })).toBeVisible();

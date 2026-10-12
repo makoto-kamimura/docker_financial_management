@@ -16,13 +16,12 @@ import {
   type MatrixAccount,
   type MatrixCell,
 } from "@/components/AccountMonthMatrix";
-import { CsvDropzone, Notice, PageHeader, Pager, Tabs } from "@/components/ui";
+import { PageHeader, Pager, Tabs } from "@/components/ui";
 import { useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { InfoNote, SectionLead } from "@/components/Explain";
 import { useViewMode } from "@/lib/client/use-view-mode";
 import { BUDGET_HELP, textFor } from "@/lib/shared/help-texts";
 import { displayName } from "@/lib/shared/display-name";
-import { importErrorMessage, importNetworkErrorMessage } from "@/lib/client/import-error";
 import { CHANGE_ACTION_LABEL as ACTION_LABEL } from "@/lib/shared/labels";
 import {
   BUDGET_SOURCE_LABEL,
@@ -68,27 +67,17 @@ type BudgetResponse = {
   /** カレンダーで登録した予算（セルの内訳に出す） */
   items?: (BudgetCellItem & { accountCode: string; month: number })[];
 };
-type ImportResult = { imported: number; skipped?: number; errors: string[] };
-type Tab = "manual" | "calendar" | "allocation" | "variance" | "confirm" | "csv" | "history";
+type Tab = "manual" | "calendar" | "allocation" | "variance" | "confirm" | "history";
 const TABS: readonly (readonly [Tab, string])[] = [
   ["manual", "一覧"],
   ["calendar", "カレンダー"],
   ["variance", "予実差確認"],
   ["confirm", "予算の確定"],
-  ["csv", "CSV インポート"],
   ["history", "履歴"],
   ["allocation", "設定"],
 ];
 
-const TAB_IDS: Tab[] = [
-  "manual",
-  "calendar",
-  "allocation",
-  "variance",
-  "confirm",
-  "csv",
-  "history",
-];
+const TAB_IDS: Tab[] = ["manual", "calendar", "allocation", "variance", "confirm", "history"];
 // 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）。
 // month は予実差確認なら比べる月、予算の確定なら予算の月
 function useInitialTab(): { tab: Tab; month: string | undefined } {
@@ -133,9 +122,6 @@ const fmtDateTime = (iso: string) => {
   const d = new Date(iso);
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
-
-const now = new Date();
-const THIS_YEAR = now.getFullYear();
 
 // 「適正 …」の説明（セルの title と表の注記で共用）
 const GUIDE_HELP = BUDGET_HELP.guide;
@@ -182,11 +168,6 @@ function BudgetContent() {
   const [histOffset, setHistOffset] = useState(0);
   const [histSort, setHistSort] = useState<HistorySort>("changedAt");
   const [histOrder, setHistOrder] = useState<"asc" | "desc">("desc");
-
-  // CSV インポート
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
 
   const { data: accounts } = useQuery({
     queryKey: ["accounts"],
@@ -368,31 +349,6 @@ function BudgetContent() {
     };
   }
 
-  async function importFile(file: File) {
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      setImportError("CSV ファイル (.csv) のみ対応しています。");
-      return;
-    }
-    setImporting(true);
-    setImportResult(null);
-    setImportError(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/budgets/import", { method: "POST", body: fd });
-      if (!res.ok) {
-        setImportError(await importErrorMessage(res));
-        return;
-      }
-      setImportResult((await res.json()) as ImportResult);
-      qc.invalidateQueries({ queryKey: ["budgets"] });
-    } catch {
-      setImportError(importNetworkErrorMessage);
-    } finally {
-      setImporting(false);
-    }
-  }
-
   return (
     <AppShell>
       <PageHeader title="予算管理" lead={textFor(BUDGET_HELP.page, sysMode)} showYear />
@@ -401,75 +357,6 @@ function BudgetContent() {
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
       {/* 予算の追加は下の表のセル（「—」をクリック）から行う。旧「予算を追加」フォームは廃止した。 */}
-
-      {/* ── CSV インポートタブ ──────────────────────────── */}
-      {tab === "csv" && (
-        <div className="max-w-2xl space-y-6 mb-6">
-          <SectionLead>{BUDGET_HELP.csv}</SectionLead>
-          <CsvDropzone busy={importing} onFile={importFile} />
-
-          {/* インポート結果 */}
-          {importResult && (
-            <div
-              className={`card border ${importResult.errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}
-            >
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-2xl">{importResult.errors.length === 0 ? "✅" : "⚠️"}</span>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {importResult.imported.toLocaleString()} 件をインポートしました
-                  </p>
-                  {(importResult.skipped ?? 0) > 0 && (
-                    <p className="text-xs text-slate-600">
-                      {importResult.skipped!.toLocaleString()}{" "}
-                      件は既に同じ金額で登録済みのためスキップしました
-                    </p>
-                  )}
-                  {importResult.errors.length > 0 && (
-                    <p className="text-xs text-amber-700">
-                      {importResult.errors.length} 件のエラーがあります
-                    </p>
-                  )}
-                </div>
-              </div>
-              {importResult.errors.length > 0 && (
-                <ul className="mt-2 max-h-40 overflow-y-auto space-y-1">
-                  {importResult.errors.map((e, i) => (
-                    <li key={i} className="text-xs text-amber-800 bg-amber-100 rounded px-2 py-1">
-                      {e}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-          {importError && <Notice tone="error">{importError}</Notice>}
-
-          {/* フォーマットガイド */}
-          <div className="card bg-slate-50">
-            <h3 className="text-xs font-semibold text-slate-700 mb-2">CSV フォーマット</h3>
-            <pre className="text-xs text-slate-600 font-mono bg-white border border-slate-200 rounded p-3 overflow-x-auto">{`accountCode,fiscalYear,month,amount
-H1000,${THIS_YEAR},1,400000
-H2000,${THIS_YEAR},1,65000
-H3000,${THIS_YEAR},1,115000`}</pre>
-            <ul className="mt-3 space-y-1 text-xs text-slate-500">
-              <li>
-                <span className="font-medium">accountCode</span>
-                ：勘定科目コード（マスタに登録済みのもの）
-              </li>
-              <li>
-                <span className="font-medium">fiscalYear</span>：会計年度（例: {THIS_YEAR}）
-              </li>
-              <li>
-                <span className="font-medium">month</span>：月（1〜12）
-              </li>
-              <li>
-                <span className="font-medium">amount</span>：予算金額（円）
-              </li>
-            </ul>
-          </div>
-        </div>
-      )}
 
       {/* ── 設定タブ（予算配分のルール。旧「設定 › 予算配分ルール」から移設）──
           ルールの割合は一覧の「適正 …」にも反映される。 */}

@@ -822,6 +822,46 @@ export type AllocationRuleInput = {
   keywords?: string[];
 };
 
+// ── 学習ルール（摘要のキーワード → 科目。実績の画面の「設定」タブ）──────────────
+export type CategoryRule = {
+  id: number;
+  /** 正規化したキーワード（前後の空白を除き、続く空白を 1 つにまとめ、英字は大文字） */
+  keyword: string;
+  priority: number;
+  updatedAt: string;
+  categoryAccount: {
+    id: number;
+    code: string;
+    name: string;
+    category: string;
+    soleName: string | null;
+    corporateName: string | null;
+  };
+};
+
+/** 保存する行（id ありは変更、id なしは追加） */
+export type CategoryRuleInput = { id?: number; keyword: string; categoryAccountId: number };
+
+export async function fetchCategoryRules(): Promise<CategoryRule[]> {
+  const json = await request<{ data?: CategoryRule[] }>(
+    "/ledger/category-rules",
+    "学習ルールの取得に失敗しました",
+  );
+  return json.data ?? [];
+}
+
+export async function saveCategoryRules(
+  items: CategoryRuleInput[],
+  removedIds: number[],
+): Promise<CategoryRule[]> {
+  const json = await request<{ data?: CategoryRule[] }>(
+    "/ledger/category-rules",
+    "学習ルールの保存に失敗しました",
+    jsonInit("PUT", { items, removedIds: removedIds.length ? removedIds : undefined }),
+  );
+  return json.data ?? [];
+}
+
 export async function fetchAllocationRules(): Promise<AllocationRule[]> {
   const json = await request<{ data?: AllocationRule[] }>(
     "/allocation-rules",

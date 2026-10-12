@@ -2,7 +2,7 @@ import type { TenantDbClient } from "@/lib/server/tenant-db";
 import { conflict } from "@/lib/server/api-error";
 
 // 確定済みの月の予算は書き換えさせない（予実対比の基準として固定するため）。
-// 予算を書き込むルート（登録・変更・削除・CSV 取込・配分の反映）から呼ぶ。
+// 予算を書き込むルート（登録・変更・削除・カレンダーの登録・配分の反映）から呼ぶ。
 
 export const BUDGET_LOCKED_MESSAGE =
   "この月の予算は確定済みのため変更できません。変更するには、予算管理の「予算の確定」で確定を解除してください";

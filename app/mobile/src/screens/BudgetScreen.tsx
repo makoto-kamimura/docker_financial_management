@@ -1,4 +1,4 @@
-// 予算管理（web 版 /budget と同じ「明細一覧 / 予算配分 / 履歴」。CSV インポートは web 版のみ）。
+// 予算管理（web 版 /budget と同じ「明細一覧 / 予算配分 / 履歴」）。
 // 明細一覧は web 版の「科目 × 月」の表を 1 か月ずつ表示する。行に出す科目・自動反映・適正額・年間合計は
 // web 版と同じ規則で求める。
 import { useCallback, useEffect, useMemo, useState } from "react";
