@@ -34,6 +34,7 @@ import { displayName } from "../shared/display-name";
 import { BUDGET_HELP, textFor } from "../shared/help-texts";
 import { useCycleMonth } from "../use-cycle-month";
 import { diffColor, diffLabel, Figure } from "./BudgetVarianceSection";
+import { AllocationSuggestSection } from "./AllocationSuggestSection";
 import { AccountPickerModal } from "./CategoryPickerModal";
 import { CycleSteps } from "./CycleSteps";
 import { MonthPills } from "./MonthPills";
@@ -58,6 +59,8 @@ type Props = {
   onOpenActuals?: (month: string) => void;
   /** 「予実差確認」タブを、指定した比べる月（YYYY-MM）で開く */
   onOpenVariance: (month: string) => void;
+  /** 配分提案で予算を入れたあとに呼ぶ（予算の画面の一覧を取り直す） */
+  onBudgetsChanged?: () => void;
 };
 
 export function BudgetConfirmSection({
@@ -66,6 +69,7 @@ export function BudgetConfirmSection({
   refreshKey = 0,
   onOpenActuals,
   onOpenVariance,
+  onBudgetsChanged,
 }: Props) {
   const household = viewMode === "household";
   const { year, month, setMonth } = useCycleMonth("budget", initialMonth);
@@ -248,6 +252,10 @@ export function BudgetConfirmSection({
   const locked = !!data?.nextConfirmedAt;
   const ownActualsLocked = !!own?.actuals.confirmedAt;
   const hasOwnBudget = !!data?.rows.some((r) => r.nextBudget !== null);
+  // はじめての予算の確定（比べる月にも予算の月にも実績が無く、予算の月が未確定）。
+  // 前月の予実差から作る予算案は使えないので、代わりに配分提案で予算を入れられるようにする
+  const initial =
+    !!data && !!own && !data.actuals.recorded && !own.actuals.recorded && !own.confirmedAt;
   // 比べる月から作る予算案で確定できない理由（比べる月の ① ② が済んでいない）
   const planBlockedReason =
     !data || !prev
@@ -347,7 +355,25 @@ export function BudgetConfirmSection({
       {loading && <ActivityIndicator color={COLORS.primary} style={s.spinner} />}
       {!loading && error && <Notice tone="error">{error}</Notice>}
 
-      {!loading && data && prev && (
+      {!loading && initial && month !== null && (
+        <>
+          <Notice tone="info">
+            はじめての予算は、収入の金額から配分の目安で入れられます。入れたら上の「{month}
+            月の予算をそのまま確定」で確定します。配分の割合は「設定」タブで変えられます。
+          </Notice>
+          <AllocationSuggestSection
+            year={year}
+            month={month}
+            viewMode={viewMode}
+            onApplied={() => {
+              setReloadKey((k) => k + 1);
+              onBudgetsChanged?.();
+            }}
+          />
+        </>
+      )}
+
+      {!loading && data && prev && !initial && (
         <>
           {locked ? (
             <Notice tone="info">

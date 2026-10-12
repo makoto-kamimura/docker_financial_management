@@ -6,6 +6,8 @@
 //     期ズレ・回し先へ）を選ぶと B の予算案ができる。「確定」で B の予算を確定する（POST /api/budgets/confirm）
 //     （計算は lib/shared/budget-cycle.ts。案の金額は手で直せる＝流用）。これが C から見た ③
 //   - はじめて使うときなどは、B の予算をいま入っている金額のまま確定できる（B から見た ①）
+//   - C にも B にも実績が無い（はじめての予算の確定）ときは、予算案の代わりに配分提案
+//     （components/AllocationSuggestSection.tsx）を出し、収入の金額から配分の目安で B の予算を入れられる
 //   - B が期の最初の月（設定の開始月）なら、C の実績が未確定でも「そのまま確定」できる
 //   - C の実績の確定（②）は実績管理の「実績の確定」タブ、C の予算と実績を見比べるのは「予実差確認」タブ
 //   年は左のメニュー、月は上のボタンで選ぶ（lib/client/use-cycle-month.ts）。
@@ -33,6 +35,7 @@ import {
 import { cycleKey } from "@/lib/shared/cycle-month";
 import { useCycleMonth } from "@/lib/client/use-cycle-month";
 import { Notice } from "@/components/ui";
+import { AllocationSuggestSection } from "@/components/AllocationSuggestSection";
 
 type AccountRef = {
   id: number;
@@ -254,6 +257,10 @@ export function BudgetConfirmPanel({
   const locked = !!data?.nextConfirmedAt;
   const ownActualsLocked = !!own?.actuals.confirmedAt;
   const hasOwnBudget = !!data?.rows.some((r) => r.nextBudget !== null);
+  // はじめての予算の確定（比べる月にも予算の月にも実績が無く、予算の月が未確定）。
+  // 前月の予実差から作る予算案は使えないので、代わりに配分提案で予算を入れられるようにする
+  const initial =
+    !!data && !!own && !data.actuals.recorded && !own.actuals.recorded && !own.confirmedAt;
   // 比べる月から作る予算案で確定できない理由（比べる月の ① ② が済んでいない）
   const planBlockedReason =
     !data || !prev
@@ -297,7 +304,17 @@ export function BudgetConfirmPanel({
 
       {isLoading && <LoadingSpinner />}
 
-      {data && prev && (
+      {initial && month !== null && (
+        <>
+          <InfoNote>
+            はじめての予算は、収入の金額から配分の目安で入れられます。入れたら上の「{month}
+            月の予算をそのまま確定」で確定します。配分の割合は「設定」タブで変えられます。
+          </InfoNote>
+          <AllocationSuggestSection year={year} month={month} />
+        </>
+      )}
+
+      {data && prev && !initial && (
         <div className="card p-0 overflow-hidden">
           <div className="px-4 pt-4">
             <h3 className="section-title mb-1 flex items-center gap-1.5">

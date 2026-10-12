@@ -622,6 +622,8 @@ export type CycleStatus = {
   /** この月の実績の入力状況と確定状況 */
   actuals: {
     confirmedAt: string | null;
+    /** 実績が 1 件でも記録されているか（明細のそろい具合とは別） */
+    recorded: boolean;
     /** 全ソースの明細が月末日までそろっているか */
     entered: boolean;
     coveredThrough: string | null;

@@ -36,6 +36,8 @@ export type CycleStatus = {
   prevActualsPending: boolean;
   actuals: {
     confirmedAt: string | null;
+    /** 実績が 1 件でも記録されているか（明細のそろい具合とは別） */
+    recorded: boolean;
     entered: boolean;
     coveredThrough: string | null;
     monthEnd: string;

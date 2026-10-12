@@ -29,6 +29,13 @@ export async function loadCycleStatus(
     db.tenant.findUnique({ where: { id: tenantId }, select: { startMonth: true } }),
   ]);
   const fiscalStart = isFiscalStartMonth(month, tenant?.startMonth ?? 1);
+  // その月に実績（financial_records）が 1 件でもあるか。初回の予算の確定（前月も当月も実績なし）の判定に使う
+  const recorded = period
+    ? (await db.financialRecord.findFirst({
+        where: { tenantId, periodId: period.id },
+        select: { id: true },
+      })) !== null
+    : false;
 
   return {
     periodId: period?.id ?? null,
@@ -49,6 +56,8 @@ export async function loadCycleStatus(
       /** ② その月の実績の入力状況と確定状況 */
       actuals: {
         confirmedAt: period?.actualsConfirmation?.confirmedAt ?? null,
+        /** 実績が 1 件でも記録されているか（明細のそろい具合とは別） */
+        recorded,
         entered: coverage.entered,
         coveredThrough: coverage.coveredThrough,
         monthEnd: coverage.monthEnd,
