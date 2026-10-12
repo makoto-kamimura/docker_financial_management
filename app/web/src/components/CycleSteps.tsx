@@ -31,11 +31,11 @@ export type CycleStatus = {
   next: { year: number; month: number };
   confirmedAt: string | null;
   nextConfirmedAt: string | null;
-  /** 期の最初の月か（前月の実績を待たずに予算を確定できる） */
-  fiscalStart: boolean;
   prevActualsPending: boolean;
   actuals: {
     confirmedAt: string | null;
+    /** 実績が 1 件でも記録されているか（明細のそろい具合とは別） */
+    recorded: boolean;
     entered: boolean;
     coveredThrough: string | null;
     monthEnd: string;

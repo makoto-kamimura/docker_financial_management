@@ -2,7 +2,7 @@
  * 会計期間（開始月・決算月）結合テスト（実 DB 使用）
  *
  *   - 開始月は決算月の翌月でなければ保存できない（API は 400、DB は CHECK 制約で拒否）
- *   - 期の最初の月（開始月）は、前月の実績が未確定でも予算を確定できる。それ以外の月は今までどおり 409
+ *   - 期の最初の月（開始月）にも予算の確定の例外は無い。前月の予算が確定済みで実績が未確定なら 409
  *
  * 実行: `npm run test:integration`（platform-db 起動が前提）
  */
@@ -122,20 +122,12 @@ describe("会計期間の保存", () => {
 });
 
 describe("開始月の予算の確定", () => {
-  it("開始月（4 月）は、3 月の実績が未確定でも予算を確定できる", async () => {
-    // 3 月の予算は確定済み・実績は未確定（ふつうなら 4 月の予算は確定できない状態）
+  it("開始月（4 月）も、3 月の予算が確定済みで実績が未確定なら 409", async () => {
+    // 3 月の予算は確定済み・実績は未確定
     expect((await confirmBudget(3)).status).toBe(201);
     const april = await cycleStatus(4);
-    expect(april.fiscalStart).toBe(true);
-    expect(april.prevActualsPending).toBe(false);
-    expect((await confirmBudget(4)).status).toBe(201);
-  });
-
-  it("開始月以外（5 月）は、4 月の実績が未確定なら今までどおり 409", async () => {
-    const may = await cycleStatus(5);
-    expect(may.fiscalStart).toBe(false);
-    expect(may.prevActualsPending).toBe(true);
-    const res = await confirmBudget(5);
+    expect(april.prevActualsPending).toBe(true);
+    const res = await confirmBudget(4);
     expect(res.status).toBe(409);
     expect((await res.json()).error).toContain("実績が確定していません");
   });

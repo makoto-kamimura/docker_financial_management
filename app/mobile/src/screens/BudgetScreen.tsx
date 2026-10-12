@@ -298,6 +298,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
               initialMonth={cycleMonthFor("confirm")}
               onOpenActuals={onOpenActuals}
               onOpenVariance={(m) => openCycleTab("variance", m)}
+              onBudgetsChanged={load}
             />
           )}
 
@@ -432,16 +433,7 @@ export function BudgetScreen({ viewMode, initialTab, initialMonth, onOpenActuals
             />
           )}
 
-          {tab === "allocation" && (
-            <BudgetAllocationPanel
-              fiscalYear={year}
-              viewMode={viewMode}
-              onApplied={() => {
-                load();
-                setHistQuery((q) => ({ ...q }));
-              }}
-            />
-          )}
+          {tab === "allocation" && <BudgetAllocationPanel viewMode={viewMode} />}
 
           {tab === "history" && <Lead>{BUDGET_HELP.history}</Lead>}
           {tab === "history" && (

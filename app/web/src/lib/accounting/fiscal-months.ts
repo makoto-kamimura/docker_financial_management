@@ -14,8 +14,3 @@ export function isValidFiscalMonths(startMonth: number, closingMonth: number): b
 export function fiscalMonthsError(closingMonth: number): string {
   return `開始月は決算月（${closingMonth}月）の翌月の${startMonthFor(closingMonth)}月にしてください`;
 }
-
-/** その月（1〜12）が期の最初の月か */
-export function isFiscalStartMonth(month: number, startMonth: number): boolean {
-  return month === startMonth;
-}
