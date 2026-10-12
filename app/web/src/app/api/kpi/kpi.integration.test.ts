@@ -124,7 +124,10 @@ describe("GET /api/kpi の年間見込み", () => {
   });
 
   it("3 月決算: 4 月始まりの期で集計し、前の期の 3 月は累計に含めない", async () => {
-    await prisma.tenant.update({ where: { id: tenantId }, data: { closingMonth: 3 } });
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { closingMonth: 3, startMonth: 4 },
+    });
     const data = await kpi(`${YEAR}-04`);
     expect(data.kpi.ytd).toBe(300_000); // 3 月は前の期
     expect(data.annual).toMatchObject({
@@ -141,7 +144,10 @@ describe("GET /api/kpi の年間見込み", () => {
   });
 
   it("実績を確定した月より後は、明細が途中まで入っていても予測で埋める", async () => {
-    await prisma.tenant.update({ where: { id: tenantId }, data: { closingMonth: 12 } });
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { closingMonth: 12, startMonth: 1 },
+    });
     // 3 月まで確定済みで、5 月は明細が途中まで（1 件だけ）
     const march = await prisma.period.findFirstOrThrow({
       where: { tenantId, fiscalYear: YEAR, month: 3 },

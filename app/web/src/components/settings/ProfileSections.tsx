@@ -1,10 +1,11 @@
 "use client";
 
-// 設定の「基本設定」タブ（表示名・決算月・事業者情報）。
+// 設定の「基本設定」タブ（表示名・会計期間・事業者情報）。
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SETTINGS_HELP } from "@/lib/shared/help-texts";
+import { fiscalMonthsError, isValidFiscalMonths } from "@/lib/accounting/fiscal-months";
 import { SaveNotice, SectionCard, type SaveMessage } from "@/components/SectionCard";
 
 type BusinessProfile = {
@@ -92,12 +93,46 @@ export function DisplayNameSection() {
   );
 }
 
-// ── 決算月セクション ─────────────────────────────────────────────
-// ダッシュボードの累計と年間見込みを、この月で締める 1 年で集計する（tenants.closingMonth）。
-// 法人ページの決算月と同じ値で、どのモードからも変えられるようにここにも置く。
-export function ClosingMonthSection() {
+// ── 会計期間セクション ───────────────────────────────────────────
+// 期の開始月と決算月（tenants.startMonth / closingMonth）。ダッシュボードの累計と年間見込みはこの期で集計し、
+// 予算の確定では開始月だけ前月の実績の確定を待たない。開始月は決算月の翌月でなければ保存できない
+// （API と DB の CHECK 制約でも検査する）。法人ページと同じ値で、どのモードからも変えられるようにここにも置く。
+const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+
+function MonthSelect({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: number;
+  onChange: (month: number) => void;
+  disabled: boolean;
+}) {
+  return (
+    <label className="flex items-center gap-2">
+      <span className="text-xs font-medium text-slate-600">{label}</span>
+      <select
+        className="input-field w-28"
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        disabled={disabled}
+      >
+        {MONTHS.map((m) => (
+          <option key={m} value={m}>
+            {m}月
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function FiscalPeriodSection() {
   const qc = useQueryClient();
   const [tenantId, setTenantId] = useState<number | null>(null);
+  const [startMonth, setStartMonth] = useState(1);
   const [closingMonth, setClosingMonth] = useState(12);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<SaveMessage>(null);
@@ -111,43 +146,50 @@ export function ClosingMonthSection() {
         const res = await fetch(`/api/tenants/${user.tenantId}`);
         const { data } = await res.json();
         if (data?.closingMonth) setClosingMonth(data.closingMonth);
+        if (data?.startMonth) setStartMonth(data.startMonth);
       })
       .catch(() => {});
   }, []);
 
+  const valid = isValidFiscalMonths(startMonth, closingMonth);
+
   async function save() {
-    if (tenantId === null) return;
+    if (tenantId === null || !valid) return;
     setSaving(true);
     setMsg(null);
     try {
       const res = await fetch(`/api/tenants/${tenantId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ closingMonth }),
+        body: JSON.stringify({ startMonth, closingMonth }),
       });
       if (res.ok) {
         setMsg({ ok: true, text: "保存しました" });
         qc.invalidateQueries({ queryKey: ["kpi"] });
+        qc.invalidateQueries({ queryKey: ["cycle-status"] });
       } else if (res.status === 403) {
         setMsg({ ok: false, text: "変更できるのは編集者以上のユーザーです" });
       } else {
-        setMsg({ ok: false, text: "保存に失敗しました" });
+        const err = await res.json().catch(() => ({}));
+        setMsg({
+          ok: false,
+          text: typeof err.error === "string" ? err.error : "保存に失敗しました",
+        });
       }
     } finally {
       setSaving(false);
     }
   }
 
-  const startMonth = (closingMonth % 12) + 1;
   return (
     <SectionCard
-      title="決算月"
-      lead={SETTINGS_HELP.closingMonth}
+      title="会計期間"
+      lead={SETTINGS_HELP.fiscalPeriod}
       actions={
         <button
           type="button"
           onClick={save}
-          disabled={saving || tenantId === null}
+          disabled={saving || tenantId === null || !valid}
           className="btn-primary"
         >
           {saving ? "保存中…" : "保存"}
@@ -155,25 +197,25 @@ export function ClosingMonthSection() {
       }
     >
       <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2">
-          <span className="text-xs font-medium text-slate-600">決算月</span>
-          <select
-            className="input-field w-28"
-            value={closingMonth}
-            onChange={(e) => setClosingMonth(Number(e.target.value))}
-            disabled={tenantId === null}
-          >
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={m}>
-                {m}月
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="text-xs text-slate-500">
-          1年は {startMonth}月〜{closingMonth}月
-        </span>
+        <MonthSelect
+          label="開始月"
+          value={startMonth}
+          onChange={setStartMonth}
+          disabled={tenantId === null}
+        />
+        <MonthSelect
+          label="決算月"
+          value={closingMonth}
+          onChange={setClosingMonth}
+          disabled={tenantId === null}
+        />
+        {valid && (
+          <span className="text-xs text-slate-500">
+            1年は {startMonth}月〜{closingMonth}月
+          </span>
+        )}
       </div>
+      {!valid && <p className="text-xs text-red-600 mt-2">{fiscalMonthsError(closingMonth)}</p>}
       <SaveNotice msg={msg} />
     </SectionCard>
   );

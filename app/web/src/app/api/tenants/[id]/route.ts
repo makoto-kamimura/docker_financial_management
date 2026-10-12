@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/server/prisma";
 import { withApi } from "@/lib/server/api-handler";
-import { forbidden, notFound } from "@/lib/server/api-error";
+import { badRequest, forbidden, notFound } from "@/lib/server/api-error";
+import { fiscalMonthsError, isValidFiscalMonths } from "@/lib/accounting/fiscal-months";
 
 const UpdateSchema = z.object({
   type: z.string().optional(),
@@ -11,6 +12,7 @@ const UpdateSchema = z.object({
   capitalAmount: z.number().optional(),
   establishedOn: z.string().optional(),
   closingMonth: z.number().int().min(1).max(12).optional(),
+  startMonth: z.number().int().min(1).max(12).optional(),
 });
 
 // GET /api/tenants/[id] … 自テナントのみ取得可能
@@ -26,11 +28,21 @@ export const GET = withApi({
 });
 
 // PUT /api/tenants/[id] … 自テナントの更新（editor 以上）
+//   開始月と決算月は組で変える: どちらかを送るなら両方を送り、開始月は決算月の翌月でなければ 400
 export const PUT = withApi({
   role: "editor",
   schema: UpdateSchema,
   handler: async ({ user, id, body }) => {
     if (id !== user.tenantId) throw forbidden();
+    const { startMonth, closingMonth } = body;
+    if (startMonth !== undefined || closingMonth !== undefined) {
+      if (startMonth === undefined || closingMonth === undefined) {
+        throw badRequest("開始月と決算月は両方を指定してください");
+      }
+      if (!isValidFiscalMonths(startMonth, closingMonth)) {
+        throw badRequest(fiscalMonthsError(closingMonth));
+      }
+    }
 
     const tenant = await prisma.tenant.update({
       where: { id },
@@ -40,7 +52,7 @@ export const PUT = withApi({
         corporateNumber: body.corporateNumber ?? undefined,
         capitalAmount: body.capitalAmount ?? undefined,
         establishedOn: body.establishedOn ? new Date(body.establishedOn) : undefined,
-        ...(body.closingMonth !== undefined && { closingMonth: body.closingMonth }),
+        ...(closingMonth !== undefined && startMonth !== undefined && { closingMonth, startMonth }),
       },
     });
     return NextResponse.json({ data: tenant });

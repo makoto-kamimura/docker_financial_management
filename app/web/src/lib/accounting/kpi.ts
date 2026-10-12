@@ -1,4 +1,5 @@
 import type { AccountCategory } from "@prisma/client";
+import { startMonthFor } from "@/lib/accounting/fiscal-months";
 
 // 月次の科目別金額（カテゴリ単位で集約済み）
 export type MonthlyByCategory = {
@@ -47,7 +48,7 @@ export function fiscalPeriodOf(
   closingMonth = 12,
 ): { startKey: string; endKey: string; elapsedMonths: number } {
   const [y, m] = targetKey.split("-").map(Number);
-  const startMonth = (closingMonth % 12) + 1;
+  const startMonth = startMonthFor(closingMonth);
   const startYear = m >= startMonth ? y : y - 1;
   const startKey = `${startYear}-${String(startMonth).padStart(2, "0")}`;
   return {

@@ -132,7 +132,7 @@ export function ActualsConfirmPanel({
 
   return (
     <div className="space-y-5 mb-6">
-      <SectionLead className="-mb-2">{textFor(ENTRY_HELP.confirm, mode)}</SectionLead>
+      <SectionLead>{textFor(ENTRY_HELP.confirm, mode)}</SectionLead>
 
       {/* 対象月と確定状況（①③ は予算管理へのリンク） */}
       <div className="card flex flex-col gap-3">
