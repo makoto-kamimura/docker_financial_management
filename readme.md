@@ -954,7 +954,7 @@ docker_financial_management/
 
 **本番環境（`platform/docker-compose.prod.yml`）**
 
-`web`（GHCR のイメージ。`/api/health` のヘルスチェックつき）と `db` だけを起動する。redis・session-cleanup・証憑のボリュームがないことは [25章](#25-未決事項) の課題として扱う。
+開発環境と同じく `web`（GHCR のイメージ。`/api/health` のヘルスチェックつき）・`db`・`redis`・`session-cleanup` を起動し、証憑をボリューム（`uploads-data`）に置く。redis のポートは外に出さない。値は配置先の `.env` から `--env-file` で読み、`APP_ORIGIN` と `CLEANUP_SERVICE_KEY` がないと起動を止める（項目は `platform/.env.example`、手順は [production-server-setup.md](docs/runbooks/production-server-setup.md)）。
 
 **web のイメージと起動処理**
 
@@ -1481,7 +1481,6 @@ npm run typecheck && npm run format:check
 
 | 項目 | 内容 |
 |---|---|
-| 本番構成 | 本番の compose に redis・session-cleanup・証憑のボリュームがない。レート制限とキャッシュ・セッションの掃除・証憑の保存をどうするか |
 | 実際の銀行との連携 | 自動取得は今はモックだけ。口座アグリゲーションの事業者（Plaid・Moneytree など）を選び、契約と認証情報を用意する |
 | 有料の AI 科目変換 | テーブルだけがあり、仕様（料金・キャッシュ・PDF の報告書）は [account-conversion-system.md](docs/design/account-conversion-system.md) の Phase 6 のまま |
 | 発生主義の家計 | [home-mode-accrual-basis.md](docs/design/home-mode-accrual-basis.md) の設計を取り入れるか |

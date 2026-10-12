@@ -6,7 +6,7 @@ CD（`.github/workflows/cd.yml`）で自動デプロイできるように、本�
 
 1. Docker と Docker Compose v2 を入れる。
 2. デプロイ用のユーザーを作る（専用のユーザーを推奨）。
-3. 配置するディレクトリ（`DEPLOY_PATH`）を作り、`.env` を置く。compose はこれを自動で読む。
+3. 配置するディレクトリ（`DEPLOY_PATH`）を作り、`.env` を置く。CD は `docker compose --env-file .env -f platform/docker-compose.prod.yml` で読む（`-f` だけだと compose は `platform/` の `.env` を探すので、手で操作するときも `--env-file .env` を付ける）。項目の説明は [platform/.env.example](../../platform/.env.example)。
 
    ```env
    WEB_IMAGE=ghcr.io/<owner>/<repo>/web:main
@@ -14,10 +14,17 @@ CD（`.github/workflows/cd.yml`）で自動デプロイできるように、本�
    POSTGRES_USER=<user>
    POSTGRES_PASSWORD=<pass>
    POSTGRES_DB=financial
+   # 公開 URL（CSRF の Origin 検査に使う）
+   APP_ORIGIN=https://<公開ドメイン>
+   # 期限切れセッションの掃除の鍵（openssl rand -hex 32 で作る）
+   CLEANUP_SERVICE_KEY=<32 文字以上のランダムな値>
    ```
 
+   - `APP_ORIGIN` と `CLEANUP_SERVICE_KEY` がないと、compose は起動を止める。
+   - redis（キャッシュ・レート制限）、session-cleanup（毎日 2:00 に期限切れのセッションを削除）、証憑のボリューム（`uploads-data`）は compose が用意する。
+   - セッションの期限・アップロードの上限・外部連携のキーは、必要なときだけ `.env` に足す。
+
    - 初回の起動時に、web の entrypoint がマイグレーションを適用し、ユーザーが1人もいなければ初期データ（デモテナントとデモユーザー）を入れる。本番で使う前に、デモユーザーのパスワードを変えるか削除する。
-   - 本番の compose は今、`DATABASE_URL` と `NODE_ENV` しか web に渡さない。`APP_ORIGIN`・`REDIS_URL`・`CLEANUP_SERVICE_KEY` などを使うには compose の見直しが要る（[readme 25章](../../readme.md#25-未決事項)・[tasks/task.md](../tasks/task.md)）。
 
 ## 2. SSH の鍵を登録する
 

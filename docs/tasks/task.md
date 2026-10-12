@@ -23,13 +23,6 @@
 
 ## 2. 本番運用の準備
 
-- [ ] **本番の compose を開発と揃える**（readme 18.6節・25章）
-  - `redis` がないので、レート制限とキャッシュが使えない（ログインのレート制限はメモリで数える）。
-  - `session-cleanup` がないので、期限切れのセッションが消えない。
-  - 証憑のボリュームがないので、コンテナを入れ替えるとアップロードしたファイルが消える。
-  - `APP_ORIGIN`・`REDIS_URL`・`CLEANUP_SERVICE_KEY` を web に渡す。
-- [ ] **`platform/.env.example` を実際に読む環境変数に揃える**
-  - 足りないもの：`REDIS_URL`・`CLEANUP_SERVICE_KEY`・`COOKIE_SECURE`・`APP_ORIGIN`・`FREEE_*`・`MF_*`・`OPENBANKING_*`・`BANK_SYNC_PROVIDER` など。
 - [ ] **自動デプロイを有効にする**
   - 本番サーバーと GitHub Secrets を用意する（[runbooks/production-server-setup.md](../runbooks/production-server-setup.md)）。
   - 初期データのデモユーザーのパスワードを変えるか、消す。
