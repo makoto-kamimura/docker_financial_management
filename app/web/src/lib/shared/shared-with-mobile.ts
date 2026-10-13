@@ -9,6 +9,7 @@ export const SHARED_WITH_MOBILE = [
   "budget-actual-chart.ts",
   "budget-cell-detail.ts",
   "budget-cycle.ts",
+  "business-use.ts",
   "cycle-month.ts",
   "debt-schedule.ts",
   "display-name.ts",

@@ -29,6 +29,7 @@ import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { Notice } from "@/components/ui";
 import { DirectedAmount } from "@/components/DirectedAmount";
+import { BUSINESS_USE_LABEL, isValidBusinessRatio } from "@/lib/shared/business-use";
 
 export function ActualsConfirmPanel({
   mode,
@@ -363,6 +364,14 @@ type UnassignedEntry = {
   /** +入金 / −出金 */
   amount: number;
   sourceName: string;
+  categoryAccountId: number | null;
+  businessUse: boolean;
+  businessRatio: number | null;
+};
+type UnassignedResponse = {
+  data: UnassignedEntry[];
+  unassignedCount: number;
+  truncated: boolean;
 };
 type CategoryAccount = {
   id: number;
@@ -386,7 +395,8 @@ const KIND_LABEL: Record<UnassignedEntry["kind"], string> = {
 };
 
 // 未割り当て（科目が付いていない）の明細の一覧。行ごとに科目を選ぶと、その明細がそのまま実績になる。
-// 残っている間は、その月の実績を確定できない。「まとめて自動処理」は、学習ルールで科目を付け、
+// 残っている間は、その月の実績を確定できない。「割り当て済みも表示」で科目を付けた明細も出し、見直せる。
+// 行ごとに事業利用と按分も付けられ、科目と一緒に学習ルールに覚える（lib/ledger/ledger-categorize.ts）。「まとめて自動処理」は、学習ルールで科目を付け、
 // 同じ日・同じ金額の送金と受金を振替・チャージの組にする（全期間。確定済みの月は触らない）。
 function UnassignedCard({
   year,
@@ -402,11 +412,17 @@ function UnassignedCard({
   const qc = useQueryClient();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [processing, setProcessing] = useState(false);
-  const { data: entries, isLoading } = useQuery({
-    queryKey: ["ledger-unassigned", year, month],
-    queryFn: async (): Promise<UnassignedEntry[]> =>
-      (await (await fetch(`/api/ledger/unassigned?year=${year}&month=${month}`)).json()).data ?? [],
+  const [showAssigned, setShowAssigned] = useState(false);
+  const { data: list, isLoading } = useQuery({
+    queryKey: ["ledger-unassigned", year, month, showAssigned],
+    queryFn: async (): Promise<UnassignedResponse> =>
+      await (
+        await fetch(
+          `/api/ledger/unassigned?year=${year}&month=${month}${showAssigned ? "&includeAssigned=1" : ""}`,
+        )
+      ).json(),
   });
+  const entries = list?.data;
   const { data: accounts } = useQuery({
     queryKey: ["accounts"],
     queryFn: async (): Promise<CategoryAccount[]> =>
@@ -424,20 +440,62 @@ function UnassignedCard({
     onChanged();
   }
 
-  async function setCategory(e: UnassignedEntry, categoryAccountId: number) {
+  // 科目・事業利用の変更。付けたものは学習ルールに覚える（科目の無い明細の事業利用は覚えない）
+  async function categorize(
+    e: UnassignedEntry,
+    change: { categoryAccountId?: number; businessUse?: boolean; businessRatio?: number | null },
+  ) {
     setMsg(null);
     const res = await fetch(CATEGORIZE_PATH[e.kind](e.id), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryAccountId, learn: true }),
+      body: JSON.stringify({ ...change, learn: true }),
     });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) setMsg({ ok: false, text: `科目の変更に失敗しました: ${json.error ?? "エラー"}` });
-    else if ((json.updatedSiblingCount ?? 0) > 0)
+    if (!res.ok) {
+      const text = typeof json.error === "string" ? json.error : "エラー";
+      setMsg({ ok: false, text: `変更に失敗しました: ${text}` });
+    } else if ((json.updatedSiblingCount ?? 0) > 0)
       setMsg({
         ok: true,
         text: `同じ摘要の未割り当ての明細 ${json.updatedSiblingCount} 件にも同じ科目を付けました。`,
       });
+    refresh();
+  }
+
+  // 科目を選んで、その月のその科目の明細をまとめて事業利用にする（按分を空けると科目の事業利用按分の割合）
+  const [bulkAccountId, setBulkAccountId] = useState("");
+  const [bulkRatio, setBulkRatio] = useState("");
+  async function bulkBusiness() {
+    const ratio = bulkRatio.trim() === "" ? null : Number(bulkRatio);
+    if (ratio !== null && !isValidBusinessRatio(ratio)) {
+      setMsg({ ok: false, text: "按分は 0 より大きく 100 以下で入れてください" });
+      return;
+    }
+    setMsg(null);
+    const res = await fetch("/api/ledger/business", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        year,
+        month,
+        categoryAccountId: Number(bulkAccountId),
+        businessUse: true,
+        businessRatio: ratio,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMsg({ ok: false, text: `まとめての変更に失敗しました: ${json.error ?? "エラー"}` });
+    } else {
+      const r = json.data as { updated: number; locked: number };
+      setMsg({
+        ok: true,
+        text:
+          `${r.updated} 件の明細を事業利用にしました。` +
+          (r.locked > 0 ? `（実績を確定済みの月の ${r.locked} 件はそのままです）` : ""),
+      });
+    }
     refresh();
   }
 
@@ -488,9 +546,19 @@ function UnassignedCard({
       <div className="px-4 pt-4 flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="section-title mb-1">
-            未割り当ての明細（{month}月・{entries?.length ?? 0} 件）
+            {showAssigned ? "明細" : "未割り当ての明細"}（{month}月・未割り当て{" "}
+            {list?.unassignedCount ?? 0} 件）
           </h3>
           <SectionLead className="mb-2">{ENTRY_HELP.unassigned}</SectionLead>
+          <SectionLead className="mb-2">{ENTRY_HELP.businessUse}</SectionLead>
+          <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 mb-2">
+            <input
+              type="checkbox"
+              checked={showAssigned}
+              onChange={(ev) => setShowAssigned(ev.target.checked)}
+            />
+            割り当て済みも表示
+          </label>
           <TermDetails terms={LEARNING_RULE_TERMS} summary="学習ルールのしくみ" className="mb-3" />
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
@@ -521,11 +589,55 @@ function UnassignedCard({
           </Notice>
         </div>
       )}
+      <div className="px-4 pb-3 flex flex-wrap items-center gap-2 text-xs text-slate-700">
+        <span>{month}月の</span>
+        <select
+          value={bulkAccountId}
+          onChange={(ev) => setBulkAccountId(ev.target.value)}
+          aria-label="まとめて事業利用にする科目"
+          className="border border-slate-200 rounded px-1.5 py-1 bg-white"
+        >
+          <option value="">科目を選ぶ</option>
+          {categorizable.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.code} {displayName(a, mode)}
+            </option>
+          ))}
+        </select>
+        <span>の明細を、按分</span>
+        <input
+          type="number"
+          min={0.01}
+          max={100}
+          step={0.01}
+          value={bulkRatio}
+          onChange={(ev) => setBulkRatio(ev.target.value)}
+          placeholder="既定"
+          aria-label="まとめて付ける按分（%）"
+          className="w-20 border border-slate-200 rounded px-1.5 py-1"
+        />
+        <span>%で</span>
+        <button
+          type="button"
+          disabled={bulkAccountId === ""}
+          onClick={bulkBusiness}
+          className="btn-secondary btn-sm"
+        >
+          まとめて{BUSINESS_USE_LABEL}にする
+        </button>
+      </div>
+      {list?.truncated && (
+        <p className="px-4 pb-2 text-xs text-amber-700">
+          明細が多いため、先頭の 500 件だけを表示しています。
+        </p>
+      )}
       {isLoading ? (
         <LoadingSpinner />
       ) : (entries ?? []).length === 0 ? (
         <p className="px-4 pb-4 text-sm text-emerald-700">
-          {month}月の明細には、すべて科目が付いています。
+          {showAssigned
+            ? `${month}月の明細はありません。`
+            : `${month}月の明細には、すべて科目が付いています。`}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -537,6 +649,7 @@ function UnassignedCard({
                 <th className="px-3 py-2 text-left font-semibold min-w-44">摘要</th>
                 <th className="px-3 py-2 text-right font-semibold">金額</th>
                 <th className="px-3 py-2 text-left font-semibold">科目</th>
+                <th className="px-3 py-2 text-left font-semibold">{BUSINESS_USE_LABEL}・按分</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -555,8 +668,11 @@ function UnassignedCard({
                   </td>
                   <td className="px-3 py-2">
                     <select
-                      value=""
-                      onChange={(ev) => ev.target.value && setCategory(e, Number(ev.target.value))}
+                      value={e.categoryAccountId ?? ""}
+                      onChange={(ev) =>
+                        ev.target.value &&
+                        categorize(e, { categoryAccountId: Number(ev.target.value) })
+                      }
                       aria-label={`${e.description} の科目`}
                       className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-40"
                     >
@@ -568,11 +684,68 @@ function UnassignedCard({
                       ))}
                     </select>
                   </td>
+                  <td className="px-3 py-2">
+                    <BusinessCell entry={e} onChange={(change) => categorize(e, change)} />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+// 行の事業利用（印）と按分（%）。按分は入れ終えたとき（フォーカスを外したとき）に保存する。
+// 空けて保存すると、科目の事業利用按分の割合（無ければ 100%）になる
+function BusinessCell({
+  entry,
+  onChange,
+}: {
+  entry: UnassignedEntry;
+  onChange: (change: { businessUse: boolean; businessRatio?: number | null }) => void;
+}) {
+  const [ratio, setRatio] = useState(entry.businessRatio?.toString() ?? "");
+  useEffect(() => setRatio(entry.businessRatio?.toString() ?? ""), [entry.businessRatio]);
+  const invalid = ratio.trim() !== "" && !isValidBusinessRatio(Number(ratio));
+
+  function saveRatio() {
+    const next = ratio.trim() === "" ? null : Number(ratio);
+    if (invalid || next === entry.businessRatio) return;
+    onChange({ businessUse: true, businessRatio: next });
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 whitespace-nowrap">
+      <label className="inline-flex items-center gap-1 text-xs text-slate-700">
+        <input
+          type="checkbox"
+          checked={entry.businessUse}
+          onChange={(ev) => onChange({ businessUse: ev.target.checked })}
+          aria-label={`${entry.description} を${BUSINESS_USE_LABEL}にする`}
+        />
+        事業
+      </label>
+      {entry.businessUse && (
+        <>
+          <input
+            type="number"
+            min={0.01}
+            max={100}
+            step={0.01}
+            value={ratio}
+            onChange={(ev) => setRatio(ev.target.value)}
+            onBlur={saveRatio}
+            onKeyDown={(ev) => ev.key === "Enter" && saveRatio()}
+            aria-label={`${entry.description} の按分（%）`}
+            aria-invalid={invalid}
+            className={`w-16 border rounded px-1.5 py-0.5 text-xs text-right ${
+              invalid ? "border-red-400" : "border-slate-200"
+            }`}
+          />
+          <span className="text-xs text-slate-500">%</span>
+        </>
       )}
     </div>
   );

@@ -488,7 +488,7 @@ KPI の下に、次の順で置く。
 
 1. **実績の入力状況**：銀行口座（`bank_accounts`）とカード・電子マネー（`linked_accounts`）ごとに、取り込んだ明細の最終日（取引日の最大値）を出す。明細のあるソースの最終日のうち一番古い日が月末日以降なら「入力済み」とする（最終日の当日も入力済みに含める）。明細が 1 件も無いソースは判定から外す（使っていないカードで止まらないようにするため）。その月の未割り当て（科目が付いていない）の明細の件数も出す。計算は `src/lib/ledger/actuals-coverage.ts`。
    - **当月末まで変動なし**：月末まで届いていないソースは、行ごとのボタンで「当月末まで変動なし」の印を付けられる（最終日のあと月末まで取引が無いと申告する）。届いていないソースすべてに印を付ければ、入力済みと同じく確定できる。
-2. **未割り当ての明細**：その月の科目が付いていない明細（現金・銀行・カード。振替・チャージの組は除く）を確定のタブに並べ、行ごとに科目を選べる（`GET /api/ledger/unassigned`。選ぶと学習し、同じ摘要の未割り当ての明細にも付く）。残っている間は確定できない（409）。「まとめて自動処理」（`POST /api/ledger/auto-process`。`src/lib/ledger/ledger-auto-process.ts`）は、全期間の未割り当ての明細に学習ルール（[9.4節](#94-学習ルール)）で科目を付け、自動相殺（[20.4節](#204-振替とチャージ)）をかける。「科目を付け直す」（`?reset=1`）は、科目の付いた明細も対象にし、ルールに当たればその科目に付け直し、当たらなければ未割り当てに戻す（手で選んだ科目も外れる）。どちらも振替・チャージの組と確定済みの月の明細は変えない。
+2. **未割り当ての明細**：その月の科目が付いていない明細（現金・銀行・カード。振替・チャージの組は除く）を確定のタブに並べ、行ごとに科目と事業利用・按分を選べる（`GET /api/ledger/unassigned`。選ぶと学習し、同じ摘要の未割り当ての明細にも付く。「割り当て済みも表示」で `?includeAssigned=1` になり、科目を付けた明細も見直せる）。ある月のある科目の明細をまとめて事業利用にすることもできる（`PATCH /api/ledger/business`。[20.15節](#2015-事業利用と按分)）。残っている間は確定できない（409）。「まとめて自動処理」（`POST /api/ledger/auto-process`。`src/lib/ledger/ledger-auto-process.ts`）は、全期間の未割り当ての明細に学習ルール（[9.4節](#94-学習ルール)）で科目を付け、自動相殺（[20.4節](#204-振替とチャージ)）をかける。「科目を付け直す」（`?reset=1`）は、科目の付いた明細も対象にし、ルールに当たればその科目に付け直し、当たらなければ未割り当てに戻す（手で選んだ科目も外れる）。どちらも振替・チャージの組と確定済みの月の明細は変えない。
 3. **実績の確定**：「入力済み」になり（または届いていないソースすべてに変動なしの印を付け）、未割り当ての明細が無くなったら、ユーザーがボタンで確定する（自動では確定しない）。確定時点の明細の状況（ソースごとの最終日と変動なしの印）を `actuals_confirmations.coverage` に記録し、確定済みの月はその記録を表示する。確定した月の実績（`financial_records`）は、明細の登録・削除・科目の変更・振替やチャージの紐付け・仕訳（P/L 科目を含むもの）・売掛金／買掛金の登録・減価償却・棚卸の確定を受け付けない（409）。CSV と自動取得の取り込みでは、確定した月の行を飛ばす（件数を返す）。解除は admin だけができ、実績の値は変えない。確定と解除は監査ログに残す（`actuals_confirm` / `actuals_unconfirm`）。
 4. **予実対比**（予実差確認）：選んだ月の収入・費用（`REVENUE` / `COGS` / `EXPENSE`）の科目ごとに、予算（自動反映を含む）・実績・差（実績−予算）を出す。費用は実績が予算より少なければ「余り」、多ければ「超過」とする。
 5. **差額の扱い**（予算の確定）：予算の月の前月の差について、科目ごとに次から選ぶ。計算は `src/lib/shared/budget-cycle.ts`。
@@ -550,6 +550,8 @@ KPI の下に、次の順で置く。
 ### 9.4 学習ルール
 
 明細の摘要から科目を決めるルール（`txn_category_rules`）。テナントごとに持ち、現金・銀行・カード・電子マネーで共通に使う。画面では、実績管理の CSV インポート・履歴・設定のタブと、実績の確定タブの未割り当ての明細に、開閉式の「学習ルールのしくみ」として出す（文言は `src/lib/shared/help-texts.ts` の `LEARNING_RULE_TERMS`）。
+
+**事業利用**：ルールは事業利用も持てる（`businessUse` が true なら按分 `businessRatio` も、false なら事業利用なし、null ならルールでは決めない）。明細に科目と一緒に事業利用を付けたときに覚え、科目だけを変えたときは覚えた事業利用を残す。当たった明細には、科目と一緒に事業利用も付ける（CSV の取り込み・自動取得・手入力・まとめて自動処理）。
 
 **一覧と変更**：実績管理の「設定」タブ（Web は `src/components/entry/LearningRulesPanel.tsx`、モバイルは `LearningRulesSection`）で、ルールを一覧し、キーワードと科目を直したり、追加・削除したりできる。予算管理の「設定」（予算配分ルール）と同じ形で、「変更を保存」でまとめて保存する（`GET` / `PUT /api/ledger/category-rules`）。キーワードは覚えるときと同じく正規化して保存し、空や重複は 400。科目は収入・支出の科目だけ。画面で足したルールは、覚えたルールと同じ優先度（100）。ルールを変えても、すでに付いている明細の科目は変わらない（付け直すのは実績の確定タブの「科目を付け直す」）。
 
@@ -1214,6 +1216,15 @@ npm run typecheck && npm run format:check
 - カード払い・電子マネーと読めたときは、明細から入る分と二重に計上しないよう注意を出す。
 - モバイルアプリでも同じ API で読み取る（`expo-image-picker` で撮影・選択し、`expo-image-manipulator` で縮める）。読み取りは通常の API より時間がかかるので、打ち切りまでの時間を延ばしている（`app/mobile/src/api.ts`）。
 
+### 20.15 事業利用と按分
+
+明細（現金・銀行・カード）ごとに、事業で使ったか（`financial_records.businessUse`）と、事業の分の割合（按分 `businessRatio`、0 より大きく 100 以下の %）を持つ。個人事業主モードで、事業の分として数えるために使う。
+
+- 事業の分の額は保存せず、読むときに `src/lib/shared/business-use.ts` の `businessPortion`（金額 × 按分 ÷ 100、明細ごとに円未満を 0 に向けて切り捨て）で計算する。
+- 事業利用にして按分を省略すると、科目の事業利用按分（`apportionments.businessRate`）の割合、無ければ 100% にする（`src/lib/ledger/business-use.ts`）。
+- 振替・チャージの組と、明細でない行は事業利用を持たない。事業利用なら按分が必須。どちらも CHECK 制約で守る。組にした明細は事業利用を外す。
+- 学習ルールも事業利用を持つ（[9.4節](#94-学習ルール)）。
+
 ## 21. データモデル
 
 正式な定義は `app/web/prisma/schema.prisma`（64モデル）。ここでは領域ごとに、主な列だけを示す。財務データの親のテーブルは `tenantId` を持つ（明細行・履歴などの子のテーブルは親を通してテナントに属する。勘定科目変換のテーブルはユーザーに属する）。
@@ -1238,7 +1249,7 @@ npm run typecheck && npm run format:check
 | `accounts` | code, name（家計の科目名）, soleName, corporateName, category, parentId | `[tenantId, code]` 一意 |
 | `departments` | name, manager, parentId | |
 | `periods` | fiscalYear, quarter, month | `[tenantId, fiscalYear, month]` 一意 |
-| `financial_records` | accountId（空 = 未割り当て・振替・チャージ）, departmentId, periodId, amount, journalEntryId, kind, bankAccountId, cardAccountId, date, description, flow, balance, source, externalId, transferGroupId, chargeToCardId, chargeGroupId | 実績と明細の表。kind を持つ行が現金・銀行・カードの明細（flow は +入金 / −出金、カードの利用は負）で、科目が付けば実績になる。kind の無い行は仕訳・減価償却・棚卸・売掛買掛・過去の直接入力の実績。`[bankAccountId, externalId]`・`[cardAccountId, externalId]` 一意。kind と口座、組と科目の決まりは CHECK 制約で守る |
+| `financial_records` | accountId（空 = 未割り当て・振替・チャージ）, departmentId, periodId, amount, journalEntryId, kind, bankAccountId, cardAccountId, date, description, flow, balance, source, externalId, transferGroupId, chargeToCardId, chargeGroupId, businessUse, businessRatio | 実績と明細の表。kind を持つ行が現金・銀行・カードの明細（flow は +入金 / −出金、カードの利用は負）で、科目が付けば実績になる。kind の無い行は仕訳・減価償却・棚卸・売掛買掛・過去の直接入力の実績。`[bankAccountId, externalId]`・`[cardAccountId, externalId]` 一意。kind と口座、組と科目、事業利用と按分の決まりは CHECK 制約で守る |
 | `financial_record_histories` | recordId, userId, action, amount, changedAt | |
 | `forecasts` | accountId, periodId, method, scenario, amount | 保存した予測 |
 | `receipt_scan_requests` | tenantId, userId, engine（claude / tesseract）, status, model, inputTokens, outputTokens, createdAt | レシートの読み取りの記録。1 日の回数を数える（[20.14節](#2014-レシートの読み取り)） |
@@ -1261,7 +1272,7 @@ npm run typecheck && npm run format:check
 |---|---|---|
 | `bank_accounts` | name, bankName, branchName, accountType, role, accountId, balanceAdjustment, balanceCheckedAt | 銀行口座の唯一の台帳。balanceCheckedAt は差額を確かめて保存した日時（0 円でも） |
 | `transfers` | fromAccountId, toAccountId, linkedAccountId, amount, kind, channel, label, day | 資金移動ルール |
-| `txn_category_rules` | keyword, categoryAccountId, priority | 科目付けの学習ルール |
+| `txn_category_rules` | keyword, categoryAccountId, priority, businessUse, businessRatio | 科目付けの学習ルール（事業利用も持てる。null は決めない） |
 | `linked_accounts` | name, type（CREDIT_CARD / DEBIT_CARD / PREPAID_CARD / E_MONEY）, institution, lastFour, accountId | カード・電子マネー |
 | `card_transfer_rules` | accountId, keyword, transferToAccountId | チャージの自動判定 |
 | `card_recurring_payments` | accountId, label, amount, day, categoryAccountId, note | カード払いの固定決済 |
@@ -1388,8 +1399,9 @@ npm run typecheck && npm run format:check
 | PATCH | `/actuals/[id]/categorize` | E |
 | GET / POST | `/actuals/receipt-scan`（GET は使うエンジンと今日の残りの回数、POST は画像を読み取った下書き） | V / E |
 | POST | `/imports`（`?target=cash\|bank\|card&accountId=`） | E |
-| GET | `/ledger/unassigned` | V |
+| GET | `/ledger/unassigned`（`?includeAssigned=1` で割り当て済みも） | V |
 | POST | `/ledger/auto-process`（`?reset=1` で科目を付け直す） | E |
+| PATCH | `/ledger/business`（明細の事業利用・按分をまとめて変える） | E |
 | GET / PUT | `/ledger/category-rules`（学習ルールの一覧と一括保存） | V / E |
 | POST / DELETE | `/actuals/confirm` | E / Ad |
 | GET | `/cycle-status` `/cycle-status/latest` | V |

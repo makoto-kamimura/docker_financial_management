@@ -17,8 +17,10 @@ import { invalidateCache } from "@/lib/server/redis";
 import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/server/import";
 import { applyAutoOffset } from "@/lib/ledger/auto-offset";
+import { BusinessInput, entryBusiness } from "@/lib/ledger/business-use";
 
-const TxnSchema = z.object({
+// 事業利用・按分は省略可（省略すると、学習ルールが科目を決めたときはルールの事業利用、それ以外は事業利用なし）
+const TxnSchema = BusinessInput.extend({
   date: z.string().min(1),
   description: z.string().min(1),
   amount: z.number(),
@@ -60,6 +62,12 @@ export const POST = withApi({
       if (!parsed.success) throw badRequest("date, description, amount は必須です");
 
       const body = parsed.data;
+      const category = await entryCategory(
+        db,
+        user.tenantId,
+        body.categoryAccountId,
+        body.description,
+      );
       const txn = await createEntry(
         db,
         user.tenantId,
@@ -70,12 +78,8 @@ export const POST = withApi({
           flow: body.amount,
           balance: body.balance ?? null,
           source: "MANUAL",
-          category: await entryCategory(
-            db,
-            user.tenantId,
-            body.categoryAccountId,
-            body.description,
-          ),
+          category,
+          business: await entryBusiness(db, body, category),
         },
       );
       // 同じ日・同じ金額の対になる明細が 1 組だけあれば、振替・チャージの組にする

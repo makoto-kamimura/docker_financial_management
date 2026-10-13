@@ -59,18 +59,19 @@ export function normalizeKeyword(text: string): string {
 
 export type TxnCategoryRuleInput = { keyword: string; categoryAccountId: number; priority: number };
 
-// 摘要にマッチする科目 ID をルールから決定する（取込時の自動分類。科目が付いた明細はそのまま実績になる）。
-// 優先度（priority）降順 → キーワード長い順で評価し、最初に一致したものを採用する。
-export function classifyByRules(description: string, rules: TxnCategoryRuleInput[]): number | null {
+// 摘要にマッチするルールを決定する（取込時の自動分類。科目が付いた明細はそのまま実績になる）。
+// 優先度（priority）降順 → キーワード長い順で評価し、最初に一致したもの（科目・事業利用）を採用する。
+export function classifyByRules<R extends TxnCategoryRuleInput>(
+  description: string,
+  rules: R[],
+): R | null {
   const normalizedDesc = normalizeKeyword(description);
   const sorted = [...rules].sort((a, b) => {
     if (b.priority !== a.priority) return b.priority - a.priority;
     return b.keyword.length - a.keyword.length;
   });
   for (const rule of sorted) {
-    if (normalizedDesc.includes(normalizeKeyword(rule.keyword))) {
-      return rule.categoryAccountId;
-    }
+    if (normalizedDesc.includes(normalizeKeyword(rule.keyword))) return rule;
   }
   return null;
 }

@@ -8,6 +8,7 @@ import { validateChargePair } from "@/lib/ledger/charge-link";
 import { isChargeableType } from "@/lib/shared/linked-account-type";
 import { invalidateCache } from "@/lib/server/redis";
 import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
+import { PAIRED_CLEAR } from "@/lib/ledger/business-use";
 
 // PATCH /api/bank-transactions/[id]/charge … 銀行明細のチャージ指定・解除（editor 以上）
 //
@@ -117,7 +118,7 @@ export const PATCH = withApi({
       if (pairTxnId !== null) {
         await tx.financialRecord.update({
           where: { id: pairTxnId },
-          data: { chargeGroupId, accountId: null, amount: 0 },
+          data: { chargeGroupId, ...PAIRED_CLEAR },
         });
       }
       return tx.financialRecord.update({
@@ -126,7 +127,7 @@ export const PATCH = withApi({
         data: {
           chargeToCardId: body.chargeToAccountId,
           chargeGroupId,
-          ...(body.chargeToAccountId !== null ? { accountId: null, amount: 0 } : {}),
+          ...(body.chargeToAccountId !== null ? PAIRED_CLEAR : {}),
         },
         include: ENTRY_REFS_INCLUDE,
       });

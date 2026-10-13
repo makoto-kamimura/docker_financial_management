@@ -4,6 +4,7 @@
 // 予算管理の「設定」（components/BudgetAllocationPanel.tsx の予算配分ルール）と同じ形にそろえる:
 // カードの右上に「変更を保存」、行ごとの入力と削除、表の下に「+ ルールを追加」。保存は一括（PUT）。
 // ルールを変えても、すでに付いている明細の科目は変わらない（付け直すのは実績の確定タブの「科目を付け直す」）。
+// ルールは事業利用も持てる（指定しない / 事業・按分 / 事業でない）。指定しないルールは、明細の事業利用を変えない。
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,6 +13,7 @@ import { SectionLead, TermDetails } from "@/components/Explain";
 import { ENTRY_HELP, LEARNING_RULE_TERMS } from "@/lib/shared/help-texts";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import type { Account } from "@/components/entry/types";
+import { BUSINESS_USE_LABEL, isValidBusinessRatio } from "@/lib/shared/business-use";
 
 type RuleAccount = {
   id: number;
@@ -26,9 +28,14 @@ type RuleServerRow = {
   id: number;
   keyword: string;
   priority: number;
+  businessUse: boolean | null;
+  businessRatio: number | null;
   updatedAt: string;
   categoryAccount: RuleAccount;
 };
+
+/** 画面の事業利用の選択（"" = 指定しない） */
+type BusinessChoice = "" | "business" | "private";
 
 type RuleEdit = {
   /** 保存済みのルールの id（null = 新規・保存前） */
@@ -38,6 +45,9 @@ type RuleEdit = {
   keyword: string;
   /** 科目の id（"" = 未選択） */
   categoryAccountId: string;
+  business: BusinessChoice;
+  /** 按分（%）。空なら 100% */
+  businessRatio: string;
   updatedAt: string | null;
 };
 
@@ -54,6 +64,8 @@ const toEdit = (r: RuleServerRow): RuleEdit => ({
   rowKey: `id-${r.id}`,
   keyword: r.keyword,
   categoryAccountId: String(r.categoryAccount.id),
+  business: r.businessUse === null ? "" : r.businessUse ? "business" : "private",
+  businessRatio: r.businessRatio?.toString() ?? "",
   updatedAt: r.updatedAt,
 });
 
@@ -84,8 +96,11 @@ export function LearningRulesPanel({
     setRemovedIds([]);
   }, [data]);
 
-  const setField = (index: number, field: "keyword" | "categoryAccountId", value: string) =>
-    setRules((rs) => rs.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+  const setField = (
+    index: number,
+    field: "keyword" | "categoryAccountId" | "business" | "businessRatio",
+    value: string,
+  ) => setRules((rs) => rs.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
 
   const addRule = () =>
     setRules((rs) => [
@@ -95,6 +110,8 @@ export function LearningRulesPanel({
         rowKey: `new-${Date.now().toString(36)}-${rs.length}`,
         keyword: "",
         categoryAccountId: "",
+        business: "",
+        businessRatio: "",
         updatedAt: null,
       },
     ]);
@@ -112,6 +129,17 @@ export function LearningRulesPanel({
       setMsg({ ok: false, text: "キーワードか科目が未入力の行があります。" });
       return;
     }
+    if (
+      rules.some(
+        (r) =>
+          r.business === "business" &&
+          r.businessRatio.trim() !== "" &&
+          !isValidBusinessRatio(Number(r.businessRatio)),
+      )
+    ) {
+      setMsg({ ok: false, text: "按分は 0 より大きく 100 以下で入れてください。" });
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch("/api/ledger/category-rules", {
@@ -122,6 +150,11 @@ export function LearningRulesPanel({
             ...(r.id !== null ? { id: r.id } : {}),
             keyword: r.keyword,
             categoryAccountId: Number(r.categoryAccountId),
+            businessUse: r.business === "" ? null : r.business === "business",
+            businessRatio:
+              r.business === "business" && r.businessRatio.trim() !== ""
+                ? Number(r.businessRatio)
+                : null,
           })),
           removedIds: removedIds.length ? removedIds : undefined,
         }),
@@ -185,6 +218,9 @@ export function LearningRulesPanel({
                 <tr>
                   <th className="text-left py-2 pr-3">キーワード（摘要）</th>
                   <th className="text-left py-2 pr-3">科目</th>
+                  <th className="text-left py-2 pr-3 whitespace-nowrap">
+                    {BUSINESS_USE_LABEL}・按分
+                  </th>
                   <th className="text-left py-2 pr-3 whitespace-nowrap">更新日</th>
                   <th className="py-2"></th>
                 </tr>
@@ -221,6 +257,36 @@ export function LearningRulesPanel({
                           </optgroup>
                         ))}
                       </select>
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <div className="flex items-center gap-1.5 whitespace-nowrap">
+                        <select
+                          value={r.business}
+                          onChange={(e) => setField(i, "business", e.target.value)}
+                          className="input-field"
+                          aria-label={BUSINESS_USE_LABEL}
+                        >
+                          <option value="">指定しない</option>
+                          <option value="business">事業</option>
+                          <option value="private">事業でない</option>
+                        </select>
+                        {r.business === "business" && (
+                          <>
+                            <input
+                              type="number"
+                              min={0.01}
+                              max={100}
+                              step={0.01}
+                              value={r.businessRatio}
+                              placeholder="100"
+                              onChange={(e) => setField(i, "businessRatio", e.target.value)}
+                              className="input-field w-20 text-right"
+                              aria-label="按分（%）"
+                            />
+                            <span className="text-xs text-slate-500">%</span>
+                          </>
+                        )}
+                      </div>
                     </td>
                     <td className="py-1.5 pr-3 text-xs text-slate-500 whitespace-nowrap">
                       {r.id === null ? "未保存" : fmtDate(r.updatedAt)}

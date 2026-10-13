@@ -1,8 +1,17 @@
+import { z } from "zod";
+import type { FinancialRecord } from "@prisma/client";
 import { badRequest, notFound } from "@/lib/server/api-error";
 import { assertActualsPeriodsEditable, confirmedActualsPeriodIds } from "@/lib/budget/budget-lock";
 import { normalizeKeyword } from "@/lib/ledger/banktxn-import";
 import { entryActualAmount, UNPAIRED } from "@/lib/ledger/ledger-entries";
 import type { TenantDb, TenantDbClient } from "@/lib/server/tenant-db";
+import {
+  BusinessInput,
+  businessFields,
+  loadApportionmentRates,
+  resolveBusiness,
+  type BusinessSetting,
+} from "@/lib/ledger/business-use";
 
 // 明細への科目の紐付け（PATCH /api/bank-transactions/[id]/categorize と
 // PATCH /api/card-transactions/[id]/categorize の共通部分）。
@@ -11,11 +20,21 @@ import type { TenantDb, TenantDbClient } from "@/lib/server/tenant-db";
 // 科目を付ける・変える・外すときは、科目（accountId）と実績の金額（amount）を一緒に直す。
 // 科目を付けたときは、同じ摘要でまだ未割り当ての同じ種別の明細にも同じ科目を付ける。
 // 実績を確定済みの月の明細は変えられない（広げる先からも外す）。
+// 事業利用と按分も一緒に変えられる（省略すれば変えない）。按分を省略して事業利用にしたときは、
+// 科目の事業利用按分の割合（無ければ 100%）にする（lib/ledger/business-use.ts）。
+// learn なら、摘要と科目（と事業利用を指定したときは事業利用も）を学習ルールに覚えさせる。
 
-export type CategorizeInput = {
-  categoryAccountId?: number | null;
-  learn?: boolean;
-};
+/** 3 つの PATCH .../[id]/categorize の入力 */
+export const CategorizeSchema = BusinessInput.extend({
+  categoryAccountId: z.number().int().positive().nullable().optional(),
+  learn: z.boolean().optional(),
+});
+export type CategorizeInput = z.infer<typeof CategorizeSchema>;
+
+/** 監査ログに残す、変えたあとの明細の状態 */
+export function categorizedState(r: FinancialRecord) {
+  return { categoryAccountId: r.accountId, amount: Number(r.amount), ...businessFields(r) };
+}
 
 export async function categorizeEntry(
   db: TenantDb,
@@ -56,7 +75,14 @@ export async function categorizeEntry(
     if (!category) throw notFound("科目が見つかりません");
   }
 
-  const before = { categoryAccountId: txn.accountId, amount: Number(txn.amount) };
+  const before = categorizedState(txn);
+  const business: BusinessSetting | undefined = resolveBusiness(
+    body,
+    category?.id ?? null,
+    body.businessUse === true && body.businessRatio == null
+      ? await loadApportionmentRates(db)
+      : new Map(),
+  );
   const actual = (flow: unknown) =>
     category ? entryActualAmount(category.category, Number(flow)) : 0;
 
@@ -65,16 +91,19 @@ export async function categorizeEntry(
   const updated = await db.$transaction(async (tx) => {
     const row = await tx.financialRecord.update({
       where: { id },
-      data: { accountId: category?.id ?? null, amount: actual(txn.flow) },
+      data: { accountId: category?.id ?? null, amount: actual(txn.flow), ...business },
     });
 
     if (category === null) return row;
 
     // 学習ルールは銀行・カードで共有する（TxnCategoryRule はテナント単位のキーワードルールのため）
-    if (body.learn) await learnCategoryRule(tx, tenantId, txn.description ?? "", category.id);
+    if (body.learn) {
+      await learnCategoryRule(tx, tenantId, txn.description ?? "", category.id, business);
+    }
 
     // 同じ摘要でまだ未割り当ての、同じ種別（銀行どうし・カードどうし）の明細にも同じ科目を付ける
-    // （学習ルールと同じ正規化で摘要を比べる。確定済みの月の明細は変えない）
+    // （学習ルールと同じ正規化で摘要を比べる。確定済みの月の明細は変えない）。
+    // 事業利用を指定したときは、その明細にも同じ事業利用を付ける
     const normalizedDesc = normalizeKeyword(txn.description ?? "");
     const untagged = await tx.financialRecord.findMany({
       where: { kind, accountId: null, id: { not: id }, ...UNPAIRED },
@@ -91,7 +120,7 @@ export async function categorizeEntry(
       if (locked.has(s.periodId)) continue;
       await tx.financialRecord.update({
         where: { id: s.id },
-        data: { accountId: category.id, amount: actual(s.flow) },
+        data: { accountId: category.id, amount: actual(s.flow), ...business },
       });
       updatedSiblingCount++;
     }
@@ -104,18 +133,20 @@ export async function categorizeEntry(
 /**
  * 摘要（店名）と科目の組を学習ルールに覚えさせる（手で付けた科目は優先度 100）。
  * 同じ摘要のルールがあれば、科目を付け替える。空の摘要は覚えない。
+ * 事業利用は指定したときだけ覚える（科目だけを変えたときに、覚えた事業利用を消さない）。
  */
 export async function learnCategoryRule(
   tx: TenantDbClient,
   tenantId: number,
   description: string,
   categoryAccountId: number,
+  business?: BusinessSetting,
 ): Promise<void> {
   const keyword = normalizeKeyword(description);
   if (keyword === "") return;
   await tx.txnCategoryRule.upsert({
     where: { tenantId_keyword: { tenantId, keyword } },
-    update: { categoryAccountId, priority: 100 },
-    create: { tenantId, keyword, categoryAccountId, priority: 100 },
+    update: { categoryAccountId, priority: 100, ...business },
+    create: { tenantId, keyword, categoryAccountId, priority: 100, ...business },
   });
 }
