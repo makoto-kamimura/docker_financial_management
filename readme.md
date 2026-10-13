@@ -563,8 +563,11 @@ KPI の下に、次の順で置く。
   - ファイルは 5MB・10,000 行まで。取り込みは 1 ユーザー 10 分に 10 回まで。
   - 誤りのある行が 1 つでもあれば、どの行も取り込まない（行番号つきで返す）。同じ明細（口座・日付・金額・摘要が同じもの。同じ日に同じ店で同じ金額を 2 回使った 2 件目も重複になる。現金は口座が無いので、同じ内容の現金の明細があれば重複とする）は重複として、実績を確定済みの月の行は確定済みとして飛ばし、それぞれの件数と、自動相殺で組にした数を返す。
 - **履歴は共通の表**（`src/components/LedgerTable.tsx`。モバイルは `components/LedgerRow.tsx`）にした。列は 日付 / 口座 / 摘要 / 金額 / 科目 / 状態 / 操作 で、件数・絞り込み・ページ送り（30 件ずつ）の位置も同じ。
-  - 現金: 現金の明細（直近 200 件）。科目を選び直せ、削除できる。
-  - 銀行・カード: 状態に取得元・実績 / 未割り当て・チャージ・毎月の入出金（固定決済）のバッジを出す。チャージ先・毎月の入出金（固定決済）・削除は「その他」にまとめる。「全件 / 未割り当て / 実績」で絞り込める。
+  - 明細はサーバーで 30 件ずつ新しい順に読む（`GET /api/ledger/history`。予算の履歴と同じ data / total / limit / offset の形）。全期間の明細をページ送りで見られる。
+  - 絞り込みは 3 つとも同じ：状態（全件 / 未割り当て / 実績。未割り当てに振替・チャージの組は入らない）・科目（収入・原価・経費の科目）・事業利用のみ（個人事業主モード）。件数は絞り込んだあとの件数。
+  - 画面は `useLedgerHistory`（Web は `LedgerTable.tsx`、モバイルは `components/LedgerHistory.tsx`）で、絞り込みとページ送りをまとめて持つ。
+  - 現金: 科目を選び直せ、削除できる。
+  - 銀行・カード: 状態に取得元・実績 / 未割り当て・チャージ・毎月の入出金（固定決済）のバッジを出す。チャージ先・毎月の入出金（固定決済）・削除は「その他」にまとめる。
   - 科目を付けると学習し、同じ摘要で未割り当ての同じ種別の明細にも同じ科目を付ける（[9.4節](#94-学習ルール)）。
 
 ### 9.4 学習ルール
@@ -1460,6 +1463,7 @@ npm run typecheck && npm run format:check
 | GET / POST | `/actuals/receipt-scan`（GET は使うエンジンと今日の残りの回数、POST は画像を読み取った下書き） | V / E |
 | POST | `/imports`（`?target=cash\|bank\|card&accountId=`） | E |
 | GET | `/ledger/unassigned`（`?includeAssigned=1` で割り当て済みも） | V |
+| GET | `/ledger/history`（`?kind=CASH\|BANK\|CARD&accountId=&status=&categoryAccountId=&businessOnly=&limit=&offset=`） | V |
 | POST | `/ledger/auto-process`（`?reset=1` で科目を付け直す） | E |
 | PATCH | `/ledger/business`（明細の事業利用・按分をまとめて変える） | E |
 | GET / PUT | `/ledger/category-rules`（学習ルールの一覧と一括保存） | V / E |

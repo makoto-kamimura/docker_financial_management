@@ -25,15 +25,14 @@ import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { Notice } from "@/components/ui";
 import {
   LedgerBadge,
-  LedgerFilter,
   LedgerMoreSection,
   LedgerTable,
   BusinessTag,
-  useBusinessOnlyFilter,
+  useLedgerHistory,
 } from "@/components/LedgerTable";
 import { yen, yenAbs } from "@/lib/common/format";
 import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
-import { useActualsScope } from "@/lib/client/use-view-mode";
+import { useActualsScope, useViewMode } from "@/lib/client/use-view-mode";
 import { withScope } from "@/lib/shared/business-use";
 
 // ── 型 ──────────────────────────────────────────────────────────
@@ -81,9 +80,6 @@ type CardTransferRule = {
 // ── 定数 ────────────────────────────────────────────────────────
 const now = new Date();
 
-// 明細一覧のページング（実績管理の履歴・銀行管理の一覧と同じ 30 件単位）
-const TXN_PAGE_SIZE = 30;
-
 // category は科目（"" = 自動。components/EntryCategoryField.tsx）
 const BLANK_CAL_FORM = {
   description: "",
@@ -105,13 +101,6 @@ type CardRecurring = {
   categoryAccountId: number | null;
 };
 
-type PostFilter = "all" | "unassigned" | "actual";
-const POST_FILTERS: [PostFilter, string][] = [
-  ["all", "全件"],
-  ["unassigned", "未割り当て"],
-  ["actual", "実績"],
-];
-
 type Props = {
   view: "list" | "calendar";
   /** 表示するカード・電子マネー（呼び出し側のセレクタで選ぶ） */
@@ -121,9 +110,8 @@ type Props = {
 export function CardTransactionsPanel({ view, accountId }: Props) {
   const qc = useQueryClient();
   const [msg, setMsg] = useState<string | null>(null);
-  const [postFilter, setPostFilter] = useState<PostFilter>("all");
-  // 明細一覧のページ番号（0 始まり）
-  const [txnPage, setTxnPage] = useState(0);
+  // 明細の一覧（30 件ずつ。状態・科目・事業利用で絞り込める。LedgerTable.tsx の useLedgerHistory）
+  const history = useLedgerHistory<Txn>({ kind: "CARD", accountId, mode: useViewMode() });
   // ── カレンダー ────────────────────────────────────────────────
   // カレンダーの年は対象年度（左のメニュー）に合わせる。月を送って年をまたいだら、対象年度も変える
   const viewYear = useFiscalYear();
@@ -146,9 +134,10 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
     },
   });
 
+  // カレンダーは月ごとに日へまとめるため、カードの明細をまとめて読む
   const { data: txns } = useQuery({
     queryKey: ["card-txns", accountId],
-    enabled: accountId !== null,
+    enabled: accountId !== null && view === "calendar",
     queryFn: async (): Promise<Txn[]> =>
       (await (await fetch(`/api/linked-accounts/${accountId}/transactions`)).json()).data ?? [],
   });
@@ -183,35 +172,6 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
   );
   const selectedAccount = (accounts ?? []).find((a) => a.id === accountId) ?? null;
   const isEMoney = selectedAccount?.type === "E_MONEY";
-
-  // 個人事業主モードは事業利用の明細だけ（切り替えで全件）
-  const businessFilter = useBusinessOnlyFilter();
-  const filteredTxns = useMemo(() => {
-    const all = businessFilter.keep(txns ?? []);
-    if (postFilter === "actual") return all.filter((t) => t.categoryAccountId !== null);
-    // 未割り当てはこれから科目を付ける明細を拾うための絞り込み。チャージはそもそも科目を付けない
-    // （実際の支出はチャージ先の利用明細で計上する）なので、いつまでも残って紛らわしいため除く
-    // チャージ先に入った入金明細（chargeGroupId だけを持つ行）も同じ理由で除く
-    if (postFilter === "unassigned")
-      return all.filter(
-        (t) =>
-          t.categoryAccountId === null &&
-          t.transferToAccountId === null &&
-          t.chargeGroupId === null,
-      );
-    return all;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [txns, postFilter, businessFilter.businessOnly]);
-
-  // 明細一覧は 30 件ずつ表示する（実績管理の履歴と同じ単位）。
-  // 絞り込みやカード切替で件数が減った場合は末尾ページへ丸める
-  const txnPageCount = Math.max(1, Math.ceil(filteredTxns.length / TXN_PAGE_SIZE));
-  const currentTxnPage = Math.min(txnPage, txnPageCount - 1);
-  const txnOffset = currentTxnPage * TXN_PAGE_SIZE;
-  const pagedTxns = useMemo(
-    () => filteredTxns.slice(txnOffset, txnOffset + TXN_PAGE_SIZE),
-    [filteredTxns, txnOffset],
-  );
 
   const byDay = useMemo(() => {
     const map = new Map<number, Txn[]>();
@@ -489,33 +449,19 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
           {/* チャージを「未割り当て」から外している理由も、ここで示す */}
           <InfoNote className="mb-2">
             {CARD_HELP.list}
-            {postFilter === "unassigned" && <> {CARD_HELP.postFilter}</>}
+            {history.status === "unassigned" && <> {CARD_HELP.postFilter}</>}
           </InfoNote>
           <TermDetails terms={CARD_TERMS} className="mb-3" />
 
           {/* 明細（実績管理の履歴の共通の表: components/LedgerTable.tsx） */}
           <LedgerTable
-            total={filteredTxns.length}
-            offset={txnOffset}
-            pageSize={TXN_PAGE_SIZE}
-            onPageChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
-            toolbar={
-              <div className="flex flex-wrap items-center gap-3">
-                <LedgerFilter
-                  options={POST_FILTERS}
-                  value={postFilter}
-                  onChange={(f) => {
-                    setPostFilter(f);
-                    setTxnPage(0);
-                  }}
-                />
-                {businessFilter.toggle}
-              </div>
-            }
-            emptyText={
-              (txns ?? []).length === 0 ? "明細がありません" : "この条件に一致する明細はありません"
-            }
-            rows={pagedTxns.map((t) => {
+            total={history.total}
+            offset={history.offset}
+            pageSize={history.pageSize}
+            onPageChange={history.setOffset}
+            toolbar={history.toolbar}
+            emptyText={history.filtered ? "この条件に一致する明細はありません" : "明細がありません"}
+            rows={history.rows.map((t) => {
               // 摘要が一致する固定決済があれば「登録済み」表示に切り替える
               const registered = matchedRecurring(t);
               const excluded = Boolean(t.transferToAccountId || t.chargeGroupId);

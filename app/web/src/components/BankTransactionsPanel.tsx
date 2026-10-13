@@ -2,8 +2,9 @@
 
 // 銀行の明細の一覧（実績管理の履歴。出どころは銀行）。
 // 科目・チャージ先・毎月の入出金（固定入出金）・振替の解除・削除を行ごとに行う。
+// 明細はサーバーで 30 件ずつ読み、状態・科目・事業利用で絞り込める（LedgerTable.tsx の useLedgerHistory）。
 
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -11,11 +12,10 @@ import { ChargeLinkModal } from "@/components/ChargeLinkModal";
 import { InfoNote, TermDetails } from "@/components/Explain";
 import {
   LedgerBadge,
-  LedgerFilter,
   LedgerMoreSection,
   LedgerTable,
   BusinessTag,
-  useBusinessOnlyFilter,
+  useLedgerHistory,
 } from "@/components/LedgerTable";
 import { BANK_HELP, BANK_TERMS } from "@/lib/shared/help-texts";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "@/lib/shared/linked-account-type";
@@ -27,7 +27,7 @@ import {
 import { Notice } from "@/components/ui";
 import { yen, yenAbs } from "@/lib/common/format";
 import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
-import { useActualsScope } from "@/lib/client/use-view-mode";
+import { useActualsScope, useViewMode } from "@/lib/client/use-view-mode";
 import { withScope } from "@/lib/shared/business-use";
 
 // ── 型 ──────────────────────────────────────────────────────────
@@ -73,14 +73,6 @@ type CardAccount = { id: number; name: string; type: string; institution: string
 
 // ── 定数 ────────────────────────────────────────────────────────
 // 明細一覧のページング（実績管理の履歴と同じ 30 件単位）
-const TXN_PAGE_SIZE = 30;
-
-type PostFilter = "all" | "unassigned" | "actual";
-const POST_FILTERS: [PostFilter, string][] = [
-  ["all", "全件"],
-  ["unassigned", "未割り当て"],
-  ["actual", "実績"],
-];
 
 type Props = {
   /**
@@ -98,11 +90,8 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
   const accountId = accountIdProp !== undefined ? accountIdProp : innerAccountId;
   const setAccountId = (id: number) => {
     setInnerAccountId(id);
-    setTxnPage(0);
     onAccountIdChange?.(id);
   };
-  // 明細一覧のページ番号（0 始まり）
-  const [txnPage, setTxnPage] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
 
   // ── データ取得 ──────────────────────────────────────────────
@@ -119,57 +108,9 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
     },
   });
 
-  // 明細は口座ごとに取る。すべての口座のときは全口座分を日付の新しい順にまとめる
-  const allAccountsView = accountId === null;
-  const txnAccountIds = allAccountsView ? (accounts ?? []).map((a) => a.id) : [accountId];
-  const txnQueries = useQueries({
-    queries: txnAccountIds.map((id) => ({
-      queryKey: ["bank-txns", id],
-      queryFn: async (): Promise<Txn[]> =>
-        (await (await fetch(`/api/bank-accounts/${id}/transactions`)).json()).data ?? [],
-    })),
-  });
-  const txnsKey = txnQueries.map((q) => q.dataUpdatedAt).join(",");
-  const txns = useMemo(
-    () =>
-      txnQueries
-        .flatMap((q) => q.data ?? [])
-        .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id)),
-    // 各口座の取得結果が変わったときだけまとめ直す
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [txnsKey],
-  );
+  // 明細（30 件ずつ。null の口座はすべての銀行。個人事業主モードは最初から事業利用の明細だけ）
+  const history = useLedgerHistory<Txn>({ kind: "BANK", accountId, mode: useViewMode() });
   const accountNameById = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
-
-  // 明細一覧は 30 件ずつ表示する。口座切替や再取得で件数が減った場合は末尾ページへ丸める
-  // 「全件 / 未割り当て / 実績」（カードの履歴と同じ絞り込み）。
-  // 科目を付けた明細がそのまま実績。未割り当ては、これから科目を付ける明細を拾うためのもの
-  // （振替・チャージは科目を付けない明細なので除く）
-  const [postFilter, setPostFilter] = useState<PostFilter>("all");
-  // 個人事業主モードは事業利用の明細だけ（切り替えで全件）
-  const businessFilter = useBusinessOnlyFilter();
-  const filteredTxns = useMemo(() => {
-    const all = businessFilter.keep(txns ?? []);
-    if (postFilter === "actual") return all.filter((t) => t.categoryAccountId !== null);
-    if (postFilter === "unassigned")
-      return all.filter(
-        (t) =>
-          t.categoryAccountId === null &&
-          !t.transferGroupId &&
-          !t.chargeToAccountId &&
-          !t.chargeGroupId,
-      );
-    return all;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [txns, postFilter, businessFilter.businessOnly]);
-  const txnTotal = filteredTxns.length;
-  const txnPageCount = Math.max(1, Math.ceil(txnTotal / TXN_PAGE_SIZE));
-  const currentTxnPage = Math.min(txnPage, txnPageCount - 1);
-  const txnOffset = currentTxnPage * TXN_PAGE_SIZE;
-  const pagedTxns = useMemo(
-    () => filteredTxns.slice(txnOffset, txnOffset + TXN_PAGE_SIZE),
-    [filteredTxns, txnOffset],
-  );
 
   const { data: categoryAccounts } = useQuery({
     queryKey: ["accounts"],
@@ -463,27 +404,13 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
       <InfoNote className="mb-2">{BANK_HELP.list}</InfoNote>
       <TermDetails terms={BANK_TERMS} className="mb-3" />
       <LedgerTable
-        total={txnTotal}
-        offset={txnOffset}
-        pageSize={TXN_PAGE_SIZE}
-        onPageChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
-        toolbar={
-          <div className="flex flex-wrap items-center gap-3">
-            <LedgerFilter
-              options={POST_FILTERS}
-              value={postFilter}
-              onChange={(f) => {
-                setPostFilter(f);
-                setTxnPage(0);
-              }}
-            />
-            {businessFilter.toggle}
-          </div>
-        }
-        emptyText={
-          (txns ?? []).length === 0 ? "明細がありません" : "この条件に一致する明細はありません"
-        }
-        rows={pagedTxns.map((t) => {
+        total={history.total}
+        offset={history.offset}
+        pageSize={history.pageSize}
+        onPageChange={history.setOffset}
+        toolbar={history.toolbar}
+        emptyText={history.filtered ? "この条件に一致する明細はありません" : "明細がありません"}
+        rows={history.rows.map((t) => {
           // 摘要が一致する固定入出金があれば「登録済み」表示に切り替える
           const registered = matchedTransfer(t);
           const excluded = Boolean(t.transferGroupId || t.chargeToAccountId);

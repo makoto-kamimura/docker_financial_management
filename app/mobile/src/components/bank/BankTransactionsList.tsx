@@ -6,13 +6,13 @@
 //   - 明細から固定入出金（毎月の資金移動ルール）を登録・書き換え
 //   - 振替の紐付け解除・明細の削除
 // 列が多いので、科目は行に並べ、残りの操作は行の「操作」シートにまとめる。
+// 明細はサーバーで 30 件ずつ読み、状態・科目・事業利用で絞り込める（LedgerHistory.tsx）。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   categorizeTransaction,
   deleteBankTransaction,
   deleteTransfer,
-  fetchBankTransactions,
   fetchLinkedAccounts,
   fetchTransfers,
   patchTransfer,
@@ -32,29 +32,12 @@ import { flowLabel, flowSide } from "../../shared/amount-direction";
 import { TRANSFER_CHANNEL_LABELS, TXN_SOURCE_LABEL as SOURCE_LABELS } from "../../shared/labels";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "../../shared/linked-account-type";
 import { CategoryPickerModal } from "../CategoryPickerModal";
-import { LedgerBadge, LedgerCount, LedgerRow } from "../LedgerRow";
+import { LedgerBadge, LedgerRow } from "../LedgerRow";
 import { ChargeLinkSheet } from "../ChargeLinkSheet";
-import {
-  Button,
-  EmptyText,
-  Field,
-  Notice,
-  Pager,
-  Pills,
-  SelectField,
-  SheetModal,
-  TermList,
-} from "../ui";
+import { Button, EmptyText, Field, Notice, Pills, SelectField, SheetModal, TermList } from "../ui";
 import { BANK_HELP, BANK_TERMS } from "../../shared/help-texts";
-import { BusinessTag, useBusinessOnlyFilter } from "../BusinessUseControls";
-
-type PostFilter = "all" | "unassigned" | "actual";
-const POST_FILTERS: { value: PostFilter; label: string }[] = [
-  { value: "all", label: "全件" },
-  { value: "unassigned", label: "未割り当て" },
-  { value: "actual", label: "実績" },
-];
-const PAGE_SIZE = 30;
+import { BusinessTag } from "../BusinessUseControls";
+import { useLedgerHistory } from "../LedgerHistory";
 
 const normalizeLabel = (s: string) => s.trim().toLowerCase();
 
@@ -75,11 +58,15 @@ export function BankTransactionsList({
   viewMode,
   onBalanceChanged,
 }: Props) {
-  const [txns, setTxns] = useState<BankTransaction[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [cards, setCards] = useState<LinkedAccount[]>([]);
-  const [page, setPage] = useState(0);
-  const [filter, setFilter] = useState<PostFilter>("all");
+  // 明細（30 件ずつ。null の口座はすべての銀行）
+  const history = useLedgerHistory<BankTransaction>({
+    kind: "BANK",
+    accountId,
+    viewMode,
+    accounts: categoryAccounts,
+  });
   const [msg, setMsg] = useState<string | null>(null);
   const [picking, setPicking] = useState<BankTransaction | null>(null);
   const [actions, setActions] = useState<BankTransaction | null>(null);
@@ -88,27 +75,18 @@ export function BankTransactionsList({
     target: LinkedAccount;
   } | null>(null);
 
+  // 固定入出金とチャージ先の候補（明細は history で読む）
   const load = useCallback(async () => {
-    // すべての口座のときは、口座ごとに取って日付の新しい順にまとめる
-    const ids = accountId !== null ? [accountId] : accounts.map((a) => a.id);
     try {
-      const [t, tr, c] = await Promise.all([
-        Promise.all(ids.map((id) => fetchBankTransactions(id))).then((lists) =>
-          lists.flat().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id)),
-        ),
-        fetchTransfers(),
-        fetchLinkedAccounts(),
-      ]);
-      setTxns(t);
+      const [tr, c] = await Promise.all([fetchTransfers(), fetchLinkedAccounts()]);
       setTransfers(tr);
       setCards(c);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "明細の取得に失敗しました");
     }
-  }, [accountId, accounts]);
+  }, []);
 
   useEffect(() => {
-    setPage(0);
     load();
   }, [load]);
 
@@ -138,32 +116,11 @@ export function BankTransactionsList({
     tr.day !== new Date(t.date).getDate() ||
     Math.round(tr.amount) !== Math.round(Math.abs(t.amount));
 
-  // 「全件 / 未割り当て / 実績」（カード・web 版と同じ）。科目を付けた明細がそのまま実績。
-  // 振替・チャージは科目を付けない明細なので未割り当てから除く
-  // 個人事業主モードは「事業利用のみ」に絞る（切り替えで全件。web 版と同じ）
-  const businessFilter = useBusinessOnlyFilter(viewMode);
-  const scoped = businessFilter.keep(txns);
-  const filtered =
-    filter === "actual"
-      ? scoped.filter((t) => t.categoryAccountId !== null)
-      : filter === "unassigned"
-        ? scoped.filter(
-            (t) =>
-              t.categoryAccountId === null &&
-              t.transferGroupId === null &&
-              t.chargeToAccountId === null &&
-              t.chargeGroupId === null,
-          )
-        : scoped;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const current = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
-
   async function run(action: () => Promise<string | void>, balanceChanged = false) {
     try {
       const text = await action();
       if (text) setMsg(text);
-      await load();
+      await Promise.all([load(), history.reload()]);
       if (balanceChanged) onBalanceChanged();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "処理に失敗しました");
@@ -292,23 +249,18 @@ export function BankTransactionsList({
       <TermList terms={BANK_TERMS} label="科目・チャージ・固定入出金の説明" />
 
       {/* 件数と絞り込み（実績の履歴の共通の形。カード・手動と同じ位置） */}
-      <Pills
-        scroll={false}
-        options={POST_FILTERS}
-        value={filter}
-        onChange={(f) => {
-          setFilter(f);
-          setPage(0);
-        }}
-      />
-      {businessFilter.toggle}
-      <LedgerCount total={filtered.length} offset={current * PAGE_SIZE} pageSize={PAGE_SIZE} />
-      {filtered.length === 0 ? (
+      {history.toolbar}
+      {history.error && <Notice tone="error">{history.error}</Notice>}
+      {history.rows.length === 0 ? (
         <EmptyText>
-          {txns.length === 0 ? "明細がありません" : "この条件に一致する明細はありません"}
+          {history.loading
+            ? "読み込み中…"
+            : history.filtered
+              ? "この条件に一致する明細はありません"
+              : "明細がありません"}
         </EmptyText>
       ) : (
-        paged.map((t) => {
+        history.rows.map((t) => {
           const excluded = t.transferGroupId !== null || t.chargeToAccountId !== null;
           return (
             <LedgerRow
@@ -369,14 +321,7 @@ export function BankTransactionsList({
           );
         })
       )}
-      {filtered.length > PAGE_SIZE && (
-        <Pager
-          offset={current * PAGE_SIZE}
-          total={filtered.length}
-          pageSize={PAGE_SIZE}
-          onChange={(o) => setPage(o / PAGE_SIZE)}
-        />
-      )}
+      {history.pager}
 
       <CategoryPickerModal
         visible={picking !== null}

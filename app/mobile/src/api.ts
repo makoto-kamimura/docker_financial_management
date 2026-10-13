@@ -1538,6 +1538,48 @@ export async function categorizeTransaction(
   return { updatedSiblingCount: json?.updatedSiblingCount ?? 0 };
 }
 
+// ── 実績管理の「履歴」の明細（GET /ledger/history。web 版と同じ）──────────────
+// 新しい順に limit 件ずつ。状態（全件・未割り当て・実績）・科目・事業利用のみで絞り込み、total は絞り込み後の件数。
+// 行の形は種別ごとの一覧（fetchCashEntries / fetchBankTransactions / fetchCardTransactions）と同じ。
+export type LedgerHistoryStatus = "all" | "unassigned" | "actual";
+export type LedgerHistoryQuery = {
+  kind: "CASH" | "BANK" | "CARD";
+  /** 銀行の口座かカード（null = その種別のすべて） */
+  accountId: number | null;
+  status: LedgerHistoryStatus;
+  categoryAccountId: number | null;
+  businessOnly: boolean;
+  offset: number;
+  limit: number;
+};
+
+export async function fetchLedgerHistory<T extends { amount: unknown }>(
+  q: LedgerHistoryQuery,
+): Promise<{ data: (T & BusinessFields)[]; total: number }> {
+  const params = [
+    `kind=${q.kind}`,
+    `status=${q.status}`,
+    `limit=${q.limit}`,
+    `offset=${q.offset}`,
+    ...(q.accountId !== null && q.kind !== "CASH" ? [`accountId=${q.accountId}`] : []),
+    ...(q.categoryAccountId !== null ? [`categoryAccountId=${q.categoryAccountId}`] : []),
+    ...(q.businessOnly ? ["businessOnly=1"] : []),
+  ].join("&");
+  const json = await request<{ data?: T[]; total?: number }>(
+    `/ledger/history?${params}`,
+    "履歴の取得に失敗しました",
+  );
+  return {
+    // 行の形は呼び出し側の型（T）。金額と按分だけ数値に直す
+    data: (json.data ?? []).map(
+      (r) =>
+        withBusiness({ ...(r as T & Partial<BusinessFields>), amount: Number(r.amount) }) as T &
+          BusinessFields,
+    ),
+    total: json.total ?? 0,
+  };
+}
+
 // ── 未割り当ての明細とまとめての処理（実績の確定タブ。web 版と同じ）──────────
 export type UnassignedEntry = {
   id: number;

@@ -12,7 +12,6 @@ import {
   deleteCardTransaction,
   deleteCardTransferRule,
   fetchCardRecurringPayments,
-  fetchCardTransactions,
   fetchCardTransferRules,
   patchCardRecurringPayment,
   postCardRecurringPayment,
@@ -31,7 +30,7 @@ import { flowLabel, flowSide } from "../../shared/amount-direction";
 import { TXN_SOURCE_LABEL as SOURCE_LABELS } from "../../shared/labels";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "../../shared/linked-account-type";
 import { CategoryPickerModal } from "../CategoryPickerModal";
-import { LedgerBadge, LedgerCount, LedgerRow } from "../LedgerRow";
+import { LedgerBadge, LedgerRow } from "../LedgerRow";
 import { ChargeLinkSheet } from "../ChargeLinkSheet";
 import {
   Button,
@@ -40,7 +39,6 @@ import {
   Field,
   Input,
   Notice,
-  Pager,
   Pills,
   SectionTitle,
   SelectField,
@@ -48,15 +46,8 @@ import {
   TermList,
 } from "../ui";
 import { CARD_HELP, CARD_TERMS } from "../../shared/help-texts";
-import { BusinessTag, useBusinessOnlyFilter } from "../BusinessUseControls";
-
-const PAGE_SIZE = 30;
-type PostFilter = "all" | "unassigned" | "actual";
-const POST_FILTERS: { value: PostFilter; label: string }[] = [
-  { value: "all", label: "全件" },
-  { value: "unassigned", label: "未割り当て" },
-  { value: "actual", label: "実績" },
-];
+import { BusinessTag } from "../BusinessUseControls";
+import { useLedgerHistory } from "../LedgerHistory";
 
 const normalizeLabel = (s: string) => s.trim().toLowerCase();
 // チャージ元・チャージ入金は資金の移動なので収支・実績・固定決済の対象外
@@ -80,11 +71,15 @@ export function CardTransactionsList({
   onFlowChanged,
 }: Props) {
   const isEMoney = account.type === "E_MONEY";
-  const [txns, setTxns] = useState<CardTransaction[]>([]);
+  // 明細（30 件ずつ。状態・科目・事業利用で絞り込める）
+  const history = useLedgerHistory<CardTransaction>({
+    kind: "CARD",
+    accountId: account.id,
+    viewMode,
+    accounts: categoryAccounts,
+  });
   const [recurring, setRecurring] = useState<CardRecurringPayment[]>([]);
   const [rules, setRules] = useState<CardTransferRule[]>([]);
-  const [filter, setFilter] = useState<PostFilter>("all");
-  const [page, setPage] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
   const [manual, setManual] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -99,14 +94,13 @@ export function CardTransactionsList({
     target: LinkedAccount;
   } | null>(null);
 
+  // 固定決済とチャージ先のルール（明細は history で読む）
   const load = useCallback(async () => {
     try {
-      const [t, r, rl] = await Promise.all([
-        fetchCardTransactions(account.id),
+      const [r, rl] = await Promise.all([
         fetchCardRecurringPayments(account.id),
         fetchCardTransferRules(account.id),
       ]);
-      setTxns(t);
       setRecurring(r);
       setRules(rl);
     } catch (e) {
@@ -115,23 +109,8 @@ export function CardTransactionsList({
   }, [account.id]);
 
   useEffect(() => {
-    setPage(0);
     load();
   }, [load]);
-
-  // 個人事業主モードは「事業利用のみ」に絞る（切り替えで全件。web 版と同じ）
-  const businessFilter = useBusinessOnlyFilter(viewMode);
-  const scoped = businessFilter.keep(txns);
-  const filtered = (() => {
-    // 科目を付けた明細がそのまま実績。チャージは科目を付けない明細なので未割り当てから除く
-    if (filter === "actual") return scoped.filter((t) => t.categoryAccountId !== null);
-    if (filter === "unassigned")
-      return scoped.filter((t) => t.categoryAccountId === null && !isMovement(t));
-    return scoped;
-  })();
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const current = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
 
   // チャージ先に選べるのは残高を持つ決済手段（デビット・プリペイド・電子マネー）で、自分自身は除く
   const chargeTargets = accounts.filter((a) => a.id !== account.id && isChargeableType(a.type));
@@ -146,7 +125,7 @@ export function CardTransactionsList({
     try {
       const text = await action();
       if (text) setMsg(text);
-      await load();
+      await Promise.all([load(), history.reload()]);
       if (flowChanged) onFlowChanged();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "処理に失敗しました");
@@ -279,28 +258,23 @@ export function CardTransactionsList({
       {/* チャージを「未割り当て」から外している理由も、ここで示す（web 版と同じ） */}
       <Notice>
         {CARD_HELP.list}
-        {filter === "unassigned" ? ` ${CARD_HELP.postFilter}` : ""}
+        {history.status === "unassigned" ? ` ${CARD_HELP.postFilter}` : ""}
       </Notice>
       <TermList terms={CARD_TERMS} label="科目・チャージ・固定決済の説明" />
 
-      <Pills
-        scroll={false}
-        options={POST_FILTERS}
-        value={filter}
-        onChange={(f) => {
-          setFilter(f);
-          setPage(0);
-        }}
-      />
-      {businessFilter.toggle}
-      <LedgerCount total={filtered.length} offset={current * PAGE_SIZE} pageSize={PAGE_SIZE} />
+      {history.toolbar}
+      {history.error && <Notice tone="error">{history.error}</Notice>}
 
-      {filtered.length === 0 ? (
+      {history.rows.length === 0 ? (
         <EmptyText>
-          {txns.length === 0 ? "明細がありません" : "この条件に一致する明細はありません"}
+          {history.loading
+            ? "読み込み中…"
+            : history.filtered
+              ? "この条件に一致する明細はありません"
+              : "明細がありません"}
         </EmptyText>
       ) : (
-        paged.map((t) => (
+        history.rows.map((t) => (
           <LedgerRow
             key={t.id}
             date={fmtDate(t.date)}
@@ -366,14 +340,7 @@ export function CardTransactionsList({
           />
         ))
       )}
-      {filtered.length > PAGE_SIZE && (
-        <Pager
-          offset={current * PAGE_SIZE}
-          total={filtered.length}
-          pageSize={PAGE_SIZE}
-          onChange={(o) => setPage(o / PAGE_SIZE)}
-        />
-      )}
+      {history.pager}
 
       <CategoryPickerModal
         visible={picking !== null}

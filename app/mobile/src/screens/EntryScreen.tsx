@@ -17,7 +17,6 @@ import {
   deleteActual,
   fetchAccounts,
   fetchBankAccounts,
-  fetchCashEntries,
   fetchFinancialMatrix,
   fetchLinkedAccounts,
   type Account,
@@ -34,12 +33,11 @@ import { BankTransactionsList } from "../components/bank/BankTransactionsList";
 import { CardCalendar } from "../components/card/CardCalendar";
 import { CardTransactionsList } from "../components/card/CardTransactionsList";
 import { CategoryPickerModal } from "../components/CategoryPickerModal";
-import { LedgerBadge, LedgerCount, LedgerRow } from "../components/LedgerRow";
+import { LedgerBadge, LedgerRow } from "../components/LedgerRow";
 import {
   EmptyText,
   Lead,
   Notice,
-  Pager,
   Pills,
   SelectField,
   SheetModal,
@@ -54,7 +52,8 @@ import { fmtDate, fmtDateTime, MONTHS, yen, yenAbs } from "../format";
 import { flowLabel, flowSide, negativeAmountWord } from "../shared/amount-direction";
 import { ActualsConfirmSection } from "../components/ActualsConfirmSection";
 import { LearningRulesSection } from "../components/LearningRulesSection";
-import { BusinessTag, useBusinessOnlyFilter } from "../components/BusinessUseControls";
+import { BusinessTag } from "../components/BusinessUseControls";
+import { useLedgerHistory } from "../components/LedgerHistory";
 import { useFiscalYear } from "../fiscal-year";
 
 // 並びは web 版と同じ（CSV インポートは web 版のみ）。設定（学習ルール）は右端
@@ -87,7 +86,6 @@ const SOURCE_LABEL: Record<RecordSource["kind"], string> = {
 };
 
 // 現金の履歴は 30 件ずつ（銀行・カードの履歴と同じ）
-const CASH_PAGE_SIZE = 30;
 
 type Props = {
   viewMode: ViewMode;
@@ -165,12 +163,13 @@ export function EntryScreen({
   const [detailCode, setDetailCode] = useState<string | null>(null);
 
   // ── 履歴（出どころが現金 = 現金の明細）───────────────────────────
-  const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
-  const [cashPage, setCashPage] = useState(0);
-  // 個人事業主モードの現金の履歴は「事業利用のみ」に絞る（切り替えで全件）
-  const cashBusiness = useBusinessOnlyFilter(viewMode);
-  const shownCash = cashBusiness.keep(cashEntries);
-  const [histLoading, setHistLoading] = useState(false);
+  // 30 件ずつ。状態・科目・事業利用（個人事業主モード）で絞り込める（LedgerHistory.tsx）
+  const cashHistory = useLedgerHistory<CashEntry>({
+    kind: "CASH",
+    viewMode,
+    accounts,
+    enabled: tab === "history" && source === "manual",
+  });
   const [picking, setPicking] = useState<CashEntry | null>(null);
 
   const loadMatrix = useCallback(async () => {
@@ -186,24 +185,11 @@ export function EntryScreen({
     }
   }, [year]);
 
-  const loadHistory = useCallback(async () => {
-    setHistLoading(true);
-    try {
-      setCashEntries(await fetchCashEntries());
-    } catch {
-      setCashEntries([]);
-    } finally {
-      setHistLoading(false);
-    }
-  }, []);
+  const loadHistory = cashHistory.reload;
 
   useEffect(() => {
     loadMatrix();
   }, [loadMatrix]);
-
-  useEffect(() => {
-    if (tab === "history" && source === "manual") loadHistory();
-  }, [tab, source, loadHistory]);
 
   // 設定タブ（学習ルール）は、値を変えると読み直す
   const [rulesKey, setRulesKey] = useState(0);
@@ -426,61 +412,53 @@ export function EntryScreen({
 
         {tab === "history" &&
           source === "manual" &&
-          (histLoading && cashEntries.length === 0 ? (
+          (cashHistory.loading ? (
             <ActivityIndicator color="#4f46e5" style={{ marginTop: 40 }} />
-          ) : cashEntries.length === 0 ? (
-            <EmptyText>現金の明細はまだありません。カレンダーから登録できます。</EmptyText>
           ) : (
             <>
-              {cashBusiness.toggle}
-              <LedgerCount
-                total={shownCash.length}
-                offset={cashPage * CASH_PAGE_SIZE}
-                pageSize={CASH_PAGE_SIZE}
-              />
-              {shownCash
-                .slice(cashPage * CASH_PAGE_SIZE, (cashPage + 1) * CASH_PAGE_SIZE)
-                .map((e) => (
-                  <LedgerRow
-                    key={e.id}
-                    date={fmtDate(e.date)}
-                    account="現金"
-                    description={e.description}
-                    amount={yenAbs(e.amount)}
-                    tone={flowSide("cash", e.amount)}
-                    directionLabel={flowLabel("cash", e.amount)}
-                    category={
-                      <TouchableOpacity onPress={() => setPicking(e)}>
-                        <Text style={s.link} numberOfLines={1}>
-                          {e.categoryAccount
-                            ? displayName(e.categoryAccount, viewMode)
-                            : "科目を選ぶ"}
-                        </Text>
-                      </TouchableOpacity>
-                    }
-                    status={
-                      <>
-                        <LedgerBadge tone={e.categoryAccountId !== null ? "emerald" : "amber"}>
-                          {e.categoryAccountId !== null ? "実績" : "未割り当て"}
-                        </LedgerBadge>
-                        <BusinessTag businessUse={e.businessUse} businessRatio={e.businessRatio} />
-                      </>
-                    }
-                    actions={
-                      <TouchableOpacity onPress={() => confirmDeleteCash(e)}>
-                        <Text style={s.danger}>削除</Text>
-                      </TouchableOpacity>
-                    }
-                  />
-                ))}
-              {shownCash.length > CASH_PAGE_SIZE && (
-                <Pager
-                  offset={cashPage * CASH_PAGE_SIZE}
-                  total={shownCash.length}
-                  pageSize={CASH_PAGE_SIZE}
-                  onChange={(o) => setCashPage(o / CASH_PAGE_SIZE)}
-                />
+              {cashHistory.toolbar}
+              {cashHistory.error && <Notice tone="error">{cashHistory.error}</Notice>}
+              {cashHistory.rows.length === 0 && (
+                <EmptyText>
+                  {cashHistory.filtered
+                    ? "この条件に一致する明細はありません"
+                    : "現金の明細はまだありません。カレンダーから登録できます。"}
+                </EmptyText>
               )}
+              {cashHistory.rows.map((e) => (
+                <LedgerRow
+                  key={e.id}
+                  date={fmtDate(e.date)}
+                  account="現金"
+                  description={e.description}
+                  amount={yenAbs(e.amount)}
+                  tone={flowSide("cash", e.amount)}
+                  directionLabel={flowLabel("cash", e.amount)}
+                  category={
+                    <TouchableOpacity onPress={() => setPicking(e)}>
+                      <Text style={s.link} numberOfLines={1}>
+                        {e.categoryAccount
+                          ? displayName(e.categoryAccount, viewMode)
+                          : "科目を選ぶ"}
+                      </Text>
+                    </TouchableOpacity>
+                  }
+                  status={
+                    <>
+                      <LedgerBadge tone={e.categoryAccountId !== null ? "emerald" : "amber"}>
+                        {e.categoryAccountId !== null ? "実績" : "未割り当て"}
+                      </LedgerBadge>
+                      <BusinessTag businessUse={e.businessUse} businessRatio={e.businessRatio} />
+                    </>
+                  }
+                  actions={
+                    <TouchableOpacity onPress={() => confirmDeleteCash(e)}>
+                      <Text style={s.danger}>削除</Text>
+                    </TouchableOpacity>
+                  }
+                />
+              ))}
+              {cashHistory.pager}
             </>
           ))}
       </ScrollView>
