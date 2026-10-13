@@ -290,7 +290,7 @@ flowchart LR
 | `/account-conversion/history` | 変換履歴 | 過去の変換 |
 | `/learning` | 学習ガイド | 学習の話題と既読の管理 |
 | `/portal` | 税理士ポータル | 財務の要約（accountant 以上） |
-| `/settings` | 設定 | 基本設定（あなたの表示名・会計期間・事業者情報） / 消費税設定 / 科目名設定 / セキュリティ（多要素認証）。各項目は見出し・説明・右上の操作ボタンをそろえたカード（`SectionCard`。[5.3節](#53-共通の部品)）。部門・担当のタブは削除した（部門のデータと API は法人の機能のため残す） |
+| `/settings` | 設定 | 基本設定（あなたの表示名・会計期間・事業者情報） / 消費税設定 / 科目名設定 / セキュリティ（多要素認証） / プランと支払い（有料プランの申し込み・支払い方法の変更・解約。操作は admin。[20.13節](#2013-有料プラン)）。各項目は見出し・説明・右上の操作ボタンをそろえたカード（`SectionCard`。[5.3節](#53-共通の部品)）。部門・担当のタブは削除した（部門のデータと API は法人の機能のため残す） |
 | `/admin/users` | ユーザー管理 | ユーザーの追加・表示名とロールの変更・パスワードの再設定・削除（admin）。本人は設定の基本設定で自分の表示名を変えられる（`PATCH /api/auth/me`） |
 | `/admin/audit` | 監査ログ | 自分のテナントの操作の履歴を、今の表示名つきで出す（admin） |
 
@@ -349,7 +349,7 @@ flowchart LR
 | `src/components/entry/` | 実績管理の現金のタブ（一覧 `ActualsMatrixTab`・カレンダー `CashCalendarTab`・CSV インポート `CsvImportTab`・履歴 `CashHistoryTab`）と設定タブの学習ルール `LearningRulesPanel`。銀行・カードのタブは `BankTransactionsPanel`・`CardTransactionsPanel` などを使う |
 | `src/components/loans/` | 借入金管理のモーダル（追加・編集 `LoanFormModals`・金利変更と改定後の返済額 `LoanRateModals`・返済登録 `RepayModal`）。入力の状態と保存はモーダル側が持つ |
 | `src/components/assets/` | 資産管理の実物資産の一覧 `PersonalAssetsSection` と、登録・編集のモーダル `PersonalAssetFormModal` |
-| `src/components/settings/` | 設定の各タブ（基本設定 `ProfileSections`・消費税設定・科目名設定・セキュリティ） |
+| `src/components/settings/` | 設定の各タブ（基本設定 `ProfileSections`・消費税設定・科目名設定・セキュリティ・プランと支払い `BillingSection`） |
 
 ## 6. 認証とアカウント
 
@@ -1115,7 +1115,7 @@ npm run typecheck && npm run format:check
 4. テナントで絞った `db` と、監査ログを書く `audit()` をハンドラーに渡す。
 5. 例外を `src/lib/server/api-error.ts` で決まった形のエラー応答にする。
 
-`withApi` を使わないのは、ログイン・ログアウト・多要素認証の確認・`GET /api/auth/me`・ヘルスチェック・定期ジョブ用の `/api/admin/cleanup` の 6 つ（`PATCH /api/auth/me` は `withApi` を使う）。
+`withApi` を使わないのは、ログイン・ログアウト・多要素認証の確認・`GET /api/auth/me`・ヘルスチェック・定期ジョブ用の `/api/admin/cleanup`・Stripe の通知を受ける `/api/webhooks/stripe` の 7 つ（`PATCH /api/auth/me` は `withApi` を使う）。
 
 ### 20.3 口座の残高
 
@@ -1185,9 +1185,20 @@ npm run typecheck && npm run format:check
 
 `platform/scripts/backup.sh` が `pg_dump` を gzip で保存し、`RETENTION_DAYS`（既定30日）より古いものを消す。戻すのは `restore.sh`。手順は [runbooks/backup-restore.md](docs/runbooks/backup-restore.md)。
 
+### 20.13 有料プラン
+
+有料プランは Stripe で申し込む。契約はテナントに 1 行（`subscriptions`）で、行が無いテナントは無料プラン。申し込みと支払いの管理は admin が設定の「プランと支払い」から行い、プランはそのテナントの全ユーザーで共通。
+
+- 有料プランかどうかは `src/lib/billing/plan.ts` の `isPremiumSubscription` だけで決める。ACTIVE・TRIALING は有料。PAST_DUE（支払いの失敗）は、失敗してから 7 日のあいだだけ有料のまま。
+- 申し込みは Stripe Checkout、支払い方法の変更・解約は Stripe Customer Portal の画面で行う（`src/lib/billing/checkout.ts`）。カード番号はこのアプリに保存しない。
+- 契約の状態は Stripe の通知（`POST /api/webhooks/stripe`）で更新する（`src/lib/billing/webhook.ts`）。通知は署名で確かめ、処理した通知の ID を `stripe_webhook_events` に残して二度処理しない。受け取るのは `checkout.session.completed`・`customer.subscription.created/updated/deleted`・`invoice.payment_failed`。
+- `STRIPE_SECRET_KEY` と `STRIPE_PRICE_ID` が無ければ、申し込みは 503（準備中）。通知を受けるには `STRIPE_WEBHOOK_SECRET` も要る（`platform/.env.example`）。
+- 有料プランが要る機能は 402 と `code`（例 `premium_required`）を返す（`src/lib/server/api-error.ts` の `paymentRequired`）。
+- 契約が残っているテナントは削除できない（409）。先に解約する。
+
 ## 21. データモデル
 
-正式な定義は `app/web/prisma/schema.prisma`（61モデル）。ここでは領域ごとに、主な列だけを示す。財務データの親のテーブルは `tenantId` を持つ（明細行・履歴などの子のテーブルは親を通してテナントに属する。勘定科目変換のテーブルはユーザーに属する）。
+正式な定義は `app/web/prisma/schema.prisma`（63モデル）。ここでは領域ごとに、主な列だけを示す。財務データの親のテーブルは `tenantId` を持つ（明細行・履歴などの子のテーブルは親を通してテナントに属する。勘定科目変換のテーブルはユーザーに属する）。
 
 ### 21.1 認証・ユーザー・テナント
 
@@ -1199,6 +1210,8 @@ npm run typecheck && npm run format:check
 | `mfa_challenges` | token（SHA-256）, userId, attempts, expiresAt | |
 | `audit_logs` | tenantId, userId, action, target, ip, userAgent, before, after, changedAt | |
 | `learning_progress` | tenantId, userId, topicKey, readAt | `[userId, topicKey]` 一意 |
+| `subscriptions` | tenantId, stripeCustomerId, stripeSubscriptionId, plan, status, currentPeriodEnd, cancelAtPeriodEnd, pastDueSince, canceledAt | 有料プランの契約。tenantId は一意（[20.13節](#2013-有料プラン)） |
+| `stripe_webhook_events` | eventId, eventType, processedAt | 処理済みの Stripe の通知 |
 
 ### 21.2 財務の基盤
 
@@ -1304,6 +1317,7 @@ npm run typecheck && npm run format:check
 | AccountMappingMatchType | TABLE, KEYWORD, FUZZY, AI_FREE, AI_PAID, MANUAL |
 | AccountConversionMode | HOME, CORPORATE |
 | AccountConversionStatus | COMPLETED, CANCELLED |
+| SubscriptionStatus | ACTIVE, TRIALING, PAST_DUE, CANCELED, INCOMPLETE |
 
 ## 22. API
 
@@ -1325,6 +1339,9 @@ npm run typecheck && npm run format:check
 | GET / POST | `/tenants` | V / Ad |
 | GET / PUT / DELETE | `/tenants/[id]` | V / E / Ad |
 | GET | `/health` | — |
+| GET | `/billing/plan` | V |
+| POST | `/billing/checkout-session` `/billing/portal-session` | Ad |
+| POST | `/webhooks/stripe` | —（Stripe の署名で確かめる） |
 
 ### 22.2 マスタ・設定・学習
 

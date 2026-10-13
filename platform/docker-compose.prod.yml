@@ -30,6 +30,10 @@ services:
       MF_REDIRECT_URI:
       OPENBANKING_API_BASE:
       OPENBANKING_API_KEY:
+      # 有料プラン（Stripe）。秘密鍵と価格 ID が無ければ、申し込みは「準備中」になる
+      STRIPE_SECRET_KEY:
+      STRIPE_WEBHOOK_SECRET:
+      STRIPE_PRICE_ID:
     volumes:
       # 証憑（領収書などの添付ファイル）。コンテナを入れ替えても消えないようにする
       - uploads-data:/app/uploads

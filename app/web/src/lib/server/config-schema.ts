@@ -15,5 +15,10 @@ export const Env = z.object({
     .positive()
     .default(10 * 1024 * 1024),
   APP_ORIGIN: z.string().url().optional(),
+  // 有料プラン（Stripe）。秘密鍵と価格 ID の両方があるときだけ申し込める（lib/billing/stripe.ts）
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  STRIPE_PRICE_ID: z.string().min(1).optional(),
+  STRIPE_API_BASE: z.string().url().optional(), // テストで Stripe の代わりのサーバーに向けるときだけ
 });
 export type Env = z.infer<typeof Env>;

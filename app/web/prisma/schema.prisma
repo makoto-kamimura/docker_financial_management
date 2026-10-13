@@ -910,6 +910,7 @@ model Tenant {
   dividends        Dividend[]
   announcements    Announcement[]
   learningProgress LearningProgress[]
+  subscription     Subscription?
 
   @@map("tenants")
 }
@@ -1407,4 +1408,46 @@ model RecurringSuggestionDismissal {
   @@unique([tenantId, bankAccountId, signature])
   @@index([tenantId])
   @@map("recurring_suggestion_dismissals")
+}
+
+// ============================================================
+// 有料プラン（Stripe）
+// ============================================================
+
+// 有料プランの契約の状態（Stripe の契約の状態を写したもの。lib/billing/webhook.ts）
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE // 支払いに失敗した。pastDueSince から 7 日間は有料プランのまま使える
+  CANCELED // 解約済み（unpaid・paused・incomplete_expired もここに入れる）
+  INCOMPLETE // 申し込みの途中（Checkout を開いたが、支払いが済んでいない）
+}
+
+// テナントの有料プランの契約（テナントに 1 行）。行が無いテナントは無料プラン。
+// 有料プランかどうかは lib/billing/plan.ts の isPremiumSubscription で決める。
+model Subscription {
+  id                   Int                @id @default(autoincrement())
+  tenantId             Int                @unique
+  tenant               Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stripeCustomerId     String             @unique
+  stripeSubscriptionId String?            @unique
+  plan                 String             @default("premium")
+  status               SubscriptionStatus @default(INCOMPLETE)
+  currentPeriodEnd     DateTime? // 次の更新日（解約予定なら、この日まで使える）
+  cancelAtPeriodEnd    Boolean            @default(false)
+  pastDueSince         DateTime? // 支払いに失敗した日時（7 日間の猶予の起点）
+  canceledAt           DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@map("subscriptions")
+}
+
+// 処理済みの Stripe の通知（同じ通知を二度処理しないため）
+model StripeWebhookEvent {
+  eventId     String   @id
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@map("stripe_webhook_events")
 }

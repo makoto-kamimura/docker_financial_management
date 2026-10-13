@@ -6,10 +6,14 @@ import { Prisma } from "@prisma/client";
 //
 //   if (!record) throw notFound();
 //   if (!account) throw badRequest(`unknown accountCode: ${code}`);
+//
+// code は画面が理由を見分けるための機械向けの値（例: 有料プランが要る "premium_required"）。
+// 付けたときだけレスポンスに { error, code } として入る。
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -21,6 +25,14 @@ export const notFound = (message = "not found") => new ApiError(404, message);
 export const forbidden = (message = "forbidden") => new ApiError(403, message);
 export const conflict = (message = "conflict") => new ApiError(409, message);
 export const gone = (message = "gone") => new ApiError(410, message);
+/** 有料プランが要る（402）。code で何が足りないかを示す */
+export const paymentRequired = (message: string, code = "premium_required") =>
+  new ApiError(402, message, code);
+/** 外部サービス（決済など）に接続できない（502） */
+export const badGateway = (message: string) => new ApiError(502, message);
+/** 機能の設定が済んでいない（503） */
+export const serviceUnavailable = (message: string, code?: string) =>
+  new ApiError(503, message, code);
 
 /** 実績の直接入力をやめた API が返すメッセージ */
 export const DIRECT_ACTUALS_GONE_MESSAGE =
@@ -32,7 +44,9 @@ export const DIRECT_ACTUALS_GONE_MESSAGE =
 // - それ以外: 詳細をログに残し、レスポンスには固定メッセージのみ（内部情報の漏えい防止）
 export function errorResponse(e: unknown): NextResponse {
   if (e instanceof ApiError) {
-    return NextResponse.json({ error: e.message }, { status: e.status });
+    return NextResponse.json(e.code ? { error: e.message, code: e.code } : { error: e.message }, {
+      status: e.status,
+    });
   }
   if (e instanceof Prisma.PrismaClientKnownRequestError) {
     if (e.code === "P2002") {
