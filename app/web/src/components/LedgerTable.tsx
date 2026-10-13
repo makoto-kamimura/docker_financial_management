@@ -10,6 +10,9 @@ import { Pager } from "@/components/ui";
 import { useActualsScope } from "@/lib/client/use-view-mode";
 import { businessUseText } from "@/lib/shared/business-use";
 import { DirectionTag } from "@/components/DirectedAmount";
+import { useQuery } from "@tanstack/react-query";
+import { displayName, type ViewMode } from "@/lib/shared/display-name";
+import { CATEGORY_LABEL, CATEGORY_ORDER } from "@/lib/shared/labels";
 
 export type LedgerColumn =
   | "date"
@@ -263,4 +266,159 @@ export function useBusinessOnlyFilter() {
   const keep = <T extends { businessUse?: boolean }>(rows: T[]): T[] =>
     businessOnly ? rows.filter((r) => r.businessUse) : rows;
   return { businessOnly, toggle, keep };
+}
+
+/** 表の上に置く科目の絞り込み（収入・原価・経費の科目） */
+export function LedgerCategoryFilter({
+  accounts,
+  mode,
+  value,
+  onChange,
+}: {
+  accounts: LedgerFilterAccount[];
+  mode: ViewMode;
+  value: number | null;
+  onChange: (id: number | null) => void;
+}) {
+  return (
+    <select
+      aria-label="科目で絞り込む"
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+      className="text-xs border border-slate-200 rounded-lg px-2 h-8 bg-white max-w-56"
+    >
+      <option value="">すべての科目</option>
+      {CATEGORY_ORDER.filter((c) => FILTER_CATEGORIES.includes(c)).map((cat) => {
+        const items = accounts.filter((a) => a.category === cat);
+        if (items.length === 0) return null;
+        return (
+          <optgroup key={cat} label={CATEGORY_LABEL[cat]}>
+            {items.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.code} {displayName(a, mode)}
+              </option>
+            ))}
+          </optgroup>
+        );
+      })}
+    </select>
+  );
+}
+
+type LedgerFilterAccount = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  soleName?: string | null;
+  corporateName?: string | null;
+};
+const FILTER_CATEGORIES: string[] = ["REVENUE", "COGS", "EXPENSE"];
+
+/** 履歴の状態の絞り込み（現金・銀行・カードで共通） */
+export type LedgerStatus = "all" | "unassigned" | "actual";
+export const LEDGER_STATUS_FILTERS: [LedgerStatus, string][] = [
+  ["all", "全件"],
+  ["unassigned", "未割り当て"],
+  ["actual", "実績"],
+];
+
+/** 履歴の 1 ページの件数（予算の履歴と同じ） */
+export const LEDGER_PAGE_SIZE = 30;
+
+/**
+ * 実績管理の「履歴」の明細を、サーバーでページ送り・絞り込みして読む（GET /api/ledger/history）。
+ * 状態（全件・未割り当て・実績）・科目・事業利用のみ（個人事業主モード）で絞り、30 件ずつ新しい順に出す。
+ * 取得のキーは種別ごとの既存のキー（actuals / bank-txns / card-txns）で始め、明細を変えたときの
+ * 取り直し（invalidateQueries）がそのまま効くようにする。
+ * accountId: 銀行の口座・カード（null = その種別のすべて）。現金は使わない。
+ */
+export function useLedgerHistory<T>({
+  kind,
+  accountId = null,
+  mode,
+}: {
+  kind: "CASH" | "BANK" | "CARD";
+  accountId?: number | null;
+  mode: ViewMode;
+}) {
+  const [offset, setOffset] = useState(0);
+  const [status, setStatus] = useState<LedgerStatus>("all");
+  const [categoryAccountId, setCategoryAccountId] = useState<number | null>(null);
+  const businessFilter = useBusinessOnlyFilter();
+  const scope = useActualsScope();
+  // 口座や「事業利用のみ」を切り替えたら 1 ページ目に戻す
+  const pageKey = `${accountId}:${businessFilter.businessOnly}`;
+  const [shownKey, setShownKey] = useState(pageKey);
+  if (shownKey !== pageKey) {
+    setShownKey(pageKey);
+    setOffset(0);
+  }
+
+  const { data: accounts } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async (): Promise<LedgerFilterAccount[]> =>
+      (await (await fetch("/api/accounts")).json()).data ?? [],
+  });
+
+  const base =
+    kind === "CASH"
+      ? ["actuals"]
+      : [kind === "BANK" ? "bank-txns" : "card-txns", accountId ?? "all"];
+  const params = new URLSearchParams({
+    kind,
+    status,
+    limit: String(LEDGER_PAGE_SIZE),
+    offset: String(offset),
+    ...(accountId !== null && kind !== "CASH" ? { accountId: String(accountId) } : {}),
+    ...(categoryAccountId !== null ? { categoryAccountId: String(categoryAccountId) } : {}),
+    ...(businessFilter.businessOnly ? { businessOnly: "1" } : {}),
+  });
+  const { data, isLoading } = useQuery({
+    queryKey: [...base, "history", params.toString()],
+    queryFn: async (): Promise<{ data: T[]; total: number }> => {
+      const res = await fetch(`/api/ledger/history?${params}`);
+      const json = await res.json();
+      return { data: json.data ?? [], total: json.total ?? 0 };
+    },
+    // 個人事業主モードかどうか（事業利用のみの既定）が決まるまで待つ
+    enabled: scope !== null,
+    placeholderData: (prev) => prev,
+  });
+
+  const filtered = status !== "all" || categoryAccountId !== null || businessFilter.businessOnly;
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-3">
+      <LedgerFilter
+        options={LEDGER_STATUS_FILTERS}
+        value={status}
+        onChange={(v) => {
+          setStatus(v);
+          setOffset(0);
+        }}
+      />
+      <LedgerCategoryFilter
+        accounts={(accounts ?? []).filter((a) => FILTER_CATEGORIES.includes(a.category))}
+        mode={mode}
+        value={categoryAccountId}
+        onChange={(id) => {
+          setCategoryAccountId(id);
+          setOffset(0);
+        }}
+      />
+      {businessFilter.toggle}
+    </div>
+  );
+  return {
+    rows: data?.data ?? [],
+    total: data?.total ?? 0,
+    loading: isLoading && !data,
+    offset,
+    setOffset,
+    pageSize: LEDGER_PAGE_SIZE,
+    toolbar,
+    /** 絞り込みをしているか（空の表の文言を変える） */
+    filtered,
+    status,
+  };
 }

@@ -1,15 +1,11 @@
 "use client";
 
 // 実績管理の「履歴」タブ（出どころが現金）。銀行・カードと同じ共通の表で、科目の変更と削除を行う。
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+// 明細はサーバーで 30 件ずつ読み、状態・科目・事業利用で絞り込める（useLedgerHistory）。
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { LoadingSpinner } from "@/components/StateViews";
-import {
-  BusinessTag,
-  LedgerBadge,
-  LedgerTable,
-  useBusinessOnlyFilter,
-} from "@/components/LedgerTable";
+import { BusinessTag, LedgerBadge, LedgerTable, useLedgerHistory } from "@/components/LedgerTable";
 import { Notice } from "@/components/ui";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
@@ -17,9 +13,6 @@ import { CATEGORY_LABEL as GROUP_LABELS, CATEGORY_ORDER as GROUP_ORDER } from "@
 import { yenAbs } from "@/lib/common/format";
 import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
 import { EXPENSE_CATS, INCOME_CATS, type Account, type CashEntry } from "@/components/entry/types";
-
-// 現金の履歴のページ送り（銀行・カードの履歴と同じ 30 件ずつ）
-const HISTORY_PAGE_SIZE = 30;
 
 export function CashHistoryTab({
   accounts,
@@ -29,17 +22,8 @@ export function CashHistoryTab({
   mode: ViewMode;
 }) {
   const queryClient = useQueryClient();
-  const [histOffset, setHistOffset] = useState(0);
-
-  // 現金の明細（直近 200 件）
-  const { data: cashHistoryData, isLoading: histLoading } = useQuery({
-    queryKey: ["actuals", "recent"],
-    queryFn: async (): Promise<{ data: CashEntry[] }> => (await fetch("/api/actuals")).json(),
-  });
-  // 個人事業主モードは事業利用の明細だけ（切り替えで全件）
-  const businessFilter = useBusinessOnlyFilter();
-  const cashHistory = cashHistoryData?.data && businessFilter.keep(cashHistoryData.data);
-  const histTotal = cashHistory?.length ?? 0;
+  // 現金の明細（30 件ずつ。個人事業主モードは最初から事業利用の明細だけ）
+  const history = useLedgerHistory<CashEntry>({ kind: "CASH", mode });
   const [histMsg, setHistMsg] = useState<string | null>(null);
 
   // 現金の明細の科目を変える（科目を付けた明細がそのまま実績。銀行・カードと同じく学習する）
@@ -73,7 +57,7 @@ export function CashHistoryTab({
     return acc;
   }, {});
 
-  if (histLoading && !cashHistory) return <LoadingSpinner label="履歴を読み込み中…" />;
+  if (history.loading) return <LoadingSpinner label="履歴を読み込み中…" />;
 
   return (
     <>
@@ -83,13 +67,17 @@ export function CashHistoryTab({
         </Notice>
       )}
       <LedgerTable
-        total={histTotal}
-        offset={histOffset}
-        pageSize={HISTORY_PAGE_SIZE}
-        onPageChange={setHistOffset}
-        emptyText="現金の明細はまだありません。カレンダーから登録できます。"
-        toolbar={businessFilter.toggle}
-        rows={(cashHistory ?? []).slice(histOffset, histOffset + HISTORY_PAGE_SIZE).map((e) => ({
+        total={history.total}
+        offset={history.offset}
+        pageSize={history.pageSize}
+        onPageChange={history.setOffset}
+        emptyText={
+          history.filtered
+            ? "この条件に一致する明細はありません"
+            : "現金の明細はまだありません。カレンダーから登録できます。"
+        }
+        toolbar={history.toolbar}
+        rows={history.rows.map((e) => ({
           key: e.id,
           date: new Date(e.date).toLocaleDateString("ja-JP"),
           account: "現金",

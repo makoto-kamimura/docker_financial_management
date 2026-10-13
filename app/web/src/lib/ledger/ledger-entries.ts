@@ -181,6 +181,15 @@ export const ENTRY_REFS_INCLUDE = {
   chargeToCard: { select: { id: true, name: true } },
 } as const satisfies Prisma.FinancialRecordInclude;
 
+/** 現金の明細で添える科目と証憑（toCashEntry に渡す） */
+export const CASH_INCLUDE = {
+  account: { select: { id: true, code: true, name: true, category: true } },
+  receipts: {
+    select: { id: true, fileName: true, savedName: true, fileUrl: true },
+    orderBy: { uploadedAt: "asc" },
+  },
+} as const satisfies Prisma.FinancialRecordInclude;
+
 /** 明細の置き場所（種別と口座） */
 export type EntryTarget =
   | { kind: "CASH" }

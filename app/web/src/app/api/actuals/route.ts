@@ -5,21 +5,13 @@ import { badRequest, notFound } from "@/lib/server/api-error";
 import { removeTenantUpload } from "@/lib/server/upload";
 import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 import { findAccountByCode } from "@/lib/accounting/period";
-import { CASH, createEntry, toCashEntry } from "@/lib/ledger/ledger-entries";
+import { CASH, CASH_INCLUDE, createEntry, toCashEntry } from "@/lib/ledger/ledger-entries";
 import { learnCategoryRule } from "@/lib/ledger/ledger-categorize";
 import { BusinessInput, entryBusiness } from "@/lib/ledger/business-use";
 import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // 現金の明細（実績の表 financial_records の kind = CASH の行）。実績管理の「現金」のカレンダーと履歴で使う。
 // 科目を付けて登録するので、登録した時点で実績になる（科目は履歴から変えられる: ./[id]/categorize）。
-
-const CASH_INCLUDE = {
-  account: { select: { id: true, code: true, name: true, category: true } },
-  receipts: {
-    select: { id: true, fileName: true, savedName: true, fileUrl: true },
-    orderBy: { uploadedAt: "asc" },
-  },
-} as const;
 
 const ActualSchema = BusinessInput.extend({
   date: z.string().min(1),
