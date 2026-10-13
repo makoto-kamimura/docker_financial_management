@@ -53,6 +53,7 @@ import { GET as openbankingGet, POST as openbankingPost } from "./integrations/o
 import { GET as uploadGet } from "./uploads/[filename]/route";
 import { POST as allocationApplyPost } from "./budgets/allocation-apply/route";
 import { PATCH as categorizePatch } from "./bank-transactions/[id]/categorize/route";
+import { DELETE as tenantDelete } from "./tenants/[id]/route";
 import { emptyRouteContext } from "@/lib/server/api-handler";
 
 const SUFFIX = `iso_${Date.now()}`;
@@ -507,5 +508,19 @@ describe("[F-5] bank-transactions/[id]/categorize のテナント越境", () => 
     });
     expect(records.map((r) => r.id)).toEqual([seed.bankTxnAId]);
     expect(Number(records[0].amount)).toBe(3000); // 支出は正（費用の向き）
+  });
+});
+
+describe("tenants/[id] DELETE のテナント越境", () => {
+  it("他テナントは削除できない（403）。ユーザーのいないテナントでも残る", async () => {
+    actingUser = seed.userA; // テナント A の admin
+    const other = await prisma.tenant.create({ data: { name: `TenantC_${SUFFIX}` } });
+    try {
+      const res = await tenantDelete(makeReq("DELETE", "http://x"), params(other.id));
+      expect(res.status).toBe(403);
+      expect(await prisma.tenant.count({ where: { id: other.id } })).toBe(1);
+    } finally {
+      await prisma.tenant.deleteMany({ where: { id: other.id } });
+    }
   });
 });

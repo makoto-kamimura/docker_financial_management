@@ -59,11 +59,12 @@ export const PUT = withApi({
   },
 });
 
-// DELETE /api/tenants/[id] … テナントの削除（admin）
+// DELETE /api/tenants/[id] … 自テナントの削除（admin）。他テナントは 403
 //   有料プランの契約が残っていれば 409（消すと Stripe の請求だけが続くため、先に解約してもらう）
 export const DELETE = withApi({
   role: "admin",
-  handler: async ({ id }) => {
+  handler: async ({ user, id }) => {
+    if (id !== user.tenantId) throw forbidden();
     const sub = await prisma.subscription.findUnique({ where: { tenantId: id } });
     if (sub && sub.status !== "CANCELED" && sub.status !== "INCOMPLETE") {
       throw conflict(
