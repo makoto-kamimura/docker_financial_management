@@ -10,7 +10,8 @@ import {
   type CategoryAmounts,
   type TrendCategory,
 } from "@/lib/budget/monthly-trend";
-import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
+import { actualRows } from "@/lib/ledger/actuals";
+import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 
 // GET /api/reports/monthly-trend?period=YYYY-MM&back=6&forward=6&accountCode=&method=
 //   … 対象月を中心とした前後の推移。対象月以前は実績、後ろは予測。
@@ -18,9 +19,11 @@ import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
 //
 // GET /api/reports/monthly-trend?year=YYYY&method=
 //   … 指定年度の 1〜12 月。実績が未入力の将来月は予測で埋める（構成比グラフの年度モード）。
+//
+// scope=business（個人事業主モード）は事業の分の実績だけ。事業の予算はまだ無いので予算は空にする。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     period: z
       .string()
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
@@ -39,7 +42,7 @@ export const GET = withApi({
 
     const records = actualRows(
       await db.financialRecord.findMany({
-        where: { tenantId, ...ACTUAL_WHERE },
+        where: { tenantId, ...actualWhere(query.scope) },
         include: {
           account: { select: { id: true, code: true, category: true } },
           period: { select: { fiscalYear: true, month: true } },
@@ -54,7 +57,8 @@ export const GET = withApi({
       if (!TREND_CATEGORIES.includes(cat as TrendCategory)) continue;
       const key = keyOf(r.period.fiscalYear, r.period.month);
       const row = actualByKey.get(key) ?? {};
-      row[cat as TrendCategory] = (row[cat as TrendCategory] ?? 0) + Math.abs(Number(r.amount));
+      row[cat as TrendCategory] =
+        (row[cat as TrendCategory] ?? 0) + Math.abs(scopedAmount(r, query.scope));
       actualByKey.set(key, row);
     }
 
@@ -82,7 +86,11 @@ export const GET = withApi({
       });
       if (acct) {
         const budgetRecords = await db.budget.findMany({
-          where: { tenantId, accountId: acct.id },
+          where: {
+            tenantId,
+            accountId: acct.id,
+            ...(query.scope === "business" ? { id: -1 } : {}),
+          },
           include: { period: { select: { fiscalYear: true, month: true } } },
         });
         const budgetByKey = new Map(
@@ -92,7 +100,7 @@ export const GET = withApi({
         for (const r of records) {
           if (r.account.id !== acct.id) continue;
           const key = keyOf(r.period.fiscalYear, r.period.month);
-          acctActualByKey.set(key, (acctActualByKey.get(key) ?? 0) + Number(r.amount));
+          acctActualByKey.set(key, (acctActualByKey.get(key) ?? 0) + scopedAmount(r, query.scope));
         }
         account = {
           code: acct.code,

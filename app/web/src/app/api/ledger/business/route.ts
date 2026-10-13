@@ -5,6 +5,7 @@ import { badRequest } from "@/lib/server/api-error";
 import { confirmedActualsPeriodIds } from "@/lib/budget/budget-lock";
 import { UNPAIRED } from "@/lib/ledger/ledger-entries";
 import { BusinessInput, loadApportionmentRates, resolveBusiness } from "@/lib/ledger/business-use";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // PATCH /api/ledger/business … 明細の事業利用・按分をまとめて変える（editor 以上）。
 // 対象は、明細の id の一覧（ids）か、ある月のある科目の明細（year・month・categoryAccountId）。
@@ -22,7 +23,7 @@ const Schema = BusinessInput.extend({
 export const PATCH = withApi({
   role: "editor",
   schema: Schema,
-  handler: async ({ db, body, audit }) => {
+  handler: async ({ user, db, body, audit }) => {
     const byMonth =
       body.year !== undefined && body.month !== undefined && body.categoryAccountId !== undefined;
     if (!body.ids && !byMonth) {
@@ -70,6 +71,7 @@ export const PATCH = withApi({
     });
 
     const result = { updated: open.length, locked: rows.length - open.length };
+    await invalidateActualsCaches(user.tenantId);
     await audit("ledger_business_bulk", `financial_records:${open.length}`, {
       after: {
         businessUse: body.businessUse,

@@ -354,6 +354,8 @@ model LinkedAccount {
   type        String
   institution String // カード会社名
   lastFour    String? // カード番号の下4桁
+  // 事業利用（個人事業主モードで出すもの）。lib/ledger/scope.ts の businessOwnedWhere
+  businessUse Boolean  @default(false)
   accountId   Int? // 紐付く勘定科目（LIABILITY）
   account     Account? @relation(fields: [accountId], references: [id])
   note        String? // メモ
@@ -753,6 +755,8 @@ model PersonalAsset {
   acquiredOn        DateTime? // 取得日
   acquisitionCost   Decimal?              @db.Decimal(18, 2) // 取得価格
   currentValue      Decimal               @db.Decimal(18, 2) // 現在評価額
+  // 事業利用（個人事業主モードで出すもの）。lib/ledger/scope.ts の businessOwnedWhere
+  businessUse       Boolean               @default(false)
   // 純資産（総資産サマリ）に評価額を計上するか。false = 負債のみ反映。
   // ローンに含まれる諸費用（登記費用・手数料等）のように、借入はあるが資産価値を持たない
   // 項目を除外するためのフラグ。以前はカテゴリ（LAND/BUILDING 以外を除外）で代用していたが、
@@ -989,6 +993,8 @@ model BankAccount {
   accountType       String          @default("普通") // 普通 / 当座
   role              BankAccountRole @default(OTHER)
   lastFour          String? // 口座番号の下4桁
+  // 事業利用（個人事業主モードで出すもの）。lib/ledger/scope.ts の businessOwnedWhere
+  businessUse       Boolean         @default(false)
   accountId         Int? // 紐付く勘定科目（ASSET）。資産サマリの二重計上除外に使用
   account           Account?        @relation(fields: [accountId], references: [id])
   note              String? // メモ
@@ -1075,6 +1081,8 @@ model Loan {
   borrowedOn             DateTime
   repaymentDate          DateTime // 完済予定/支払い完了年月
   remainingAmount        Decimal      @db.Decimal(18, 2)
+  // 事業利用（個人事業主モードで出すもの）。lib/ledger/scope.ts の businessOwnedWhere
+  businessUse            Boolean      @default(false)
   status                 String       @default("active") // active / repaid
   note                   String?
   loanType               String       @default("business") // business（事業性）/ housing（住宅ローン）

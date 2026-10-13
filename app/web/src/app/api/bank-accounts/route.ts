@@ -4,6 +4,7 @@ import { withApi } from "@/lib/server/api-handler";
 import { requireAccountByCode } from "@/lib/accounting/period";
 import { buildBankBalanceMap } from "@/lib/ledger/bank-balance";
 import { invalidateCache } from "@/lib/server/redis";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 const BankAccountSchema = z.object({
   name: z.string().min(1),
@@ -14,16 +15,20 @@ const BankAccountSchema = z.object({
   lastFour: z.string().max(4).optional(),
   accountCode: z.string().optional(),
   note: z.string().optional(),
+  // 事業利用（個人事業主モードで出す）
+  businessUse: z.boolean().optional(),
 });
 
 // GET /api/bank-accounts … 銀行口座一覧（残高は「明細合計 + 差額」= lib/ledger/bank-balance.ts の定義）
+//   scope=business（個人事業主モード）は事業利用のものだけ
 export const GET = withApi({
   role: "viewer",
-  handler: async ({ user, db }) => {
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const [accounts, balances] = await Promise.all([
       db.bankAccount.findMany({
-        where: { tenantId },
+        where: { tenantId, ...businessOwnedWhere(query.scope) },
         orderBy: { id: "asc" },
         include: {
           _count: { select: { transactions: true } },

@@ -4,6 +4,7 @@ import { withApi } from "@/lib/server/api-handler";
 import { computeDebtSchedule } from "@/lib/shared/debt-schedule";
 import { loanBalanceAt } from "@/lib/assets/loan-balance";
 import { manualMonthlyPaymentOf, ratePercentOf } from "@/lib/assets/personal-asset-debt";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -11,9 +12,10 @@ const ymd = (d: Date) =>
 // GET /api/loans/summary?year=&month= … 総借入サマリ（ダッシュボードの KPI の対象月の時点。読み取り専用）
 //   時点は総資産サマリと同じ（月末、今月なら今日）。その時点で残高のある借入（資産のローンも含む）の、
 //   残高（lib/assets/loan-balance.ts）・月々の返済額・金利・完済予定と、その合計を返す。
+//   scope=business（個人事業主モード）は事業利用のものだけ
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     year: z.coerce.number().int().optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
   }),
@@ -25,7 +27,11 @@ export const GET = withApi({
     const asOf = isCurrentMonth ? now : new Date(year, month, 0);
 
     const loans = await db.loan.findMany({
-      where: { tenantId: user.tenantId, borrowedOn: { lt: new Date(year, month, 1) } },
+      where: {
+        tenantId: user.tenantId,
+        ...businessOwnedWhere(query.scope),
+        borrowedOn: { lt: new Date(year, month, 1) },
+      },
       include: {
         repayments: { select: { repaidOn: true, principal: true } },
         personalAsset: { select: { name: true } },

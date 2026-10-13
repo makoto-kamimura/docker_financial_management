@@ -7,6 +7,7 @@ import {
   estimateAssetValue,
   VALUATION_INCLUDE,
 } from "@/lib/assets/personal-asset-valuation";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
@@ -14,15 +15,16 @@ const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
 //   今月の back か月前から forward か月先まで。評価額を手で入れた点（と取得日の取得価格）を通り、
 //   最後の点から先は価値の変わり方で見積もる（lib/shared/asset-valuation.ts）。資産管理の推移グラフが使う。
 //   total は「資産計上」の資産の合計（総資産サマリと同じ範囲）。持っていない月は null
+//   scope=business（個人事業主モード）は事業利用のものだけ
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     back: z.coerce.number().int().min(0).max(240).default(36),
     forward: z.coerce.number().int().min(0).max(240).default(60),
   }),
   handler: async ({ user, db, query }) => {
     const assets = await db.personalAsset.findMany({
-      where: { tenantId: user.tenantId },
+      where: { tenantId: user.tenantId, ...businessOwnedWhere(query.scope) },
       orderBy: { createdAt: "asc" },
       include: VALUATION_INCLUDE,
     });

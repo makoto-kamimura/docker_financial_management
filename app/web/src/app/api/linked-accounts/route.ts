@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { requireAccountByCode } from "@/lib/accounting/period";
 import { LINKED_ACCOUNT_TYPES } from "@/lib/shared/linked-account-type";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 // D-1: 銀行口座は /api/bank-accounts に一本化。本 API はクレジットカード・デビットカード・
 // プリペイドカード・電子マネー（Suica・PayPay 等）の台帳を扱う。利用明細の構造はどれも同じ。
@@ -13,6 +14,8 @@ const LinkedAccountSchema = z.object({
   lastFour: z.string().max(4).optional(),
   accountCode: z.string().optional(),
   note: z.string().optional(),
+  // 事業利用（個人事業主モードで出す）
+  businessUse: z.boolean().optional(),
 });
 
 // GET /api/linked-accounts … クレジットカード・電子マネーの台帳一覧
@@ -21,13 +24,15 @@ const LinkedAccountSchema = z.object({
 // （カード明細の transferToAccountId と銀行明細の chargeToAccountId の合計）。台帳の種別を
 // チャージ先に選べない クレジットカード へ戻すときに、既存の指定が取り残されることを
 // 画面側で警告するために使う。
+//   scope=business（個人事業主モード）は事業利用のものだけ
 export const GET = withApi({
   role: "viewer",
-  handler: async ({ user, db }) => {
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const [items, charges] = await Promise.all([
       db.linkedAccount.findMany({
-        where: { tenantId },
+        where: { tenantId, ...businessOwnedWhere(query.scope) },
         orderBy: [{ institution: "asc" }],
         include: {
           account: { select: { id: true, code: true, name: true, category: true } },

@@ -7,6 +7,7 @@ import { buildBankBalanceMap } from "@/lib/ledger/bank-balance";
 import { estimateAssetValue, VALUATION_INCLUDE } from "@/lib/assets/personal-asset-valuation";
 import { loanBalanceAt } from "@/lib/assets/loan-balance";
 import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -17,9 +18,10 @@ const ymd = (d: Date) =>
 //   - 預貯金: その時点までの明細の合計 + 差額
 //   - 借入金: その時点の残高（返済の記録があれば記録から、無ければ返済予定から。lib/assets/loan-balance.ts）
 //   - 資産・負債科目: その月以前でいちばん新しい月の残高
+//   scope=business（個人事業主モード）は、事業利用の実物資産・口座・借入金だけを数える
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     year: z.coerce.number().int().optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
   }),
@@ -28,7 +30,8 @@ export const GET = withApi({
     const now = new Date();
     const year = query.year ?? now.getFullYear();
     const month = query.month ?? now.getMonth() + 1;
-    const cacheKey = `assets:summary:${tenantId}:${year}-${month}`;
+    const owned = businessOwnedWhere(query.scope);
+    const cacheKey = `assets:summary:${tenantId}:${year}-${month}:${query.scope}`;
     const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
     // 時点: 今月は今日、それ以外は月末
     const asOf = isCurrentMonth ? now : new Date(year, month, 0);
@@ -45,7 +48,7 @@ export const GET = withApi({
         bankAccounts,
       ] = await Promise.all([
         db.personalAsset.findMany({
-          where: { tenantId },
+          where: { tenantId, ...owned },
           include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
         }),
         db.financialRecord.groupBy({
@@ -75,6 +78,7 @@ export const GET = withApi({
         db.loan.findMany({
           where: {
             tenantId,
+            ...owned,
             personalAsset: { is: null },
             borrowedOn: { lt: nextMonthStart },
           },
@@ -91,7 +95,7 @@ export const GET = withApi({
         }),
         // 残高の差額（期首残高相当）を含めるため口座も引く（lib/ledger/bank-balance.ts）
         db.bankAccount.findMany({
-          where: { tenantId },
+          where: { tenantId, ...owned },
           select: { id: true, balanceAdjustment: true },
         }),
       ]);

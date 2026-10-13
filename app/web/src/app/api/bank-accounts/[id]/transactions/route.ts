@@ -18,6 +18,7 @@ import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/server/import";
 import { applyAutoOffset } from "@/lib/ledger/auto-offset";
 import { BusinessInput, entryBusiness } from "@/lib/ledger/business-use";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // 事業利用・按分は省略可（省略すると、学習ルールが科目を決めたときはルールの事業利用、それ以外は事業利用なし）
 const TxnSchema = BusinessInput.extend({
@@ -79,7 +80,7 @@ export const POST = withApi({
           balance: body.balance ?? null,
           source: "MANUAL",
           category,
-          business: await entryBusiness(db, body, category),
+          business: await entryBusiness(db, body, category, account.businessUse),
         },
       );
       // 同じ日・同じ金額の対になる明細が 1 組だけあれば、振替・チャージの組にする
@@ -89,6 +90,7 @@ export const POST = withApi({
         include: ENTRY_REFS_INCLUDE,
       });
 
+      await invalidateActualsCaches(user.tenantId);
       await audit("create_txn", `bank_account:${id}:${txn.id}`);
       await invalidateCache(`assets:summary:${user.tenantId}:*`);
       return NextResponse.json({ data: toBankTxn(saved) }, { status: 201 });
@@ -124,6 +126,7 @@ export const POST = withApi({
     // 同じ内容の明細は externalId の一意制約で自動的にスキップされる（重複取込の防止）。
     // 実績を確定済みの月の行は登録しない（locked）
     const skipped = rows.length - inserted - locked;
+    await invalidateActualsCaches(user.tenantId);
     await audit("import_txn", `bank_account:${id}:${inserted}`);
     await invalidateCache(`assets:summary:${user.tenantId}:*`);
     return NextResponse.json(
@@ -176,6 +179,7 @@ export const DELETE = withApi({
     } else {
       await db.financialRecord.delete({ where: { id: query.txnId, bankAccountId: id } });
     }
+    await invalidateActualsCaches(user.tenantId);
     await audit("delete_txn", `bank_account:${id}:${query.txnId}`);
     await invalidateCache(`assets:summary:${user.tenantId}:*`);
     return NextResponse.json({ ok: true });

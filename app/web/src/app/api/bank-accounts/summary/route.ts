@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { buildBankBalanceMap } from "@/lib/ledger/bank-balance";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -9,9 +10,10 @@ const ymd = (d: Date) =>
 // GET /api/bank-accounts/summary?year=&month= … 口座残高サマリ（ダッシュボードの KPI の対象月の時点。読み取り専用）
 //   時点は総資産サマリ・総借入サマリと同じ（月末、今月なら今日）。残高は口座一覧と同じ定義
 //   （明細の合計 + 差額。lib/ledger/bank-balance.ts）で、明細はその月の終わりまでを数える（総資産サマリと同じ範囲）。
+//   scope=business（個人事業主モード）は事業利用のものだけ
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     year: z.coerce.number().int().optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
   }),
@@ -26,7 +28,7 @@ export const GET = withApi({
 
     const [accounts, sums] = await Promise.all([
       db.bankAccount.findMany({
-        where: { tenantId },
+        where: { tenantId, ...businessOwnedWhere(query.scope) },
         orderBy: { id: "asc" },
         select: { id: true, name: true, bankName: true, balanceAdjustment: true, createdAt: true },
       }),

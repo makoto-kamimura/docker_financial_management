@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { LedgerKind } from "@prisma/client";
 import { withApi } from "@/lib/server/api-handler";
-import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
+import { actualRows } from "@/lib/ledger/actuals";
+import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 
 // GET /api/financials/matrix?year=YYYY
 //   … 実績管理のテーブル表示モード（勘定科目 × 月）用。指定年度の実績を明細のまま返す。
@@ -44,14 +45,15 @@ function recordSource(r: SourceRecord) {
 
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({ year: z.coerce.number().int().optional() }),
+  // scope=business（個人事業主モード）は事業の分の実績だけ。amount は事業の分、fullAmount は明細の全額
+  querySchema: ScopeQuery.extend({ year: z.coerce.number().int().optional() }),
   handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const year = query.year ?? new Date().getFullYear();
 
     const records = actualRows(
       await db.financialRecord.findMany({
-        where: { tenantId, ...ACTUAL_WHERE, period: { fiscalYear: year } },
+        where: { tenantId, ...actualWhere(query.scope), period: { fiscalYear: year } },
         include: {
           account: { select: { id: true, code: true, name: true, category: true } },
           period: { select: { fiscalYear: true, month: true } },
@@ -83,7 +85,9 @@ export const GET = withApi({
       year,
       data: records.map((r) => ({
         id: r.id,
-        amount: Number(r.amount),
+        amount: scopedAmount(r, query.scope),
+        fullAmount: Number(r.amount),
+        businessRatio: r.kind && r.businessUse ? Number(r.businessRatio) : null,
         journalEntryId: r.journalEntryId,
         account: r.account,
         period: r.period,

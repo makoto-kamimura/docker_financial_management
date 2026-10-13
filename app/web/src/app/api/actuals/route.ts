@@ -8,6 +8,7 @@ import { findAccountByCode } from "@/lib/accounting/period";
 import { CASH, createEntry, toCashEntry } from "@/lib/ledger/ledger-entries";
 import { learnCategoryRule } from "@/lib/ledger/ledger-categorize";
 import { BusinessInput, entryBusiness } from "@/lib/ledger/business-use";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // 現金の明細（実績の表 financial_records の kind = CASH の行）。実績管理の「現金」のカレンダーと履歴で使う。
 // 科目を付けて登録するので、登録した時点で実績になる（科目は履歴から変えられる: ./[id]/categorize）。
@@ -88,6 +89,7 @@ export const POST = withApi({
       const learned = body.businessUse === undefined ? undefined : business;
       await learnCategoryRule(db, tenantId, body.description, account.id, learned);
     }
+    await invalidateActualsCaches(user.tenantId);
     await audit("create_cash_entry", `financial_record:${row.id}`);
     const created = await db.financialRecord.findUniqueOrThrow({
       where: { id: row.id },
@@ -113,6 +115,7 @@ export const DELETE = withApi({
     for (const r of row.receipts) {
       if (r.savedName) await removeTenantUpload(user.tenantId, r.savedName);
     }
+    await invalidateActualsCaches(user.tenantId);
     await audit("delete_cash_entry", `financial_record:${query.id}`);
     return NextResponse.json({ ok: true });
   },

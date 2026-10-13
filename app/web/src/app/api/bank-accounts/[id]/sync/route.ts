@@ -4,6 +4,7 @@ import { notFound } from "@/lib/server/api-error";
 import { getBankSyncProvider } from "@/lib/ledger/banksync";
 import { insertExternalEntries } from "@/lib/ledger/ledger-entries";
 import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // POST /api/bank-accounts/[id]/sync … アグリゲーション自動同期（既定モック）
 export const POST = withApi({
@@ -29,6 +30,7 @@ export const POST = withApi({
       fetched,
       "SYNC",
     );
+    await invalidateActualsCaches(user.tenantId);
     await audit("sync_txn", `bank_account:${id}:${provider.name}:${inserted}`);
     // 重複（取り込み済み）と実績を確定済みの月の行は登録しない
     return NextResponse.json({

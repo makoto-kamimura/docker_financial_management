@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
-import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
+import { actualRows } from "@/lib/ledger/actuals";
+import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 
-// GET /api/closing/etax?fiscalYear=&type= … e-Tax / eLTAX 向け XML 生成（accountant 以上）
+// GET /api/closing/etax?fiscalYear=&type=&scope= … e-Tax / eLTAX 向け XML 生成（accountant 以上）
+//   scope=business（個人事業主モード）は事業の分の実績（按分した額）で作る
 export const GET = withApi({
   role: "accountant",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     fiscalYear: z.coerce.number().int().optional(),
     type: z.enum(["blue_return", "corporate", "consumption_tax"]).default("blue_return"),
   }),
@@ -26,7 +28,7 @@ export const GET = withApi({
 
     const records = actualRows(
       await db.financialRecord.findMany({
-        where: { tenantId, ...ACTUAL_WHERE, period: { fiscalYear } },
+        where: { tenantId, ...actualWhere(query.scope), period: { fiscalYear } },
         include: { account: true, period: true },
       }),
     );
@@ -34,7 +36,7 @@ export const GET = withApi({
     const totals: Record<string, number> = {};
     for (const r of records) {
       const cat = r.account.category;
-      totals[cat] = (totals[cat] ?? 0) + Number(r.amount);
+      totals[cat] = (totals[cat] ?? 0) + scopedAmount(r, query.scope);
     }
 
     const revenue = totals["REVENUE"] ?? 0;

@@ -6,6 +6,7 @@ import {
   categorizeEntry,
   categorizedState,
 } from "@/lib/ledger/ledger-categorize";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // PATCH /api/actuals/[id]/categorize … 現金の明細の科目の変更（editor 以上）。
 // 処理は lib/ledger/ledger-categorize.ts（銀行・カードと共通）。科目を付けた明細がそのまま実績になる。
@@ -20,6 +21,7 @@ export const PATCH = withApi({
       id,
       body,
     );
+    await invalidateActualsCaches(user.tenantId);
     await audit("cash_entry_categorize", `financial_record:${id}`, {
       before,
       after: categorizedState(updated),

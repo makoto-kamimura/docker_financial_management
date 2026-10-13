@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { ApiError, badRequest, notFound } from "@/lib/server/api-error";
 import { insertExternalEntries } from "@/lib/ledger/ledger-entries";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // 全銀 API / オープンバンキング API 設定（環境変数から取得）
 // OPENBANKING_API_KEY, OPENBANKING_API_BASE を .env で設定する
@@ -148,6 +149,7 @@ export const POST = withApi({
       })),
       "SYNC",
     );
+    await invalidateActualsCaches(user.tenantId);
     const skipped = body.transactions.length - inserted - locked;
 
     return NextResponse.json({ inserted, skipped, locked }, { status: 201 });

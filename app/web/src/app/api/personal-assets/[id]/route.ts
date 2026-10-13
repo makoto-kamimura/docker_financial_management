@@ -33,6 +33,8 @@ const UpdateSchema = z.object({
   currentValue: z.number().optional(),
   // 純資産に評価額を計上するか。false = 負債のみ反映（ローンの諸費用等）
   countAsAsset: z.boolean().optional(),
+  // 事業利用（個人事業主モードで出す）
+  businessUse: z.boolean().optional(),
   note: z.string().nullable().optional(),
   linkedAccountId: z.number().int().nullable().optional(),
   debtStartOn: zYearMonth.nullable().optional(), // 支払い開始年月（"YYYY-MM"）
@@ -181,6 +183,7 @@ export const PATCH = withApi({
           ...(body.acquisitionCost !== undefined && { acquisitionCost: body.acquisitionCost }),
           ...(body.currentValue !== undefined && { currentValue: body.currentValue }),
           ...(body.countAsAsset !== undefined && { countAsAsset: body.countAsAsset }),
+          ...(body.businessUse !== undefined && { businessUse: body.businessUse }),
           ...(body.note !== undefined && { note: body.note }),
           ...(body.linkedAccountId !== undefined && { linkedAccountId: body.linkedAccountId }),
           ...(loanId !== undefined && { loanId }),
