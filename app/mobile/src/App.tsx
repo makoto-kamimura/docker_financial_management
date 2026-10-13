@@ -1,12 +1,8 @@
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+// react-native の SafeAreaView は非推奨（iOS だけ）。Android の端から端までの表示でも余白を取れるよう、
+// react-native-safe-area-context のものを使う
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { scopeOfMode } from "./shared/business-use";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
@@ -70,6 +66,14 @@ const SYSTEM_NAME: Record<ViewMode, string> = {
 };
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
   const fiscalYear = useFiscalYear();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [restoring, setRestoring] = useState(true);
