@@ -28,6 +28,8 @@ export const gone = (message = "gone") => new ApiError(410, message);
 /** 有料プランが要る（402）。code で何が足りないかを示す */
 export const paymentRequired = (message: string, code = "premium_required") =>
   new ApiError(402, message, code);
+/** 回数の上限に達した（429） */
+export const tooManyRequests = (message: string, code?: string) => new ApiError(429, message, code);
 /** 外部サービス（決済など）に接続できない（502） */
 export const badGateway = (message: string) => new ApiError(502, message);
 /** 機能の設定が済んでいない（503） */

@@ -264,7 +264,7 @@ flowchart LR
 | `/login` | ログイン | メールアドレスとパスワード。多要素認証を有効にしていれば、確認コードかリカバリーコードを入れる |
 | `/dashboard` | ダッシュボード | 予算と実績の確定の状況、KPI、総資産サマリ、総借入サマリ、口座残高サマリ、予算と実績のグラフ |
 | `/budget` | 予算管理 | 一覧 / カレンダー / 予実差確認 / 予算の確定 / 履歴 / 設定（予算配分ルール）。予算の CSV インポートは無い（予算は一覧・カレンダー・配分提案・予算案で入れる）。`?tab=variance&month=YYYY-MM`（比べる月）・`?tab=confirm&month=YYYY-MM`（予算の月）で開ける |
-| `/entry` | 実績管理 | 一覧 / カレンダー / CSV インポート / 実績の確定 / 履歴 / 設定（学習ルール）。カレンダー・履歴・CSV インポートは出どころ（現金 / 銀行 / カード・電子マネー）と口座を選んで切り替える（`?tab=history&source=bank&account=ID` で開ける）。CSV インポートは現金・銀行・カードを 1 か所にまとめ、取り込み先の列（`取り込み先`・`account`）があれば行ごとに振り分ける。履歴は 3 つとも共通の表。予算管理と同じ一覧（科目×月。区分のバッジ・月ごとの収入計・支出計・差引・確定済みの月の鍵）。`?tab=confirm&month=YYYY-MM` で実績の確定を開ける |
+| `/entry` | 実績管理 | 一覧 / カレンダー / CSV インポート / 実績の確定 / 履歴 / 設定（学習ルール）。カレンダー・履歴・CSV インポートは出どころ（現金 / 銀行 / カード・電子マネー）と口座を選んで切り替える（`?tab=history&source=bank&account=ID` で開ける）。CSV インポートは現金・銀行・カードを 1 か所にまとめ、取り込み先の列（`取り込み先`・`account`）があれば行ごとに振り分ける。履歴は 3 つとも共通の表。予算管理と同じ一覧（科目×月。区分のバッジ・月ごとの収入計・支出計・差引・確定済みの月の鍵）。`?tab=confirm&month=YYYY-MM` で実績の確定を開ける。現金のカレンダーでは、レシートを撮影して日付・店名・合計を読み取り、登録のフォームに入れられる（[20.14節](#2014-レシートの読み取り)） |
 | `/bank-accounts` | 銀行管理 | 残高の推移・銀行口座（タブなし）。明細・CSV インポートは実績管理で扱う（旧 `?tab=csv` は実績管理の CSV インポートへ移る） |
 | `/bank-transactions` | — | 銀行管理（`/bank-accounts`）へ転送する（以前の URL） |
 | `/card-transactions` | カード・電子マネー管理 | 利用額の推移・カード・電子マネーの一覧（タブなし）。明細と CSV インポートは実績管理で扱う |
@@ -346,7 +346,7 @@ flowchart LR
 
 | フォルダ | 中身 |
 |---|---|
-| `src/components/entry/` | 実績管理の現金のタブ（一覧 `ActualsMatrixTab`・カレンダー `CashCalendarTab`・CSV インポート `CsvImportTab`・履歴 `CashHistoryTab`）と設定タブの学習ルール `LearningRulesPanel`。銀行・カードのタブは `BankTransactionsPanel`・`CardTransactionsPanel` などを使う |
+| `src/components/entry/` | 実績管理の現金のタブ（一覧 `ActualsMatrixTab`・カレンダー `CashCalendarTab`（レシートの撮影 `ReceiptScanButton`）・CSV インポート `CsvImportTab`・履歴 `CashHistoryTab`）と設定タブの学習ルール `LearningRulesPanel`。銀行・カードのタブは `BankTransactionsPanel`・`CardTransactionsPanel` などを使う |
 | `src/components/loans/` | 借入金管理のモーダル（追加・編集 `LoanFormModals`・金利変更と改定後の返済額 `LoanRateModals`・返済登録 `RepayModal`）。入力の状態と保存はモーダル側が持つ |
 | `src/components/assets/` | 資産管理の実物資産の一覧 `PersonalAssetsSection` と、登録・編集のモーダル `PersonalAssetFormModal` |
 | `src/components/settings/` | 設定の各タブ（基本設定 `ProfileSections`・消費税設定・科目名設定・セキュリティ・プランと支払い `BillingSection`） |
@@ -1196,9 +1196,19 @@ npm run typecheck && npm run format:check
 - 有料プランが要る機能は 402 と `code`（例 `premium_required`）を返す（`src/lib/server/api-error.ts` の `paymentRequired`）。
 - 契約が残っているテナントは削除できない（409）。先に解約する。
 
+### 20.14 レシートの読み取り
+
+実績管理の現金のカレンダーで「レシートを撮影して入力」を押すと、撮った写真から日付・店名・合計・支払方法を読み、登録のフォームに入れる。読み取りでは何も登録せず、利用者が確かめてから登録する（`src/lib/ledger/receipt-scan/`）。
+
+- 写真はブラウザで長辺 1600px の JPEG に縮めてから送る（`src/lib/client/resize-image.ts`）。画像は残さない。
+- 有料プランは Claude（`RECEIPT_OCR_MODEL`、既定 `claude-opus-5-5`）の構造化出力で読む。無料プラン、または `ANTHROPIC_API_KEY` が無いときは、サーバーの中の Tesseract（日本語の学習データは `@tesseract.js-data/jpn` を同梱）で読み、`parse-receipt-text.ts` で「合計」などの手がかりから拾う。Tesseract は同時に 1 件だけ動かす。
+- 回数はテナントごとに日本時間の 1 日 30 回まで（`receipt_scan_requests` を数える。失敗は数えない）。上限を超えると 429。テナントの行をロックしてから数えるので、同時に読んでも超えない。
+- 店名は学習ルールにかけ、当たれば科目の候補にする。登録のときに「次から同じ店名には、この科目を使う」を選ぶと、学習ルールに覚える（`POST /api/actuals` の `learn`）。
+- カード払い・電子マネーと読めたときは、明細から入る分と二重に計上しないよう注意を出す。
+
 ## 21. データモデル
 
-正式な定義は `app/web/prisma/schema.prisma`（63モデル）。ここでは領域ごとに、主な列だけを示す。財務データの親のテーブルは `tenantId` を持つ（明細行・履歴などの子のテーブルは親を通してテナントに属する。勘定科目変換のテーブルはユーザーに属する）。
+正式な定義は `app/web/prisma/schema.prisma`（64モデル）。ここでは領域ごとに、主な列だけを示す。財務データの親のテーブルは `tenantId` を持つ（明細行・履歴などの子のテーブルは親を通してテナントに属する。勘定科目変換のテーブルはユーザーに属する）。
 
 ### 21.1 認証・ユーザー・テナント
 
@@ -1223,6 +1233,7 @@ npm run typecheck && npm run format:check
 | `financial_records` | accountId（空 = 未割り当て・振替・チャージ）, departmentId, periodId, amount, journalEntryId, kind, bankAccountId, cardAccountId, date, description, flow, balance, source, externalId, transferGroupId, chargeToCardId, chargeGroupId | 実績と明細の表。kind を持つ行が現金・銀行・カードの明細（flow は +入金 / −出金、カードの利用は負）で、科目が付けば実績になる。kind の無い行は仕訳・減価償却・棚卸・売掛買掛・過去の直接入力の実績。`[bankAccountId, externalId]`・`[cardAccountId, externalId]` 一意。kind と口座、組と科目の決まりは CHECK 制約で守る |
 | `financial_record_histories` | recordId, userId, action, amount, changedAt | |
 | `forecasts` | accountId, periodId, method, scenario, amount | 保存した予測 |
+| `receipt_scan_requests` | tenantId, userId, engine（claude / tesseract）, status, model, inputTokens, outputTokens, createdAt | レシートの読み取りの記録。1 日の回数を数える（[20.14節](#2014-レシートの読み取り)） |
 
 ### 21.3 予算
 
@@ -1318,6 +1329,7 @@ npm run typecheck && npm run format:check
 | AccountConversionMode | HOME, CORPORATE |
 | AccountConversionStatus | COMPLETED, CANCELLED |
 | SubscriptionStatus | ACTIVE, TRIALING, PAST_DUE, CANCELED, INCOMPLETE |
+| ReceiptScanStatus | PENDING, SUCCEEDED, FAILED |
 
 ## 22. API
 
@@ -1366,6 +1378,7 @@ npm run typecheck && npm run format:check
 | POST / PATCH / DELETE | `/financials`・`/financials/[id]`・`/financials/import` | 廃止（410。実績は明細から作る） |
 | GET / POST / DELETE | `/actuals` | V / E / E |
 | PATCH | `/actuals/[id]/categorize` | E |
+| GET / POST | `/actuals/receipt-scan`（GET は使うエンジンと今日の残りの回数、POST は画像を読み取った下書き） | V / E |
 | POST | `/imports`（`?target=cash\|bank\|card&accountId=`） | E |
 | GET | `/ledger/unassigned` | V |
 | POST | `/ledger/auto-process`（`?reset=1` で科目を付け直す） | E |

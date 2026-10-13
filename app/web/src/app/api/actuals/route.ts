@@ -5,6 +5,7 @@ import { badRequest, notFound } from "@/lib/server/api-error";
 import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 import { findAccountByCode } from "@/lib/accounting/period";
 import { CASH, createEntry, toCashEntry } from "@/lib/ledger/ledger-entries";
+import { learnCategoryRule } from "@/lib/ledger/ledger-categorize";
 
 // 現金の明細（実績の表 financial_records の kind = CASH の行）。実績管理の「現金」のカレンダーと履歴で使う。
 // 科目を付けて登録するので、登録した時点で実績になる（科目は履歴から変えられる: ./[id]/categorize）。
@@ -19,6 +20,8 @@ const ActualSchema = z.object({
   accountCode: z.string().min(1),
   amount: z.number().positive(),
   direction: z.enum(["income", "expense"]),
+  // true なら、摘要と科目の組を学習ルールに覚えさせる（次から同じ店名の明細に同じ科目が付く）
+  learn: z.boolean().optional(),
 });
 
 // GET /api/actuals?year=2026&month=6 … その月の現金の明細（カレンダー）
@@ -72,6 +75,7 @@ export const POST = withApi({
         category: account,
       },
     );
+    if (body.learn) await learnCategoryRule(db, tenantId, body.description, account.id);
     await audit("create_cash_entry", `financial_record:${row.id}`);
     const created = await db.financialRecord.findUniqueOrThrow({
       where: { id: row.id },
