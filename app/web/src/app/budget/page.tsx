@@ -19,7 +19,8 @@ import {
 import { PageHeader, Pager, Tabs } from "@/components/ui";
 import { useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { InfoNote, SectionLead } from "@/components/Explain";
-import { useViewMode } from "@/lib/client/use-view-mode";
+import { useActualsScope, useViewMode } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 import { BUDGET_HELP, textFor } from "@/lib/shared/help-texts";
 import { displayName } from "@/lib/shared/display-name";
 import { CHANGE_ACTION_LABEL as ACTION_LABEL } from "@/lib/shared/labels";
@@ -149,6 +150,8 @@ export default function BudgetPage() {
 function BudgetContent() {
   const qc = useQueryClient();
   const sysMode = useViewMode();
+  // 個人事業主モードは事業の予算（家庭の予算とは別。?scope=business）
+  const scope = useActualsScope();
   const initial = useInitialTab();
   const [tab, setTab] = useState<Tab>(initial.tab);
   // 予実差確認・予算の確定を、指定した月で開く（URL か、もう一方のタブのボタンから）。
@@ -182,30 +185,37 @@ function BudgetContent() {
   useEffect(() => setHistOffset(0), [year]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["budgets", year],
-    queryFn: async (): Promise<BudgetResponse> => (await fetch(`/api/budgets?year=${year}`)).json(),
+    queryKey: ["budgets", year, scope],
+    queryFn: async (): Promise<BudgetResponse> =>
+      (await fetch(withScope(`/api/budgets?year=${year}`, scope!))).json(),
+    enabled: scope !== null,
   });
 
   // 収入実績から算出した「適正金額」を予算表に重ねる（予算配分ルールの割合による推奨額）
   const { data: guide } = useQuery({
-    queryKey: ["allocation-guide", year],
+    queryKey: ["allocation-guide", year, scope],
     queryFn: async (): Promise<AllocationGuideRow[]> =>
-      (await (await fetch(`/api/budgets/allocation-guide?year=${year}`)).json()).data ?? [],
+      (await (await fetch(withScope(`/api/budgets/allocation-guide?year=${year}`, scope!))).json())
+        .data ?? [],
+    enabled: scope !== null,
   });
   const guideMap = new Map((guide ?? []).map((g) => [`${g.accountCode}:${g.month}`, g.amount]));
 
   // 変更履歴（予算の登録・更新・削除）。タブを開いているときだけ取得する。
   const { data: history, isLoading: histLoading } = useQuery({
-    queryKey: ["budget-history", year, histOffset, histSort, histOrder],
+    queryKey: ["budget-history", year, histOffset, histSort, histOrder, scope],
     queryFn: async (): Promise<{ data: BudgetHistoryRow[]; total: number }> => {
       const res = await fetch(
-        `/api/budgets/history?year=${year}&limit=${HISTORY_PAGE_SIZE}&offset=${histOffset}` +
-          `&sort=${histSort}&order=${histOrder}`,
+        withScope(
+          `/api/budgets/history?year=${year}&limit=${HISTORY_PAGE_SIZE}&offset=${histOffset}` +
+            `&sort=${histSort}&order=${histOrder}`,
+          scope!,
+        ),
       );
       const json = await res.json();
       return { data: json.data ?? [], total: json.total ?? 0 };
     },
-    enabled: tab === "history",
+    enabled: tab === "history" && scope !== null,
   });
   const histRows = history?.data ?? [];
   const histTotal = history?.total ?? 0;
@@ -270,7 +280,7 @@ function BudgetContent() {
 
   const addBudgetCell = async (accountCode: string, month: number, amount: number) =>
     failure(
-      await fetch("/api/budgets", {
+      await fetch(withScope("/api/budgets", scope!), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountCode, fiscalYear: year, month, amount }),

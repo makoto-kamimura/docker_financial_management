@@ -17,6 +17,8 @@ import { differenceLabel } from "@/lib/shared/amount-direction";
 import { cycleKey } from "@/lib/shared/cycle-month";
 import { useCycleMonth } from "@/lib/client/use-cycle-month";
 import { yen, yenAbs } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 export type VarianceRowWithNames = VarianceRow & {
   soleName: string | null;
@@ -52,12 +54,17 @@ export function BudgetVariancePanel({
 }) {
   const household = mode === "household";
   const { year, month, setMonth } = useCycleMonth("variance", initialMonth);
+  const scope = useActualsScope();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["budget-variance", year, month],
+    queryKey: ["budget-variance", year, month, scope],
     queryFn: async (): Promise<VarianceResponse> =>
-      (await (await fetch(`/api/budgets/variance?year=${year}&month=${month}`)).json()).data,
-    enabled: month !== null,
+      (
+        await (
+          await fetch(withScope(`/api/budgets/variance?year=${year}&month=${month}`, scope!))
+        ).json()
+      ).data,
+    enabled: month !== null && scope !== null,
   });
 
   const next = month !== null ? nextYearMonth(year, month) : null;

@@ -13,6 +13,8 @@ import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { BUDGET_HELP } from "@/lib/shared/help-texts";
 import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { yen } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type CategoryAccount = {
   id: number;
@@ -59,11 +61,16 @@ export function BudgetCalendar({ mode, accounts, confirmedMonths }: Props) {
   const [error, setError] = useState<string | null>(null);
   const locked = confirmedMonths.includes(viewMonth);
 
+  const scope = useActualsScope();
   const { data: items, isLoading } = useQuery({
-    queryKey: ["budget-items", viewYear, viewMonth],
+    queryKey: ["budget-items", viewYear, viewMonth, scope],
     queryFn: async (): Promise<BudgetItem[]> =>
-      (await (await fetch(`/api/budget-items?year=${viewYear}&month=${viewMonth}`)).json()).data ??
-      [],
+      (
+        await (
+          await fetch(withScope(`/api/budget-items?year=${viewYear}&month=${viewMonth}`, scope!))
+        ).json()
+      ).data ?? [],
+    enabled: scope !== null,
   });
 
   const isIncome = (i: BudgetItem) => INCOME_CATS.includes(i.account.category);
@@ -114,7 +121,7 @@ export function BudgetCalendar({ mode, accounts, confirmedMonths }: Props) {
       return;
     }
     setSaving(true);
-    const res = await fetch("/api/budget-items", {
+    const res = await fetch(withScope("/api/budget-items", scope!), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
