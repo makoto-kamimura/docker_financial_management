@@ -1,13 +1,13 @@
 // アップロードファイルの検証・保存名決定ロジック。
 // 証憑のアップロード（journals/[id]/receipts・actuals/[id]/receipts）と、レシートの読み取り
 // （actuals/receipt-scan）で使用する。
-import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { getConfig } from "@/lib/server/config";
 import { badRequest } from "@/lib/server/api-error";
+import { uploadStorage } from "@/lib/server/storage";
 
-export const UPLOAD_DIR = path.join(process.cwd(), "uploads");
+// 置き場所（ローカル / R2）は lib/server/storage/ で選ぶ。ローカルのフォルダの決まりはそちらにある
+export { UPLOAD_DIR, tenantUploadDir } from "@/lib/server/storage/local";
 /** 1 ファイルの上限（環境変数 UPLOAD_MAX_BYTES、既定 10MB） */
 export const maxUploadBytes = (): number => getConfig().UPLOAD_MAX_BYTES;
 
@@ -15,13 +15,6 @@ export const maxUploadBytes = (): number => getConfig().UPLOAD_MAX_BYTES;
 export function uploadTooLargeMessage(maxBytes: number = maxUploadBytes()): string {
   const mb = maxBytes / (1024 * 1024);
   return `ファイルサイズは ${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB 以下にしてください`;
-}
-
-// S-8: 証憑ファイルはテナントごとにディレクトリを分離して保存する
-// （旧: uploads/<savedName> 直下フラット構成。既存ファイルは uploads/[filename] の GET で
-// フォールバック参照する。1 リリース併存後、移行スクリプトでの一括移動を検討）
-export function tenantUploadDir(tenantId: number): string {
-  return path.join(UPLOAD_DIR, String(tenantId));
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -141,12 +134,10 @@ export async function readUploadedFile(
   return { fileName: file.name, ext, mimeType, size: file.size, buf };
 }
 
-/** テナントのフォルダに保存し、証憑（Receipt）の行に入れる列を返す */
+/** テナントの置き場所に保存し、証憑（Receipt）の行に入れる列を返す */
 export async function storeTenantUpload(tenantId: number, upload: UploadedFile) {
-  const dir = tenantUploadDir(tenantId);
-  await mkdir(dir, { recursive: true });
   const savedName = `${randomUUID()}.${upload.ext}`;
-  await writeFile(path.join(dir, savedName), upload.buf);
+  await uploadStorage().put(tenantId, savedName, upload.buf, upload.mimeType);
   return {
     fileName: upload.fileName,
     // D-7: fileUrl 列は 1 リリース据え置き後に削除予定のため書き込みは維持するが、
@@ -161,7 +152,5 @@ export async function storeTenantUpload(tenantId: number, upload: UploadedFile) 
 
 /** 保存したファイルを消す（ベストエフォート。旧フラット構成のファイルも探す） */
 export async function removeTenantUpload(tenantId: number, savedName: string): Promise<void> {
-  const tenantPath = path.join(tenantUploadDir(tenantId), savedName);
-  const legacyPath = path.join(UPLOAD_DIR, savedName);
-  await unlink(tenantPath).catch(() => unlink(legacyPath).catch(() => {}));
+  await uploadStorage().remove(tenantId, savedName);
 }

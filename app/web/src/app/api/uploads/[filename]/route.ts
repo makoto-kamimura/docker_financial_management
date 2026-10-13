@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import { existsSync } from "fs";
 import path from "path";
 import { withApi } from "@/lib/server/api-handler";
 import { notFound } from "@/lib/server/api-error";
-import { contentTypeForExtension, tenantUploadDir, UPLOAD_DIR } from "@/lib/server/upload";
+import { contentTypeForExtension } from "@/lib/server/upload";
+import { uploadStorage } from "@/lib/server/storage";
 
 // GET /api/uploads/[filename] … 証憑ファイルの配信。
 // Receipt レコード経由で「自テナントの仕訳か現金の明細に紐づく証憑か」を確認してから配信する
@@ -26,11 +25,9 @@ export const GET = withApi({
     });
     if (!receipt) throw notFound();
 
-    // S-8: テナント別ディレクトリを優先し、旧フラット構成（移行前のファイル）へフォールバックする
-    const tenantPath = path.join(tenantUploadDir(user.tenantId), safe);
-    const legacyPath = path.join(UPLOAD_DIR, safe);
-    const filePath = existsSync(tenantPath) ? tenantPath : legacyPath;
-    if (!existsSync(filePath)) throw notFound();
+    // 置き場所（ローカル / R2）から読む。ローカルはテナント別ディレクトリ → 旧フラット構成の順に探す
+    const bytes = await uploadStorage().get(user.tenantId, safe);
+    if (!bytes) throw notFound();
 
     const ext = safe.split(".").pop()?.toLowerCase() ?? "";
     const contentType = receipt.mimeType || contentTypeForExtension(ext);
@@ -38,8 +35,7 @@ export const GET = withApi({
     // S-12: 詳細設計書 §8 の記録必須イベント「receipt_download」（証憑は税務書類のため取得も記録する）
     await audit("receipt_download", `receipt:${receipt.id}`);
 
-    const bytes = await readFile(filePath);
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(bytes), {
       headers: {
         "Content-Type": contentType,
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(receipt.fileName)}`,

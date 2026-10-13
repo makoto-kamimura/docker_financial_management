@@ -37,6 +37,8 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
 # 初期データ投入（prisma/seed.ts）が読む lib（tsx で実行する。新しい DB の初回起動時だけ使う）
 COPY --from=builder /app/src/lib ./src/lib
+# 運用のスクリプト（証憑の R2 への移行など。docker compose exec web npx tsx scripts/... で使う）
+COPY --from=builder /app/scripts ./scripts
 COPY platform/docker/entrypoint.sh ./entrypoint.sh
 RUN chmod +x entrypoint.sh && mkdir -p /app/uploads
 EXPOSE 3000

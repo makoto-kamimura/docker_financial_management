@@ -15,6 +15,12 @@ describe("Env スキーマ (S-13)", () => {
     expect(result.SESSION_ABSOLUTE_DAYS).toBe(7);
     expect(result.UPLOAD_MAX_BYTES).toBe(10 * 1024 * 1024);
     expect(result.CLEANUP_SERVICE_KEY).toBeUndefined();
+    expect(result.UPLOAD_STORAGE).toBe("local");
+  });
+
+  it("UPLOAD_STORAGE は local か r2 だけ", () => {
+    expect(Env.parse({ ...BASE_ENV, UPLOAD_STORAGE: "r2" }).UPLOAD_STORAGE).toBe("r2");
+    expect(() => Env.parse({ ...BASE_ENV, UPLOAD_STORAGE: "s3" })).toThrow();
   });
 
   it("DATABASE_URL が無い、または URL 形式でなければ拒否する", () => {

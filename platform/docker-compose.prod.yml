@@ -20,6 +20,12 @@ services:
       SESSION_IDLE_HOURS: ${SESSION_IDLE_HOURS:-24}
       SESSION_ABSOLUTE_DAYS: ${SESSION_ABSOLUTE_DAYS:-7}
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
+      # 証憑の置き場所（既定はローカルのボリューム）。r2 にするときは R2_* も設定する（docs/runbooks/uploads-to-r2.md）
+      UPLOAD_STORAGE: ${UPLOAD_STORAGE:-local}
+      R2_ACCOUNT_ID:
+      R2_ACCESS_KEY_ID:
+      R2_SECRET_ACCESS_KEY:
+      R2_BUCKET:
       # 外部連携（使うときだけ .env に設定する）。値を書かないと .env から引き継ぎ、未設定ならコンテナにも渡らない
       # （空文字を渡すと、アプリ側の既定値（?? で決める転送先など）が効かなくなるため）
       FREEE_CLIENT_ID:

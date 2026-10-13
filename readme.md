@@ -994,7 +994,7 @@ docker_financial_management/
 
 **本番環境（`platform/docker-compose.prod.yml`）**
 
-開発環境と同じく `web`（GHCR のイメージ。`/api/health` のヘルスチェックつき）・`db`・`redis`・`session-cleanup` を起動し、証憑をボリューム（`uploads-data`）に置く。redis のポートは外に出さない。値は配置先の `.env` から `--env-file` で読み、`APP_ORIGIN` と `CLEANUP_SERVICE_KEY` がないと起動を止める（項目は `platform/.env.example`、手順は [production-server-setup.md](docs/runbooks/production-server-setup.md)）。
+開発環境と同じく `web`（GHCR のイメージ。`/api/health` のヘルスチェックつき）・`db`・`redis`・`session-cleanup` を起動し、証憑をボリューム（`uploads-data`）に置く（`UPLOAD_STORAGE=r2` なら Cloudflare R2。[20.10節](#2010-証憑のアップロード)）。redis のポートは外に出さない。値は配置先の `.env` から `--env-file` で読み、`APP_ORIGIN` と `CLEANUP_SERVICE_KEY` がないと起動を止める（項目は `platform/.env.example`、手順は [production-server-setup.md](docs/runbooks/production-server-setup.md)）。
 
 **web のイメージと起動処理**
 
@@ -1173,7 +1173,14 @@ npm run typecheck && npm run format:check
 
 ### 20.10 証憑のアップロード
 
-証憑は仕訳と現金の明細に付けられる。`/app/uploads` の下にテナントごとのフォルダで保存し、ファイルの先頭のバイトで種類を確かめる（`src/lib/server/upload.ts` の `readUploadedFile`・`storeTenantUpload`）。証憑や明細を消すと、ファイルも消す。`/api/uploads/[filename]` から、ログインしたユーザーに、自分のテナントの証憑だけを返す（ほかは 404）。ダウンロードは監査ログに残す。
+証憑は仕訳と現金の明細に付けられる。ファイルの先頭のバイトで種類を確かめてから保存する（`src/lib/server/upload.ts` の `readUploadedFile`・`storeTenantUpload`）。証憑や明細を消すと、ファイルも消す。
+
+置き場所は `UPLOAD_STORAGE` で選ぶ（`src/lib/server/storage/`）。
+
+- `local`（既定）: web コンテナの `/app/uploads`（ボリューム）に、テナントごとのフォルダで置く。旧構成の平置きのファイルも読める。
+- `r2`: Cloudflare R2 のバケットに、キー `<tenantId>/<保存名>` で置く。バケットは非公開にし、配信はアプリを通す。R2 に無いファイルはローカルから読むので、既存のファイルを移す前でも配信は切れない。移し方は [runbooks/uploads-to-r2.md](docs/runbooks/uploads-to-r2.md)（`scripts/migrate-uploads-to-r2.ts`）。
+
+`/api/uploads/[filename]` から、ログインしたユーザーに、自分のテナントの証憑だけを返す（ほかは 404）。ダウンロードは監査ログに残す。
 
 ### 20.11 定期ジョブ
 
@@ -1515,7 +1522,7 @@ npm run typecheck && npm run format:check
 | CSRF | Origin・Sec-Fetch-Site の確認（Bearer とモバイルの識別ヘッダーは対象外。どちらのヘッダーも無くセッション Cookie を持つリクエストは断る。[19章](#19-認証の実装)） |
 | 通信 | 本番は TLS。本番の Cookie は `__Host-` 付き・Secure |
 | 監査 | 主な操作を監査ログに残す（帳簿と法人の操作は対象外。秘密の値は伏せる。[6.4節](#64-監査ログ)） |
-| アップロード | 1 ファイル 10MB まで（`UPLOAD_MAX_BYTES`）。PDF と画像（jpg・png・gif・webp）だけで、ファイルの先頭のバイトでも種類を確かめる |
+| アップロード | 1 ファイル 10MB まで（`UPLOAD_MAX_BYTES`）。PDF と画像（jpg・png・gif・webp）だけで、ファイルの先頭のバイトでも種類を確かめる。R2 に置くときもバケットは非公開で、配信はテナントを確かめるアプリの API だけ。R2 の API トークンはそのバケットの読み書きだけに絞る |
 | 設定 | 主な環境変数（DB・Redis・掃除の鍵・Cookie・セッション・アップロードの上限・APP_ORIGIN）を、最初に使うときに Zod で検査する（`src/lib/server/config.ts` の `getConfig()`。スキーマは `config-schema.ts`）。外部連携の変数は検査しない |
 
 ### 23.3 可用性とデータ保全
