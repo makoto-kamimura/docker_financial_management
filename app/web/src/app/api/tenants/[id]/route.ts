@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/server/prisma";
 import { withApi } from "@/lib/server/api-handler";
-import { badRequest, forbidden, notFound } from "@/lib/server/api-error";
+import { badRequest, conflict, forbidden, notFound } from "@/lib/server/api-error";
 import { fiscalMonthsError, isValidFiscalMonths } from "@/lib/accounting/fiscal-months";
 
 const UpdateSchema = z.object({
@@ -60,9 +60,16 @@ export const PUT = withApi({
 });
 
 // DELETE /api/tenants/[id] … テナントの削除（admin）
+//   有料プランの契約が残っていれば 409（消すと Stripe の請求だけが続くため、先に解約してもらう）
 export const DELETE = withApi({
   role: "admin",
   handler: async ({ id }) => {
+    const sub = await prisma.subscription.findUnique({ where: { tenantId: id } });
+    if (sub && sub.status !== "CANCELED" && sub.status !== "INCOMPLETE") {
+      throw conflict(
+        "有料プランの契約があります。設定の「プランと支払い」で解約してから削除してください",
+      );
+    }
     await prisma.tenant.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   },

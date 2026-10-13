@@ -14,9 +14,10 @@ import {
 import { TaxSettingsSection } from "@/components/settings/TaxSettingsSection";
 import { SecuritySection } from "@/components/settings/SecuritySection";
 import { AccountNamesSection } from "@/components/settings/AccountNamesSection";
+import { BillingSection } from "@/components/settings/BillingSection";
 
 // 各タブの中身は components/settings/ に置く
-type Tab = "profile" | "tax" | "security" | "accountNames";
+type Tab = "profile" | "tax" | "security" | "accountNames" | "billing";
 
 // ── メインページ ─────────────────────────────────────────────────
 const TABS: readonly (readonly [Tab, string])[] = [
@@ -24,6 +25,7 @@ const TABS: readonly (readonly [Tab, string])[] = [
   ["tax", "消費税設定"],
   ["accountNames", "科目名設定"],
   ["security", "セキュリティ"],
+  ["billing", "プランと支払い"],
 ];
 
 function SettingsContent() {
@@ -51,6 +53,7 @@ function SettingsContent() {
       {tab === "tax" && <TaxSettingsSection />}
       {tab === "accountNames" && <AccountNamesSection />}
       {tab === "security" && <SecuritySection />}
+      {tab === "billing" && <BillingSection />}
     </AppShell>
   );
 }
