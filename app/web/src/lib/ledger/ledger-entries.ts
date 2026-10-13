@@ -1,4 +1,5 @@
 import type { FinancialRecord, Prisma, TxnSource } from "@prisma/client";
+import { resolveReceiptFileUrl } from "@/lib/server/upload";
 import type { TenantDb, TenantDbClient } from "@/lib/server/tenant-db";
 import { classifyByRules } from "@/lib/ledger/banktxn-import";
 import { resolveTransferTarget } from "@/lib/ledger/card-transfer";
@@ -133,11 +134,18 @@ export type CashEntryDto = {
   categoryAccountId: number | null;
   categoryAccount: (CategoryRef & { category: string }) | null;
   createdAt: Date;
+  /** 証憑（レシートの写真など） */
+  receipts: { id: number; fileName: string; fileUrl: string }[];
 };
 
-/** 現金の明細を API の応答の形にする */
+type ReceiptRef = { id: number; fileName: string; savedName: string | null; fileUrl: string };
+
+/** 現金の明細を API の応答の形にする（証憑は include したときだけ入る） */
 export function toCashEntry(
-  e: FinancialRecord & { account: (CategoryRef & { category: string }) | null },
+  e: FinancialRecord & {
+    account: (CategoryRef & { category: string }) | null;
+    receipts?: ReceiptRef[];
+  },
 ): CashEntryDto {
   return {
     id: e.id,
@@ -147,6 +155,11 @@ export function toCashEntry(
     categoryAccountId: e.accountId,
     categoryAccount: e.account,
     createdAt: e.createdAt,
+    receipts: (e.receipts ?? []).map((r) => ({
+      id: r.id,
+      fileName: r.fileName,
+      fileUrl: resolveReceiptFileUrl(r),
+    })),
   };
 }
 

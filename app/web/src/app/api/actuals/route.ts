@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { badRequest, notFound } from "@/lib/server/api-error";
+import { removeTenantUpload } from "@/lib/server/upload";
 import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 import { findAccountByCode } from "@/lib/accounting/period";
 import { CASH, createEntry, toCashEntry } from "@/lib/ledger/ledger-entries";
@@ -12,6 +13,10 @@ import { learnCategoryRule } from "@/lib/ledger/ledger-categorize";
 
 const CASH_INCLUDE = {
   account: { select: { id: true, code: true, name: true, category: true } },
+  receipts: {
+    select: { id: true, fileName: true, savedName: true, fileUrl: true },
+    orderBy: { uploadedAt: "asc" },
+  },
 } as const;
 
 const ActualSchema = z.object({
@@ -85,15 +90,22 @@ export const POST = withApi({
   },
 });
 
-// DELETE /api/actuals?id=123 … 現金の明細の削除（実績を確定済みの月は 409）
+// DELETE /api/actuals?id=123 … 現金の明細の削除（実績を確定済みの月は 409）。証憑のファイルも消す
 export const DELETE = withApi({
   role: "editor",
   querySchema: z.object({ id: z.coerce.number().int().positive() }),
-  handler: async ({ db, query, audit }) => {
-    const row = await db.financialRecord.findFirst({ where: { id: query.id, ...CASH } });
+  handler: async ({ user, db, query, audit }) => {
+    const row = await db.financialRecord.findFirst({
+      where: { id: query.id, ...CASH },
+      include: { receipts: { select: { savedName: true } } },
+    });
     if (!row) throw notFound();
     await assertActualsPeriodsEditable(db, [row.periodId]);
     await db.financialRecord.delete({ where: { id: row.id } });
+    // 証憑の行は明細と一緒に消える（onDelete: Cascade）。ファイルはベストエフォートで消す
+    for (const r of row.receipts) {
+      if (r.savedName) await removeTenantUpload(user.tenantId, r.savedName);
+    }
     await audit("delete_cash_entry", `financial_record:${query.id}`);
     return NextResponse.json({ ok: true });
   },

@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { unlink } from "fs/promises";
-import path from "path";
 import { withApi } from "@/lib/server/api-handler";
 import { badRequest, notFound } from "@/lib/server/api-error";
-import { tenantUploadDir, UPLOAD_DIR } from "@/lib/server/upload";
+import { removeTenantUpload } from "@/lib/server/upload";
 
 // DELETE /api/journals/[id]/receipts/[receiptId] … 証憑の削除（editor 以上）
 export const DELETE = withApi({
@@ -21,11 +19,7 @@ export const DELETE = withApi({
     await db.receipt.delete({ where: { id: receiptId } });
 
     // ファイル削除はベストエフォート（DB レコード削除を優先し、ファイルI/O失敗で API 全体は失敗させない）
-    if (receipt.savedName) {
-      const tenantPath = path.join(tenantUploadDir(user.tenantId), receipt.savedName);
-      const legacyPath = path.join(UPLOAD_DIR, receipt.savedName);
-      await unlink(tenantPath).catch(() => unlink(legacyPath).catch(() => {}));
-    }
+    if (receipt.savedName) await removeTenantUpload(user.tenantId, receipt.savedName);
 
     await audit("delete_receipt", `journal:${id}:receipt:${receiptId}`);
     return NextResponse.json({ ok: true });

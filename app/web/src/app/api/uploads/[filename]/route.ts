@@ -7,7 +7,7 @@ import { notFound } from "@/lib/server/api-error";
 import { contentTypeForExtension, tenantUploadDir, UPLOAD_DIR } from "@/lib/server/upload";
 
 // GET /api/uploads/[filename] … 証憑ファイルの配信。
-// Receipt レコード経由で「自テナントの仕訳に紐づく証憑か」を確認してから配信する
+// Receipt レコード経由で「自テナントの仕訳か現金の明細に紐づく証憑か」を確認してから配信する
 // （他テナントのファイル名を知っていても 404 になり、存在の有無ごと秘匿する）。
 export const GET = withApi({
   role: "viewer",
@@ -16,7 +16,13 @@ export const GET = withApi({
     const safe = path.basename(params.filename ?? "");
 
     const receipt = await db.receipt.findFirst({
-      where: { savedName: safe, journalEntry: { tenantId: user.tenantId } },
+      where: {
+        savedName: safe,
+        OR: [
+          { journalEntry: { tenantId: user.tenantId } },
+          { financialRecord: { tenantId: user.tenantId } },
+        ],
+      },
     });
     if (!receipt) throw notFound();
 

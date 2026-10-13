@@ -3,6 +3,7 @@
 // 実績管理の「カレンダー」タブ（出どころが現金）。日を選んで現金の明細を登録・削除する。
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
+import { Paperclip } from "lucide-react";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
 import { DirectedAmount } from "@/components/DirectedAmount";
 import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
@@ -47,6 +48,8 @@ export function CashCalendarTab({
   const [calError, setCalError] = useState("");
   // レシートから入れたときだけ「店名と科目を覚える」を出す
   const [fromReceipt, setFromReceipt] = useState(false);
+  // 読み取ったレシートの写真。登録した明細に証憑として付ける
+  const [receiptPhoto, setReceiptPhoto] = useState<File | null>(null);
   const [calLearn, setCalLearn] = useState(true);
 
   const { data: cashData, isLoading: calLoading } = useQuery({
@@ -121,8 +124,16 @@ export function CashCalendarTab({
       }),
     });
     if (res.ok) {
+      if (fromReceipt && receiptPhoto) {
+        const { data } = (await res.json()) as { data: CashEntry };
+        const body = new FormData();
+        body.append("file", receiptPhoto);
+        const up = await fetch(`/api/actuals/${data.id}/receipts`, { method: "POST", body });
+        if (!up.ok) setCalError("実績は登録しましたが、レシートの写真を保存できませんでした");
+      }
       setCalForm(BLANK_CAL_FORM);
       setFromReceipt(false);
+      setReceiptPhoto(null);
       invalidateActuals(queryClient);
     } else {
       const j = (await res.json()) as { error?: string };
@@ -132,7 +143,7 @@ export function CashCalendarTab({
   }
 
   // レシートの読み取り結果をフォームに入れる。日付が読めたら、その日を選ぶ
-  function applyReceipt({ draft, suggestedAccount }: ReceiptScanResult) {
+  function applyReceipt({ draft, suggestedAccount }: ReceiptScanResult, photo: File) {
     if (draft.date) {
       const [y, m, d] = draft.date.split("-").map(Number);
       setFiscalYear(y);
@@ -150,6 +161,7 @@ export function CashCalendarTab({
       accountCode: account,
     });
     setFromReceipt(true);
+    setReceiptPhoto(photo);
     setCalError("");
   }
 
@@ -233,6 +245,16 @@ export function CashCalendarTab({
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-slate-800 truncate">
                             {e.description}
+                            {(e.receipts ?? []).map((r) => (
+                              <a
+                                key={r.id}
+                                href={r.fileUrl}
+                                title={`証憑: ${r.fileName}`}
+                                className="inline-flex align-middle ml-1 text-slate-400 hover:text-indigo-600"
+                              >
+                                <Paperclip className="w-3 h-3" aria-label="証憑" />
+                              </a>
+                            ))}
                           </p>
                           <p className="text-[10px] text-slate-400 mt-0.5">
                             {e.categoryAccount
