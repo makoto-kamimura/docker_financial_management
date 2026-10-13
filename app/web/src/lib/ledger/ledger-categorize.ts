@@ -2,7 +2,7 @@ import { badRequest, notFound } from "@/lib/server/api-error";
 import { assertActualsPeriodsEditable, confirmedActualsPeriodIds } from "@/lib/budget/budget-lock";
 import { normalizeKeyword } from "@/lib/ledger/banktxn-import";
 import { entryActualAmount, UNPAIRED } from "@/lib/ledger/ledger-entries";
-import type { TenantDb } from "@/lib/server/tenant-db";
+import type { TenantDb, TenantDbClient } from "@/lib/server/tenant-db";
 
 // 明細への科目の紐付け（PATCH /api/bank-transactions/[id]/categorize と
 // PATCH /api/card-transactions/[id]/categorize の共通部分）。
@@ -71,14 +71,7 @@ export async function categorizeEntry(
     if (category === null) return row;
 
     // 学習ルールは銀行・カードで共有する（TxnCategoryRule はテナント単位のキーワードルールのため）
-    if (body.learn) {
-      const keyword = normalizeKeyword(txn.description ?? "");
-      await tx.txnCategoryRule.upsert({
-        where: { tenantId_keyword: { tenantId, keyword } },
-        update: { categoryAccountId: category.id, priority: 100 },
-        create: { tenantId, keyword, categoryAccountId: category.id, priority: 100 },
-      });
-    }
+    if (body.learn) await learnCategoryRule(tx, tenantId, txn.description ?? "", category.id);
 
     // 同じ摘要でまだ未割り当ての、同じ種別（銀行どうし・カードどうし）の明細にも同じ科目を付ける
     // （学習ルールと同じ正規化で摘要を比べる。確定済みの月の明細は変えない）
@@ -106,4 +99,23 @@ export async function categorizeEntry(
   });
 
   return { before, updated, updatedSiblingCount };
+}
+
+/**
+ * 摘要（店名）と科目の組を学習ルールに覚えさせる（手で付けた科目は優先度 100）。
+ * 同じ摘要のルールがあれば、科目を付け替える。空の摘要は覚えない。
+ */
+export async function learnCategoryRule(
+  tx: TenantDbClient,
+  tenantId: number,
+  description: string,
+  categoryAccountId: number,
+): Promise<void> {
+  const keyword = normalizeKeyword(description);
+  if (keyword === "") return;
+  await tx.txnCategoryRule.upsert({
+    where: { tenantId_keyword: { tenantId, keyword } },
+    update: { categoryAccountId, priority: 100 },
+    create: { tenantId, keyword, categoryAccountId, priority: 100 },
+  });
 }

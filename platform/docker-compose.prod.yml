@@ -34,6 +34,9 @@ services:
       STRIPE_SECRET_KEY:
       STRIPE_WEBHOOK_SECRET:
       STRIPE_PRICE_ID:
+      # レシートの読み取り（有料プラン）。キーが無ければ、サーバーの中の OCR で読む
+      ANTHROPIC_API_KEY:
+      RECEIPT_OCR_MODEL:
     volumes:
       # 証憑（領収書などの添付ファイル）。コンテナを入れ替えても消えないようにする
       - uploads-data:/app/uploads

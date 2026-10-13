@@ -31,6 +31,9 @@ const nextConfig = {
   // Docker イメージのビルド（platform/docker/web.Dockerfile）では型チェックを飛ばす。
   // 型チェックは CI の web ジョブで済ませている
   typescript: { ignoreBuildErrors: process.env.SKIP_TYPECHECK === "1" },
+  // レシートの読み取り（lib/ledger/receipt-scan/tesseract.ts）は、worker_threads と wasm を
+  // パッケージの中のパスから読み込むため、バンドルせずに node_modules から読む
+  serverExternalPackages: ["tesseract.js"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

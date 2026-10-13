@@ -9,6 +9,7 @@ import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { yen } from "@/lib/common/format";
+import { ReceiptScanButton, type ReceiptScanResult } from "@/components/entry/ReceiptScanButton";
 import {
   EXPENSE_CATS,
   INCOME_CATS,
@@ -44,6 +45,9 @@ export function CashCalendarTab({
   const [calForm, setCalForm] = useState(BLANK_CAL_FORM);
   const [calSaving, setCalSaving] = useState(false);
   const [calError, setCalError] = useState("");
+  // レシートから入れたときだけ「店名と科目を覚える」を出す
+  const [fromReceipt, setFromReceipt] = useState(false);
+  const [calLearn, setCalLearn] = useState(true);
 
   const { data: cashData, isLoading: calLoading } = useQuery({
     queryKey: ["actuals", viewYear, viewMonth],
@@ -113,16 +117,40 @@ export function CashCalendarTab({
         accountCode: calForm.accountCode,
         amount: Number(calForm.amount),
         direction: calForm.direction,
+        learn: fromReceipt && calLearn,
       }),
     });
     if (res.ok) {
       setCalForm(BLANK_CAL_FORM);
+      setFromReceipt(false);
       invalidateActuals(queryClient);
     } else {
       const j = (await res.json()) as { error?: string };
       setCalError(j.error ?? "登録に失敗しました");
     }
     setCalSaving(false);
+  }
+
+  // レシートの読み取り結果をフォームに入れる。日付が読めたら、その日を選ぶ
+  function applyReceipt({ draft, suggestedAccount }: ReceiptScanResult) {
+    if (draft.date) {
+      const [y, m, d] = draft.date.split("-").map(Number);
+      setFiscalYear(y);
+      setViewMonth(m);
+      setSelectedDay(d);
+    }
+    const account =
+      suggestedAccount && expenseAccounts.some((a) => a.code === suggestedAccount.code)
+        ? suggestedAccount.code
+        : "";
+    setCalForm({
+      direction: "expense",
+      description: draft.merchant ?? "",
+      amount: draft.total ? String(draft.total) : "",
+      accountCode: account,
+    });
+    setFromReceipt(true);
+    setCalError("");
   }
 
   async function handleCalDelete(id: number) {
@@ -235,6 +263,7 @@ export function CashCalendarTab({
 
             <div className="card">
               <h3 className="text-xs font-semibold text-slate-600 mb-3">実績を追加</h3>
+              <ReceiptScanButton onScanned={applyReceipt} />
               <form onSubmit={handleCalSubmit} className="flex flex-col gap-2.5">
                 <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs">
                   {(["expense", "income"] as const).map((d) => (
@@ -295,6 +324,17 @@ export function CashCalendarTab({
                     className="input-field text-xs"
                   />
                 </div>
+                {fromReceipt && calForm.description.trim() !== "" && (
+                  <label className="flex items-start gap-1.5 text-[10px] text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={calLearn}
+                      onChange={(e) => setCalLearn(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    次から同じ店名には、この科目を使う（学習ルールに覚える）
+                  </label>
+                )}
                 {calError && <p className="text-xs text-red-600">{calError}</p>}
                 <button type="submit" disabled={calSaving} className="btn-primary text-xs mt-1">
                   {calSaving ? "登録中..." : "登録"}

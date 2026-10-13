@@ -1451,3 +1451,30 @@ model StripeWebhookEvent {
 
   @@map("stripe_webhook_events")
 }
+
+// ============================================================
+// レシートの読み取り（実績管理の現金の入力）
+// ============================================================
+
+// レシートの読み取りの記録（回数の上限を数えるのにも使う。lib/ledger/receipt-scan/quota.ts）。
+// 失敗（FAILED）は回数に数えない。画像そのものは残さない
+model ReceiptScanRequest {
+  id           Int               @id @default(autoincrement())
+  tenantId     Int
+  userId       Int
+  engine       String // claude（有料プラン）/ tesseract（無料プラン）
+  status       ReceiptScanStatus @default(PENDING)
+  model        String? // claude のときのモデル
+  inputTokens  Int?
+  outputTokens Int?
+  createdAt    DateTime          @default(now())
+
+  @@index([tenantId, createdAt])
+  @@map("receipt_scan_requests")
+}
+
+enum ReceiptScanStatus {
+  PENDING // 読み取り中
+  SUCCEEDED
+  FAILED
+}

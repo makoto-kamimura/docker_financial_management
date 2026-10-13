@@ -20,5 +20,9 @@ export const Env = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   STRIPE_PRICE_ID: z.string().min(1).optional(),
   STRIPE_API_BASE: z.string().url().optional(), // テストで Stripe の代わりのサーバーに向けるときだけ
+  // レシートの読み取り（有料プラン）。キーが無ければ、有料プランでも無料プランと同じ読み取りになる
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  RECEIPT_OCR_MODEL: z.string().min(1).optional(),
+  ANTHROPIC_BASE_URL: z.string().url().optional(), // テストで Claude の代わりのサーバーに向けるときだけ
 });
 export type Env = z.infer<typeof Env>;
