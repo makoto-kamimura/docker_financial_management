@@ -64,6 +64,7 @@ import {
 import { ASSETS_HELP, textFor } from "../shared/help-texts";
 import { digitsOnly, yenShort } from "../format";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "../shared/labels";
+import { BusinessUseSwitch } from "../components/BusinessUseControls";
 
 const CATEGORY_OPTIONS = (
   Object.keys(PERSONAL_ASSET_CATEGORY_LABEL) as PersonalAssetCategory[]
@@ -143,6 +144,8 @@ type AssetForm = ValuationForm & {
   currentValue: string;
   countAsAsset: boolean;
   note: string;
+  /** 事業利用（個人事業主モードで表示・集計する） */
+  businessUse: boolean;
   /** 内訳（null = 内訳を分けない） */
   parts: PartForm[] | null;
   /** ひも付いた借入（表示だけ。借入金の画面で編集する） */
@@ -161,6 +164,7 @@ const BLANK_FORM: AssetForm = {
   currentValue: "",
   countAsAsset: true,
   note: "",
+  businessUse: false,
   parts: null,
   loanId: null,
   loanLenderName: null,
@@ -179,6 +183,7 @@ function toForm(a: PersonalAsset): AssetForm {
     currentValue: str(a.currentValue),
     countAsAsset: a.countAsAsset,
     note: a.note ?? "",
+    businessUse: a.businessUse ?? false,
     ...valuationFormOf(a),
     loanId: a.loanId,
     loanLenderName: a.loanLenderName,
@@ -205,6 +210,7 @@ function toInput(f: AssetForm): PersonalAssetInput {
     acquiredOn: f.acquiredOn || null,
     countAsAsset: f.countAsAsset,
     note: f.note || null,
+    businessUse: f.businessUse,
     // 内訳があれば評価額・取得価格は内訳の合計（サーバーで計算する）
     ...(f.parts
       ? {
@@ -603,7 +609,8 @@ export function AssetsScreen({ viewMode }: Props) {
             label="+ 資産を登録"
             onPress={() => {
               setFormError(null);
-              setForm(BLANK_FORM);
+              // 個人事業主モードで足す資産は事業利用で始める
+              setForm({ ...BLANK_FORM, businessUse: viewMode === "sole" });
             }}
             style={{ alignSelf: "flex-start", marginBottom: 8 }}
           />
@@ -858,6 +865,11 @@ export function AssetsScreen({ viewMode }: Props) {
             <Field label="備考">
               <Input value={form.note} onChangeText={(note) => setForm({ ...form, note })} />
             </Field>
+            <BusinessUseSwitch
+              kind="asset"
+              value={form.businessUse}
+              onChange={(businessUse) => setForm({ ...form, businessUse })}
+            />
             {formError && <Notice tone="error">{formError}</Notice>}
           </>
         )}

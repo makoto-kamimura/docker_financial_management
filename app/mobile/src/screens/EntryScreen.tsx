@@ -54,6 +54,7 @@ import { fmtDate, fmtDateTime, MONTHS, yen, yenAbs } from "../format";
 import { flowLabel, flowSide, negativeAmountWord } from "../shared/amount-direction";
 import { ActualsConfirmSection } from "../components/ActualsConfirmSection";
 import { LearningRulesSection } from "../components/LearningRulesSection";
+import { BusinessTag, useBusinessOnlyFilter } from "../components/BusinessUseControls";
 import { useFiscalYear } from "../fiscal-year";
 
 // 並びは web 版と同じ（CSV インポートは web 版のみ）。設定（学習ルール）は右端
@@ -166,6 +167,9 @@ export function EntryScreen({
   // ── 履歴（出どころが現金 = 現金の明細）───────────────────────────
   const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
   const [cashPage, setCashPage] = useState(0);
+  // 個人事業主モードの現金の履歴は「事業利用のみ」に絞る（切り替えで全件）
+  const cashBusiness = useBusinessOnlyFilter(viewMode);
+  const shownCash = cashBusiness.keep(cashEntries);
   const [histLoading, setHistLoading] = useState(false);
   const [picking, setPicking] = useState<CashEntry | null>(null);
 
@@ -428,12 +432,13 @@ export function EntryScreen({
             <EmptyText>現金の明細はまだありません。カレンダーから登録できます。</EmptyText>
           ) : (
             <>
+              {cashBusiness.toggle}
               <LedgerCount
-                total={cashEntries.length}
+                total={shownCash.length}
                 offset={cashPage * CASH_PAGE_SIZE}
                 pageSize={CASH_PAGE_SIZE}
               />
-              {cashEntries
+              {shownCash
                 .slice(cashPage * CASH_PAGE_SIZE, (cashPage + 1) * CASH_PAGE_SIZE)
                 .map((e) => (
                   <LedgerRow
@@ -454,9 +459,12 @@ export function EntryScreen({
                       </TouchableOpacity>
                     }
                     status={
-                      <LedgerBadge tone={e.categoryAccountId !== null ? "emerald" : "amber"}>
-                        {e.categoryAccountId !== null ? "実績" : "未割り当て"}
-                      </LedgerBadge>
+                      <>
+                        <LedgerBadge tone={e.categoryAccountId !== null ? "emerald" : "amber"}>
+                          {e.categoryAccountId !== null ? "実績" : "未割り当て"}
+                        </LedgerBadge>
+                        <BusinessTag businessUse={e.businessUse} businessRatio={e.businessRatio} />
+                      </>
                     }
                     actions={
                       <TouchableOpacity onPress={() => confirmDeleteCash(e)}>
@@ -465,10 +473,10 @@ export function EntryScreen({
                     }
                   />
                 ))}
-              {cashEntries.length > CASH_PAGE_SIZE && (
+              {shownCash.length > CASH_PAGE_SIZE && (
                 <Pager
                   offset={cashPage * CASH_PAGE_SIZE}
-                  total={cashEntries.length}
+                  total={shownCash.length}
                   pageSize={CASH_PAGE_SIZE}
                   onChange={(o) => setCashPage(o / CASH_PAGE_SIZE)}
                 />

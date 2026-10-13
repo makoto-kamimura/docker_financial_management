@@ -3,6 +3,8 @@
 // 選んだ日に「収入 / 支出・摘要・科目・金額」で登録できる（出どころの「現金」）。
 // 科目を付けて登録するので、登録した時点で実績になる。
 // レシートを撮影すると読み取った内容がフォームに入り、登録した明細に写真が証憑として付く。
+// 個人事業主モードは事業利用の明細だけを事業の分の額で出し、登録は事業利用で始める
+// （按分を空けると科目の事業利用按分の割合。web 版と同じ）。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import {
@@ -22,6 +24,8 @@ import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, Field, Input, Notice, Pills } from "./ui";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "./MonthCalendar";
 import { flowLabel } from "../shared/amount-direction";
+import { businessPortion, isValidBusinessRatio } from "../shared/business-use";
+import { BusinessRatioControl, BusinessTag } from "./BusinessUseControls";
 
 const INCOME_CATS = ["REVENUE", "PROFIT"];
 const EXPENSE_CATS = ["EXPENSE", "COGS"];
@@ -46,7 +50,13 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate());
-  const [entries, setEntries] = useState<CashEntry[]>([]);
+  const [allEntries, setEntries] = useState<CashEntry[]>([]);
+  const businessMode = viewMode === "sole";
+  // 登録する明細の事業利用と按分（個人事業主モードだけ。按分の空 = 科目の事業利用按分の割合）
+  const [business, setBusiness] = useState<{ businessUse: boolean; businessRatio: number | null }>({
+    businessUse: true,
+    businessRatio: null,
+  });
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(BLANK_FORM);
   const [saving, setSaving] = useState(false);
@@ -70,6 +80,17 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 個人事業主モードは事業利用の明細だけを、事業の分の額で出す
+  const entries = useMemo(
+    () =>
+      businessMode
+        ? allEntries
+            .filter((e) => e.businessUse && e.businessRatio !== null)
+            .map((e) => ({ ...e, amount: businessPortion(e.amount, e.businessRatio!) }))
+        : allEntries,
+    [allEntries, businessMode],
+  );
 
   const byDay = useMemo(() => {
     const m = new Map<number, CashEntry[]>();
@@ -116,6 +137,15 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
       setError("金額は 1 円以上で入力してください");
       return;
     }
+    if (
+      businessMode &&
+      business.businessUse &&
+      business.businessRatio !== null &&
+      !isValidBusinessRatio(business.businessRatio)
+    ) {
+      setError("按分は 0 より大きく 100 以下で入力してください");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -126,6 +156,12 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
         amount: Number(form.amount),
         direction: form.direction,
         learn: receiptUri !== null && learn,
+        ...(businessMode
+          ? {
+              businessUse: business.businessUse,
+              businessRatio: business.businessUse ? business.businessRatio : null,
+            }
+          : {}),
       });
       if (receiptUri) {
         try {
@@ -146,6 +182,8 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
 
   // レシートの読み取り結果をフォームに入れる。日付が読めたら、その日を選ぶ
   function applyReceipt({ draft, suggestedAccount }: ReceiptScanResult, photoUri: string) {
+    // 学習ルールが事業利用を決めていれば、その事業利用にする
+    if (suggestedAccount?.business) setBusiness(suggestedAccount.business);
     if (draft.date) {
       const [y, m, d] = draft.date.split("-").map(Number);
       setYear(y);
@@ -237,6 +275,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                     <Text style={s.entryAccounts} numberOfLines={1}>
                       {e.categoryAccount ? displayName(e.categoryAccount, viewMode) : "未割り当て"}
                     </Text>
+                    <BusinessTag businessUse={e.businessUse} businessRatio={e.businessRatio} />
                   </View>
                   <Text style={isIncome ? s.income : s.expense}>
                     {flowLabel("cash", isIncome ? 1 : -1)} {yen(isIncome ? income : expense)}
@@ -283,6 +322,22 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                 onChangeText={(t) => setForm((f) => ({ ...f, amount: digitsOnly(t) }))}
               />
             </Field>
+            {businessMode && (
+              <Field label="事業利用・按分（%。空けると科目の事業利用按分の割合）">
+                <BusinessRatioControl
+                  live
+                  businessUse={business.businessUse}
+                  businessRatio={business.businessRatio}
+                  onChange={(c) =>
+                    setBusiness((b) => ({
+                      businessUse: c.businessUse,
+                      businessRatio:
+                        c.businessRatio !== undefined ? c.businessRatio : b.businessRatio,
+                    }))
+                  }
+                />
+              </Field>
+            )}
             {receiptUri && form.description.trim() ? (
               <View style={s.learnRow}>
                 <Switch value={learn} onValueChange={setLearn} />

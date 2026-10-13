@@ -46,6 +46,7 @@ import {
   TermList,
 } from "../ui";
 import { BANK_HELP, BANK_TERMS } from "../../shared/help-texts";
+import { BusinessTag, useBusinessOnlyFilter } from "../BusinessUseControls";
 
 type PostFilter = "all" | "unassigned" | "actual";
 const POST_FILTERS: { value: PostFilter; label: string }[] = [
@@ -139,18 +140,21 @@ export function BankTransactionsList({
 
   // 「全件 / 未割り当て / 実績」（カード・web 版と同じ）。科目を付けた明細がそのまま実績。
   // 振替・チャージは科目を付けない明細なので未割り当てから除く
+  // 個人事業主モードは「事業利用のみ」に絞る（切り替えで全件。web 版と同じ）
+  const businessFilter = useBusinessOnlyFilter(viewMode);
+  const scoped = businessFilter.keep(txns);
   const filtered =
     filter === "actual"
-      ? txns.filter((t) => t.categoryAccountId !== null)
+      ? scoped.filter((t) => t.categoryAccountId !== null)
       : filter === "unassigned"
-        ? txns.filter(
+        ? scoped.filter(
             (t) =>
               t.categoryAccountId === null &&
               t.transferGroupId === null &&
               t.chargeToAccountId === null &&
               t.chargeGroupId === null,
           )
-        : txns;
+        : scoped;
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pageCount - 1);
   const paged = filtered.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
@@ -297,6 +301,7 @@ export function BankTransactionsList({
           setPage(0);
         }}
       />
+      {businessFilter.toggle}
       <LedgerCount total={filtered.length} offset={current * PAGE_SIZE} pageSize={PAGE_SIZE} />
       {filtered.length === 0 ? (
         <EmptyText>
@@ -350,6 +355,7 @@ export function BankTransactionsList({
                   ) : (
                     <LedgerBadge tone="amber">未割り当て</LedgerBadge>
                   )}
+                  <BusinessTag businessUse={t.businessUse} businessRatio={t.businessRatio} />
                 </>
               }
               actions={

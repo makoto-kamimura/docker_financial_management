@@ -2,22 +2,38 @@
 // 科目が付いていない明細を並べ、行ごとに科目を選ぶと、その明細がそのまま実績になる
 // （同じ摘要の未割り当ての明細にも付き、次の取り込みからも自動で付く）。残っている間は確定できない。
 // 「まとめて自動処理」は、学習ルールで科目を付け、同じ日・同じ金額の送金と受金を振替・チャージの組にする。
+// 「割り当て済みも表示」で科目の付いた明細も並べ、付けた科目と事業利用・按分を見直せる。事業利用と按分も
+// 学習ルールに覚える。科目を選んで、その月のその科目の明細をまとめて事業利用にもできる。
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import {
   autoProcessEntries,
   categorizeEntry,
   fetchAccounts,
   fetchUnassignedEntries,
+  getViewMode,
+  setMonthBusinessUse,
   type Account,
+  type EntryChange,
   type UnassignedEntry,
 } from "../api";
 import { ENTRY_HELP, LEARNING_RULE_TERMS } from "../shared/help-texts";
+import { BUSINESS_USE_LABEL, isValidBusinessRatio } from "../shared/business-use";
+import { displayName } from "../shared/display-name";
+import { BusinessRatioControl } from "./BusinessUseControls";
 import { fmtDate, yenAbs } from "../format";
 import { flowLabel, flowSide } from "../shared/amount-direction";
 import { CategoryPickerModal } from "./CategoryPickerModal";
 import { LedgerRow } from "./LedgerRow";
-import { Button, COLORS, Notice, TermList } from "./ui";
+import { Button, COLORS, Input, Notice, TermList } from "./ui";
 
 const KIND_LABEL: Record<UnassignedEntry["kind"], string> = {
   CASH: "現金",
@@ -36,18 +52,29 @@ export function UnassignedEntries({
   onChanged: () => void;
 }) {
   const [entries, setEntries] = useState<UnassignedEntry[] | null>(null);
+  const [unassignedCount, setUnassignedCount] = useState(0);
+  const [truncated, setTruncated] = useState(false);
+  const [showAssigned, setShowAssigned] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [picking, setPicking] = useState<UnassignedEntry | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [processing, setProcessing] = useState(false);
+  // まとめて事業利用にする科目と按分（空 = 科目の事業利用按分の割合）
+  const [bulkPicking, setBulkPicking] = useState(false);
+  const [bulkAccount, setBulkAccount] = useState<Account | null>(null);
+  const [bulkRatio, setBulkRatio] = useState("");
+  const mode = getViewMode();
 
   const load = useCallback(async () => {
     try {
-      setEntries(await fetchUnassignedEntries(year, month));
+      const res = await fetchUnassignedEntries(year, month, showAssigned);
+      setEntries(res.data);
+      setUnassignedCount(res.unassignedCount);
+      setTruncated(res.truncated);
     } catch {
       setEntries([]);
     }
-  }, [year, month]);
+  }, [year, month, showAssigned]);
 
   useEffect(() => {
     setMsg(null);
@@ -87,6 +114,35 @@ export function UnassignedEntries({
     }).finally(() => setProcessing(false));
   }
 
+  // 科目・事業利用の変更。付けたものは学習ルールに覚える
+  function change(e: UnassignedEntry, c: EntryChange) {
+    run(async () => {
+      const { updatedSiblingCount: n } = await categorizeEntry(e.kind, e.id, c);
+      return n > 0 ? `同じ摘要の未割り当ての明細 ${n} 件にも同じ科目を付けました。` : null;
+    });
+  }
+
+  function bulkBusiness() {
+    if (!bulkAccount) return;
+    const ratio = bulkRatio.trim() === "" ? null : Number(bulkRatio);
+    if (ratio !== null && !isValidBusinessRatio(ratio)) {
+      setMsg({ ok: false, text: "按分は 0 より大きく 100 以下で入れてください" });
+      return;
+    }
+    run(async () => {
+      const r = await setMonthBusinessUse({
+        year,
+        month,
+        categoryAccountId: bulkAccount.id,
+        businessRatio: ratio,
+      });
+      return (
+        `${r.updated} 件の明細を事業利用にしました。` +
+        (r.locked > 0 ? `（実績を確定済みの月の ${r.locked} 件はそのままです）` : "")
+      );
+    });
+  }
+
   function confirmRecategorize() {
     Alert.alert("科目を付け直す", ENTRY_HELP.recategorize, [
       { text: "キャンセル", style: "cancel" },
@@ -97,9 +153,18 @@ export function UnassignedEntries({
   return (
     <View style={s.box}>
       <Text style={s.title}>
-        未割り当ての明細（{month}月・{entries?.length ?? 0} 件）
+        {showAssigned ? "明細" : "未割り当ての明細"}（{month}月・未割り当て {unassignedCount} 件）
       </Text>
       <Text style={s.note}>{ENTRY_HELP.unassigned}</Text>
+      <Text style={s.note}>{ENTRY_HELP.businessUse}</Text>
+      <View style={s.switchRow}>
+        <Switch
+          value={showAssigned}
+          onValueChange={setShowAssigned}
+          accessibilityLabel="割り当て済みも表示"
+        />
+        <Text style={s.switchLabel}>割り当て済みも表示</Text>
+      </View>
       <TermList terms={LEARNING_RULE_TERMS} label="学習ルールのしくみ" />
       <View style={s.btnRow}>
         <Button
@@ -118,10 +183,40 @@ export function UnassignedEntries({
         />
       </View>
       {msg && <Notice tone={msg.ok ? "success" : "error"}>{msg.text}</Notice>}
+      <View style={s.bulkRow}>
+        <Text style={s.switchLabel}>{month}月の</Text>
+        <TouchableOpacity onPress={() => setBulkPicking(true)}>
+          <Text style={s.link}>
+            {bulkAccount ? `${bulkAccount.code} ${displayName(bulkAccount, mode)}` : "科目を選ぶ"}
+          </Text>
+        </TouchableOpacity>
+        <Text style={s.switchLabel}>の明細を、按分</Text>
+        <Input
+          value={bulkRatio}
+          onChangeText={setBulkRatio}
+          keyboardType="decimal-pad"
+          placeholder="既定"
+          accessibilityLabel="まとめて付ける按分（%）"
+          style={s.ratio}
+        />
+        <Text style={s.switchLabel}>%で</Text>
+        <Button
+          label={`まとめて${BUSINESS_USE_LABEL}にする`}
+          small
+          variant="secondary"
+          disabled={!bulkAccount}
+          onPress={bulkBusiness}
+        />
+      </View>
+      {truncated && <Text style={s.note}>明細が多いため、先頭の 500 件だけを表示しています。</Text>}
       {entries === null ? (
         <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 12 }} />
       ) : entries.length === 0 ? (
-        <Text style={s.done}>{month}月の明細には、すべて科目が付いています。</Text>
+        <Text style={s.done}>
+          {showAssigned
+            ? `${month}月の明細はありません。`
+            : `${month}月の明細には、すべて科目が付いています。`}
+        </Text>
       ) : (
         entries.map((e) => (
           <LedgerRow
@@ -135,8 +230,19 @@ export function UnassignedEntries({
             directionLabel={flowLabel("bank", e.amount)}
             category={
               <TouchableOpacity onPress={() => setPicking(e)}>
-                <Text style={s.link}>科目を選ぶ</Text>
+                <Text style={s.link}>
+                  {e.categoryAccount
+                    ? `${e.categoryAccount.code} ${displayName(e.categoryAccount, mode)}`
+                    : "科目を選ぶ"}
+                </Text>
               </TouchableOpacity>
+            }
+            status={
+              <BusinessRatioControl
+                businessUse={e.businessUse}
+                businessRatio={e.businessRatio}
+                onChange={(c) => change(e, c)}
+              />
             }
           />
         ))
@@ -146,17 +252,24 @@ export function UnassignedEntries({
         visible={picking !== null}
         accounts={accounts}
         description={picking?.description}
-        currentId={null}
+        currentId={picking?.categoryAccountId ?? null}
         onSelect={(id) => {
           const e = picking;
           setPicking(null);
-          if (e && id !== null)
-            run(async () => {
-              const { updatedSiblingCount: n } = await categorizeEntry(e.kind, e.id, id);
-              return n > 0 ? `同じ摘要の未割り当ての明細 ${n} 件にも同じ科目を付けました。` : null;
-            });
+          if (e && id !== null) change(e, { categoryAccountId: id });
         }}
         onClose={() => setPicking(null)}
+      />
+      <CategoryPickerModal
+        visible={bulkPicking}
+        accounts={accounts}
+        description="まとめて事業利用にする科目"
+        currentId={bulkAccount?.id ?? null}
+        onSelect={(id) => {
+          setBulkPicking(false);
+          setBulkAccount(accounts.find((a) => a.id === id) ?? null);
+        }}
+        onClose={() => setBulkPicking(false)}
       />
     </View>
   );
@@ -175,4 +288,14 @@ const s = StyleSheet.create({
   btnRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   done: { fontSize: 12, color: "#047857", marginVertical: 6 },
   link: { fontSize: 12, color: COLORS.primary, fontWeight: "600" },
+  switchRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  switchLabel: { fontSize: 12, color: "#374151" },
+  bulkRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  ratio: { width: 64, paddingVertical: 4, fontSize: 12 },
 });

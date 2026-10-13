@@ -40,6 +40,7 @@ import { displayName } from "../shared/display-name";
 import { BANK_HELP } from "../shared/help-texts";
 import { digitsOnly, fmtDate, fmtDateTime, yen } from "../format";
 import { BANK_ACCOUNT_TYPE_LABEL } from "../shared/labels";
+import { BusinessUseSwitch } from "../components/BusinessUseControls";
 
 // 紐付き勘定科目に選べるのは資産・負債のみ（web 版と同じ）
 const LINKABLE = ["ASSET", "LIABILITY"] as const;
@@ -56,6 +57,8 @@ type AccountForm = {
   note: string;
   balanceAdjustment: string;
   transactionSum: number;
+  /** 事業利用（個人事業主モードで表示・集計し、入ってくる明細も事業利用で入る） */
+  businessUse: boolean;
 };
 
 const BLANK_FORM: AccountForm = {
@@ -70,6 +73,7 @@ const BLANK_FORM: AccountForm = {
   note: "",
   balanceAdjustment: "",
   transactionSum: 0,
+  businessUse: false,
 };
 
 type Props = {
@@ -135,6 +139,7 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
       note: a.note ?? "",
       balanceAdjustment: a.balanceAdjustment ? String(a.balanceAdjustment) : "",
       transactionSum: a.transactionSum ?? 0,
+      businessUse: a.businessUse ?? false,
     });
   }
 
@@ -153,6 +158,7 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
           lastFour: form.lastFour || undefined,
           accountCode: form.accountCode || undefined,
           note: form.note || undefined,
+          businessUse: form.businessUse,
         });
       } else {
         await patchBankAccount(form.id, {
@@ -163,6 +169,7 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
           note: form.note,
           // 空欄は差額なし（0）として送る
           balanceAdjustment: Number(form.balanceAdjustment || 0),
+          businessUse: form.businessUse,
         });
       }
       setForm(null);
@@ -227,7 +234,8 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
                 label="銀行追加"
                 onPress={() => {
                   setFormError(null);
-                  setForm(BLANK_FORM);
+                  // 個人事業主モードで足す口座は事業利用で始める
+                  setForm({ ...BLANK_FORM, businessUse: viewMode === "sole" });
                 }}
                 style={{ marginLeft: "auto" }}
               />
@@ -410,6 +418,11 @@ export function BankAccountsScreen({ viewMode, onOpenHistory }: Props) {
                 onChangeText={(note) => setForm({ ...form, note })}
               />
             </Field>
+            <BusinessUseSwitch
+              kind="account"
+              value={form.businessUse}
+              onChange={(businessUse) => setForm({ ...form, businessUse })}
+            />
             {formError && <Notice tone="error">{formError}</Notice>}
           </>
         )}

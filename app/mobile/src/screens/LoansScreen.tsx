@@ -62,6 +62,7 @@ import {
   type LoanRateChange,
   type PaymentChoice,
 } from "../shared/loan-schedule";
+import { BusinessUseSwitch } from "../components/BusinessUseControls";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const progressOf = (l: Loan) =>
@@ -152,6 +153,8 @@ type NewLoanForm = {
   assetCost: string;
   assetValue: string;
   assetId: number | null;
+  /** 事業利用（個人事業主モードで表示・集計する） */
+  businessUse: boolean;
 };
 const BLANK_LOAN: NewLoanForm = {
   lenderName: "",
@@ -172,6 +175,7 @@ const BLANK_LOAN: NewLoanForm = {
   assetCost: "",
   assetValue: "",
   assetId: null,
+  businessUse: false,
 };
 const ASSET_MODES = [
   { value: "none" as const, label: "なし" },
@@ -230,6 +234,7 @@ export function LoansScreen({ viewMode }: Props) {
     monthlyPayment: string;
     residualValue: string;
     linkedAccountCode: string;
+    businessUse: boolean;
   } | null>(null);
   const [rateForm, setRateForm] = useState<{
     loan: Loan;
@@ -457,7 +462,8 @@ export function LoansScreen({ viewMode }: Props) {
             label="借入追加"
             onPress={() => {
               setSheetError(null);
-              setNewLoan(BLANK_LOAN);
+              // 個人事業主モードで足す借入は事業利用で始める
+              setNewLoan({ ...BLANK_LOAN, businessUse: viewMode === "sole" });
             }}
             style={{ alignSelf: "flex-start", marginBottom: 8 }}
           />
@@ -595,6 +601,7 @@ export function LoansScreen({ viewMode }: Props) {
                           monthlyPayment: l.monthlyPayment ?? "",
                           residualValue: l.residualValue ?? "",
                           linkedAccountCode: l.linkedAccount?.code ?? "",
+                          businessUse: l.businessUse ?? false,
                         });
                       }}
                     />
@@ -798,6 +805,7 @@ export function LoansScreen({ viewMode }: Props) {
                     asset: assetPayload(newLoan),
                     debitBankAccountId: newLoan.debitBankAccountId,
                     debitDay: newLoan.debitDay ? Number(newLoan.debitDay) : null,
+                    businessUse: newLoan.businessUse,
                     monthlyPayment: newLoan.monthlyPayment
                       ? Number(newLoan.monthlyPayment)
                       : undefined,
@@ -959,6 +967,11 @@ export function LoansScreen({ viewMode }: Props) {
                 onChangeText={(note) => setNewLoan({ ...newLoan, note })}
               />
             </Field>
+            <BusinessUseSwitch
+              kind="loan"
+              value={newLoan.businessUse}
+              onChange={(businessUse) => setNewLoan({ ...newLoan, businessUse })}
+            />
             {sheetError && <Notice tone="error">{sheetError}</Notice>}
           </>
         )}
@@ -990,6 +1003,7 @@ export function LoansScreen({ viewMode }: Props) {
                       : null,
                     residualValue: editForm.residualValue ? Number(editForm.residualValue) : null,
                     linkedAccountCode: editForm.linkedAccountCode || null,
+                    businessUse: editForm.businessUse,
                   }),
                 () => setEditForm(null),
               )
@@ -1098,6 +1112,11 @@ export function LoansScreen({ viewMode }: Props) {
               />
               <Text style={s.muted}>{LOANS_HELP.asset}</Text>
             </Field>
+            <BusinessUseSwitch
+              kind="loan"
+              value={editForm.businessUse}
+              onChange={(businessUse) => setEditForm({ ...editForm, businessUse })}
+            />
             {sheetError && <Notice tone="error">{sheetError}</Notice>}
           </>
         )}
