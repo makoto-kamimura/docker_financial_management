@@ -18,6 +18,8 @@ import { nextYearMonth, type VarianceRow } from "@/lib/shared/budget-cycle";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { DASHBOARD_HELP, textFor } from "@/lib/shared/help-texts";
 import { yen } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type Row = VarianceRow & { soleName: string | null; corporateName: string | null };
 
@@ -95,12 +97,17 @@ export function BudgetActualChart({ mode, period }: { mode: ViewMode; period: st
   const household = mode === "household";
   const [year, month] = (period ?? "").split("-").map(Number);
   const enabled = Number.isInteger(year) && Number.isInteger(month);
+  const scope = useActualsScope();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["budget-variance", year, month],
+    queryKey: ["budget-variance", year, month, scope],
     queryFn: async (): Promise<{ rows: Row[] }> =>
-      (await (await fetch(`/api/budgets/variance?year=${year}&month=${month}`)).json()).data,
-    enabled,
+      (
+        await (
+          await fetch(withScope(`/api/budgets/variance?year=${year}&month=${month}`, scope!))
+        ).json()
+      ).data,
+    enabled: enabled && scope !== null,
     placeholderData: (prev) => prev,
   });
 

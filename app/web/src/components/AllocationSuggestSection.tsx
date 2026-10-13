@@ -13,6 +13,8 @@ import { SectionLead } from "@/components/Explain";
 import { BUDGET_HELP } from "@/lib/shared/help-texts";
 import { planAllocationApply, type AssignmentSource } from "@/lib/shared/allocation-assign";
 import { yen } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 // 配分ルールのメンバー科目（自動の振り分け＋手動の割り当てを解決したもの）
 type MemberAccount = {
@@ -85,17 +87,21 @@ export function AllocationSuggestSection({
   const [applying, setApplying] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const scope = useActualsScope();
   const { data, isLoading } = useQuery({
-    queryKey: ["allocation-suggest", year, month, basis, committedIncome],
+    queryKey: ["allocation-suggest", year, month, basis, committedIncome, scope],
     queryFn: async (): Promise<AllocationSuggestion> => {
       const amountParam = basis === "manual" ? `&amount=${committedIncome ?? 0}` : "";
       const res = await fetch(
-        `/api/budgets/allocation-suggest?year=${year}&month=${month}&basis=${basis}${amountParam}`,
+        withScope(
+          `/api/budgets/allocation-suggest?year=${year}&month=${month}&basis=${basis}${amountParam}`,
+          scope!,
+        ),
       );
       return (await res.json()).data;
     },
     // 手入力は「配分を算出」を押すまで問い合わせない（打鍵のたびに再計算しない）
-    enabled: basis !== "manual" || committedIncome !== null,
+    enabled: scope !== null && (basis !== "manual" || committedIncome !== null),
   });
 
   useEffect(() => {
@@ -135,7 +141,7 @@ export function AllocationSuggestSection({
     setApplying(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/budgets/allocation-apply", {
+      const res = await fetch(withScope("/api/budgets/allocation-apply", scope!), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ year, items, onlyUnset: true }),
@@ -264,8 +270,12 @@ export function AllocationSuggestSection({
             {(
               [
                 ["固定費", data.summary503020.needs],
-                ["生活費", data.summary503020.wants],
-                ["その他・貯蓄", data.summary503020.savings],
+                // 事業の配分ルールは「生活費」の代わりに「変動費」、貯蓄の代わりに事業主の取り分
+                [scope === "business" ? "変動費" : "生活費", data.summary503020.wants],
+                [
+                  scope === "business" ? "その他・利益" : "その他・貯蓄",
+                  data.summary503020.savings,
+                ],
               ] as [string, number][]
             ).map(([label, value]) => (
               <div key={label} className="rounded-lg bg-slate-50 px-3 py-2 text-center">

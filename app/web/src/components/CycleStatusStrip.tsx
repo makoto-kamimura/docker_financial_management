@@ -7,15 +7,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { CycleSteps, type CycleStatus } from "@/components/CycleSteps";
 import { DASHBOARD_HELP } from "@/lib/shared/help-texts";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 export function CycleStatusStrip({ period }: { period: string | null }) {
   const [year, month] = (period ?? "").split("-").map(Number);
   const enabled = Number.isInteger(year) && Number.isInteger(month);
+  const scope = useActualsScope();
   const { data } = useQuery({
-    queryKey: ["cycle-status", year, month],
+    queryKey: ["cycle-status", year, month, scope],
     queryFn: async (): Promise<CycleStatus> =>
-      (await (await fetch(`/api/cycle-status?year=${year}&month=${month}`)).json()).data,
-    enabled,
+      (
+        await (
+          await fetch(withScope(`/api/cycle-status?year=${year}&month=${month}`, scope!))
+        ).json()
+      ).data,
+    enabled: enabled && scope !== null,
     // 月の切り替え中も前の状況を出し続け、行のちらつきを防ぐ
     placeholderData: (prev) => prev,
   });

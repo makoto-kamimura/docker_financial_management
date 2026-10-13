@@ -35,6 +35,8 @@ import { cycleKey } from "@/lib/shared/cycle-month";
 import { useCycleMonth } from "@/lib/client/use-cycle-month";
 import { Notice } from "@/components/ui";
 import { AllocationSuggestSection } from "@/components/AllocationSuggestSection";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type AccountRef = {
   id: number;
@@ -83,21 +85,31 @@ export function BudgetConfirmPanel({
       (await (await fetch("/api/accounts")).json()).data ?? [],
   });
 
+  const scope = useActualsScope();
   // 比べる月の予算と実績（予算案の計算と、①②③ の状況に使う）
   const { data, isLoading } = useQuery({
-    queryKey: ["budget-variance", prev?.year, prev?.month],
+    queryKey: ["budget-variance", prev?.year, prev?.month, scope],
     queryFn: async (): Promise<VarianceResponse> =>
-      (await (await fetch(`/api/budgets/variance?year=${prev!.year}&month=${prev!.month}`)).json())
-        .data,
-    enabled: prev !== null,
+      (
+        await (
+          await fetch(
+            withScope(`/api/budgets/variance?year=${prev!.year}&month=${prev!.month}`, scope!),
+          )
+        ).json()
+      ).data,
+    enabled: prev !== null && scope !== null,
   });
 
   // 予算の月そのものの状況（その月の実績が確定済みか・前月の実績が未確定か）
   const { data: own } = useQuery({
-    queryKey: ["cycle-status", year, month],
+    queryKey: ["cycle-status", year, month, scope],
     queryFn: async (): Promise<CycleStatus> =>
-      (await (await fetch(`/api/cycle-status?year=${year}&month=${month}`)).json()).data,
-    enabled: month !== null,
+      (
+        await (
+          await fetch(withScope(`/api/cycle-status?year=${year}&month=${month}`, scope!))
+        ).json()
+      ).data,
+    enabled: month !== null && scope !== null,
   });
 
   // 月・モードが変わったら、差額の扱いを既定に戻す
@@ -211,7 +223,7 @@ export function BudgetConfirmPanel({
       const items = withPlan
         ? plan.map((i) => ({ accountId: i.accountId, amount: finalAmount(i.accountId, i.amount) }))
         : [];
-      const res = await fetch("/api/budgets/confirm", {
+      const res = await fetch(withScope("/api/budgets/confirm", scope!), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ year, month, items }),
@@ -235,9 +247,12 @@ export function BudgetConfirmPanel({
     setBusy(true);
     setMessage(null);
     try {
-      const res = await fetch(`/api/budgets/confirm?year=${year}&month=${month}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        withScope(`/api/budgets/confirm?year=${year}&month=${month}`, scope!),
+        {
+          method: "DELETE",
+        },
+      );
       if (res.ok) {
         setMessage({ ok: true, text: `${label}の確定を解除しました。` });
         refresh();
@@ -337,7 +352,11 @@ export function BudgetConfirmPanel({
             />
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <label htmlFor="transfer-target" className="text-xs font-medium text-slate-600">
-                {household ? "余りの回し先（貯蓄など）" : "余りの回し先（流用先）"}
+                {household
+                  ? "余りの回し先（貯蓄など）"
+                  : mode === "sole"
+                    ? "余りの回し先（事業主の取り分など）"
+                    : "余りの回し先（流用先）"}
               </label>
               <select
                 id="transfer-target"
@@ -356,6 +375,11 @@ export function BudgetConfirmPanel({
               {data.transferTargetId === null && household && (
                 <span className="text-[11px] text-slate-400">
                   予算配分の「貯蓄・投資」に入る科目（科目名に「貯蓄」「積立」などを含む科目）が、ここの既定になります。
+                </span>
+              )}
+              {data.transferTargetId === null && mode === "sole" && (
+                <span className="text-[11px] text-slate-400">
+                  事業の予算配分の「事業主の取り分」に入る科目（科目名に「利益」「事業主」などを含む科目）が、ここの既定になります。
                 </span>
               )}
             </div>

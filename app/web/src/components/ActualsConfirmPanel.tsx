@@ -30,6 +30,8 @@ import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { Notice } from "@/components/ui";
 import { DirectedAmount } from "@/components/DirectedAmount";
 import { BUSINESS_USE_LABEL, isValidBusinessRatio } from "@/lib/shared/business-use";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 export function ActualsConfirmPanel({
   mode,
@@ -52,11 +54,17 @@ export function ActualsConfirmPanel({
     setMessage(null);
   }, [year, month]);
 
+  const scope = useActualsScope();
+  // 実績の確定は家庭と事業で共通。予算の確定の状況は、いまのモードの予算のものを出す
   const { data, isLoading } = useQuery({
-    queryKey: ["cycle-status", year, month],
+    queryKey: ["cycle-status", year, month, scope],
     queryFn: async (): Promise<CycleStatus> =>
-      (await (await fetch(`/api/cycle-status?year=${year}&month=${month}`)).json()).data,
-    enabled: month !== null,
+      (
+        await (
+          await fetch(withScope(`/api/cycle-status?year=${year}&month=${month}`, scope!))
+        ).json()
+      ).data,
+    enabled: month !== null && scope !== null,
   });
 
   function refresh() {

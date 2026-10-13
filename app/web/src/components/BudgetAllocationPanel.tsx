@@ -7,6 +7,8 @@
 //   ルールの下の科目のチップから、別のルールへ移す・配分から外す・自動に戻すができる。
 //   この割合で予算を入れる「配分提案」は、はじめての予算の確定のときに「予算の確定」タブに出す
 //   （components/AllocationSuggestSection.tsx）。
+//   個人事業主モードでは事業の予算の配分ルール（?scope=business）を扱う。家庭のルールとは別に持ち、
+//   グループは「生活費」の代わりに「変動費」。
 
 import { Fragment, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,6 +16,8 @@ import { Trash2 } from "lucide-react";
 import { SectionLead } from "@/components/Explain";
 import { BUDGET_HELP } from "@/lib/shared/help-texts";
 import { type AssignmentSource } from "@/lib/shared/allocation-assign";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope, type ActualsScope } from "@/lib/shared/business-use";
 
 // 配分ルールのメンバー科目（自動の振り分け＋手動の割り当てを解決したもの）
 type MemberAccount = {
@@ -50,7 +54,11 @@ type RuleEdit = {
   fallbackCategory: string; // 空 = 受け皿ではない
 };
 
-const ALLOCATION_GROUPS_UI = ["固定費", "生活費", "その他"] as const;
+// グループの選択肢（lib/budget/default-allocation-rules.ts の ALLOCATION_GROUPS_BY_SCOPE と同じ）
+const ALLOCATION_GROUPS_UI: Record<ActualsScope, readonly string[]> = {
+  household: ["固定費", "生活費", "その他"],
+  business: ["固定費", "変動費", "その他"],
+};
 const FALLBACK_OPTIONS = [
   ["", "—"],
   ["EXPENSE", "固定費の残り"],
@@ -155,6 +163,8 @@ function AllocationRulesSection() {
   const [unassigned, setUnassigned] = useState<MemberAccount[]>([]);
   const [moving, setMoving] = useState(false);
   const qc = useQueryClient();
+  const scope = useActualsScope();
+  const groups = ALLOCATION_GROUPS_UI[scope ?? "household"];
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -173,8 +183,9 @@ function AllocationRulesSection() {
   };
 
   const load = () => {
+    if (scope === null) return;
     setLoading(true);
-    fetch("/api/allocation-rules")
+    fetch(withScope("/api/allocation-rules", scope))
       .then((r) => r.json())
       .then((j: RulesResponse) => {
         applyView(j, true);
@@ -187,7 +198,7 @@ function AllocationRulesSection() {
     setMoving(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/allocation-rules/assignments", {
+      const res = await fetch(withScope("/api/allocation-rules/assignments", scope!), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId, ruleId }),
@@ -204,11 +215,11 @@ function AllocationRulesSection() {
       setMoving(false);
     }
   };
-  // 初回だけ読み込む（load は setState だけを使うので、作り直しに追随する必要はない）
+  // モード（範囲）が決まったら読み込む（load は setState だけを使うので、作り直しに追随する必要はない）
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scope]);
 
   const setField = (index: number, field: keyof RuleEdit, value: string) => {
     setRules((rs) => rs.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
@@ -221,7 +232,7 @@ function AllocationRulesSection() {
         origKey: null,
         key: newRuleKey(),
         label: "",
-        group: ALLOCATION_GROUPS_UI[0],
+        group: groups[0],
         minPercent: "0",
         maxPercent: "",
         note: "",
@@ -243,7 +254,9 @@ function AllocationRulesSection() {
   const loadDefaults = async () => {
     setSeeding(true);
     setMsg(null);
-    const res = await fetch("/api/allocation-rules/defaults", { method: "POST" });
+    const res = await fetch(withScope("/api/allocation-rules/defaults", scope!), {
+      method: "POST",
+    });
     setSeeding(false);
     if (res.ok) {
       const j = await res.json();
@@ -279,7 +292,7 @@ function AllocationRulesSection() {
       setMsg({ ok: false, text: "項目名（ラベル）が未入力の行があります。" });
       return;
     }
-    const res = await fetch("/api/allocation-rules", {
+    const res = await fetch(withScope("/api/allocation-rules", scope!), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items, removedKeys: removedKeys.length ? removedKeys : undefined }),
@@ -306,7 +319,11 @@ function AllocationRulesSection() {
       <div className="flex items-start justify-between gap-3 mb-2">
         <div>
           <h2 className="section-title">予算配分ルール</h2>
-          <SectionLead className="mt-1">{BUDGET_HELP.allocationRules}</SectionLead>
+          <SectionLead className="mt-1">
+            {scope === "business"
+              ? BUDGET_HELP.allocationRulesBusiness
+              : BUDGET_HELP.allocationRules}
+          </SectionLead>
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           <button onClick={save} disabled={saving} className="btn-primary whitespace-nowrap">
@@ -361,7 +378,7 @@ function AllocationRulesSection() {
                         onChange={(e) => setField(i, "group", e.target.value)}
                         className="input-field w-28"
                       >
-                        {ALLOCATION_GROUPS_UI.map((g) => (
+                        {groups.map((g) => (
                           <option key={g} value={g}>
                             {g}
                           </option>
