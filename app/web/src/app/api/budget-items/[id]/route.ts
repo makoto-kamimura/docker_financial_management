@@ -12,13 +12,14 @@ export const DELETE = withApi({
     const { tenantId } = user;
     const item = await db.budgetItem.findUnique({ where: { id, tenantId } });
     if (!item) throw notFound();
-    await assertBudgetPeriodEditable(db, item.periodId);
+    await assertBudgetPeriodEditable(db, item.periodId, item.scope);
 
     await db.$transaction(async (tx) => {
       const budget = await tx.budget.findUnique({
         where: {
-          tenantId_accountId_periodId: {
+          tenantId_scope_accountId_periodId: {
             tenantId,
+            scope: item.scope,
             accountId: item.accountId,
             periodId: item.periodId,
           },
@@ -35,6 +36,7 @@ export const DELETE = withApi({
           userId: user.id,
           action: "update",
           amount,
+          scope: item.scope,
         });
       }
       await tx.budgetItem.delete({ where: { id } });

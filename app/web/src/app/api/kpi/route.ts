@@ -12,12 +12,12 @@ import { forecast } from "@/lib/budget/forecast";
 import { loadLastActualsConfirmed } from "@/lib/budget/cycle-status";
 import { actualRows } from "@/lib/ledger/actuals";
 import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 // GET /api/kpi?period=YYYY-MM … 指定月（既定は現在月以前の最新月）の主要 KPI を返す。
 // periods は実データのある月の昇順リストで、ダッシュボードの対象月セレクタが使う。
 // 累計と年間見込みは、テナントの決算月（tenants.closingMonth、既定 12 ＝ 1〜12 月）で締める期で集計する。
-// scope=business（個人事業主モード）は事業の分の実績だけを数える（lib/ledger/scope.ts）。
-// 事業の予算はまだ無いので、business では予算（budget）を返さない。
+// scope=business（個人事業主モード）は事業の分の実績と事業の予算で数える（lib/ledger/scope.ts）。
 export const GET = withApi({
   role: "viewer",
   querySchema: ScopeQuery.extend({
@@ -40,7 +40,7 @@ export const GET = withApi({
         })
         .then(actualRows),
       db.budget.findMany({
-        where: { tenantId },
+        where: { tenantId, scope: budgetScopeOf(query.scope) },
         include: { period: true, account: true },
       }),
       db.tenant.findUnique({ where: { id: tenantId }, select: { closingMonth: true } }),
@@ -74,10 +74,7 @@ export const GET = withApi({
     const targetKey = query.period && periods.includes(query.period) ? query.period : defaultKey;
 
     const kpi = computeKpiAt(monthly, targetKey, closingMonth);
-    const budget =
-      targetKey && query.scope === "household"
-        ? computeKpiBudgetAt(budgetMonthly, targetKey, kpi)
-        : null;
+    const budget = targetKey ? computeKpiBudgetAt(budgetMonthly, targetKey, kpi) : null;
     // 見込みで実績として扱う最後の月。対象月より前に実績を確定した月があれば、その最後の月まで
     // （明細が途中までしか無い未確定の月で見込みがぶれないように）。確定を使っていない場合と、
     // 対象月以降に確定済みの月がある（過去の月を見ている）場合は対象月まで。

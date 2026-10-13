@@ -13,13 +13,14 @@ import {
   scopedAmount,
   ScopeQuery,
 } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 // GET /api/bank-accounts/cash-outlook?before=12&after=12 … 銀行管理の残高の推移。
 //   今月の前後の月末残高を、口座ごとと合計で返す（計算は lib/ledger/cash-outlook.ts）。
 //   過去は明細のある月からにする（最大 before か月前）。口座ごとの先の見込みは資金繰りと同じく
 //   資金移動ルール + 借入の返済の自動の引き落とし、合計の先の見込みは予算と実績の収支から出す。
-//   scope=business（個人事業主モード）は、事業利用の口座・借入金と事業の分の実績だけを使う
-//   （事業の予算はまだ無いので、予算の収支は使わない）。
+//   scope=business（個人事業主モード）は、事業利用の口座・借入金と事業の分の実績・事業の予算を使う。
+//   家庭（household）は家庭の予算だけを使う（事業の予算を二重に数えないため）。
 export const GET = withApi({
   role: "viewer",
   querySchema: ScopeQuery.extend({
@@ -56,8 +57,8 @@ export const GET = withApi({
       db.budget.findMany({
         where: {
           tenantId,
+          scope: budgetScopeOf(scope),
           period: { fiscalYear: { gte: year, lte: year + 3 } },
-          ...(scope === "business" ? { id: { in: [] } } : {}),
         },
         select: {
           amount: true,

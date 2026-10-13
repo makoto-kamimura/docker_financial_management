@@ -4,6 +4,8 @@ import { withApi } from "@/lib/server/api-handler";
 import { assertBudgetPeriodEditable } from "@/lib/budget/budget-lock";
 import { recordBudgetHistory } from "@/lib/budget/budget-history";
 import { resolvePeriod, requireAccountByCode } from "@/lib/accounting/period";
+import { ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 const ItemSchema = z.object({
   date: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/),
@@ -14,16 +16,18 @@ const ItemSchema = z.object({
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
-// GET /api/budget-items?year=&month= … 予算管理のカレンダーで登録した予算（月を省略すると年の全件）
+// GET /api/budget-items?year=&month=&scope= … 予算管理のカレンダーで登録した予算（月を省略すると年の全件）
+//   scope=business は個人事業主モードの事業の予算
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     year: z.coerce.number().int(),
     month: z.coerce.number().int().min(1).max(12).optional(),
   }),
   handler: async ({ db, query }) => {
     const items = await db.budgetItem.findMany({
       where: {
+        scope: budgetScopeOf(query.scope),
         period: { fiscalYear: query.year, ...(query.month ? { month: query.month } : {}) },
       },
       include: {
@@ -44,15 +48,22 @@ export const GET = withApi({
 export const POST = withApi({
   role: "editor",
   schema: ItemSchema,
-  handler: async ({ user, db, body, audit }) => {
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, body, query, audit }) => {
     const { tenantId } = user;
+    const scope = budgetScopeOf(query.scope);
     const account = await requireAccountByCode(db, tenantId, body.accountCode);
     const [year, month] = body.date.split("-").map(Number);
     const period = await resolvePeriod(db, tenantId, year, month);
-    await assertBudgetPeriodEditable(db, period.id);
+    await assertBudgetPeriodEditable(db, period.id, scope);
 
     const key = {
-      tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
+      tenantId_scope_accountId_periodId: {
+        tenantId,
+        scope,
+        accountId: account.id,
+        periodId: period.id,
+      },
     };
     const item = await db.$transaction(async (tx) => {
       const before = await tx.budget.findUnique({ where: key });
@@ -60,7 +71,7 @@ export const POST = withApi({
       const budget = await tx.budget.upsert({
         where: key,
         update: { amount },
-        create: { tenantId, accountId: account.id, periodId: period.id, amount },
+        create: { tenantId, scope, accountId: account.id, periodId: period.id, amount },
       });
       await recordBudgetHistory(tx, {
         tenantId,
@@ -70,6 +81,7 @@ export const POST = withApi({
         userId: user.id,
         action: before ? "update" : "create",
         amount,
+        scope,
       });
       return tx.budgetItem.create({
         data: {
@@ -80,6 +92,7 @@ export const POST = withApi({
           description: body.description,
           amount: body.amount,
           createdById: user.id,
+          scope,
         },
       });
     });

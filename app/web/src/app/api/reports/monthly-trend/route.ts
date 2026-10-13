@@ -12,6 +12,7 @@ import {
 } from "@/lib/budget/monthly-trend";
 import { actualRows } from "@/lib/ledger/actuals";
 import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 // GET /api/reports/monthly-trend?period=YYYY-MM&back=6&forward=6&accountCode=&method=
 //   … 対象月を中心とした前後の推移。対象月以前は実績、後ろは予測。
@@ -20,7 +21,7 @@ import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 // GET /api/reports/monthly-trend?year=YYYY&method=
 //   … 指定年度の 1〜12 月。実績が未入力の将来月は予測で埋める（構成比グラフの年度モード）。
 //
-// scope=business（個人事業主モード）は事業の分の実績だけ。事業の予算はまだ無いので予算は空にする。
+// scope=business（個人事業主モード）は事業の分の実績と事業の予算。
 export const GET = withApi({
   role: "viewer",
   querySchema: ScopeQuery.extend({
@@ -89,7 +90,7 @@ export const GET = withApi({
           where: {
             tenantId,
             accountId: acct.id,
-            ...(query.scope === "business" ? { id: -1 } : {}),
+            scope: budgetScopeOf(query.scope),
           },
           include: { period: { select: { fiscalYear: true, month: true } } },
         });

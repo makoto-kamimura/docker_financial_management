@@ -222,7 +222,7 @@ afterAll(async () => {
 });
 
 describe("実績の集計", () => {
-  it("kpi: household は全額、business は事業の分。business では予算を返さない", async () => {
+  it("kpi: household は全額、business は事業の分。事業の予算が無ければ予算は null", async () => {
     const home = await get(kpiGet, `/api/kpi?period=${YEAR}-03`);
     const biz = await get(kpiGet, `/api/kpi?period=${YEAR}-03&scope=business`);
     expect(home.kpi).toMatchObject({ revenue: 50_000, operatingProfit: 35_000 });

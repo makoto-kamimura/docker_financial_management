@@ -1,3 +1,4 @@
+import type { BudgetScope } from "@prisma/client";
 import type { TenantDbClient } from "@/lib/server/tenant-db";
 import { loadActualsCoverage, type CoverageSnapshot } from "@/lib/ledger/actuals-coverage";
 import { nextYearMonth, prevYearMonth } from "@/lib/shared/budget-cycle";
@@ -6,18 +7,20 @@ import { nextYearMonth, prevYearMonth } from "@/lib/shared/budget-cycle";
 // 予算管理の「予算の確定」（GET /api/budgets/variance）、実績管理の「実績の確定」と
 // ダッシュボードの状況の 1 行（GET /api/cycle-status）が同じものを使う。
 // 前月の予算が確定済みなら、前月の実績も確定済みでないと予算を確定できない（POST /api/budgets/confirm と同じ判定）。
+// 予算の確定は範囲（家庭 / 事業）ごとに見る。実績の確定は共通。
 export async function loadCycleStatus(
   db: TenantDbClient,
   tenantId: number,
   year: number,
   month: number,
+  scope: BudgetScope = "HOUSEHOLD",
 ) {
   const next = nextYearMonth(year, month);
   const prev = prevYearMonth(year, month);
   const periodOf = (y: number, m: number) =>
     db.period.findUnique({
       where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: y, month: m } },
-      include: { budgetConfirmation: true, actualsConfirmation: true },
+      include: { budgetConfirmations: { where: { scope } }, actualsConfirmation: true },
     });
 
   const [period, nextPeriod, prevPeriod, coverage] = await Promise.all([
@@ -42,11 +45,12 @@ export async function loadCycleStatus(
       month,
       next,
       /** ① その月の予算の確定日時 */
-      confirmedAt: period?.budgetConfirmation?.confirmedAt ?? null,
+      confirmedAt: period?.budgetConfirmations[0]?.confirmedAt ?? null,
       /** ③ 翌月の予算の確定日時 */
-      nextConfirmedAt: nextPeriod?.budgetConfirmation?.confirmedAt ?? null,
+      nextConfirmedAt: nextPeriod?.budgetConfirmations[0]?.confirmedAt ?? null,
       // 前月の予算が確定済みで実績が未確定なら、その月の予算はまだ確定できない
-      prevActualsPending: !!prevPeriod?.budgetConfirmation && !prevPeriod.actualsConfirmation,
+      prevActualsPending:
+        (prevPeriod?.budgetConfirmations.length ?? 0) > 0 && !prevPeriod!.actualsConfirmation,
       /** ② その月の実績の入力状況と確定状況 */
       actuals: {
         confirmedAt: period?.actualsConfirmation?.confirmedAt ?? null,

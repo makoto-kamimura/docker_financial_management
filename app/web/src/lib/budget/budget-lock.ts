@@ -1,8 +1,10 @@
 import type { TenantDbClient } from "@/lib/server/tenant-db";
+import type { BudgetScope } from "@prisma/client";
 import { conflict } from "@/lib/server/api-error";
 
 // 確定済みの月の予算は書き換えさせない（予実対比の基準として固定するため）。
 // 予算を書き込むルート（登録・変更・削除・カレンダーの登録・配分の反映）から呼ぶ。
+// 予算の確定は範囲（家庭 / 事業）ごと。事業の予算を確定しても、家庭の予算は変えられる。
 
 export const BUDGET_LOCKED_MESSAGE =
   "この月の予算は確定済みのため変更できません。変更するには、予算管理の「予算の確定」で確定を解除してください";
@@ -10,8 +12,11 @@ export const BUDGET_LOCKED_MESSAGE =
 export async function isBudgetPeriodConfirmed(
   db: Pick<TenantDbClient, "budgetConfirmation">,
   periodId: number,
+  scope: BudgetScope,
 ): Promise<boolean> {
-  const row = await db.budgetConfirmation.findUnique({ where: { periodId } });
+  const row = await db.budgetConfirmation.findUnique({
+    where: { periodId_scope: { periodId, scope } },
+  });
   return row !== null;
 }
 
@@ -19,9 +24,10 @@ export async function isBudgetPeriodConfirmed(
 export async function assertBudgetPeriodEditable(
   db: Pick<TenantDbClient, "budgetConfirmation">,
   periodId: number,
+  scope: BudgetScope,
   label?: string,
 ): Promise<void> {
-  if (await isBudgetPeriodConfirmed(db, periodId)) {
+  if (await isBudgetPeriodConfirmed(db, periodId, scope)) {
     throw conflict(label ? `${label}: ${BUDGET_LOCKED_MESSAGE}` : BUDGET_LOCKED_MESSAGE);
   }
 }
@@ -30,9 +36,10 @@ export async function assertBudgetPeriodEditable(
 export async function confirmedBudgetMonths(
   db: Pick<TenantDbClient, "budgetConfirmation">,
   year: number,
+  scope: BudgetScope,
 ): Promise<{ month: number; confirmedAt: Date }[]> {
   const rows = await db.budgetConfirmation.findMany({
-    where: { period: { fiscalYear: year } },
+    where: { period: { fiscalYear: year }, scope },
     select: { confirmedAt: true, period: { select: { month: true } } },
     orderBy: { period: { month: "asc" } },
   });

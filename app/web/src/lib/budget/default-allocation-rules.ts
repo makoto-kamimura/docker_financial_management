@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { BudgetScope, Prisma } from "@prisma/client";
 import type { AllocationTargetCategory } from "../shared/allocation-assign";
 
 /**
@@ -14,9 +14,15 @@ import type { AllocationTargetCategory } from "../shared/allocation-assign";
  * 推奨額は幅の中央（上限なしは下限）。中央の合計がちょうど 100% になるように決めている
  * （住居 25・食費 15・光熱 5・通信 4・保険 5・車 5・教育 5・日用品 4・娯楽と小遣い 8・貯蓄 20・受け皿 2+2）。
  */
-export const ALLOCATION_GROUPS = ["固定費", "生活費", "その他"] as const;
+export const ALLOCATION_GROUPS = ["固定費", "生活費", "変動費", "その他"] as const;
 
 export type AllocationGroup = (typeof ALLOCATION_GROUPS)[number];
+
+/** 予算の範囲ごとの、配分ルールのまとまり（家庭は生活費、事業は変動費） */
+export const ALLOCATION_GROUPS_BY_SCOPE: Record<BudgetScope, readonly AllocationGroup[]> = {
+  HOUSEHOLD: ["固定費", "生活費", "その他"],
+  BUSINESS: ["固定費", "変動費", "その他"],
+};
 
 export { ALLOCATION_TARGET_CATEGORIES } from "../shared/allocation-assign";
 
@@ -67,24 +73,87 @@ export const DEFAULT_ALLOCATION_RULES: readonly AllocationRuleSeed[] = [
 ];
 
 /**
- * 指定テナントに既定の予算配分ルール一式を登録する。
+ * 事業の予算（個人事業主モード）の配分ルールの既定値（売上に対する割合）。
+ * 推奨額は幅の中央で、合計がちょうど 100% になるように決めている
+ * （仕入 30・外注 10・地代家賃 10・広告 5・通信 3・旅費交通 3・消耗品 3・光熱 2・接待交際 2・
+ * 支払手数料 2・事業主の取り分 26・受け皿 2+2）。
+ */
+export const DEFAULT_BUSINESS_ALLOCATION_RULES: readonly AllocationRuleSeed[] = [
+  // ── 変動費 ──────────────────────────────────────────────────────────
+  // prettier-ignore
+  { key: "purchase",      label: "仕入・材料",                          group: "変動費", minPercent: 20, maxPercent: 40, note: "売上原価。業種で大きく違うので、実績に合わせて直す", keywords: ["仕入", "材料", "原価", "商品"] },
+  // prettier-ignore
+  { key: "outsourcing",   label: "外注費",                              group: "変動費", minPercent: 5,  maxPercent: 15, keywords: ["外注", "業務委託"] },
+  // prettier-ignore
+  { key: "advertising",   label: "広告宣伝費",                          group: "変動費", minPercent: 2,  maxPercent: 8,  keywords: ["広告", "宣伝", "販促"] },
+  // prettier-ignore
+  { key: "travel",        label: "旅費交通費",                          group: "変動費", minPercent: 1,  maxPercent: 5,  keywords: ["旅費", "交通", "出張", "ガソリン", "駐車"] },
+  // prettier-ignore
+  { key: "supplies",      label: "消耗品費",                            group: "変動費", minPercent: 1,  maxPercent: 5,  keywords: ["消耗品", "事務用品", "備品"] },
+  // ── 固定費 ──────────────────────────────────────────────────────────
+  // prettier-ignore
+  { key: "rent",          label: "地代家賃",                            group: "固定費", minPercent: 5,  maxPercent: 15, note: "自宅兼事務所は事業利用按分した分", keywords: ["家賃", "地代", "賃料"] },
+  // prettier-ignore
+  { key: "communication", label: "通信費",                              group: "固定費", minPercent: 1,  maxPercent: 5,  keywords: ["通信", "回線", "スマホ", "携帯", "インターネット", "サーバー"] },
+  // prettier-ignore
+  { key: "utilities",     label: "水道光熱費",                          group: "固定費", minPercent: 1,  maxPercent: 3,  keywords: ["電気", "ガス", "水道", "光熱"] },
+  // ── その他 ──────────────────────────────────────────────────────────
+  // prettier-ignore
+  { key: "entertainment", label: "接待交際費",                          group: "その他", minPercent: 0,  maxPercent: 4,  keywords: ["接待", "交際", "会議"] },
+  // prettier-ignore
+  { key: "fees",          label: "支払手数料",                          group: "その他", minPercent: 0,  maxPercent: 4,  keywords: ["手数料", "振込"] },
+  // prettier-ignore
+  { key: "profit",        label: "事業主の取り分（利益）",              group: "その他", minPercent: 20, maxPercent: 32, note: "生活費・税金・貯蓄に回す分", keywords: ["貯蓄", "積立", "利益", "事業主"] },
+  // ── 受け皿（どのキーワードにも当たらない科目） ───────────────────────────────
+  // prettier-ignore
+  { key: "other_fixed",   label: "その他の経費",                        group: "固定費", minPercent: 0,  maxPercent: 4,  note: "どのキーワードにも当たらない経費の科目が入る", keywords: [], fallbackCategory: "EXPENSE" },
+  // prettier-ignore
+  { key: "other_variable", label: "その他の原価",                       group: "変動費", minPercent: 0,  maxPercent: 4,  note: "どのキーワードにも当たらない原価の科目が入る", keywords: [], fallbackCategory: "COGS" },
+];
+
+/** 予算の範囲ごとの既定の配分ルール */
+export const DEFAULT_ALLOCATION_RULES_BY_SCOPE: Record<BudgetScope, readonly AllocationRuleSeed[]> =
+  { HOUSEHOLD: DEFAULT_ALLOCATION_RULES, BUSINESS: DEFAULT_BUSINESS_ALLOCATION_RULES };
+
+/** 余りの回し先の既定を探す配分ルール（家庭は貯蓄、事業は事業主の取り分） */
+export const SAVINGS_RULE_KEY: Record<BudgetScope, string> = {
+  HOUSEHOLD: "savings",
+  BUSINESS: "profit",
+};
+
+/**
+ * 指定テナントに既定の予算配分ルール一式を登録する（範囲を省略すると家庭と事業の両方）。
  * 既に同じ key のルールが存在する場合は何もしない（ユーザーの編集を上書きしない）。
  * `db` には通常の PrismaClient、または `$transaction` 内の TransactionClient を渡せる。
  */
 export async function seedDefaultAllocationRulesForTenant(
   db: Prisma.TransactionClient,
   tenantId: number,
+  scopes: readonly BudgetScope[] = ["HOUSEHOLD", "BUSINESS"],
 ): Promise<number> {
   let created = 0;
-  for (const [index, rule] of DEFAULT_ALLOCATION_RULES.entries()) {
+  for (const scope of scopes) {
+    created += await seedScope(db, tenantId, scope);
+  }
+  return created;
+}
+
+async function seedScope(
+  db: Prisma.TransactionClient,
+  tenantId: number,
+  scope: BudgetScope,
+): Promise<number> {
+  let created = 0;
+  for (const [index, rule] of DEFAULT_ALLOCATION_RULES_BY_SCOPE[scope].entries()) {
     const existing = await db.allocationRule.findUnique({
-      where: { tenantId_key: { tenantId, key: rule.key } },
+      where: { tenantId_scope_key: { tenantId, scope, key: rule.key } },
     });
     if (existing) continue;
 
     await db.allocationRule.create({
       data: {
         tenantId,
+        scope,
         key: rule.key,
         label: rule.label,
         group: rule.group,

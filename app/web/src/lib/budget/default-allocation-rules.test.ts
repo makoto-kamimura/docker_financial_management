@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_ALLOCATION_RULES } from "./default-allocation-rules";
+import { DEFAULT_ALLOCATION_RULES_BY_SCOPE } from "./default-allocation-rules";
 
-describe("既定の予算配分ルール", () => {
+describe.each(["HOUSEHOLD", "BUSINESS"] as const)("既定の予算配分ルール（%s）", (scope) => {
+  const DEFAULT_ALLOCATION_RULES = DEFAULT_ALLOCATION_RULES_BY_SCOPE[scope];
+
   it("key が一意である", () => {
     const keys = DEFAULT_ALLOCATION_RULES.map((r) => r.key);
     expect(new Set(keys).size).toBe(keys.length);

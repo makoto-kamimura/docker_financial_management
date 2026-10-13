@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
+import { ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 // GET /api/budgets/history?limit=30&offset=0&sort=changedAt&order=desc&year=YYYY
 //   … 予算の変更履歴。実績の /api/financials/recent と同じ形（data / total / limit / offset）で返し、
 //     予算管理の「履歴」タブが実績管理の「履歴」と同じ見た目・ページ送りで表示できるようにする。
+//     scope=business は事業の予算の履歴。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     limit: z.coerce.number().int().min(1).max(100).default(30),
     offset: z.coerce.number().int().min(0).default(0),
     sort: z.enum(["changedAt", "account", "amount"]).default("changedAt"),
@@ -18,6 +21,7 @@ export const GET = withApi({
     // 予算は削除後も履歴を残す（budgetId は SET NULL）ため、履歴側の accountId / periodId で絞る
     const where = {
       tenantId: user.tenantId,
+      scope: budgetScopeOf(query.scope),
       ...(query.year ? { period: { fiscalYear: query.year } } : {}),
     };
     // 勘定科目は表示と同じくコード順。同値の並びは日時降順で安定させる。

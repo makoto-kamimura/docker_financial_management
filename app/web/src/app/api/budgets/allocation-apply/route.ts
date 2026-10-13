@@ -6,6 +6,8 @@ import { assertBudgetPeriodEditable } from "@/lib/budget/budget-lock";
 import { notFound } from "@/lib/server/api-error";
 import { resolvePeriod } from "@/lib/accounting/period";
 import { zMoney } from "@/lib/common/schemas";
+import { ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 const ApplySchema = z.object({
   year: z.number().int(),
@@ -26,11 +28,14 @@ const ApplySchema = z.object({
 // POST /api/budgets/allocation-apply … 配分提案を予算へ一括反映（editor 以上）
 //   既定（onlyUnset）では、すでに予算が入っている科目は飛ばす。画面は予算が未設定の科目だけに
 //   残りを按分して送るが、送るまでの間に他で予算が入った場合も上書きしないよう、ここでも確かめる。
+//   ?scope=business は個人事業主モードの事業の予算に入れる。
 export const POST = withApi({
   role: "editor",
   schema: ApplySchema,
-  handler: async ({ user, db, body, audit }) => {
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, body, query, audit }) => {
     const { tenantId } = user;
+    const scope = budgetScopeOf(query.scope);
     const { year, items, onlyUnset } = body;
 
     // 対象科目がすべて自テナントに属することを事前検証する（他テナント混入は書き込み前に 404）
@@ -47,13 +52,14 @@ export const POST = withApi({
     const periods = new Map<number, { id: number }>();
     for (const month of new Set(items.map((i) => i.month))) {
       const period = await resolvePeriod(db, tenantId, year, month);
-      await assertBudgetPeriodEditable(db, period.id, `${year}年${month}月`);
+      await assertBudgetPeriodEditable(db, period.id, scope, `${year}年${month}月`);
       periods.set(month, period);
     }
 
     const before = await db.budget.findMany({
       where: {
         tenantId,
+        scope,
         accountId: { in: accountIds },
         periodId: { in: [...periods.values()].map((p) => p.id) },
       },
@@ -67,7 +73,14 @@ export const POST = withApi({
     for (const item of items) {
       const periodId = periods.get(item.month)!.id;
       const prev = await db.budget.findUnique({
-        where: { tenantId_accountId_periodId: { tenantId, accountId: item.accountId, periodId } },
+        where: {
+          tenantId_scope_accountId_periodId: {
+            tenantId,
+            scope,
+            accountId: item.accountId,
+            periodId,
+          },
+        },
       });
       if (prev && onlyUnset) {
         skipped++;
@@ -75,9 +88,16 @@ export const POST = withApi({
       }
       applied++;
       const budget = await db.budget.upsert({
-        where: { tenantId_accountId_periodId: { tenantId, accountId: item.accountId, periodId } },
+        where: {
+          tenantId_scope_accountId_periodId: {
+            tenantId,
+            scope,
+            accountId: item.accountId,
+            periodId,
+          },
+        },
         update: { amount: item.amount },
-        create: { tenantId, accountId: item.accountId, periodId, amount: item.amount },
+        create: { tenantId, scope, accountId: item.accountId, periodId, amount: item.amount },
       });
       await recordBudgetHistory(db, {
         tenantId,
@@ -87,6 +107,7 @@ export const POST = withApi({
         userId: user.id,
         action: prev ? "update" : "create",
         amount: item.amount,
+        scope,
       });
     }
 

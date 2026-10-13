@@ -4,6 +4,8 @@ import { withApi } from "@/lib/server/api-handler";
 import { splitRuleTarget, suggestAllocation } from "@/lib/budget/allocation";
 import { loadActualWeights, loadAllocationContext } from "@/lib/budget/allocation-data";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget/budget-overlay";
+import { actualWhere, SCOPE_SELECT, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 // GET /api/budgets/allocation-guide?year=YYYY
 //   … 予算管理のマトリクスに重ねる「適正金額」。収入（REVENUE）の実績が入力済みの月について、
@@ -12,28 +14,35 @@ import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budge
 //     （実績が無ければ均等）。ローン返済などの自動反映がある科目は、その額で埋まっているものとして、
 //     目標額の残りを他の科目へ按分する（lib/budget/allocation.ts の splitRuleTarget）。予算の有無に関係なく出す参考値で、予算の値は変えない。
 //     実績が無い月は算出しない（0 円の推奨を出さない）。
+//     scope=business は事業の予算（事業の配分ルール・事業の分の実績・事業利用の借入の上乗せ）。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({ year: z.coerce.number().int() }),
+  querySchema: ScopeQuery.extend({ year: z.coerce.number().int() }),
   handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const { year } = query;
+    const scope = budgetScopeOf(query.scope);
 
     // 月ごとの収入実績（配分の基準額）
     const revenueRecords = await db.financialRecord.findMany({
-      where: { tenantId, period: { fiscalYear: year }, account: { category: "REVENUE" } },
-      select: { amount: true, period: { select: { month: true } } },
+      where: {
+        tenantId,
+        ...actualWhere(query.scope),
+        period: { fiscalYear: year },
+        account: { category: "REVENUE" },
+      },
+      select: { amount: true, ...SCOPE_SELECT, period: { select: { month: true } } },
     });
     const basisByMonth = new Map<number, number>();
     for (const r of revenueRecords) {
       const m = r.period.month;
-      basisByMonth.set(m, (basisByMonth.get(m) ?? 0) + Number(r.amount));
+      basisByMonth.set(m, (basisByMonth.get(m) ?? 0) + scopedAmount(r, query.scope));
     }
 
     const [context, loanOverlay, debtOverlay] = await Promise.all([
-      loadAllocationContext(db, tenantId),
-      computeLoanOverlay(db, tenantId, year),
-      computePersonalAssetDebtOverlay(db, tenantId, year),
+      loadAllocationContext(db, tenantId, scope),
+      computeLoanOverlay(db, tenantId, year, scope),
+      computePersonalAssetDebtOverlay(db, tenantId, year, scope),
     ]);
     const { ruleInputs, members, accounts, assignments } = context;
     const ruleIdByAccount = new Map(assignments.map((a) => [a.accountId, a.ruleId]));
@@ -44,6 +53,7 @@ export const GET = withApi({
       accounts.map((a) => a.id),
       { year, month: 1 },
       { year, month: 12 },
+      scope,
     );
 
     const overlaysAll = [...loanOverlay, ...debtOverlay];

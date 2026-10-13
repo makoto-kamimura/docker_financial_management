@@ -23,7 +23,7 @@ const ym = (year: number, month: number) => `${year}-${String(month).padStart(2,
 
 // POST /api/actuals/confirm … 月の実績を確定する（editor 以上）
 //   月ごとの流れ「① 予算確定 → ② 実績確定 → ③ 翌月の予算確定」の ②。
-//   その月の予算が確定済みで、銀行・カード・電子マネーの明細が月末日までそろって
+//   その月の予算が（家庭か事業のどちらかで）確定済みで、銀行・カード・電子マネーの明細が月末日までそろって
 //   「実績入力済み」になっていること、未割り当て（科目が付いていない）の明細が残っていないことが条件
 //   （lib/ledger/actuals-coverage.ts）。
 //   月末まで届いていない口座・カードは、noChange（当月末まで変動なし）で指定すれば、そろったものとして扱う。
@@ -39,9 +39,10 @@ export const POST = withApi({
 
     const period = await db.period.findUnique({
       where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
-      include: { budgetConfirmation: true, actualsConfirmation: true },
+      include: { budgetConfirmations: true, actualsConfirmation: true },
     });
-    if (!period?.budgetConfirmation) {
+    // 実績の確定は家庭と事業で共通なので、どちらかの予算が確定していればよい
+    if (!period?.budgetConfirmations.length) {
       throw conflict(`${label}の予算が確定していません。先に予算を確定してください`);
     }
     if (period.actualsConfirmation) throw conflict(`${label}の実績はすでに確定済みです`);
@@ -93,7 +94,7 @@ export const POST = withApi({
 });
 
 // DELETE /api/actuals/confirm?year=&month= … 実績の確定の解除（admin のみ）
-//   確定と逆の順でしか外せない: 翌月の予算が確定済みなら、先にそちらを解除する。
+//   確定と逆の順でしか外せない: 翌月の予算が（家庭か事業のどちらかで）確定済みなら、先にそちらを解除する。
 export const DELETE = withApi({
   role: "admin",
   querySchema: z.object({
@@ -114,13 +115,13 @@ export const DELETE = withApi({
         where: {
           tenantId_fiscalYear_month: { tenantId, fiscalYear: next.year, month: next.month },
         },
-        include: { budgetConfirmation: true },
+        include: { budgetConfirmations: true },
       }),
     ]);
     if (!period?.actualsConfirmation) {
       throw notFound(`${year}年${month}月の実績は確定されていません`);
     }
-    if (nextPeriod?.budgetConfirmation) {
+    if (nextPeriod?.budgetConfirmations.length) {
       throw conflict(
         `${next.year}年${next.month}月の予算が確定済みのため解除できません。先に${next.month}月の予算の確定を解除してください`,
       );
