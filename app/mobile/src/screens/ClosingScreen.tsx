@@ -218,7 +218,7 @@ export function ClosingScreen({ viewMode }: Props) {
                   <Text style={s.highlightValue}>{yenNet(pnl.grossProfit)}</Text>
                 </View>
                 <SectionTitle>
-                  経費{pnl.expenseTotal !== pnl.expenseDeductible ? "（家事按分後）" : ""}
+                  経費{pnl.expenseTotal !== pnl.expenseDeductible ? "（事業利用按分後）" : ""}
                 </SectionTitle>
                 <AccountLines
                   rows={pnl.expenses}
@@ -234,7 +234,7 @@ export function ClosingScreen({ viewMode }: Props) {
                 <View style={[s.highlight, pnl.netIncome >= 0 ? s.income : s.loss]}>
                   <View>
                     <Text style={s.highlightLabel}>事業所得（課税所得）</Text>
-                    <Text style={s.muted}>収入 − 原価 − 必要経費（家事按分後）</Text>
+                    <Text style={s.muted}>収入 − 原価 − 必要経費（事業利用按分後）</Text>
                   </View>
                   <Text
                     style={[

@@ -390,7 +390,11 @@ export function BudgetConfirmSection({
           {/* 余りの回し先 */}
           <View style={s.transferRow}>
             <Text style={s.transferLabel}>
-              {household ? "余りの回し先（貯蓄など）" : "余りの回し先（流用先）"}
+              {household
+                ? "余りの回し先（貯蓄など）"
+                : viewMode === "sole"
+                  ? "余りの回し先（事業主の取り分など）"
+                  : "余りの回し先（流用先）"}
             </Text>
             <TouchableOpacity
               style={s.transferField}
@@ -406,6 +410,11 @@ export function BudgetConfirmSection({
             {data.transferTargetId === null && household && (
               <Text style={s.hint}>
                 予算配分の「貯蓄・投資」に入る科目（科目名に「貯蓄」「積立」などを含む科目）が、ここの既定になります。
+              </Text>
+            )}
+            {data.transferTargetId === null && viewMode === "sole" && (
+              <Text style={s.hint}>
+                事業の予算配分の「事業主の取り分」に入る科目（科目名に「利益」「事業主」などを含む科目）が、ここの既定になります。
               </Text>
             )}
           </View>

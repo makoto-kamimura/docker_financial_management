@@ -187,8 +187,9 @@ export function AllocationSuggestSection({
             {(
               [
                 ["固定費", data.summary503020.needs],
-                ["生活費", data.summary503020.wants],
-                ["その他・貯蓄", data.summary503020.savings],
+                // 事業の配分ルールは「生活費」の代わりに「変動費」、貯蓄の代わりに事業主の取り分
+                [viewMode === "sole" ? "変動費" : "生活費", data.summary503020.wants],
+                [viewMode === "sole" ? "その他・利益" : "その他・貯蓄", data.summary503020.savings],
               ] as [string, number][]
             ).map(([label, value]) => (
               <View key={label} style={s.summaryCell}>
