@@ -1,7 +1,8 @@
 "use client";
 
 // 実績管理の現金の入力で使う「レシートを撮影して入力」。撮った写真を読み取り、下書きを親のフォームに渡す。
-// 有料プランは高精度（Claude）、無料プランは簡易（サーバーの中の OCR）で読む。登録は親のフォームで行う。
+// 有料プランは高精度（Claude）、無料プランは簡易（サーバーの中の OCR）で読む。登録は親のフォームで行い、
+// 登録した明細には、ここで縮めた写真を証憑として付ける（onScanned の photo）。
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -24,7 +25,11 @@ const PAYMENT_WARNINGS: Partial<Record<ReceiptDraft["paymentMethod"], string>> =
     "電子マネーや QR コード決済のレシートのようです。電子マネーの明細から入る分と二重に計上しないよう注意してください。",
 };
 
-export function ReceiptScanButton({ onScanned }: { onScanned: (r: ReceiptScanResult) => void }) {
+export function ReceiptScanButton({
+  onScanned,
+}: {
+  onScanned: (r: ReceiptScanResult, photo: File) => void;
+}) {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const [scanning, setScanning] = useState(false);
@@ -50,8 +55,9 @@ export function ReceiptScanButton({ onScanned }: { onScanned: (r: ReceiptScanRes
     setScanning(true);
     setPreview(URL.createObjectURL(file));
     try {
+      const photo = await resizeImageToJpeg(file);
       const body = new FormData();
-      body.append("file", await resizeImageToJpeg(file));
+      body.append("file", photo);
       const res = await fetch("/api/actuals/receipt-scan", { method: "POST", body });
       const json = (await res.json().catch(() => ({}))) as {
         data?: ReceiptScanResult;
@@ -62,7 +68,7 @@ export function ReceiptScanButton({ onScanned }: { onScanned: (r: ReceiptScanRes
         return;
       }
       setWarning(PAYMENT_WARNINGS[json.data.draft.paymentMethod] ?? null);
-      onScanned(json.data);
+      onScanned(json.data, photo);
     } catch {
       setError("読み取りに失敗しました。通信状態を確かめてください");
     } finally {

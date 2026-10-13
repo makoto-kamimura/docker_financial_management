@@ -1173,7 +1173,7 @@ npm run typecheck && npm run format:check
 
 ### 20.10 証憑のアップロード
 
-証憑は `/app/uploads` の下にテナントごとのフォルダで保存し、ファイルの先頭のバイトで種類を確かめる。`/api/uploads/[filename]` から、ログインしたユーザーに、自分のテナントの証憑だけを返す（ほかは 404）。ダウンロードは監査ログに残す。
+証憑は仕訳と現金の明細に付けられる。`/app/uploads` の下にテナントごとのフォルダで保存し、ファイルの先頭のバイトで種類を確かめる（`src/lib/server/upload.ts` の `readUploadedFile`・`storeTenantUpload`）。証憑や明細を消すと、ファイルも消す。`/api/uploads/[filename]` から、ログインしたユーザーに、自分のテナントの証憑だけを返す（ほかは 404）。ダウンロードは監査ログに残す。
 
 ### 20.11 定期ジョブ
 
@@ -1200,7 +1200,7 @@ npm run typecheck && npm run format:check
 
 実績管理の現金のカレンダーで「レシートを撮影して入力」を押すと、撮った写真から日付・店名・合計・支払方法を読み、登録のフォームに入れる。読み取りでは何も登録せず、利用者が確かめてから登録する（`src/lib/ledger/receipt-scan/`）。
 
-- 写真はブラウザで長辺 1600px の JPEG に縮めてから送る（`src/lib/client/resize-image.ts`）。画像は残さない。
+- 写真はブラウザで長辺 1600px の JPEG に縮めてから送る（`src/lib/client/resize-image.ts`）。読み取りでは画像を残さず、登録したあとに、その明細の証憑として付ける（`POST /api/actuals/[id]/receipts`）。カレンダーの明細の行に 📎 が付き、証憑を開ける。
 - 有料プランは Claude（`RECEIPT_OCR_MODEL`、既定 `claude-opus-5-5`）の構造化出力で読む。無料プラン、または `ANTHROPIC_API_KEY` が無いときは、サーバーの中の Tesseract（日本語の学習データは `@tesseract.js-data/jpn` を同梱）で読み、`parse-receipt-text.ts` で「合計」などの手がかりから拾う。Tesseract は同時に 1 件だけ動かす。
 - 回数はテナントごとに日本時間の 1 日 30 回まで（`receipt_scan_requests` を数える。失敗は数えない）。上限を超えると 429。テナントの行をロックしてから数えるので、同時に読んでも超えない。
 - 店名は学習ルールにかけ、当たれば科目の候補にする。登録のときに「次から同じ店名には、この科目を使う」を選ぶと、学習ルールに覚える（`POST /api/actuals` の `learn`）。
@@ -1277,7 +1277,7 @@ npm run typecheck && npm run format:check
 | `journal_entries` | transactionDate, description, paymentMethod, taxCategory, approvalStatus | |
 | `journal_details` | journalEntryId, side, accountId, amount, taxRate, taxCreditEligible, note | |
 | `journal_approvals` | journalEntryId, action, actorId, comment | |
-| `receipts` | journalEntryId, fileName, fileUrl, savedName, mimeType, fileSize | 証憑 |
+| `receipts` | journalEntryId, financialRecordId, fileName, fileUrl, savedName, mimeType, fileSize | 証憑。仕訳か現金の明細のどちらか一方に付く（CHECK 制約） |
 | `journal_templates` / `journal_template_lines` | name / side, accountId, amount, sortOrder | |
 | `inventories` / `inventory_items` | inventoryDate, status, valuationMethod, totalAmount / itemName, itemType, quantity, unitPrice | |
 | `fixed_assets` / `depreciations` | acquiredOn, acquisitionCost, usefulLife, method, bookValue / fiscalYear, amount | 償却は `[fixedAssetId, fiscalYear]` 一意 |
@@ -1457,6 +1457,8 @@ npm run typecheck && npm run format:check
 | GET / DELETE | `/journals/[id]` | V / E |
 | GET / POST | `/journals/[id]/receipts` | V / E |
 | DELETE | `/journals/[id]/receipts/[receiptId]` | E |
+| GET / POST | `/actuals/[id]/receipts`（現金の明細の証憑） | V / E |
+| DELETE | `/actuals/[id]/receipts/[receiptId]` | E |
 | GET / POST | `/journals/approve` | Ac |
 | POST | `/journals/suggest` | V |
 | GET / POST | `/journal-templates` | V / E |

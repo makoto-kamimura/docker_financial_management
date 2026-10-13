@@ -27,4 +27,6 @@ docs/jgw/
 
 # DB data (host bind mount)
 platform/db/
+# 証憑のアップロード先（開発で動かしたとき・結合テスト）
+app/web/uploads/
 backups/

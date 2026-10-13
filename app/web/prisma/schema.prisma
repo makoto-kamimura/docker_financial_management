@@ -292,7 +292,8 @@ model FinancialRecord {
   // チャージ元の明細と、チャージ先に入った明細を対にする識別子
   chargeGroupId   String?
 
-  history FinancialRecordHistory[]
+  history  FinancialRecordHistory[]
+  receipts Receipt[] // 証憑（レシートの写真など。現金の明細だけ）
 
   @@unique([bankAccountId, externalId])
   @@unique([cardAccountId, externalId])
@@ -632,21 +633,24 @@ model JournalDetail {
   @@map("journal_details")
 }
 
-// F005 証憑ファイル
+// F005 証憑ファイル。仕訳か現金の明細のどちらか一方に付く（CHECK 制約で保証する）
 model Receipt {
-  id             Int          @id @default(autoincrement())
-  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  journalEntryId Int
-  fileName       String // アップロード時の元ファイル名（表示用）
-  fileUrl        String // 配信 URL（/api/uploads/<savedName>）
-  savedName      String? // uploads/ 配下の実ファイル名（配信時の所有確認・Content-Type 決定に使用）
-  mimeType       String? // アップロード時に検証済みの MIME タイプ
-  fileType       String // pdf / image / other
-  fileSize       Int
-  uploadedAt     DateTime     @default(now())
+  id                Int              @id @default(autoincrement())
+  journalEntry      JournalEntry?    @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  journalEntryId    Int?
+  financialRecord   FinancialRecord? @relation(fields: [financialRecordId], references: [id], onDelete: Cascade)
+  financialRecordId Int?
+  fileName          String // アップロード時の元ファイル名（表示用）
+  fileUrl           String // 配信 URL（/api/uploads/<savedName>）
+  savedName         String? // uploads/ 配下の実ファイル名（配信時の所有確認・Content-Type 決定に使用）
+  mimeType          String? // アップロード時に検証済みの MIME タイプ
+  fileType          String // pdf / image / other
+  fileSize          Int
+  uploadedAt        DateTime         @default(now())
 
   @@unique([savedName])
   @@index([journalEntryId])
+  @@index([financialRecordId])
   @@map("receipts")
 }
 

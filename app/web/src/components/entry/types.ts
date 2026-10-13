@@ -28,6 +28,8 @@ export type CashEntry = {
     soleName?: string | null;
     corporateName?: string | null;
   } | null;
+  /** 証憑（レシートの写真など） */
+  receipts?: { id: number; fileName: string; fileUrl: string }[];
 };
 
 // 収入・支出の科目区分（現金の登録フォームと科目の選択肢で使う）

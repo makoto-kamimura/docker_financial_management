@@ -1,14 +1,6 @@
 import { NextResponse } from "next/server";
 import { withApi } from "@/lib/server/api-handler";
-import { badRequest } from "@/lib/server/api-error";
-import {
-  classifyFileType,
-  contentTypeForExtension,
-  matchesMagicBytes,
-  maxUploadBytes,
-  resolveUploadExtension,
-  uploadTooLargeMessage,
-} from "@/lib/server/upload";
+import { readUploadedFile } from "@/lib/server/upload";
 import { receiptScanStatus, scanReceipt } from "@/lib/ledger/receipt-scan/scan";
 import type { ClaudeImageType } from "@/lib/ledger/receipt-scan/claude";
 
@@ -26,25 +18,8 @@ export const GET = withApi({
 export const POST = withApi({
   role: "editor",
   handler: async ({ req, user, db, audit }) => {
-    let formData: FormData;
-    try {
-      formData = await req.formData();
-    } catch {
-      throw badRequest(uploadTooLargeMessage());
-    }
-    const file = formData.get("file");
-    if (!(file instanceof File)) throw badRequest("file is required");
-    if (file.size > maxUploadBytes()) throw badRequest(uploadTooLargeMessage());
-
-    const ext = resolveUploadExtension(file.name, file.type);
-    const mediaType = ext ? contentTypeForExtension(ext) : "";
-    if (!ext || classifyFileType(mediaType) !== "image") {
-      throw badRequest("画像（jpg/png/gif/webp）を送ってください");
-    }
-    const buf = Buffer.from(await file.arrayBuffer());
-    if (!matchesMagicBytes(buf, ext)) throw badRequest("ファイルの内容が拡張子と一致しません");
-
-    const outcome = await scanReceipt(db, user, buf, mediaType as ClaudeImageType);
+    const upload = await readUploadedFile(req, { imagesOnly: true });
+    const outcome = await scanReceipt(db, user, upload.buf, upload.mimeType as ClaudeImageType);
     await audit("receipt_scan", `receipt_scan_request:${outcome.requestId}`);
     const { draft, engine, remaining, suggestedAccount } = outcome;
     return NextResponse.json({ data: { draft, engine, remaining, suggestedAccount } });

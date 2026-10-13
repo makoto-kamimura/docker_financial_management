@@ -1,7 +1,11 @@
 // アップロードファイルの検証・保存名決定ロジック。
-// journals/[id]/receipts（証憑アップロード）で使用する。
+// 証憑のアップロード（journals/[id]/receipts・actuals/[id]/receipts）と、レシートの読み取り
+// （actuals/receipt-scan）で使用する。
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { getConfig } from "@/lib/server/config";
+import { badRequest } from "@/lib/server/api-error";
 
 export const UPLOAD_DIR = path.join(process.cwd(), "uploads");
 /** 1 ファイルの上限（環境変数 UPLOAD_MAX_BYTES、既定 10MB） */
@@ -93,4 +97,71 @@ export function matchesMagicBytes(buf: Buffer, ext: string): boolean {
     default:
       return false;
   }
+}
+
+/** 検証済みのアップロード（multipart の file） */
+export type UploadedFile = {
+  fileName: string;
+  ext: string;
+  mimeType: string;
+  size: number;
+  buf: Buffer;
+};
+
+/**
+ * multipart の file を読み、サイズ・拡張子と MIME タイプ・先頭のバイトを確かめる（不正なら 400）。
+ * imagesOnly なら画像（jpg/png/gif/webp）だけを受け付ける。
+ */
+export async function readUploadedFile(
+  req: Request,
+  opts: { imagesOnly?: boolean } = {},
+): Promise<UploadedFile> {
+  // リクエストボディがサーバー側の上限を超えて切り詰められた場合、formData() のパースが
+  // 例外を投げる（Next.js のデフォルト body size 制限）。500 ではなく 400 として扱う
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch {
+    throw badRequest(uploadTooLargeMessage());
+  }
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw badRequest("file is required");
+  if (file.size > maxUploadBytes()) throw badRequest(uploadTooLargeMessage());
+
+  const ext = resolveUploadExtension(file.name, file.type);
+  const mimeType = ext ? file.type || contentTypeForExtension(ext) : "";
+  if (opts.imagesOnly && (!ext || classifyFileType(mimeType) !== "image")) {
+    throw badRequest("画像（jpg/png/gif/webp）を送ってください");
+  }
+  if (!ext) throw badRequest("許可されていないファイル形式です（pdf/jpg/png/gif/webp のみ）");
+
+  const buf = Buffer.from(await file.arrayBuffer());
+  // S-8: マジックバイト検証。拡張子・Content-Type の詐称（内容不一致）を検出する
+  if (!matchesMagicBytes(buf, ext)) throw badRequest("ファイルの内容が拡張子と一致しません");
+  return { fileName: file.name, ext, mimeType, size: file.size, buf };
+}
+
+/** テナントのフォルダに保存し、証憑（Receipt）の行に入れる列を返す */
+export async function storeTenantUpload(tenantId: number, upload: UploadedFile) {
+  const dir = tenantUploadDir(tenantId);
+  await mkdir(dir, { recursive: true });
+  const savedName = `${randomUUID()}.${upload.ext}`;
+  await writeFile(path.join(dir, savedName), upload.buf);
+  return {
+    fileName: upload.fileName,
+    // D-7: fileUrl 列は 1 リリース据え置き後に削除予定のため書き込みは維持するが、
+    // レスポンスは resolveReceiptFileUrl() の導出値を返す
+    fileUrl: `/api/uploads/${savedName}`,
+    savedName,
+    mimeType: upload.mimeType,
+    fileType: classifyFileType(upload.mimeType),
+    fileSize: upload.size,
+  };
+}
+
+/** 保存したファイルを消す（ベストエフォート。旧フラット構成のファイルも探す） */
+export async function removeTenantUpload(tenantId: number, savedName: string): Promise<void> {
+  const tenantPath = path.join(tenantUploadDir(tenantId), savedName);
+  const legacyPath = path.join(UPLOAD_DIR, savedName);
+  await unlink(tenantPath).catch(() => unlink(legacyPath).catch(() => {}));
 }
