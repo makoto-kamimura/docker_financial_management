@@ -6,6 +6,8 @@ import {
   ALLOCATION_GROUPS,
   ALLOCATION_TARGET_CATEGORIES,
 } from "@/lib/budget/default-allocation-rules";
+import { ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 const RuleSchema = z
   .object({
@@ -30,13 +32,14 @@ const PutSchema = z.object({
   removedKeys: z.array(z.string()).max(100).optional(),
 });
 
-// GET /api/allocation-rules … 予算配分ルール一覧（テナント別マスタ）
+// GET /api/allocation-rules?scope= … 予算配分ルール一覧（テナント別マスタ）
 //   ルールごとのメンバー科目（自動の振り分けと手動の割り当てを解決したもの）と、
-//   どのルールにも入っていない科目も返す。
+//   どのルールにも入っていない科目も返す。scope=business は事業の予算の配分ルール。
 export const GET = withApi({
   role: "viewer",
-  handler: async ({ user, db }) => {
-    const view = await loadAllocationRulesView(db, user.tenantId);
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, query }) => {
+    const view = await loadAllocationRulesView(db, user.tenantId, budgetScopeOf(query.scope));
     return NextResponse.json({ data: view.rules, unassigned: view.unassigned });
   },
 });
@@ -47,8 +50,10 @@ export const GET = withApi({
 export const PUT = withApi({
   role: "editor",
   schema: PutSchema,
-  handler: async ({ user, db, body, audit }) => {
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, body, query, audit }) => {
     const { tenantId } = user;
+    const scope = budgetScopeOf(query.scope);
 
     await db.$transaction(async (tx) => {
       for (const [index, item] of body.items.entries()) {
@@ -65,21 +70,21 @@ export const PUT = withApi({
             : {}),
         };
         await tx.allocationRule.upsert({
-          where: { tenantId_key: { tenantId, key: item.key } },
+          where: { tenantId_scope_key: { tenantId, scope, key: item.key } },
           update: common,
-          create: { tenantId, key: item.key, ...common },
+          create: { tenantId, scope, key: item.key, ...common },
         });
       }
       if (body.removedKeys?.length) {
         await tx.allocationRule.deleteMany({
-          where: { tenantId, key: { in: body.removedKeys } },
+          where: { tenantId, scope, key: { in: body.removedKeys } },
         });
       }
     });
 
-    await audit("update", `allocation-rules:${body.items.length}`);
+    await audit("update", `allocation-rules:${body.items.length}`, { after: { scope } });
 
-    const view = await loadAllocationRulesView(db, tenantId);
+    const view = await loadAllocationRulesView(db, tenantId, scope);
     return NextResponse.json({ data: view.rules, unassigned: view.unassigned });
   },
 });

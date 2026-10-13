@@ -1,3 +1,4 @@
+import type { BudgetScope } from "@prisma/client";
 import type { TenantDb } from "@/lib/server/tenant-db";
 
 // 予算の変更履歴を 1 行積む。実績の FinancialRecordHistory と揃えて
@@ -18,6 +19,8 @@ export async function recordBudgetHistory(
     userId: number | null;
     action: BudgetHistoryAction;
     amount: number;
+    /** 予算の範囲（家庭 / 事業） */
+    scope: BudgetScope;
   },
 ) {
   await db.budgetHistory.create({
@@ -29,6 +32,7 @@ export async function recordBudgetHistory(
       userId: params.userId,
       action: params.action,
       amount: params.amount,
+      scope: params.scope,
     },
   });
 }

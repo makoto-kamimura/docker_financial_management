@@ -4,6 +4,8 @@ import { withApi } from "@/lib/server/api-handler";
 import { splitRuleTarget, suggestAllocation } from "@/lib/budget/allocation";
 import { loadActualWeights, loadAllocationContext } from "@/lib/budget/allocation-data";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget/budget-overlay";
+import { actualWhere, SCOPE_SELECT, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 // GET /api/budgets/allocation-suggest?year=&month=&basis=budget|actual|manual&amount= … 配分提案（読み取り専用）
 //   basis=manual … 実績・予算を一切見ず、amount（画面で入力した収入金額）だけを基準額にする。
@@ -15,9 +17,10 @@ import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budge
 //   各ルールには、メンバー科目（自動の振り分け＋手動の割り当て）と、按分の重み（前の 3 か月の実績）、
 //   その月にすでに入っている予算（自動反映を含む。予算の表と同じ）を付けて返す。「予算へ反映」は、
 //   予算が未設定の科目だけに残りを按分する（画面で lib/shared/allocation-assign.ts の planAllocationApply を使う）。
+//   scope=business は事業の予算（事業の配分ルール・事業の分の実績・事業利用の借入の上乗せ）。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     year: z.coerce.number().int(),
     month: z.coerce.number().int().min(1).max(12),
     basis: z.enum(["budget", "actual", "manual"]).default("manual"),
@@ -26,6 +29,7 @@ export const GET = withApi({
   handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const { year, month, basis } = query;
+    const scope = budgetScopeOf(query.scope);
 
     let basisAmount = 0;
     if (basis === "manual") {
@@ -37,16 +41,21 @@ export const GET = withApi({
       if (period) {
         if (basis === "budget") {
           const rows = await db.budget.findMany({
-            where: { tenantId, periodId: period.id, account: { category: "REVENUE" } },
+            where: { tenantId, scope, periodId: period.id, account: { category: "REVENUE" } },
             select: { amount: true },
           });
           basisAmount = rows.reduce((sum, r) => sum + Number(r.amount), 0);
         } else {
           const rows = await db.financialRecord.findMany({
-            where: { tenantId, periodId: period.id, account: { category: "REVENUE" } },
-            select: { amount: true },
+            where: {
+              tenantId,
+              periodId: period.id,
+              ...actualWhere(query.scope),
+              account: { category: "REVENUE" },
+            },
+            select: { amount: true, ...SCOPE_SELECT },
           });
-          basisAmount = rows.reduce((sum, r) => sum + Number(r.amount), 0);
+          basisAmount = rows.reduce((sum, r) => sum + scopedAmount(r, query.scope), 0);
         }
       }
     }
@@ -54,6 +63,7 @@ export const GET = withApi({
     const { ruleInputs, members, accounts, assignments } = await loadAllocationContext(
       db,
       tenantId,
+      scope,
     );
     const sourceById = new Map(assignments.map((a) => [a.accountId, a.source]));
     const ruleIdByAccount = new Map(assignments.map((a) => [a.accountId, a.ruleId]));
@@ -64,8 +74,8 @@ export const GET = withApi({
         ? []
         : await (async () => {
             const [loanOverlay, debtOverlay] = await Promise.all([
-              computeLoanOverlay(db, tenantId, year),
-              computePersonalAssetDebtOverlay(db, tenantId, year),
+              computeLoanOverlay(db, tenantId, year, scope),
+              computePersonalAssetDebtOverlay(db, tenantId, year, scope),
             ]);
             return [...loanOverlay, ...debtOverlay]
               .filter((o) => o.month === month)
@@ -83,7 +93,7 @@ export const GET = withApi({
 
     const allIds = accounts.map((a) => a.id);
     const [weightsFor, period] = await Promise.all([
-      loadActualWeights(db, tenantId, allIds, { year, month }, { year, month }),
+      loadActualWeights(db, tenantId, allIds, { year, month }, { year, month }, scope),
       db.period.findUnique({
         where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
         select: { id: true },
@@ -92,7 +102,7 @@ export const GET = withApi({
     const weights = weightsFor(year, month);
     const budgets = period
       ? await db.budget.findMany({
-          where: { tenantId, periodId: period.id, accountId: { in: allIds } },
+          where: { tenantId, scope, periodId: period.id, accountId: { in: allIds } },
           select: { accountId: true, amount: true },
         })
       : [];

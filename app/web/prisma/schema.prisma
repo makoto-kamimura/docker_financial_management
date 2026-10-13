@@ -21,6 +21,12 @@ enum AccountCategory {
   OTHER
 }
 
+// 予算の範囲（家庭・法人モードの予算と、個人事業主モードの事業の予算を分けて持つ）
+enum BudgetScope {
+  HOUSEHOLD
+  BUSINESS
+}
+
 // 予測手法
 enum ForecastMethod {
   MOVING_AVERAGE
@@ -65,7 +71,7 @@ model Account {
   accruedExpenses       AccruedExpense[]
   loans                 Loan[]
   personalAssets        PersonalAsset[]
-  allocationAssignment  AllocationAccountAssignment?
+  allocationAssignments AllocationAccountAssignment[]
   txnCategoryRules      TxnCategoryRule[]
   bankAccounts          BankAccount[]
   cardRecurringPayments CardRecurringPayment[]
@@ -104,7 +110,7 @@ model Period {
   budgets             Budget[]
   budgetHistories     BudgetHistory[]
   budgetItems         BudgetItem[]
-  budgetConfirmation  BudgetConfirmation?
+  budgetConfirmations BudgetConfirmation[]
   actualsConfirmation ActualsConfirmation?
 
   @@unique([tenantId, fiscalYear, month])
@@ -114,18 +120,20 @@ model Period {
 
 // 予算データ（予実対比に使用）
 model Budget {
-  id        Int      @id @default(autoincrement())
+  id        Int         @id @default(autoincrement())
   tenantId  Int
-  account   Account  @relation(fields: [accountId], references: [id])
+  account   Account     @relation(fields: [accountId], references: [id])
   accountId Int
-  period    Period   @relation(fields: [periodId], references: [id])
+  period    Period      @relation(fields: [periodId], references: [id])
   periodId  Int
-  amount    Decimal  @db.Decimal(18, 2)
-  createdAt DateTime @default(now())
+  amount    Decimal     @db.Decimal(18, 2)
+  createdAt DateTime    @default(now())
+  // 予算の範囲。HOUSEHOLD = 家庭・法人モードの予算、BUSINESS = 個人事業主モードの事業の予算
+  scope     BudgetScope @default(HOUSEHOLD)
 
   histories BudgetHistory[]
 
-  @@unique([tenantId, accountId, periodId])
+  @@unique([tenantId, scope, accountId, periodId])
   @@index([tenantId])
   @@map("budgets")
 }
@@ -134,18 +142,20 @@ model Budget {
 // 実績の FinancialRecordHistory と同じ役割だが、予算は削除されても履歴を残したいため
 // budgetId を nullable にし、勘定科目・期間は履歴側に持たせて参照断を避ける。
 model BudgetHistory {
-  id        Int      @id @default(autoincrement())
+  id        Int         @id @default(autoincrement())
   tenantId  Int
-  budget    Budget?  @relation(fields: [budgetId], references: [id], onDelete: SetNull)
+  budget    Budget?     @relation(fields: [budgetId], references: [id], onDelete: SetNull)
   budgetId  Int?
-  account   Account  @relation(fields: [accountId], references: [id])
+  account   Account     @relation(fields: [accountId], references: [id])
   accountId Int
-  period    Period   @relation(fields: [periodId], references: [id])
+  period    Period      @relation(fields: [periodId], references: [id])
   periodId  Int
   userId    Int? // 操作ユーザー（null = CSV インポート等のシステム操作）
   action    String // "create" | "update" | "delete"
-  amount    Decimal  @db.Decimal(18, 2) // 操作時点の金額
-  changedAt DateTime @default(now())
+  amount    Decimal     @db.Decimal(18, 2) // 操作時点の金額
+  changedAt DateTime    @default(now())
+  // 予算の範囲。HOUSEHOLD = 家庭・法人モードの予算、BUSINESS = 個人事業主モードの事業の予算
+  scope     BudgetScope @default(HOUSEHOLD)
 
   @@index([tenantId, changedAt])
   @@index([budgetId])
@@ -159,17 +169,19 @@ model BudgetHistory {
 // 登録すると同じ科目・月の budgets.amount に金額を足し、削除すると引く（budgets は科目×月で 1 行のまま）。
 // 一覧・CSV・予算配分で入れた額は、budgets.amount からここの合計を引いた残りとして内訳に出す。
 model BudgetItem {
-  id          Int      @id @default(autoincrement())
+  id          Int         @id @default(autoincrement())
   tenantId    Int
-  account     Account  @relation(fields: [accountId], references: [id])
+  account     Account     @relation(fields: [accountId], references: [id])
   accountId   Int
-  period      Period   @relation(fields: [periodId], references: [id])
+  period      Period      @relation(fields: [periodId], references: [id])
   periodId    Int
-  date        DateTime @db.Date
+  date        DateTime    @db.Date
   description String
-  amount      Decimal  @db.Decimal(18, 2)
+  amount      Decimal     @db.Decimal(18, 2)
   createdById Int?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime    @default(now())
+  // 予算の範囲。HOUSEHOLD = 家庭・法人モードの予算、BUSINESS = 個人事業主モードの事業の予算
+  scope       BudgetScope @default(HOUSEHOLD)
 
   @@index([tenantId, periodId])
   @@index([accountId, periodId])
@@ -177,13 +189,16 @@ model BudgetItem {
 }
 
 model BudgetConfirmation {
-  id            Int      @id @default(autoincrement())
+  id            Int         @id @default(autoincrement())
   tenantId      Int
-  period        Period   @relation(fields: [periodId], references: [id])
-  periodId      Int      @unique
+  period        Period      @relation(fields: [periodId], references: [id])
+  periodId      Int
   confirmedById Int? // 確定したユーザー
-  confirmedAt   DateTime @default(now())
+  confirmedAt   DateTime    @default(now())
+  // 予算の範囲。HOUSEHOLD = 家庭・法人モードの予算、BUSINESS = 個人事業主モードの事業の予算
+  scope         BudgetScope @default(HOUSEHOLD)
 
+  @@unique([periodId, scope])
   @@index([tenantId])
   @@map("budget_confirmations")
 }
@@ -224,9 +239,12 @@ model AllocationRule {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
+  // 予算の範囲。HOUSEHOLD = 家庭・法人モードの予算、BUSINESS = 個人事業主モードの事業の予算
+  scope BudgetScope @default(HOUSEHOLD)
+
   assignments AllocationAccountAssignment[]
 
-  @@unique([tenantId, key])
+  @@unique([tenantId, scope, key])
   @@index([tenantId])
   @@map("allocation_rules")
 }
@@ -237,11 +255,14 @@ model AllocationAccountAssignment {
   id        Int             @id @default(autoincrement())
   tenantId  Int
   account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  accountId Int             @unique
+  accountId Int
   rule      AllocationRule? @relation(fields: [ruleId], references: [id], onDelete: Cascade)
   ruleId    Int? // null = 配分に入れない
   createdAt DateTime        @default(now())
+  // 予算の範囲。HOUSEHOLD = 家庭・法人モードの予算、BUSINESS = 個人事業主モードの事業の予算
+  scope     BudgetScope     @default(HOUSEHOLD)
 
+  @@unique([accountId, scope])
   @@index([tenantId])
   @@index([ruleId])
   @@map("allocation_account_assignments")

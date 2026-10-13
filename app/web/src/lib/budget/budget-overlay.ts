@@ -1,3 +1,4 @@
+import type { BudgetScope } from "@prisma/client";
 import type { TenantDb } from "@/lib/server/tenant-db";
 import { ratePercentOf, manualMonthlyPaymentOf } from "@/lib/assets/personal-asset-debt";
 import { annuityMonthlyPayment, computeDebtSchedule, ymIndex } from "@/lib/shared/debt-schedule";
@@ -19,15 +20,22 @@ export type PersonalAssetDebtOverlayItem = Omit<LoanOverlayItem, "source"> & { a
 // 連携先科目（例: 家賃・借入返済）が設定された全ローン（住宅・事業性問わず）の月々の返済額を、
 // その科目の予算に自動加算するための上乗せ額。monthlyPayment 入力済みはその値を優先し、
 // 未入力は元利均等（annuityMonthlyPayment）で計算する。
+// 事業の予算（BUSINESS）には、事業利用の借入金だけを上乗せする。
 export async function computeLoanOverlay(
   db: TenantDb,
   tenantId: number,
   year: number,
+  scope: BudgetScope = "HOUSEHOLD",
 ): Promise<LoanOverlayItem[]> {
   const loans = await db.loan.findMany({
     // D-4: 実物資産の紐付け負債（personalAsset あり）は computePersonalAssetDebtOverlay 側で
     // 資産名付きで計上するため、ここでは除外して二重計上を防ぐ
-    where: { tenantId, linkedAccountId: { not: null }, personalAsset: { is: null } },
+    where: {
+      tenantId,
+      linkedAccountId: { not: null },
+      personalAsset: { is: null },
+      ...(scope === "BUSINESS" ? { businessUse: true } : {}),
+    },
     include: { linkedAccount: { select: { id: true, code: true } } },
   });
 
@@ -73,13 +81,19 @@ export const computeHousingLoanOverlay = computeLoanOverlay;
 // 実物資産に紐付く負債（D-4 で Loan に一本化。personal_assets.loanId 経由で参照）の月々の返済額を、
 // 支払い開始年月〜解消予定年月の予算に上乗せする額。上乗せ先はローンの予算連携先（借入金管理で選ぶ）。
 // 予算連携先が空のローンは、以前の資産側の紐付け負債科目（personal_assets.linkedAccountId）に入れる。
+// 事業の予算（BUSINESS）には、事業利用の実物資産のローンだけを上乗せする。
 export async function computePersonalAssetDebtOverlay(
   db: TenantDb,
   tenantId: number,
   year: number,
+  scope: BudgetScope = "HOUSEHOLD",
 ): Promise<PersonalAssetDebtOverlayItem[]> {
   const assets = await db.personalAsset.findMany({
-    where: { tenantId, loanId: { not: null } },
+    where: {
+      tenantId,
+      loanId: { not: null },
+      ...(scope === "BUSINESS" ? { businessUse: true } : {}),
+    },
     include: {
       linkedAccount: { select: { id: true, code: true } },
       loan: { include: { linkedAccount: { select: { id: true, code: true } } } },

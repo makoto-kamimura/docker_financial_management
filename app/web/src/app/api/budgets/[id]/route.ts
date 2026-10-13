@@ -7,14 +7,14 @@ import { assertBudgetPeriodEditable } from "@/lib/budget/budget-lock";
 
 const UpdateSchema = z.object({ amount: z.number() });
 
-// PATCH /api/budgets/[id] … 予算金額の更新（editor 以上）
+// PATCH /api/budgets/[id] … 予算金額の更新（editor 以上）。範囲（家庭 / 事業）は予算の行のもの
 export const PATCH = withApi({
   role: "editor",
   schema: UpdateSchema,
   handler: async ({ user, db, id, body, audit }) => {
     const existing = await db.budget.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!existing) throw notFound();
-    await assertBudgetPeriodEditable(db, existing.periodId);
+    await assertBudgetPeriodEditable(db, existing.periodId, existing.scope);
 
     const budget = await db.budget.update({ where: { id }, data: { amount: body.amount } });
     await recordBudgetHistory(db, {
@@ -25,6 +25,7 @@ export const PATCH = withApi({
       userId: user.id,
       action: "update",
       amount: body.amount,
+      scope: budget.scope,
     });
     await audit("update", `budget:${id}`);
     return NextResponse.json({ data: budget });
@@ -37,7 +38,7 @@ export const DELETE = withApi({
   handler: async ({ user, db, id, audit }) => {
     const existing = await db.budget.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!existing) throw notFound();
-    await assertBudgetPeriodEditable(db, existing.periodId);
+    await assertBudgetPeriodEditable(db, existing.periodId, existing.scope);
 
     // 履歴は削除後も残す（budgetId は SET NULL される）ため、先に 1 行積んでから消す
     await recordBudgetHistory(db, {
@@ -48,10 +49,11 @@ export const DELETE = withApi({
       userId: user.id,
       action: "delete",
       amount: Number(existing.amount),
+      scope: existing.scope,
     });
     // カレンダーで登録した内訳も、その科目・月の予算と一緒に消す（予算が無いのに内訳だけ残らないように）
     await db.budgetItem.deleteMany({
-      where: { accountId: existing.accountId, periodId: existing.periodId },
+      where: { accountId: existing.accountId, periodId: existing.periodId, scope: existing.scope },
     });
     await db.budget.delete({ where: { id } });
     await audit("delete", `budget:${id}`);

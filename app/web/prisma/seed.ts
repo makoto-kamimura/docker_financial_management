@@ -581,7 +581,12 @@ async function main() {
       for (const [accId, annual] of budgetDef) {
         await prisma.budget.upsert({
           where: {
-            tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id },
+            tenantId_scope_accountId_periodId: {
+              tenantId: tid,
+              scope: "HOUSEHOLD",
+              accountId: accId,
+              periodId: p.id,
+            },
           },
           update: { amount: Math.round(annual / 12) },
           create: {
@@ -938,7 +943,12 @@ async function main() {
         const amount = accId === s4000.id ? revTarget : monthly;
         await prisma.budget.upsert({
           where: {
-            tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id },
+            tenantId_scope_accountId_periodId: {
+              tenantId: tid,
+              scope: "HOUSEHOLD",
+              accountId: accId,
+              periodId: p.id,
+            },
           },
           update: { amount },
           create: { tenantId: tid, accountId: accId, periodId: p.id, amount },
@@ -2300,7 +2310,12 @@ async function main() {
       for (const [accId, amount] of corpBudgetDef) {
         await prisma.budget.upsert({
           where: {
-            tenantId_accountId_periodId: { tenantId: tid, accountId: accId, periodId: p.id },
+            tenantId_scope_accountId_periodId: {
+              tenantId: tid,
+              scope: "HOUSEHOLD",
+              accountId: accId,
+              periodId: p.id,
+            },
           },
           update: { amount },
           create: { tenantId: tid, accountId: accId, periodId: p.id, amount },

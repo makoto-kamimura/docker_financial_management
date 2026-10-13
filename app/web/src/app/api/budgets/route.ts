@@ -5,6 +5,8 @@ import { recordBudgetHistory } from "@/lib/budget/budget-history";
 import { resolvePeriod, requireAccountByCode } from "@/lib/accounting/period";
 import { computeLoanOverlay, computePersonalAssetDebtOverlay } from "@/lib/budget/budget-overlay";
 import { assertBudgetPeriodEditable, confirmedBudgetMonths } from "@/lib/budget/budget-lock";
+import { ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 const BudgetSchema = z.object({
   accountCode: z.string().min(1),
@@ -13,16 +15,18 @@ const BudgetSchema = z.object({
   amount: z.number(),
 });
 
-// GET /api/budgets?year=YYYY … 予算一覧（ローン・実物資産負債のオーバーレイ付き）
+// GET /api/budgets?year=YYYY&scope= … 予算一覧（ローン・実物資産負債のオーバーレイ付き）
+//   scope=business は個人事業主モードの事業の予算（予算は家庭と事業で別々に持つ。lib/budget/budget-scope.ts）
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({ year: z.coerce.number().int().optional() }),
+  querySchema: ScopeQuery.extend({ year: z.coerce.number().int().optional() }),
   handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const year = query.year ?? new Date().getFullYear();
+    const scope = budgetScopeOf(query.scope);
 
     const budgets = await db.budget.findMany({
-      where: { tenantId, period: { fiscalYear: year } },
+      where: { tenantId, scope, period: { fiscalYear: year } },
       include: {
         account: { select: { id: true, code: true, name: true, category: true } },
         period: { select: { fiscalYear: true, month: true } },
@@ -37,12 +41,17 @@ export const GET = withApi({
       orderBy: { fiscalYear: "asc" },
     });
 
-    const loanOverlay = await computeLoanOverlay(db, tenantId, year);
-    const personalAssetDebtOverlay = await computePersonalAssetDebtOverlay(db, tenantId, year);
-    const confirmed = await confirmedBudgetMonths(db, year);
+    const loanOverlay = await computeLoanOverlay(db, tenantId, year, scope);
+    const personalAssetDebtOverlay = await computePersonalAssetDebtOverlay(
+      db,
+      tenantId,
+      year,
+      scope,
+    );
+    const confirmed = await confirmedBudgetMonths(db, year, scope);
     // カレンダーで登録した予算（セルの内訳に出す）
     const items = await db.budgetItem.findMany({
-      where: { period: { fiscalYear: year } },
+      where: { scope, period: { fiscalYear: year } },
       include: {
         account: { select: { code: true } },
         period: { select: { month: true } },
@@ -72,31 +81,43 @@ export const GET = withApi({
   },
 });
 
-// POST /api/budgets … 予算の登録（editor 以上）
+// POST /api/budgets?scope= … 予算の登録（editor 以上）
 export const POST = withApi({
   role: "editor",
   schema: BudgetSchema,
-  handler: async ({ user, db, body, audit }) => {
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, body, query, audit }) => {
     const { accountCode, fiscalYear, month, amount } = body;
     const { tenantId } = user;
+    const scope = budgetScopeOf(query.scope);
 
     const account = await requireAccountByCode(db, tenantId, accountCode);
     const period = await resolvePeriod(db, tenantId, fiscalYear, month);
-    await assertBudgetPeriodEditable(db, period.id);
+    await assertBudgetPeriodEditable(db, period.id, scope);
 
     // 既存有無で履歴の action（create / update）を分ける
     const before = await db.budget.findUnique({
       where: {
-        tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
+        tenantId_scope_accountId_periodId: {
+          tenantId,
+          scope,
+          accountId: account.id,
+          periodId: period.id,
+        },
       },
     });
 
     const budget = await db.budget.upsert({
       where: {
-        tenantId_accountId_periodId: { tenantId, accountId: account.id, periodId: period.id },
+        tenantId_scope_accountId_periodId: {
+          tenantId,
+          scope,
+          accountId: account.id,
+          periodId: period.id,
+        },
       },
       update: { amount },
-      create: { tenantId, accountId: account.id, periodId: period.id, amount },
+      create: { tenantId, scope, accountId: account.id, periodId: period.id, amount },
       include: {
         account: { select: { id: true, code: true, name: true } },
         period: { select: { fiscalYear: true, month: true } },
@@ -110,6 +131,7 @@ export const POST = withApi({
       userId: user.id,
       action: before ? "update" : "create",
       amount,
+      scope,
     });
 
     await audit("upsert", `budget:${budget.id}`);

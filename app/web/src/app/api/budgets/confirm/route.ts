@@ -6,6 +6,8 @@ import { recordBudgetHistory } from "@/lib/budget/budget-history";
 import { prevYearMonth } from "@/lib/shared/budget-cycle";
 import { resolvePeriod } from "@/lib/accounting/period";
 import { zMoney } from "@/lib/common/schemas";
+import { ScopeQuery } from "@/lib/ledger/scope";
+import { budgetScopeOf } from "@/lib/budget/budget-scope";
 
 const ConfirmSchema = z.object({
   year: z.number().int(),
@@ -24,12 +26,15 @@ const ConfirmSchema = z.object({
 //   （サイクルが回っている）なら、前月の実績も確定済みでないと 409。前月の予算が未確定なら
 //   サイクルの初回なので、そのまま確定できる（初回の予算は、予算の確定タブの配分提案で入れられる）。
 //   期の最初の月にも例外は無い（前の期の最後の月の実績を確定してから、新しい期の予算を確定する）。
+//   ?scope=business は個人事業主モードの事業の予算。予算の確定は範囲ごと（家庭と事業は別々に確定する）。
 export const POST = withApi({
   role: "editor",
   schema: ConfirmSchema,
-  handler: async ({ user, db, body, audit }) => {
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, body, query, audit }) => {
     const { tenantId } = user;
     const { year, month, items } = body;
+    const scope = budgetScopeOf(query.scope);
 
     const accountIds = [...new Set(items.map((i) => i.accountId))];
     if (accountIds.length !== items.length) throw badRequest("同じ科目が重複しています");
@@ -40,7 +45,9 @@ export const POST = withApi({
 
     const result = await db.$transaction(async (tx) => {
       const period = await resolvePeriod(tx, tenantId, year, month);
-      const already = await tx.budgetConfirmation.findUnique({ where: { periodId: period.id } });
+      const already = await tx.budgetConfirmation.findUnique({
+        where: { periodId_scope: { periodId: period.id, scope } },
+      });
       if (already) throw conflict(`${year}年${month}月の予算はすでに確定済みです`);
 
       const prev = prevYearMonth(year, month);
@@ -48,9 +55,9 @@ export const POST = withApi({
         where: {
           tenantId_fiscalYear_month: { tenantId, fiscalYear: prev.year, month: prev.month },
         },
-        include: { budgetConfirmation: true, actualsConfirmation: true },
+        include: { budgetConfirmations: { where: { scope } }, actualsConfirmation: true },
       });
-      if (prevPeriod?.budgetConfirmation && !prevPeriod.actualsConfirmation) {
+      if (prevPeriod?.budgetConfirmations.length && !prevPeriod.actualsConfirmation) {
         throw conflict(
           `${prev.year}年${prev.month}月の実績が確定していません。先に${prev.month}月の実績を確定してください`,
         );
@@ -59,14 +66,25 @@ export const POST = withApi({
       let written = 0;
       for (const item of items) {
         const where = {
-          tenantId_accountId_periodId: { tenantId, accountId: item.accountId, periodId: period.id },
+          tenantId_scope_accountId_periodId: {
+            tenantId,
+            scope,
+            accountId: item.accountId,
+            periodId: period.id,
+          },
         };
         const prev = await tx.budget.findUnique({ where, select: { amount: true } });
         if (prev && Number(prev.amount) === item.amount) continue;
         const budget = await tx.budget.upsert({
           where,
           update: { amount: item.amount },
-          create: { tenantId, accountId: item.accountId, periodId: period.id, amount: item.amount },
+          create: {
+            tenantId,
+            scope,
+            accountId: item.accountId,
+            periodId: period.id,
+            amount: item.amount,
+          },
         });
         await recordBudgetHistory(tx, {
           tenantId,
@@ -76,18 +94,19 @@ export const POST = withApi({
           userId: user.id,
           action: prev ? "update" : "create",
           amount: item.amount,
+          scope,
         });
         written++;
       }
 
       const confirmation = await tx.budgetConfirmation.create({
-        data: { tenantId, periodId: period.id, confirmedById: user.id },
+        data: { tenantId, periodId: period.id, scope, confirmedById: user.id },
       });
       return { written, confirmedAt: confirmation.confirmedAt };
     });
 
     await audit("budget_confirm", `budgets:${year}-${String(month).padStart(2, "0")}`, {
-      after: { written: result.written },
+      after: { written: result.written, scope },
     });
     return NextResponse.json(
       { data: { year, month, written: result.written, confirmedAt: result.confirmedAt } },
@@ -101,28 +120,29 @@ export const POST = withApi({
 //   確定と逆の順でしか外せない: その月の実績が確定済みなら、先に実績の確定を解除する。
 export const DELETE = withApi({
   role: "admin",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     year: z.coerce.number().int(),
     month: z.coerce.number().int().min(1).max(12),
   }),
   handler: async ({ user, db, query, audit }) => {
     const { tenantId } = user;
     const { year, month } = query;
+    const scope = budgetScopeOf(query.scope);
     const period = await db.period.findUnique({
       where: { tenantId_fiscalYear_month: { tenantId, fiscalYear: year, month } },
-      include: { budgetConfirmation: true, actualsConfirmation: true },
+      include: { budgetConfirmations: { where: { scope } }, actualsConfirmation: true },
     });
-    if (!period?.budgetConfirmation)
-      throw notFound(`${year}年${month}月の予算は確定されていません`);
+    const confirmation = period?.budgetConfirmations[0];
+    if (!period || !confirmation) throw notFound(`${year}年${month}月の予算は確定されていません`);
     if (period.actualsConfirmation) {
       throw conflict(
         `${year}年${month}月の実績が確定済みのため解除できません。先に実績の確定を解除してください`,
       );
     }
 
-    await db.budgetConfirmation.delete({ where: { periodId: period.id } });
+    await db.budgetConfirmation.delete({ where: { id: confirmation.id } });
     await audit("budget_unconfirm", `budgets:${year}-${String(month).padStart(2, "0")}`, {
-      before: { confirmedAt: period.budgetConfirmation.confirmedAt.toISOString() },
+      before: { confirmedAt: confirmation.confirmedAt.toISOString(), scope },
     });
     return new NextResponse(null, { status: 204 });
   },

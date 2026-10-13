@@ -440,6 +440,14 @@ KPI の下に、次の順で置く。
 
 推奨額は幅の中央で、上限の無いルールは下限を使う。既定の目安は、中央の合計がちょうど 100% になるように決めている。手取りに対する FP の目安（住居 25%・食費 15%・光熱と通信と保険がそれぞれ 5% 前後・貯蓄 20%）に合わせた。子どもや車が無い世帯のために、教育費と車関連は下限を 0% にしている。
 
+個人事業の予算（[20.15節](#2015-事業利用と按分)）には、別の配分ルールを持つ。既定の目安は売上に対する割合で、中央の合計はやはり 100%。余りの回し先の既定は「事業主の取り分」に入る科目。
+
+| グループ | 費目（割合の目安） |
+|---|---|
+| 変動費 | 仕入・材料（20〜40%）、外注費（5〜15%）、広告宣伝費（2〜8%）、旅費交通費（1〜5%）、消耗品費（1〜5%）、その他の原価（0〜4%、受け皿） |
+| 固定費 | 地代家賃（5〜15%）、通信費（1〜5%）、水道光熱費（1〜3%）、その他の経費（0〜4%、受け皿） |
+| その他 | 接待交際費（0〜4%）、支払手数料（0〜4%）、事業主の取り分（利益、20〜32%） |
+
 **科目の振り分け**：科目はルールに直接結び付けず、その場で振り分ける（保存しないので、追加した科目もすぐ入る）。計算は `src/lib/shared/allocation-assign.ts`。
 
 1. 手で割り当てた科目（`allocation_account_assignments`）は、その割り当てに従う。「配分に入れない」も選べる。
@@ -477,6 +485,8 @@ KPI の下に、次の順で置く。
 | ③ | 翌月の予算を確定 | その月の実績が確定済みであること（＝翌月にとっての ①） |
 
 解除は逆の順でしか行えない（翌月の予算 → 実績 → 予算）。
+
+予算は家庭と個人事業で別々に持ち、①③ の予算の確定も別々に行う。② の実績の確定は共通で、その月の予算がどちらかで確定していればよい（[20.15節](#2015-事業利用と按分)）。
 
 画面は 3 つに分かれる（モバイルも同じ）。年は左のメニュー（モバイルは画面上部）の対象年度で選び、画面では月だけをボタンで選ぶ。既定の月は、最後に実績を確定した月 L から決める（予実差確認は L、予算の確定と実績の確定は L の翌月。一度も確定していなければ前月）。最後に確定した月は `GET /api/cycle-status/latest` で返し、決め方は `src/lib/shared/cycle-month.ts`（モバイルと共有）。状況はダッシュボードにも出る（[7.2節](#72-kpi)）。
 
@@ -1237,8 +1247,15 @@ npm run typecheck && npm run format:check
 
 - household（家庭・法人モード）は全件・全額。
 - business（個人事業主モード）は、事業利用の明細を按分した額と、明細でない行（仕訳・減価償却・棚卸など）の全額だけを数え、口座・カード・実物資産・借入金は事業利用のものだけを出す。
-- 対象は KPI・科目×月・推移・予測・税理士ポータル・決算書・e-Tax と、口座・カード・資産・借入金の一覧とサマリ・資金繰り。事業の予算はまだ無いので、business では予算を返さない（KPI の予算は null）。
+- 対象は KPI・科目×月・推移・予測・税理士ポータル・決算書・e-Tax と、口座・カード・資産・借入金の一覧とサマリ・資金繰り。
 - 決算書の費用は、明細の全額（total）と事業の分（deductible）を分けて出し、按分率（businessRate）はその比。household では按分しない。キャッシュのキーに範囲を入れ、明細の登録・削除・科目や事業利用の変更・取り込みで消す。
+
+**個人事業の予算**：予算は家庭と個人事業で別々に持つ（`BudgetScope`。予算・カレンダーの内訳・変更履歴・予算の確定・配分ルール・科目の振り分けの各テーブルの `scope`。`src/lib/budget/budget-scope.ts`）。予算の API は同じ `?scope=business` で事業の予算を扱う。
+
+- 予算の一覧・カレンダー・予実差・予算の確定・履歴・配分提案は、家庭と同じ流れで使う。予実差は事業の予算と事業の分の実績を比べ、借入の返済と実物資産の負債の上乗せは事業利用のものだけを入れる。
+- 予算の確定は範囲ごと（`budget_confirmations` は `[periodId, scope]` で一意）。実績の確定は共通で、その月の予算がどちらかで確定していればよい。実績の確定を解除できないのは、翌月の予算がどちらかで確定しているとき。
+- 配分ルールは事業用の既定を別に持つ（[8.2節](#82-予算配分)）。新しいテナントには家庭と事業の両方の既定を入れる。
+- KPI・推移・資金繰りの予算も範囲ごと。家庭の資金繰りの見込みは家庭の予算だけを使う（事業の予算を二重に数えない）。
 
 ## 21. データモデル
 
@@ -1273,12 +1290,12 @@ npm run typecheck && npm run format:check
 
 | テーブル | 主な列 | 補足 |
 |---|---|---|
-| `budgets` | accountId, periodId, amount | `[tenantId, accountId, periodId]` 一意 |
-| `budget_items` | accountId, periodId, date, description, amount, createdById | 予算管理のカレンダーで登録した予算の 1 件。登録すると同じ科目・月の `budgets.amount` に足し、消すと引く |
-| `budget_histories` | budgetId, accountId, periodId, userId, action, amount, changedAt | 予算を消しても残る |
-| `allocation_rules` | key, label, group, minPercent, maxPercent, keywords, fallbackCategory, sortOrder | 予算配分の目安と、科目の振り分けのキーワード・受け皿の区分 |
-| `allocation_account_assignments` | accountId（一意）, ruleId（null = 配分に入れない） | 科目の配分ルールへの手動の割り当て（自動の振り分けより優先） |
-| `budget_confirmations` | periodId, confirmedById, confirmedAt | 予算を確定した月。`periodId` 一意。行がある月の予算は変えられない |
+| `budgets` | scope, accountId, periodId, amount | `[tenantId, scope, accountId, periodId]` 一意。scope は HOUSEHOLD（家庭）/ BUSINESS（個人事業）。この節の scope はすべて同じ |
+| `budget_items` | scope, accountId, periodId, date, description, amount, createdById | 予算管理のカレンダーで登録した予算の 1 件。登録すると同じ範囲・科目・月の `budgets.amount` に足し、消すと引く |
+| `budget_histories` | scope, budgetId, accountId, periodId, userId, action, amount, changedAt | 予算を消しても残る |
+| `allocation_rules` | scope, key, label, group, minPercent, maxPercent, keywords, fallbackCategory, sortOrder | 予算配分の目安と、科目の振り分けのキーワード・受け皿の区分。`[tenantId, scope, key]` 一意 |
+| `allocation_account_assignments` | accountId, scope, ruleId（null = 配分に入れない） | 科目の配分ルールへの手動の割り当て（自動の振り分けより優先）。`[accountId, scope]` 一意 |
+| `budget_confirmations` | periodId, scope, confirmedById, confirmedAt | 予算を確定した月。`[periodId, scope]` 一意。行がある月のその範囲の予算は変えられない |
 | `actuals_confirmations` | periodId, confirmedById, confirmedAt, coverage | 実績を確定した月。`periodId` 一意。coverage は確定時点の明細の状況（`src/lib/ledger/actuals-coverage.ts`）。行がある月の実績は変えられない |
 
 ### 21.4 銀行・資金移動・カード
@@ -1613,6 +1630,7 @@ CI はほかに、整形・lint・型・ビルドと、PostgreSQL へのマイ�
 | — | テナントに期の開始月（`startMonth`）を持たせ、決算月の翌月であることを CHECK 制約で守る。予算の確定には開始月の例外を設けない（はじめての予算は配分提案で入れる） | 期の区切りを明示するため。開始月の例外は、はじめての予算を入れる手段（配分提案）を予算の確定に置いたので外した |
 | — | 予算管理のカレンダーで登録した予算は `budget_items` に 1 件ずつ持ち、`budgets.amount` に足す | 科目×月の予算の形を変えずに、日付つきの予算の内訳を残すため |
 | — | 言語の切り替え（日本語 / English）はなくし、画面は日本語だけにする | 切り替えてもログアウトの表記しか変わらず、英語の画面が実質なかったため |
+| — | 個人事業の予算は家庭と別に持ち（予算の各テーブルに scope）、予算の確定も別々にする。実績の確定は共通 | 事業と家計で予算の立て方（売上に対する割合と手取りに対する割合）が違い、混ぜると予実差が読めないため。実績は同じ明細を按分して両方に数えるので、確定は 1 回で済む |
 
 ## 25. 未決事項
 

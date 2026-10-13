@@ -1,3 +1,4 @@
+import type { BudgetScope } from "@prisma/client";
 import type { TenantDbClient } from "@/lib/server/tenant-db";
 import type { AllocationRule } from "@/lib/budget/allocation";
 import { ALLOCATION_TARGET_CATEGORIES } from "@/lib/budget/default-allocation-rules";
@@ -8,9 +9,11 @@ import {
   type AssignRule,
 } from "@/lib/shared/allocation-assign";
 import { actualRows } from "@/lib/ledger/actuals";
+import { actualWhere, SCOPE_SELECT, scopedAmount } from "@/lib/ledger/scope";
 
 // 予算配分の計算に要るもの（ルール・対象の科目・振り分け・按分の重みに使う実績）を読み込む。
 // allocation-suggest / allocation-guide / allocation-rules / variance が共通で使う。
+// 配分ルールと手動の振り分けは予算の範囲（家庭 / 事業）ごとに持つ。事業の重みは事業の分の実績で取る。
 
 /** 按分の重みに使う実績の月数（対象月の前の 3 か月） */
 export const WEIGHT_MONTHS = 3;
@@ -30,10 +33,14 @@ export type AllocationAccount = {
   category: string;
 };
 
-export async function loadAllocationContext(db: TenantDbClient, tenantId: number) {
+export async function loadAllocationContext(
+  db: TenantDbClient,
+  tenantId: number,
+  scope: BudgetScope = "HOUSEHOLD",
+) {
   const [rules, accounts, manual] = await Promise.all([
     db.allocationRule.findMany({
-      where: { tenantId },
+      where: { tenantId, scope },
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     }),
     db.account.findMany({
@@ -49,7 +56,7 @@ export async function loadAllocationContext(db: TenantDbClient, tenantId: number
       orderBy: { code: "asc" },
     }),
     db.allocationAccountAssignment.findMany({
-      where: { tenantId },
+      where: { tenantId, scope },
       select: { accountId: true, ruleId: true },
     }),
   ]);
@@ -94,7 +101,9 @@ export async function loadActualWeights(
   accountIds: number[],
   from: { year: number; month: number },
   to: { year: number; month: number },
+  scope: BudgetScope = "HOUSEHOLD",
 ): Promise<(year: number, month: number) => Map<number, number>> {
+  const actualScope = scope === "BUSINESS" ? "business" : "household";
   const start = shift(from.year, from.month, -WEIGHT_MONTHS);
   const end = shift(to.year, to.month, -1);
   const records =
@@ -104,6 +113,7 @@ export async function loadActualWeights(
           .findMany({
             where: {
               tenantId,
+              ...actualWhere(actualScope),
               accountId: { in: accountIds },
               period: {
                 OR: Array.from(
@@ -115,6 +125,7 @@ export async function loadActualWeights(
             select: {
               accountId: true,
               amount: true,
+              ...SCOPE_SELECT,
               period: { select: { fiscalYear: true, month: true } },
             },
           })
@@ -124,7 +135,7 @@ export async function loadActualWeights(
   for (const r of records) {
     const key = ym(r.period.fiscalYear, r.period.month);
     const m = byMonth.get(key) ?? new Map<number, number>();
-    m.set(r.accountId, (m.get(r.accountId) ?? 0) + Number(r.amount));
+    m.set(r.accountId, (m.get(r.accountId) ?? 0) + scopedAmount(r, actualScope));
     byMonth.set(key, m);
   }
 
@@ -145,8 +156,12 @@ export async function loadActualWeights(
  * 予算配分ルールの一覧（画面用）。ルールごとのキーワード・受け皿の区分・メンバー科目と、
  * どのルールにも入っていない科目（未分類・手動で外したもの）を返す。
  */
-export async function loadAllocationRulesView(db: TenantDbClient, tenantId: number) {
-  const { rules, accounts, assignments } = await loadAllocationContext(db, tenantId);
+export async function loadAllocationRulesView(
+  db: TenantDbClient,
+  tenantId: number,
+  scope: BudgetScope = "HOUSEHOLD",
+) {
+  const { rules, accounts, assignments } = await loadAllocationContext(db, tenantId, scope);
   const accountById = new Map(accounts.map((a) => [a.id, a]));
   const memberView = (a: Assignment) => ({ ...accountById.get(a.accountId)!, source: a.source });
 
