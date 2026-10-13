@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { LoadingSpinner } from "@/components/StateViews";
-import { useViewMode } from "@/lib/client/use-view-mode";
+import { useActualsScope, useViewMode } from "@/lib/client/use-view-mode";
+import { AutoJournalBook } from "@/components/books/AutoJournalBook";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { YearBadge } from "@/components/YearBadge";
 import { useFiscalYear } from "@/lib/client/use-fiscal-year";
@@ -383,7 +384,28 @@ function JournalForm({
 }
 
 // ── メインページ ────────────────────────────────────────────────────────
+// 個人事業主モードは実績から作った仕訳を見せるだけ（components/books/AutoJournalBook.tsx）。
+// 家庭・法人モードは手で入れる仕訳帳。モードを読むまでは何も取得しない
 export default function JournalsPage() {
+  const scope = useActualsScope();
+  if (scope === null) {
+    return (
+      <AppShell>
+        <LoadingSpinner />
+      </AppShell>
+    );
+  }
+  if (scope === "business") {
+    return (
+      <AppShell>
+        <AutoJournalBook />
+      </AppShell>
+    );
+  }
+  return <ManualJournalsPage />;
+}
+
+function ManualJournalsPage() {
   const sysMode = useViewMode();
   const currentMonth = new Date().getMonth() + 1;
   // 対象年度は左のメニューで選ぶ（全画面で共通）。ここでは月だけを選ぶ

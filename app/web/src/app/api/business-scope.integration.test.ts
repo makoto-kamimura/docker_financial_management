@@ -7,6 +7,7 @@
  *     明細の科目を変えると消える
  *   - 口座・カード・実物資産・借入金は、business では事業利用のものだけを出す
  *   - 事業利用の口座に CSV で取り込んだ明細は、事業利用で入る
+ *   - 実績から作る仕訳（個人事業主モードの仕訳帳・総勘定元帳・試算表）の所得は、決算書の所得と一致する
  *
  * 実行: `npm run test:integration`
  */
@@ -50,6 +51,9 @@ import { GET as loansGet } from "./loans/route";
 import { GET as assetsSummaryGet } from "./assets/summary/route";
 import { GET as cashOutlookGet } from "./bank-accounts/cash-outlook/route";
 import { POST as importsPost } from "./imports/route";
+import { GET as trialBalanceGet } from "./reports/trial-balance/route";
+import { GET as ledgerGet } from "./reports/general-ledger/route";
+import { GET as autoJournalsGet } from "./journals/auto/route";
 
 const SUFFIX = `scope_${Date.now()}`;
 const YEAR = 2034;
@@ -308,6 +312,47 @@ describe("実績の集計", () => {
       ).text();
     expect(await xml("&scope=business")).toContain("38500");
     expect(await xml("")).toContain("35000");
+  });
+});
+
+describe("実績から作る仕訳", () => {
+  it("試算表の所得は決算書（business）と一致し、借方と貸方の合計がそろう", async () => {
+    const tb = (
+      await get(trialBalanceGet, `/api/reports/trial-balance?year=${YEAR}&scope=business`)
+    ).data;
+    const st = await get(statementsGet, `/api/closing/statements?year=${YEAR}&scope=business`);
+    expect(tb.income).toBe(st.pnl.netIncome);
+    expect(tb.income).toBe(38_500);
+    expect(tb.totalDebit).toBe(tb.totalCredit);
+  });
+
+  it("仕訳帳: 事業利用の明細・事業用の口座の明細・仕訳の無い実績の行から作る", async () => {
+    const res = await get(autoJournalsGet, `/api/journals/auto?year=${YEAR}&month=3`);
+    type Line = { side: string; amount: number; account: { name: string; sub: string | null } };
+    const summary = (res.data as { description: string; lines: Line[] }[]).map((j) => [
+      j.description,
+      j.lines.map(
+        (l) =>
+          `${l.account.name}${l.account.sub ? `（${l.account.sub}）` : ""} ${l.side} ${l.amount}`,
+      ),
+    ]);
+    expect(summary).toEqual([
+      ["携帯電話", ["通信費 debit 1500", "事業主借 credit 1500"]],
+      ["売上入金", ["売上 credit 50000", "普通預金（事業口座） debit 50000"]],
+      // 明細でない行は日付を持たないので、その月の末日
+      ["通信費（実績の直接入力）", ["通信費 debit 10000", "事業主借 credit 10000"]],
+    ]);
+    // 事業利用でないクレジットカードの明細は仕訳にしない
+    expect(JSON.stringify(summary)).not.toContain("家族の通信");
+  });
+
+  it("総勘定元帳: 普通預金は口座ごと", async () => {
+    const res = await get(ledgerGet, `/api/reports/general-ledger?year=${YEAR}&scope=business`);
+    const bank = res.data.find(
+      (l: { account: { name: string; sub: string | null } }) =>
+        l.account.name === "普通預金" && l.account.sub === "事業口座",
+    );
+    expect(bank).toMatchObject({ totalDebit: 50_000, totalCredit: 0, balance: 50_000 });
   });
 });
 

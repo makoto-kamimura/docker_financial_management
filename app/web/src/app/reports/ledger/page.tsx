@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { useViewMode } from "@/lib/client/use-view-mode";
+import { useActualsScope, useViewMode } from "@/lib/client/use-view-mode";
+import { AutoLedgerBook } from "@/components/books/AutoLedgerBook";
+import { LoadingSpinner } from "@/components/StateViews";
 import { displayName } from "@/lib/shared/display-name";
 import { YearBadge } from "@/components/YearBadge";
 import { useFiscalYear } from "@/lib/client/use-fiscal-year";
@@ -34,7 +36,28 @@ type Ledger = {
   totalCredit: number;
 };
 
+// 個人事業主モードは実績から作った仕訳の総勘定元帳と試算表（components/books/AutoLedgerBook.tsx）。
+// 家庭・法人モードは手で入れた仕訳の総勘定元帳。モードを読むまでは何も取得しない
 export default function LedgerPage() {
+  const scope = useActualsScope();
+  if (scope === null) {
+    return (
+      <AppShell>
+        <LoadingSpinner />
+      </AppShell>
+    );
+  }
+  if (scope === "business") {
+    return (
+      <AppShell>
+        <AutoLedgerBook />
+      </AppShell>
+    );
+  }
+  return <ManualLedgerPage />;
+}
+
+function ManualLedgerPage() {
   const sysMode = useViewMode();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
