@@ -9,6 +9,8 @@ import Link from "next/link";
 import { SectionCard } from "@/components/SectionCard";
 import { ASSETS_HELP } from "@/lib/shared/help-texts";
 import { yenShort } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type NetWorthBreakdownItem = { key: string; label: string; amount: number };
 type NetWorthSummary = {
@@ -32,11 +34,12 @@ export function summaryAsOfLabel(s: { asOf: string; isCurrentMonth: boolean }) {
 export function NetWorthSummaryCard({ period }: { period: string | null }) {
   const [year, month] = (period ?? "").split("-").map(Number);
   const enabled = Number.isInteger(year) && Number.isInteger(month);
+  const scope = useActualsScope();
   const { data } = useQuery({
-    queryKey: ["assets-summary", year, month],
+    queryKey: ["assets-summary", year, month, scope],
     queryFn: async (): Promise<NetWorthSummary> =>
-      (await fetch(`/api/assets/summary?year=${year}&month=${month}`)).json(),
-    enabled,
+      (await fetch(withScope(`/api/assets/summary?year=${year}&month=${month}`, scope!))).json(),
+    enabled: enabled && scope !== null,
     placeholderData: (prev) => prev,
   });
   if (!enabled || !data) return null;

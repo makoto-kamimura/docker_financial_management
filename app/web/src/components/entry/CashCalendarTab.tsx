@@ -11,6 +11,12 @@ import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { yen } from "@/lib/common/format";
 import { ReceiptScanButton, type ReceiptScanResult } from "@/components/entry/ReceiptScanButton";
+import { BusinessTag } from "@/components/LedgerTable";
+import {
+  BUSINESS_USE_LABEL,
+  businessPortion,
+  isValidBusinessRatio,
+} from "@/lib/shared/business-use";
 import {
   EXPENSE_CATS,
   INCOME_CATS,
@@ -51,6 +57,11 @@ export function CashCalendarTab({
   // 読み取ったレシートの写真。登録した明細に証憑として付ける
   const [receiptPhoto, setReceiptPhoto] = useState<File | null>(null);
   const [calLearn, setCalLearn] = useState(true);
+  // 個人事業主モードは事業利用の明細だけを、事業の分の額で出す。登録は事業利用で始める
+  // （按分を空けると、科目の事業利用按分の割合、無ければ 100%）
+  const businessMode = mode === "sole";
+  const [calBusiness, setCalBusiness] = useState(true);
+  const [calRatio, setCalRatio] = useState("");
 
   const { data: cashData, isLoading: calLoading } = useQuery({
     queryKey: ["actuals", viewYear, viewMonth],
@@ -59,7 +70,13 @@ export function CashCalendarTab({
   });
 
   // 参照が毎回変わると下の useMemo が無駄に再計算されるため、ここで安定させる
-  const calEntries = useMemo(() => cashData?.data ?? [], [cashData]);
+  const calEntries = useMemo(() => {
+    const all = cashData?.data ?? [];
+    if (!businessMode) return all;
+    return all
+      .filter((e) => e.businessUse && e.businessRatio != null)
+      .map((e) => ({ ...e, amount: businessPortion(e.amount, e.businessRatio!) }));
+  }, [cashData, businessMode]);
 
   const byDay = useMemo(() => {
     const m = new Map<number, CashEntry[]>();
@@ -108,6 +125,11 @@ export function CashCalendarTab({
   async function handleCalSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedDay) return;
+    const ratio = calRatio.trim() === "" ? null : Number(calRatio);
+    if (businessMode && calBusiness && ratio !== null && !isValidBusinessRatio(ratio)) {
+      setCalError("按分は 0 より大きく 100 以下で入れてください");
+      return;
+    }
     setCalSaving(true);
     setCalError("");
     const dateStr = `${viewYear}-${String(viewMonth).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`;
@@ -121,6 +143,9 @@ export function CashCalendarTab({
         amount: Number(calForm.amount),
         direction: calForm.direction,
         learn: fromReceipt && calLearn,
+        ...(businessMode
+          ? { businessUse: calBusiness, businessRatio: calBusiness ? ratio : null }
+          : {}),
       }),
     });
     if (res.ok) {
@@ -144,6 +169,11 @@ export function CashCalendarTab({
 
   // レシートの読み取り結果をフォームに入れる。日付が読めたら、その日を選ぶ
   function applyReceipt({ draft, suggestedAccount }: ReceiptScanResult, photo: File) {
+    // 学習ルールが事業利用を決めていれば、その事業利用にする
+    if (suggestedAccount?.business) {
+      setCalBusiness(suggestedAccount.business.businessUse);
+      setCalRatio(suggestedAccount.business.businessRatio?.toString() ?? "");
+    }
     if (draft.date) {
       const [y, m, d] = draft.date.split("-").map(Number);
       setFiscalYear(y);
@@ -245,6 +275,12 @@ export function CashCalendarTab({
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-slate-800 truncate">
                             {e.description}
+                            {businessMode && (
+                              <BusinessTag
+                                businessUse={e.businessUse}
+                                businessRatio={e.businessRatio}
+                              />
+                            )}
                             {(e.receipts ?? []).map((r) => (
                               <a
                                 key={r.id}
@@ -346,6 +382,35 @@ export function CashCalendarTab({
                     className="input-field text-xs"
                   />
                 </div>
+                {businessMode && (
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-600">
+                    <label className="inline-flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={calBusiness}
+                        onChange={(e) => setCalBusiness(e.target.checked)}
+                      />
+                      {BUSINESS_USE_LABEL}
+                    </label>
+                    {calBusiness && (
+                      <>
+                        <span>按分</span>
+                        <input
+                          type="number"
+                          min={0.01}
+                          max={100}
+                          step={0.01}
+                          value={calRatio}
+                          placeholder="既定"
+                          onChange={(e) => setCalRatio(e.target.value)}
+                          aria-label="按分（%）"
+                          className="input-field text-xs w-20"
+                        />
+                        <span>%</span>
+                      </>
+                    )}
+                  </div>
+                )}
                 {fromReceipt && calForm.description.trim() !== "" && (
                   <label className="flex items-start gap-1.5 text-[10px] text-slate-600">
                     <input

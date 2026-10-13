@@ -24,6 +24,8 @@ import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib
 import { yenShort } from "@/lib/common/format";
 import { PersonalAsset } from "@/components/assets/types";
 import { useInvalidateAssets } from "@/components/assets/PersonalAssetsSection";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { BusinessUseToggle } from "@/components/BusinessUseToggle";
 
 const str = (v: number | string | null) => (v === null || v === undefined ? "" : String(v));
 const numOrNull = (v: string) => (v.trim() === "" ? null : Number(v));
@@ -187,6 +189,7 @@ export function PersonalAssetFormModal({
   onClose: () => void;
 }) {
   const invalidate = useInvalidateAssets();
+  const scope = useActualsScope();
   const [form, setForm] = useState({
     name: asset?.name ?? "",
     category: (asset?.category ?? "LAND") as PersonalAssetCategory,
@@ -194,6 +197,8 @@ export function PersonalAssetFormModal({
     acquisitionCost: str(asset?.acquisitionCost ?? null),
     currentValue: str(asset?.currentValue ?? null),
     countAsAsset: asset?.countAsAsset ?? true,
+    // 個人事業主モードで足す資産は、事業利用で始める
+    businessUse: asset?.businessUse ?? scope === "business",
     note: asset?.note ?? "",
   });
   const [valuation, setValuation] = useState<ValuationForm>(() => valuationFormOf(asset));
@@ -267,6 +272,7 @@ export function PersonalAssetFormModal({
         category: form.category,
         acquiredOn: form.acquiredOn || empty,
         countAsAsset: form.countAsAsset,
+        businessUse: form.businessUse,
         note: form.note || empty,
         // 内訳があれば評価額・取得価格は内訳の合計（サーバーで計算する）
         ...(parts
@@ -499,6 +505,11 @@ export function PersonalAssetFormModal({
             </span>
           </span>
         </label>
+        <BusinessUseToggle
+          kind="asset"
+          checked={form.businessUse}
+          onChange={(v) => f("businessUse", v)}
+        />
         <label className="block">
           <span className="text-xs font-medium text-slate-600">備考</span>
           <input

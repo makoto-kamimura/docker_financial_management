@@ -11,6 +11,8 @@ import { summaryAsOfLabel } from "@/components/NetWorthSummaryCard";
 import { DASHBOARD_HELP } from "@/lib/shared/help-texts";
 import { LOAN_TYPE_LABEL } from "@/lib/shared/labels";
 import { yenShort } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type LoanSummary = {
   asOf: string;
@@ -34,11 +36,16 @@ type LoanSummary = {
 export function LoanSummaryCard({ period }: { period: string | null }) {
   const [year, month] = (period ?? "").split("-").map(Number);
   const enabled = Number.isInteger(year) && Number.isInteger(month);
+  const scope = useActualsScope();
   const { data } = useQuery({
-    queryKey: ["loan-summary", year, month],
+    queryKey: ["loan-summary", year, month, scope],
     queryFn: async (): Promise<LoanSummary> =>
-      (await (await fetch(`/api/loans/summary?year=${year}&month=${month}`)).json()).data,
-    enabled,
+      (
+        await (
+          await fetch(withScope(`/api/loans/summary?year=${year}&month=${month}`, scope!))
+        ).json()
+      ).data,
+    enabled: enabled && scope !== null,
     placeholderData: (prev) => prev,
   });
   if (!enabled || !data || data.loans.length === 0) return null;

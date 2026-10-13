@@ -28,9 +28,13 @@ import {
   LedgerFilter,
   LedgerMoreSection,
   LedgerTable,
+  BusinessTag,
+  useBusinessOnlyFilter,
 } from "@/components/LedgerTable";
 import { yen, yenAbs } from "@/lib/common/format";
 import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -47,6 +51,8 @@ type CardAccount = {
 };
 type CategoryAccount = { id: number; code: string; name: string; category: string };
 type Txn = {
+  businessUse?: boolean;
+  businessRatio?: number | null;
   id: number;
   date: string;
   description: string;
@@ -129,10 +135,12 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
   const [calSaving, setCalSaving] = useState(false);
 
   // ── データ取得 ──────────────────────────────────────────────
+  const scope = useActualsScope();
   const { data: accounts } = useQuery({
-    queryKey: ["linked-accounts"],
+    queryKey: ["linked-accounts", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<CardAccount[]> => {
-      const list = ((await (await fetch("/api/linked-accounts")).json()).data ??
+      const list = ((await (await fetch(withScope("/api/linked-accounts", scope!))).json()).data ??
         []) as CardAccount[];
       return list;
     },
@@ -176,8 +184,10 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
   const selectedAccount = (accounts ?? []).find((a) => a.id === accountId) ?? null;
   const isEMoney = selectedAccount?.type === "E_MONEY";
 
+  // 個人事業主モードは事業利用の明細だけ（切り替えで全件）
+  const businessFilter = useBusinessOnlyFilter();
   const filteredTxns = useMemo(() => {
-    const all = txns ?? [];
+    const all = businessFilter.keep(txns ?? []);
     if (postFilter === "actual") return all.filter((t) => t.categoryAccountId !== null);
     // 未割り当てはこれから科目を付ける明細を拾うための絞り込み。チャージはそもそも科目を付けない
     // （実際の支出はチャージ先の利用明細で計上する）なので、いつまでも残って紛らわしいため除く
@@ -190,7 +200,8 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
           t.chargeGroupId === null,
       );
     return all;
-  }, [txns, postFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txns, postFilter, businessFilter.businessOnly]);
 
   // 明細一覧は 30 件ずつ表示する（実績管理の履歴と同じ単位）。
   // 絞り込みやカード切替で件数が減った場合は末尾ページへ丸める
@@ -489,14 +500,17 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
             pageSize={TXN_PAGE_SIZE}
             onPageChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
             toolbar={
-              <LedgerFilter
-                options={POST_FILTERS}
-                value={postFilter}
-                onChange={(f) => {
-                  setPostFilter(f);
-                  setTxnPage(0);
-                }}
-              />
+              <div className="flex flex-wrap items-center gap-3">
+                <LedgerFilter
+                  options={POST_FILTERS}
+                  value={postFilter}
+                  onChange={(f) => {
+                    setPostFilter(f);
+                    setTxnPage(0);
+                  }}
+                />
+                {businessFilter.toggle}
+              </div>
             }
             emptyText={
               (txns ?? []).length === 0 ? "明細がありません" : "この条件に一致する明細はありません"
@@ -509,7 +523,12 @@ export function CardTransactionsPanel({ view, accountId }: Props) {
                 key: t.id,
                 date: new Date(t.date).toLocaleDateString("ja-JP"),
                 account: selectedAccount?.name ?? "",
-                description: t.description,
+                description: (
+                  <>
+                    {t.description}
+                    <BusinessTag businessUse={t.businessUse} businessRatio={t.businessRatio} />
+                  </>
+                ),
                 amount: yenAbs(t.amount),
                 // カードは利用＝正（支出）、返金＝負
                 tone: flowSide("card", t.amount),

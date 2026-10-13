@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { YearBadge } from "@/components/YearBadge";
 import { useFiscalYear } from "@/lib/client/use-fiscal-year";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type TenantSummary = {
   tenantId: number;
@@ -34,10 +36,12 @@ export default function PortalPage() {
   // 対象年度は左のメニューで選ぶ（全画面で共通）
   const fiscalYear = useFiscalYear();
 
+  const scope = useActualsScope();
   const { data, isLoading, error } = useQuery<PortalResponse>({
-    queryKey: ["portal", fiscalYear],
+    queryKey: ["portal", fiscalYear, scope],
+    enabled: scope !== null,
     queryFn: async () => {
-      const res = await fetch(`/api/portal?fiscalYear=${fiscalYear}`);
+      const res = await fetch(withScope(`/api/portal?fiscalYear=${fiscalYear}`, scope!));
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) throw new Error("権限がありません");
         throw new Error("データの取得に失敗しました");

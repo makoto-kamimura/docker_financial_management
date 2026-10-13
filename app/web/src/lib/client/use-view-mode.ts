@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ViewMode } from "@/lib/shared/display-name";
+import { scopeOfMode, type ActualsScope } from "@/lib/shared/business-use";
 
 const STORAGE_KEY = "viewMode";
 const VALID_MODES: readonly ViewMode[] = ["household", "sole", "corporate"];
@@ -36,4 +37,20 @@ export function useViewMode(initial: ViewMode = "household"): ViewMode {
   }, []);
 
   return mode;
+}
+
+/**
+ * 表示モードから決めた実績の範囲（個人事業主モードは business）。モードを読むまでは null。
+ * 画面は null の間は取得しない（useQuery の enabled）。家庭の数字が一瞬見えてから事業の数字に
+ * 切り替わるのを防ぐため。取得のキーには範囲を入れる。
+ */
+export function useActualsScope(): ActualsScope | null {
+  const [scope, setScope] = useState<ActualsScope | null>(null);
+  useEffect(() => {
+    const read = () => setScope(scopeOfMode(readStoredMode() ?? "household"));
+    read();
+    window.addEventListener("viewmode-change", read);
+    return () => window.removeEventListener("viewmode-change", read);
+  }, []);
+  return scope;
 }

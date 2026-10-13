@@ -22,6 +22,7 @@ export type PersonalAssetPart = {
   lastValuedOn: string | null;
 };
 export type PersonalAsset = {
+  businessUse?: boolean;
   id: number;
   name: string;
   category: PersonalAssetCategory;

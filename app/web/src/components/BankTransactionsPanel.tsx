@@ -14,6 +14,8 @@ import {
   LedgerFilter,
   LedgerMoreSection,
   LedgerTable,
+  BusinessTag,
+  useBusinessOnlyFilter,
 } from "@/components/LedgerTable";
 import { BANK_HELP, BANK_TERMS } from "@/lib/shared/help-texts";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "@/lib/shared/linked-account-type";
@@ -25,11 +27,15 @@ import {
 import { Notice } from "@/components/ui";
 import { yen, yenAbs } from "@/lib/common/format";
 import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type BankAccount = { id: number; name: string; bankName: string; role: string };
 type CategoryAccount = { id: number; code: string; name: string; category: string };
 type Txn = {
+  businessUse?: boolean;
+  businessRatio?: number | null;
   id: number;
   accountId: number;
   date: string;
@@ -100,10 +106,13 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
   const [msg, setMsg] = useState<string | null>(null);
 
   // ── データ取得 ──────────────────────────────────────────────
+  const scope = useActualsScope();
   const { data: accounts } = useQuery({
-    queryKey: ["bank-accounts"],
+    queryKey: ["bank-accounts", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<BankAccount[]> => {
-      const list = ((await (await fetch("/api/bank-accounts")).json()).data ?? []) as BankAccount[];
+      const list = ((await (await fetch(withScope("/api/bank-accounts", scope!))).json()).data ??
+        []) as BankAccount[];
       if (accountIdProp === undefined && list.length && accountId === null)
         setAccountId(list[0].id);
       return list;
@@ -137,8 +146,10 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
   // 科目を付けた明細がそのまま実績。未割り当ては、これから科目を付ける明細を拾うためのもの
   // （振替・チャージは科目を付けない明細なので除く）
   const [postFilter, setPostFilter] = useState<PostFilter>("all");
+  // 個人事業主モードは事業利用の明細だけ（切り替えで全件）
+  const businessFilter = useBusinessOnlyFilter();
   const filteredTxns = useMemo(() => {
-    const all = txns ?? [];
+    const all = businessFilter.keep(txns ?? []);
     if (postFilter === "actual") return all.filter((t) => t.categoryAccountId !== null);
     if (postFilter === "unassigned")
       return all.filter(
@@ -149,7 +160,8 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
           !t.chargeGroupId,
       );
     return all;
-  }, [txns, postFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txns, postFilter, businessFilter.businessOnly]);
   const txnTotal = filteredTxns.length;
   const txnPageCount = Math.max(1, Math.ceil(txnTotal / TXN_PAGE_SIZE));
   const currentTxnPage = Math.min(txnPage, txnPageCount - 1);
@@ -178,9 +190,10 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
 
   // カード引き落としの紐付け先（登録済みカード・電子マネー）
   const { data: cardAccounts } = useQuery({
-    queryKey: ["linked-accounts"],
+    queryKey: ["linked-accounts", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<CardAccount[]> =>
-      (await (await fetch("/api/linked-accounts")).json()).data ?? [],
+      (await (await fetch(withScope("/api/linked-accounts", scope!))).json()).data ?? [],
   });
 
   // 固定入出金の照合に使う口座。呼び出し側から口座を渡されたときは、その選択（null はすべての銀行）に従う
@@ -455,14 +468,17 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
         pageSize={TXN_PAGE_SIZE}
         onPageChange={(o) => setTxnPage(o / TXN_PAGE_SIZE)}
         toolbar={
-          <LedgerFilter
-            options={POST_FILTERS}
-            value={postFilter}
-            onChange={(f) => {
-              setPostFilter(f);
-              setTxnPage(0);
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <LedgerFilter
+              options={POST_FILTERS}
+              value={postFilter}
+              onChange={(f) => {
+                setPostFilter(f);
+                setTxnPage(0);
+              }}
+            />
+            {businessFilter.toggle}
+          </div>
         }
         emptyText={
           (txns ?? []).length === 0 ? "明細がありません" : "この条件に一致する明細はありません"
@@ -475,7 +491,12 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
             key: t.id,
             date: new Date(t.date).toLocaleDateString("ja-JP"),
             account: accountNameById(t.accountId),
-            description: t.description,
+            description: (
+              <>
+                {t.description}
+                <BusinessTag businessUse={t.businessUse} businessRatio={t.businessRatio} />
+              </>
+            ),
             amount: yenAbs(t.amount),
             tone: flowSide("bank", t.amount),
             directionLabel: flowLabel("bank", t.amount),

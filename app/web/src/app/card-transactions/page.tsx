@@ -16,6 +16,9 @@ import {
 } from "@/lib/shared/linked-account-type";
 import { Notice, PageHeader } from "@/components/ui";
 import { yen } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
+import { BusinessUseToggle } from "@/components/BusinessUseToggle";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -29,6 +32,7 @@ type CardAccount = {
   account?: { id: number; code: string; name: string } | null;
   /** このカードをチャージ先に指定している明細の件数（カード明細 ＋ 銀行明細） */
   chargeSourceCount?: number;
+  businessUse?: boolean;
 };
 // カード・電子マネー台帳の登録／編集フォーム（設定「口座・カード管理」から移設）
 type CardForm = {
@@ -40,6 +44,7 @@ type CardForm = {
   lastFour: string;
   accountCode: string;
   note: string;
+  businessUse: boolean;
 };
 const BLANK_CARD: CardForm = {
   id: null,
@@ -49,6 +54,7 @@ const BLANK_CARD: CardForm = {
   lastFour: "",
   accountCode: "",
   note: "",
+  businessUse: false,
 };
 type CategoryAccount = { id: number; code: string; name: string; category: string };
 // チャージの自動判定ルール（card_transfer_rules）
@@ -102,10 +108,13 @@ export default function CardTransactionsPage() {
   const [cardError, setCardError] = useState<string | null>(null);
 
   // ── データ取得 ──────────────────────────────────────────────
+  const scope = useActualsScope();
   const { data: accounts } = useQuery({
-    queryKey: ["linked-accounts"],
+    queryKey: ["linked-accounts", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<CardAccount[]> =>
-      ((await (await fetch("/api/linked-accounts")).json()).data ?? []) as CardAccount[],
+      ((await (await fetch(withScope("/api/linked-accounts", scope!))).json()).data ??
+        []) as CardAccount[],
   });
 
   const { data: categoryAccounts } = useQuery({
@@ -160,9 +169,10 @@ export default function CardTransactionsPage() {
       return;
     }
 
-    const body: Record<string, string> = {
+    const body: Record<string, string | boolean> = {
       name: cardForm.name,
       institution: cardForm.institution,
+      businessUse: cardForm.businessUse,
       // 種別は登録後も変更できる（取り違えて登録したカードをチャージ先に選べるようにするため）
       type: cardForm.type,
     };
@@ -220,7 +230,8 @@ export default function CardTransactionsPage() {
               type="button"
               onClick={() => {
                 setCardError(null);
-                setCardForm(BLANK_CARD);
+                // 個人事業主モードで足すカードは、事業利用で始める
+                setCardForm({ ...BLANK_CARD, businessUse: scope === "business" });
               }}
               className="shrink-0 text-amber-900 font-medium underline underline-offset-2 hover:text-amber-700"
             >
@@ -344,6 +355,11 @@ export default function CardTransactionsPage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
               />
             </div>
+            <BusinessUseToggle
+              kind="account"
+              checked={cardForm.businessUse}
+              onChange={(v) => setCardForm({ ...cardForm, businessUse: v })}
+            />
             {cardError && <p className="text-xs text-red-600">{cardError}</p>}
           </div>
           <div className="flex justify-end gap-2 mt-5">
@@ -391,7 +407,8 @@ export default function CardTransactionsPage() {
               type="button"
               onClick={() => {
                 setCardError(null);
-                setCardForm(BLANK_CARD);
+                // 個人事業主モードで足すカードは、事業利用で始める
+                setCardForm({ ...BLANK_CARD, businessUse: scope === "business" });
               }}
               className="btn-primary shrink-0"
             >
@@ -420,7 +437,12 @@ export default function CardTransactionsPage() {
                           <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
                             {ACCOUNT_TYPE_LABEL[a.type] ?? "カード"}
                           </span>
-                          <h3 className="font-medium text-slate-800 text-sm">{a.name}</h3>
+                          <h3 className="font-medium text-slate-800 text-sm">
+                            {a.name}
+                            {a.businessUse && (
+                              <span className="ml-1.5 badge badge-blue align-middle">事業</span>
+                            )}
+                          </h3>
                           <span className="text-xs text-slate-500">
                             {a.institution}
                             {a.lastFour ? ` ****${a.lastFour}` : ""}
@@ -478,6 +500,7 @@ export default function CardTransactionsPage() {
                                 lastFour: a.lastFour ?? "",
                                 accountCode: a.account?.code ?? "",
                                 note: a.note ?? "",
+                                businessUse: a.businessUse ?? false,
                               });
                             }}
                             className="text-xs text-indigo-500 hover:text-indigo-700"

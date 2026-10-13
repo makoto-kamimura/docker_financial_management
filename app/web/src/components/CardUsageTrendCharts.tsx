@@ -10,6 +10,8 @@ import { SERIES_COLORS, ValueLineChart } from "@/components/ValueLineChart";
 import { asOfDateLabel } from "@/lib/shared/asset-valuation";
 import { CARD_HELP } from "@/lib/shared/help-texts";
 import { yenShort } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 export type CardUsageTrend = {
   months: string[];
@@ -20,10 +22,12 @@ export type CardUsageTrend = {
 
 /** 利用額の推移（サマリの一覧でも今月の利用額に使う。キャッシュを共有する） */
 export function useCardUsageTrend() {
+  const scope = useActualsScope();
   return useQuery({
-    queryKey: ["card-usage-trend"],
+    queryKey: ["card-usage-trend", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<CardUsageTrend> => {
-      const res = await fetch("/api/linked-accounts/usage-trend");
+      const res = await fetch(withScope("/api/linked-accounts/usage-trend", scope!));
       if (!res.ok) throw new Error("failed");
       return res.json();
     },

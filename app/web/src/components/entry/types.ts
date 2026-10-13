@@ -30,6 +30,9 @@ export type CashEntry = {
   } | null;
   /** 証憑（レシートの写真など） */
   receipts?: { id: number; fileName: string; fileUrl: string }[];
+  /** 事業利用と按分（%） */
+  businessUse?: boolean;
+  businessRatio?: number | null;
 };
 
 // 収入・支出の科目区分（現金の登録フォームと科目の選択肢で使う）

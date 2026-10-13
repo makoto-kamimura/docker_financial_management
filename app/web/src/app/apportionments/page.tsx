@@ -147,8 +147,10 @@ export default function AppportionmentsPage() {
     <AppShell>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="page-title">家事按分管理</h1>
-          <p className="text-sm text-slate-500 mt-0.5">費用科目の事業利用率を設定（F009）</p>
+          <h1 className="page-title">事業利用按分</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            費用の科目ごとに、事業で使う割合を決めます。明細を事業利用にしたときの按分の初期値になります（明細ごとに変えられます）。割合を変えても、すでに事業利用にした明細の按分は変わりません。
+          </p>
         </div>
         {!showForm && (
           <button type="button" onClick={() => setShowForm(true)} className="btn-primary">
@@ -167,7 +169,7 @@ export default function AppportionmentsPage() {
         <div className="card text-center py-12 text-slate-400">
           <p className="text-sm">按分設定がありません。</p>
           <p className="text-xs mt-1">
-            自宅兼事務所の家賃・光熱費など、家事按分が必要な費用科目を設定してください。
+            自宅兼事務所の家賃・光熱費など、事業と家計で分ける費用の科目を設定してください。
           </p>
         </div>
       ) : (

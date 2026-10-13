@@ -10,6 +10,8 @@ import { SectionCard } from "@/components/SectionCard";
 import { summaryAsOfLabel } from "@/components/NetWorthSummaryCard";
 import { DASHBOARD_HELP } from "@/lib/shared/help-texts";
 import { yenShort } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type BankSummary = {
   asOf: string;
@@ -32,11 +34,16 @@ const dateTimeLabel = (v: string | null) =>
 export function BankSummaryCard({ period }: { period: string | null }) {
   const [year, month] = (period ?? "").split("-").map(Number);
   const enabled = Number.isInteger(year) && Number.isInteger(month);
+  const scope = useActualsScope();
   const { data } = useQuery({
-    queryKey: ["bank-summary", year, month],
+    queryKey: ["bank-summary", year, month, scope],
     queryFn: async (): Promise<BankSummary> =>
-      (await (await fetch(`/api/bank-accounts/summary?year=${year}&month=${month}`)).json()).data,
-    enabled,
+      (
+        await (
+          await fetch(withScope(`/api/bank-accounts/summary?year=${year}&month=${month}`, scope!))
+        ).json()
+      ).data,
+    enabled: enabled && scope !== null,
     placeholderData: (prev) => prev,
   });
   if (!enabled || !data || data.accounts.length === 0) return null;

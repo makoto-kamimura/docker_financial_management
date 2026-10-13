@@ -15,9 +15,14 @@ import { Notice } from "@/components/ui";
 import { BANK_HELP } from "@/lib/shared/help-texts";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { categoryPayload, EntryCategoryField } from "@/components/EntryCategoryField";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
+import { BusinessTag, useBusinessOnlyFilter } from "@/components/LedgerTable";
 
 type BankAccount = { id: number; name: string; bankName: string };
 type Txn = {
+  businessUse?: boolean;
+  businessRatio?: number | null;
   id: number;
   accountId: number;
   date: string;
@@ -54,10 +59,12 @@ export function BankTransactionsCalendar({ accountId }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const scope = useActualsScope();
   const { data: accounts } = useQuery({
-    queryKey: ["bank-accounts"],
+    queryKey: ["bank-accounts", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<BankAccount[]> =>
-      (await (await fetch("/api/bank-accounts")).json()).data ?? [],
+      (await (await fetch(withScope("/api/bank-accounts", scope!))).json()).data ?? [],
   });
   const accountName = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
 
@@ -71,11 +78,13 @@ export function BankTransactionsCalendar({ accountId }: Props) {
     })),
   });
   const isLoading = txnQueries.some((q) => q.isLoading);
+  // 個人事業主モードは事業利用の明細だけ（金額は明細のまま。口座の入出金なので按分しない）
+  const businessFilter = useBusinessOnlyFilter();
   const txns = useMemo(
-    () => txnQueries.flatMap((q) => q.data ?? []),
+    () => businessFilter.keep(txnQueries.flatMap((q) => q.data ?? [])),
     // 各口座の取得結果が変わったときだけまとめ直す
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [txnQueries.map((q) => q.dataUpdatedAt).join(",")],
+    [txnQueries.map((q) => q.dataUpdatedAt).join(","), businessFilter.businessOnly],
   );
 
   // 表示中の月の明細を日ごとに（明細の日付は "YYYY-MM-DD..." の先頭で判定する）
@@ -251,6 +260,10 @@ export function BankTransactionsCalendar({ accountId }: Props) {
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-slate-800 truncate">
                             {t.description}
+                            <BusinessTag
+                              businessUse={t.businessUse}
+                              businessRatio={t.businessRatio}
+                            />
                           </p>
                           <p className="text-[10px] text-slate-400 mt-0.5">
                             {accountId === null && `${accountName(t.accountId)} ・ `}

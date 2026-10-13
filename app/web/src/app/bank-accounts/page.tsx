@@ -12,9 +12,13 @@ import { BANK_HELP } from "@/lib/shared/help-texts";
 import { BANK_ACCOUNT_TYPE_LABEL as TYPE_LABEL } from "@/lib/shared/labels";
 import { PageHeader } from "@/components/ui";
 import { yen } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
+import { BusinessUseToggle } from "@/components/BusinessUseToggle";
 
 type BankAccount = {
   id: number;
+  businessUse?: boolean;
   name: string;
   bankName: string;
   branchName: string | null;
@@ -68,6 +72,7 @@ type NewAccountForm = {
   lastFour: string;
   accountCode: string;
   note: string;
+  businessUse: boolean;
 };
 const BLANK_ACCOUNT: NewAccountForm = {
   name: "",
@@ -78,6 +83,7 @@ const BLANK_ACCOUNT: NewAccountForm = {
   lastFour: "",
   accountCode: "",
   note: "",
+  businessUse: false,
 };
 type AccountRef = { id: number; code: string; name: string; category: string };
 
@@ -93,6 +99,7 @@ type EditAccountForm = {
   balanceAdjustment: string;
   /** 表示用: 明細の増減合計 */
   transactionSum: number;
+  businessUse: boolean;
 };
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -111,10 +118,12 @@ function BankAccountsContent() {
   const [accountError, setAccountError] = useState<string | null>(null);
   const [editAccount, setEditAccount] = useState<EditAccountForm | null>(null);
 
+  const scope = useActualsScope();
   const { data: accounts = [], isLoading } = useQuery({
-    queryKey: ["bank-accounts"],
+    queryKey: ["bank-accounts", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<BankAccount[]> =>
-      (await (await fetch("/api/bank-accounts")).json()).data ?? [],
+      (await (await fetch(withScope("/api/bank-accounts", scope!))).json()).data ?? [],
   });
 
   // 選んだ口座（削除などで見つからなくなったら、すべての銀行として扱う）
@@ -133,10 +142,11 @@ function BankAccountsContent() {
 
   const saveAccount = async () => {
     setAccountError(null);
-    const body: Record<string, string> = {
+    const body: Record<string, string | boolean> = {
       name: accountForm.name,
       bankName: accountForm.bankName,
       accountType: accountForm.accountType,
+      businessUse: accountForm.businessUse,
     };
     for (const k of ["branchName", "accountNumber", "lastFour", "accountCode", "note"] as const) {
       if (accountForm[k]) body[k] = accountForm[k];
@@ -171,6 +181,7 @@ function BankAccountsContent() {
         note: editAccount.note,
         // 空欄は差額なし（0）として送る
         balanceAdjustment: Number(editAccount.balanceAdjustment || 0),
+        businessUse: editAccount.businessUse,
       }),
     });
     if (r.ok) {
@@ -221,6 +232,8 @@ function BankAccountsContent() {
             <button
               onClick={() => {
                 setAccountError(null);
+                // 個人事業主モードで足す口座は、事業利用で始める
+                setAccountForm((f) => ({ ...f, businessUse: scope === "business" }));
                 setShowAccountForm(true);
               }}
               className="btn-primary shrink-0"
@@ -244,7 +257,12 @@ function BankAccountsContent() {
                         <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
                           {TYPE_LABEL[a.accountType] ?? a.accountType}
                         </span>
-                        <h3 className="font-medium text-slate-800 text-sm">{a.name}</h3>
+                        <h3 className="font-medium text-slate-800 text-sm">
+                          {a.name}
+                          {a.businessUse && (
+                            <span className="ml-1.5 badge badge-blue align-middle">事業</span>
+                          )}
+                        </h3>
                         <span className="text-xs text-slate-500">
                           {a.bankName}
                           {a.branchName ? " " + a.branchName : ""}
@@ -313,6 +331,7 @@ function BankAccountsContent() {
                                 ? String(a.balanceAdjustment)
                                 : "",
                               transactionSum: a.transactionSum ?? 0,
+                              businessUse: a.businessUse ?? false,
                             });
                           }}
                           className="text-xs text-indigo-500 hover:text-indigo-700"
@@ -432,6 +451,11 @@ function BankAccountsContent() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
               />
             </div>
+            <BusinessUseToggle
+              kind="account"
+              checked={accountForm.businessUse}
+              onChange={(v) => setAccountForm((f) => ({ ...f, businessUse: v }))}
+            />
             {accountError && <p className="text-xs text-red-600">{accountError}</p>}
           </div>
           <div className="flex justify-end gap-2 mt-5">
@@ -521,6 +545,11 @@ function BankAccountsContent() {
                 ))}
               </select>
             </div>
+            <BusinessUseToggle
+              kind="account"
+              checked={editAccount.businessUse}
+              onChange={(v) => setEditAccount({ ...editAccount, businessUse: v })}
+            />
             {accountError && <p className="text-xs text-red-600">{accountError}</p>}
           </div>
           <div className="flex justify-end gap-2 mt-5">

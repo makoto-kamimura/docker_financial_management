@@ -19,6 +19,8 @@ import { CashHistoryTab } from "@/components/entry/CashHistoryTab";
 import { CsvImportTab } from "@/components/entry/CsvImportTab";
 import { LearningRulesPanel } from "@/components/entry/LearningRulesPanel";
 import { type Account, type Source, type SourceAccount } from "@/components/entry/types";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 // 各タブの中身は components/entry/（現金の一覧・カレンダー・CSV・履歴）と、銀行・カードの部品に置く
 // 並びは 一覧 → カレンダー → CSV インポート → 実績の確定 → 履歴 → 設定（予算管理と同じく設定は右端）
@@ -89,17 +91,19 @@ function EntryContent() {
   );
   // 出どころ（取り込み先）を選ぶタブ。CSV インポートでは、登録先の列が無い CSV の取り込み先になる
   const sourceTab = tab === "calendar" || tab === "history" || tab === "csv";
+  // 個人事業主モードは事業利用の口座・カードだけを選べる
+  const scope = useActualsScope();
   const { data: bankAccounts } = useQuery({
-    queryKey: ["bank-accounts"],
-    enabled: sourceTab && source === "bank",
+    queryKey: ["bank-accounts", scope],
+    enabled: sourceTab && source === "bank" && scope !== null,
     queryFn: async (): Promise<SourceAccount[]> =>
-      (await (await fetch("/api/bank-accounts")).json()).data ?? [],
+      (await (await fetch(withScope("/api/bank-accounts", scope!))).json()).data ?? [],
   });
   const { data: cardAccounts } = useQuery({
-    queryKey: ["linked-accounts"],
-    enabled: sourceTab && source === "card",
+    queryKey: ["linked-accounts", scope],
+    enabled: sourceTab && source === "card" && scope !== null,
     queryFn: async (): Promise<SourceAccount[]> =>
-      (await (await fetch("/api/linked-accounts")).json()).data ?? [],
+      (await (await fetch(withScope("/api/linked-accounts", scope!))).json()).data ?? [],
   });
   const cardId =
     cardAccounts?.find((a) => a.id === cardAccountId)?.id ?? cardAccounts?.[0]?.id ?? null;
