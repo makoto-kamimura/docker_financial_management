@@ -900,7 +900,7 @@ freee・マネーフォワード（OAuth 2.0）とオープンバンキングと
 | Web・API | Next.js 15（App Router / Route Handlers）・React 19・TypeScript |
 | DB | PostgreSQL 16 + Prisma 6 |
 | キャッシュ・レート制限 | Redis 7 |
-| モバイル | Expo SDK 54・React Native 0.81 |
+| モバイル | Expo SDK 57・React Native 0.86 |
 | 実行環境 | Node.js 22 |
 | インフラ | Docker Compose |
 | CI/CD | GitHub Actions・GHCR |
