@@ -7,6 +7,7 @@ import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 import { findAccountByCode } from "@/lib/accounting/period";
 import { CASH, createEntry, toCashEntry } from "@/lib/ledger/ledger-entries";
 import { learnCategoryRule } from "@/lib/ledger/ledger-categorize";
+import { BusinessInput, entryBusiness } from "@/lib/ledger/business-use";
 
 // 現金の明細（実績の表 financial_records の kind = CASH の行）。実績管理の「現金」のカレンダーと履歴で使う。
 // 科目を付けて登録するので、登録した時点で実績になる（科目は履歴から変えられる: ./[id]/categorize）。
@@ -19,7 +20,7 @@ const CASH_INCLUDE = {
   },
 } as const;
 
-const ActualSchema = z.object({
+const ActualSchema = BusinessInput.extend({
   date: z.string().min(1),
   description: z.string().min(1),
   accountCode: z.string().min(1),
@@ -68,6 +69,7 @@ export const POST = withApi({
     const account = await findAccountByCode(db, tenantId, body.accountCode);
     if (!account) throw badRequest(`勘定科目 "${body.accountCode}" が見つかりません`);
 
+    const business = await entryBusiness(db, body, account);
     const row = await createEntry(
       db,
       tenantId,
@@ -78,9 +80,14 @@ export const POST = withApi({
         flow: body.direction === "income" ? body.amount : -body.amount,
         source: "MANUAL",
         category: account,
+        business,
       },
     );
-    if (body.learn) await learnCategoryRule(db, tenantId, body.description, account.id);
+    if (body.learn) {
+      // 事業利用は指定したときだけ覚える（指定しなければ、覚えた事業利用を消さない）
+      const learned = body.businessUse === undefined ? undefined : business;
+      await learnCategoryRule(db, tenantId, body.description, account.id, learned);
+    }
     await audit("create_cash_entry", `financial_record:${row.id}`);
     const created = await db.financialRecord.findUniqueOrThrow({
       where: { id: row.id },

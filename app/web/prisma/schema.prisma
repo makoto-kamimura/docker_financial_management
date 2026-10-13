@@ -291,6 +291,11 @@ model FinancialRecord {
   chargeToCard    LinkedAccount? @relation("RecordChargeTo", fields: [chargeToCardId], references: [id])
   // チャージ元の明細と、チャージ先に入った明細を対にする識別子
   chargeGroupId   String?
+  // 事業利用（個人事業主モードで事業の分として数える明細）と按分（%、事業の分の割合）。
+  // 明細（kind を持つ行）だけが持つ。事業利用なら按分が必須（CHECK 制約）。事業の分の額は読むときに計算する
+  // （lib/shared/business-use.ts の businessPortion）
+  businessUse     Boolean        @default(false)
+  businessRatio   Decimal?       @db.Decimal(5, 2)
 
   history  FinancialRecordHistory[]
   receipts Receipt[] // 証憑（レシートの写真など。現金の明細だけ）
@@ -1049,6 +1054,9 @@ model TxnCategoryRule {
   categoryAccountId Int
   categoryAccount   Account  @relation(fields: [categoryAccountId], references: [id])
   priority          Int      @default(0) // 手動学習（learn=true）は 100。優先度降順→キーワード長い順で評価
+  // ルールに当たった明細の事業利用。null はルールでは決めない（明細の今の設定・取込先の既定に任せる）
+  businessUse       Boolean?
+  businessRatio     Decimal? @db.Decimal(5, 2) // 事業利用なら按分（%）。それ以外は null
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

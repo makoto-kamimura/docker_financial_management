@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
+import { notFound } from "@/lib/server/api-error";
 
 const ApportionmentSchema = z.object({
   accountId: z.number().int().positive(),
   businessRate: z.number().min(0).max(100),
-  description: z.string().optional(),
+  // 画面は空欄を null で送る
+  description: z.string().nullable().optional(),
 });
 
 // GET /api/apportionments … 家事按分一覧
@@ -27,6 +29,11 @@ export const POST = withApi({
   schema: ApportionmentSchema,
   handler: async ({ user, db, body }) => {
     const { tenantId } = user;
+    const account = await db.account.findUnique({
+      where: { id: body.accountId, tenantId },
+      select: { id: true },
+    });
+    if (!account) throw notFound("科目が見つかりません");
     const record = await db.apportionment.upsert({
       where: { tenantId_accountId: { tenantId, accountId: body.accountId } },
       update: { businessRate: body.businessRate, description: body.description ?? null },

@@ -4,11 +4,14 @@ import { withApi } from "@/lib/server/api-handler";
 import { badRequest, notFound } from "@/lib/server/api-error";
 import { normalizeKeyword } from "@/lib/ledger/banktxn-import";
 import type { TenantDbClient } from "@/lib/server/tenant-db";
+import { isValidBusinessRatio } from "@/lib/shared/business-use";
 
 // 学習ルール（txn_category_rules）の一覧と変更。実績管理の「設定」タブから使う。
 // 摘要のキーワード（部分一致）→ 科目のルールで、明細に科目を付けたときに覚え（lib/ledger/ledger-categorize.ts）、
 // CSV の取り込み・自動取得・「まとめて自動処理」などで使う（lib/ledger/ledger-entries.ts の loadRuleClassifier）。
 // ルールを変えても、すでに付いている明細の科目は変えない（付け直すのは実績の確定タブの「科目を付け直す」）。
+// ルールは事業利用も持てる（businessUse: true = 事業利用・按分 businessRatio、false = 事業利用なし、
+// null = ルールでは決めない）。
 
 /** ルールに付けられる科目の区分（明細に付けられる収入・支出の科目） */
 const RULE_CATEGORIES = ["REVENUE", "COGS", "EXPENSE"] as const;
@@ -18,6 +21,14 @@ const ItemSchema = z.object({
   id: z.number().int().positive().optional(),
   keyword: z.string().max(200),
   categoryAccountId: z.number().int().positive(),
+  /** 省略 = 今の設定のまま（新規は「決めない」） */
+  businessUse: z.boolean().nullable().optional(),
+  /** businessUse が true のときの按分（%）。省略すると 100% */
+  businessRatio: z
+    .number()
+    .refine(isValidBusinessRatio, "按分は 0 より大きく 100 以下（小数 2 桁まで）で指定してください")
+    .nullable()
+    .optional(),
 });
 
 const PutSchema = z.object({
@@ -34,6 +45,8 @@ async function loadRules(db: TenantDbClient, tenantId: number) {
       id: true,
       keyword: true,
       priority: true,
+      businessUse: true,
+      businessRatio: true,
       updatedAt: true,
       categoryAccount: {
         select: {
@@ -47,7 +60,10 @@ async function loadRules(db: TenantDbClient, tenantId: number) {
       },
     },
   });
-  return rows;
+  return rows.map((r) => ({
+    ...r,
+    businessRatio: r.businessRatio === null ? null : Number(r.businessRatio),
+  }));
 }
 
 // GET /api/ledger/category-rules … 学習ルールの一覧（キーワードの順）
@@ -72,6 +88,14 @@ export const PUT = withApi({
       .filter((i) => i.id === undefined || !removed.has(i.id))
       .map((i) => ({ ...i, keyword: normalizeKeyword(i.keyword) }));
 
+    // 事業利用の列。省略された行は既存の値のまま（下で既存の行と合わせる）
+    const businessOf = (i: (typeof items)[number]) =>
+      i.businessUse === undefined
+        ? undefined
+        : i.businessUse === true
+          ? { businessUse: true, businessRatio: i.businessRatio ?? 100 }
+          : { businessUse: i.businessUse, businessRatio: null };
+
     if (items.some((i) => i.keyword === "")) throw badRequest("キーワードが空のルールがあります");
 
     // 科目は自テナントの収入・支出の科目だけ
@@ -88,7 +112,13 @@ export const PUT = withApi({
     // 既存のルール（他テナントの id は見つからないものとして扱う）
     const existing = await db.txnCategoryRule.findMany({
       where: { tenantId },
-      select: { id: true, keyword: true, categoryAccountId: true },
+      select: {
+        id: true,
+        keyword: true,
+        categoryAccountId: true,
+        businessUse: true,
+        businessRatio: true,
+      },
     });
     const existingById = new Map(existing.map((r) => [r.id, r]));
     const existingIds = new Set(existingById.keys());
@@ -115,10 +145,21 @@ export const PUT = withApi({
       // 変えた行だけ書き換える（変えていない行の更新日は動かさない）。
       // キーワードを入れ替えたとき一意制約に当たらないよう、変える行のキーワードをいったん外す
       // （正規化したキーワードは英字が大文字なので、小文字を含む仮の値とは重ならない）
+      const businessChanged = (i: (typeof items)[number]) => {
+        const next = businessOf(i);
+        if (next === undefined) return false;
+        const before = existingById.get(i.id!)!;
+        const beforeRatio = before.businessRatio === null ? null : Number(before.businessRatio);
+        return before.businessUse !== next.businessUse || beforeRatio !== next.businessRatio;
+      };
       const updates = items.filter((i) => {
         if (i.id === undefined) return false;
         const before = existingById.get(i.id)!;
-        return before.keyword !== i.keyword || before.categoryAccountId !== i.categoryAccountId;
+        return (
+          before.keyword !== i.keyword ||
+          before.categoryAccountId !== i.categoryAccountId ||
+          businessChanged(i)
+        );
       });
       for (const i of updates) {
         await tx.txnCategoryRule.update({
@@ -129,7 +170,11 @@ export const PUT = withApi({
       for (const i of updates) {
         await tx.txnCategoryRule.update({
           where: { id: i.id!, tenantId },
-          data: { keyword: i.keyword, categoryAccountId: i.categoryAccountId },
+          data: {
+            keyword: i.keyword,
+            categoryAccountId: i.categoryAccountId,
+            ...businessOf(i),
+          },
         });
       }
       for (const i of items.filter((x) => x.id === undefined)) {
@@ -139,6 +184,7 @@ export const PUT = withApi({
             keyword: i.keyword,
             categoryAccountId: i.categoryAccountId,
             priority: 100,
+            ...businessOf(i),
           },
         });
       }

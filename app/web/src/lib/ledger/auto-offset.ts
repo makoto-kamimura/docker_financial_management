@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { TenantDbClient } from "@/lib/server/tenant-db";
 import { confirmedActualsPeriodIds } from "@/lib/budget/budget-lock";
 import { isChargeableType } from "@/lib/shared/linked-account-type";
+import { PAIRED_CLEAR } from "@/lib/ledger/business-use";
 
 // 送金と受金の自動相殺。
 //
@@ -139,7 +140,7 @@ export async function applyAutoOffset(
   const pairs = findOffsetPairs(entries);
   for (const p of pairs) {
     // 組は収入・支出ではないので、付いていた科目は外す
-    const clear = { accountId: null, amount: 0 };
+    const clear = PAIRED_CLEAR;
     if (p.type === "transfer") {
       const transferGroupId = randomUUID();
       await db.financialRecord.updateMany({

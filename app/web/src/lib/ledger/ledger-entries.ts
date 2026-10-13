@@ -9,6 +9,12 @@ import { resolvePeriod } from "@/lib/accounting/period";
 import { ACTUALS_LOCKED_MESSAGE, confirmedActualsPeriodIds } from "@/lib/budget/budget-lock";
 import { conflict, notFound } from "@/lib/server/api-error";
 import { applyAutoOffset } from "@/lib/ledger/auto-offset";
+import {
+  NOT_BUSINESS,
+  businessFields,
+  ruleBusiness,
+  type BusinessSetting,
+} from "@/lib/ledger/business-use";
 
 // 明細（実績の表 financial_records の kind を持つ行）の読み書きの共通部分。
 //
@@ -66,7 +72,7 @@ export type BankTxnDto = {
   createdAt: Date;
   categoryAccount?: CategoryRef | null;
   chargeToAccount?: CardRef | null;
-};
+} & BusinessSetting;
 
 export type CardTxnDto = {
   id: number;
@@ -83,7 +89,7 @@ export type CardTxnDto = {
   createdAt: Date;
   categoryAccount?: CategoryRef | null;
   transferToAccount?: CardRef | null;
-};
+} & BusinessSetting;
 
 /** 銀行明細を API の応答の形（以前の bank_transactions と同じ項目名）にする */
 export function toBankTxn(e: EntryWithRefs): BankTxnDto {
@@ -101,6 +107,7 @@ export function toBankTxn(e: EntryWithRefs): BankTxnDto {
     chargeToAccountId: e.chargeToCardId,
     chargeGroupId: e.chargeGroupId,
     createdAt: e.createdAt,
+    ...businessFields(e),
     ...(e.account !== undefined ? { categoryAccount: e.account } : {}),
     ...(e.chargeToCard !== undefined ? { chargeToAccount: e.chargeToCard } : {}),
   };
@@ -120,6 +127,7 @@ export function toCardTxn(e: EntryWithRefs): CardTxnDto {
     transferToAccountId: e.chargeToCardId,
     chargeGroupId: e.chargeGroupId,
     createdAt: e.createdAt,
+    ...businessFields(e),
     ...(e.account !== undefined ? { categoryAccount: e.account } : {}),
     ...(e.chargeToCard !== undefined ? { transferToAccount: e.chargeToCard } : {}),
   };
@@ -136,7 +144,7 @@ export type CashEntryDto = {
   createdAt: Date;
   /** 証憑（レシートの写真など） */
   receipts: { id: number; fileName: string; fileUrl: string }[];
-};
+} & BusinessSetting;
 
 type ReceiptRef = { id: number; fileName: string; savedName: string | null; fileUrl: string };
 
@@ -155,6 +163,7 @@ export function toCashEntry(
     categoryAccountId: e.accountId,
     categoryAccount: e.account,
     createdAt: e.createdAt,
+    ...businessFields(e),
     receipts: (e.receipts ?? []).map((r) => ({
       id: r.id,
       fileName: r.fileName,
@@ -216,6 +225,8 @@ export type NewEntry = {
   chargeToCardId?: number | null;
   /** 科目（区分つき）。無ければ未割り当て */
   category?: { id: number; category: string } | null;
+  /** 事業利用。無ければ事業利用なし */
+  business?: BusinessSetting;
 };
 
 /** 明細 1 行の登録データ（期間と実績の金額をそろえる） */
@@ -241,6 +252,7 @@ export function entryCreateData(
     chargeToCardId: e.chargeToCardId ?? null,
     accountId: category?.id ?? null,
     amount: category ? entryActualAmount(category.category, e.flow) : 0,
+    ...(paired ? NOT_BUSINESS : (e.business ?? NOT_BUSINESS)),
   };
 }
 
@@ -262,8 +274,11 @@ export type InsertResult = {
   offset: number;
 };
 
+/** 学習ルールに当たった結果。business はルールが事業利用を決めているときだけ入る */
+export type RuleHit = { id: number; category: string; business?: BusinessSetting };
+
 /**
- * 学習ルール（txn_category_rules）で摘要から科目を決める関数を用意する。
+ * 学習ルール（txn_category_rules）で摘要から科目（と事業利用）を決める関数を用意する。
  * 当たらなければ null（未割り当て）。
  */
 export async function loadRuleClassifier(db: TenantDbClient) {
@@ -272,13 +287,19 @@ export async function loadRuleClassifier(db: TenantDbClient) {
       keyword: true,
       categoryAccountId: true,
       priority: true,
+      businessUse: true,
+      businessRatio: true,
       categoryAccount: { select: { category: true } },
     },
   });
-  const categoryOf = new Map(rules.map((r) => [r.categoryAccountId, r.categoryAccount.category]));
-  return (description: string): { id: number; category: string } | null => {
-    const id = classifyByRules(description, rules);
-    return id === null ? null : { id, category: categoryOf.get(id)! };
+  return (description: string): RuleHit | null => {
+    const rule = classifyByRules(description, rules);
+    if (!rule) return null;
+    return {
+      id: rule.categoryAccountId,
+      category: rule.categoryAccount.category,
+      business: ruleBusiness(rule),
+    };
   };
 }
 
@@ -330,6 +351,8 @@ export async function insertExternalEntries(
     data: open.map((r) => {
       const chargeToCardId =
         target.kind === "CARD" ? resolveTransferTarget(r.description, transferRules) : null;
+      // チャージ（資金移動）と判定した行は支出ではないので科目を付けない
+      const hit = chargeToCardId === null ? classify(r.description) : null;
       return entryCreateData(tenantId, target, periods.periodIdOf(r.date), {
         date: r.date,
         description: r.description,
@@ -338,8 +361,8 @@ export async function insertExternalEntries(
         source,
         externalId: r.externalId,
         chargeToCardId,
-        // チャージ（資金移動）と判定した行は支出ではないので科目を付けない
-        category: chargeToCardId === null ? classify(r.description) : null,
+        category: hit,
+        business: hit?.business,
       });
     }),
     skipDuplicates: true,
@@ -356,7 +379,7 @@ export async function insertExternalEntries(
 }
 
 /**
- * 画面から登録する明細の科目。指定が無ければ学習ルールで決め、null なら未割り当て。
+ * 画面から登録する明細の科目。指定が無ければ学習ルールで決め（ルールの事業利用も返す）、null なら未割り当て。
  * 指定した科目が自テナントに無ければ 404。
  */
 export async function entryCategory(
@@ -364,7 +387,7 @@ export async function entryCategory(
   tenantId: number,
   categoryAccountId: number | null | undefined,
   description: string,
-): Promise<{ id: number; category: string } | null> {
+): Promise<RuleHit | null> {
   if (categoryAccountId === null) return null;
   if (categoryAccountId === undefined) return (await loadRuleClassifier(db))(description);
   const account = await db.account.findUnique({

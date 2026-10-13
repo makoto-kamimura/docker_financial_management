@@ -62,7 +62,13 @@ export type ScanOutcome = {
   engine: ReceiptEngine;
   remaining: number;
   /** 学習ルールで店名から決めた科目（当たらなければ null） */
-  suggestedAccount: { code: string; name: string; category: string } | null;
+  suggestedAccount: {
+    code: string;
+    name: string;
+    category: string;
+    /** ルールが決めている事業利用（決めていなければ null） */
+    business: { businessUse: boolean; businessRatio: number | null } | null;
+  } | null;
   requestId: number;
 };
 
@@ -129,13 +135,14 @@ export async function scanReceipt(
   };
 }
 
-/** 店名を学習ルールにかけて、科目の候補を返す */
+/** 店名を学習ルールにかけて、科目の候補（ルールが事業利用を決めていれば、その事業利用も）を返す */
 async function suggestAccount(db: TenantDb, merchant: string | null) {
   if (!merchant) return null;
   const hit = (await loadRuleClassifier(db))(merchant);
   if (!hit) return null;
-  return db.account.findUnique({
+  const account = await db.account.findUnique({
     where: { id: hit.id },
     select: { code: true, name: true, category: true },
   });
+  return account && { ...account, business: hit.business ?? null };
 }

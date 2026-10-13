@@ -8,6 +8,7 @@ import { entryActualAmount, loadRuleClassifier, UNPAIRED } from "@/lib/ledger/le
 //      - 「まとめて自動処理」: 未割り当ての明細だけが対象。付いている科目は変えない
 //      - 「科目を付け直す」（reset）: 科目の付いた明細も対象。ルールに当たればその科目に付け直し、
 //        当たらなければ未割り当てに戻す（手で選んだ科目も外れる）
+//      - ルールが事業利用を決めていれば、事業利用も付ける（付け直す）。決めていなければ事業利用は変えない
 //   2. 同じ日・同じ金額の送金と受金の組が 1 組だけなら、振替・チャージの組にする（lib/ledger/auto-offset.ts）
 // 振替・チャージの組の明細と、実績を確定済みの月の明細は変えない（確定済みの月は件数だけ返す）。
 
@@ -31,7 +32,15 @@ export async function autoProcessEntries(
     loadRuleClassifier(db),
     db.financialRecord.findMany({
       where: { kind: { not: null }, ...UNPAIRED, ...(reset ? {} : { accountId: null }) },
-      select: { id: true, description: true, flow: true, periodId: true, accountId: true },
+      select: {
+        id: true,
+        description: true,
+        flow: true,
+        periodId: true,
+        accountId: true,
+        businessUse: true,
+        businessRatio: true,
+      },
     }),
   ]);
   const locked = await confirmedActualsPeriodIds(
@@ -45,12 +54,18 @@ export async function autoProcessEntries(
     if (locked.has(e.periodId)) continue;
     const category = classify(e.description ?? "");
     if (category) {
-      if (category.id === e.accountId) continue;
+      const sameBusiness =
+        !category.business ||
+        (category.business.businessUse === e.businessUse &&
+          category.business.businessRatio ===
+            (e.businessRatio === null ? null : Number(e.businessRatio)));
+      if (category.id === e.accountId && sameBusiness) continue;
       await db.financialRecord.update({
         where: { id: e.id },
         data: {
           accountId: category.id,
           amount: entryActualAmount(category.category, Number(e.flow)),
+          ...category.business,
         },
       });
       categorized++;

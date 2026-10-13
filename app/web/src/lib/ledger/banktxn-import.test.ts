@@ -15,11 +15,11 @@ describe("classifyByRules", () => {
   ];
 
   it("matches a case-insensitive substring of the description", () => {
-    expect(classifyByRules("AMAZON.CO.JP PURCHASE", rules)).toBe(1);
+    expect(classifyByRules("AMAZON.CO.JP PURCHASE", rules)?.categoryAccountId).toBe(1);
   });
 
   it("prefers the longer keyword when multiple rules match (more specific wins)", () => {
-    expect(classifyByRules("AMAZON PRIME MEMBERSHIP", rules)).toBe(2);
+    expect(classifyByRules("AMAZON PRIME MEMBERSHIP", rules)?.categoryAccountId).toBe(2);
   });
 
   it("prioritizes higher-priority rules over keyword length", () => {
@@ -27,7 +27,7 @@ describe("classifyByRules", () => {
       { keyword: "amazon", categoryAccountId: 1, priority: 0 },
       { keyword: "am", categoryAccountId: 99, priority: 100 }, // 手動学習ルール想定
     ];
-    expect(classifyByRules("AMAZON.CO.JP", withPriority)).toBe(99);
+    expect(classifyByRules("AMAZON.CO.JP", withPriority)?.categoryAccountId).toBe(99);
   });
 
   it("returns null when no rule matches", () => {
