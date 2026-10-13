@@ -33,6 +33,7 @@ import {
   LINKED_ACCOUNT_TYPE_LABELS,
   LINKED_ACCOUNT_TYPES,
 } from "../shared/linked-account-type";
+import { BusinessUseSwitch } from "../components/BusinessUseControls";
 
 const LEDGER_CATEGORIES = ["ASSET", "LIABILITY"] as const;
 
@@ -44,6 +45,8 @@ type CardForm = {
   lastFour: string;
   accountCode: string;
   note: string;
+  /** 事業利用（個人事業主モードで表示・集計し、入ってくる明細も事業利用で入る） */
+  businessUse: boolean;
 };
 const BLANK_CARD: CardForm = {
   id: null,
@@ -53,6 +56,7 @@ const BLANK_CARD: CardForm = {
   lastFour: "",
   accountCode: "",
   note: "",
+  businessUse: false,
 };
 
 const NAME_PLACEHOLDER: Record<string, string> = {
@@ -119,6 +123,7 @@ export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
         lastFour: form.lastFour || form.id !== null ? form.lastFour : undefined,
         accountCode: form.accountCode || form.id !== null ? form.accountCode : undefined,
         note: form.note || form.id !== null ? form.note : undefined,
+        businessUse: form.businessUse,
       };
       try {
         if (form.id === null) {
@@ -195,7 +200,8 @@ export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
           reloadKey={reloadKey}
           onAdd={() => {
             setFormError(null);
-            setForm(BLANK_CARD);
+            // 個人事業主モードで足すカードは事業利用で始める
+            setForm({ ...BLANK_CARD, businessUse: viewMode === "sole" });
           }}
           onEdit={(a) => {
             setFormError(null);
@@ -207,6 +213,7 @@ export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
               lastFour: a.lastFour ?? "",
               accountCode: a.account?.code ?? "",
               note: a.note ?? "",
+              businessUse: a.businessUse ?? false,
             });
           }}
           onDelete={confirmDeleteCard}
@@ -289,6 +296,11 @@ export function CardTransactionsScreen({ viewMode, onOpenHistory }: Props) {
                 onChangeText={(note) => setForm({ ...form, note })}
               />
             </Field>
+            <BusinessUseSwitch
+              kind="account"
+              value={form.businessUse}
+              onChange={(businessUse) => setForm({ ...form, businessUse })}
+            />
             {formError && <Notice tone="error">{formError}</Notice>}
           </>
         )}

@@ -2,6 +2,7 @@
 // （web 版 components/entry/LearningRulesPanel.tsx と同じ）。予算の「設定」の予算配分ルール
 // （BudgetAllocationPanel.tsx）と同じ形にそろえる: 「変更を保存」、行ごとの入力と削除、「+ ルールを追加」。
 // ルールを変えても、すでに付いている明細の科目は変わらない（付け直すのは実績の確定の「科目を付け直す」）。
+// ルールは事業利用も持てる（指定しない / 事業・按分 / 事業でない）。指定しないルールは明細の事業利用を変えない。
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
@@ -13,9 +14,10 @@ import {
   type ViewMode,
 } from "../api";
 import { displayName } from "../shared/display-name";
+import { BUSINESS_USE_LABEL, isValidBusinessRatio } from "../shared/business-use";
 import { ENTRY_HELP, LEARNING_RULE_TERMS } from "../shared/help-texts";
 import { AccountPickerModal } from "./CategoryPickerModal";
-import { Button, Card, EmptyText, Field, Input, Notice, SectionTitle, TermList } from "./ui";
+import { Button, Card, EmptyText, Field, Input, Notice, Pills, SectionTitle, TermList } from "./ui";
 
 /** 選べる科目の区分（明細に付けられる収入・支出の科目） */
 const RULE_CATEGORIES = ["REVENUE", "COGS", "EXPENSE"] as const;
@@ -27,6 +29,9 @@ type RuleEdit = {
   keyword: string;
   categoryAccountId: number | null;
   updatedAt: string | null;
+  /** 事業利用（"" = 指定しない） */
+  business: "" | "business" | "private";
+  businessRatio: string;
 };
 
 const toEdit = (r: CategoryRule): RuleEdit => ({
@@ -35,7 +40,23 @@ const toEdit = (r: CategoryRule): RuleEdit => ({
   keyword: r.keyword,
   categoryAccountId: r.categoryAccount.id,
   updatedAt: r.updatedAt,
+  business:
+    r.businessUse === null || r.businessUse === undefined
+      ? ""
+      : r.businessUse
+        ? "business"
+        : "private",
+  businessRatio:
+    r.businessRatio === null || r.businessRatio === undefined
+      ? ""
+      : String(Number(r.businessRatio)),
 });
+
+const BUSINESS_OPTIONS: { value: RuleEdit["business"]; label: string }[] = [
+  { value: "", label: "指定しない" },
+  { value: "business", label: "事業" },
+  { value: "private", label: "事業でない" },
+];
 
 type Message = { ok: boolean; text: string } | null;
 
@@ -81,6 +102,8 @@ export function LearningRulesSection({
         keyword: "",
         categoryAccountId: null,
         updatedAt: null,
+        business: "",
+        businessRatio: "",
       },
     ]);
 
@@ -96,6 +119,17 @@ export function LearningRulesSection({
       setMsg({ ok: false, text: "キーワードか科目が未入力の行があります。" });
       return;
     }
+    if (
+      rules.some(
+        (r) =>
+          r.business === "business" &&
+          r.businessRatio.trim() !== "" &&
+          !isValidBusinessRatio(Number(r.businessRatio)),
+      )
+    ) {
+      setMsg({ ok: false, text: "按分は 0 より大きく 100 以下で入れてください。" });
+      return;
+    }
     setSaving(true);
     setMsg(null);
     try {
@@ -104,6 +138,11 @@ export function LearningRulesSection({
           ...(r.id !== null ? { id: r.id } : {}),
           keyword: r.keyword,
           categoryAccountId: r.categoryAccountId!,
+          businessUse: r.business === "" ? null : r.business === "business",
+          businessRatio:
+            r.business === "business" && r.businessRatio.trim() !== ""
+              ? Number(r.businessRatio)
+              : null,
         })),
         removedIds,
       );
@@ -165,6 +204,26 @@ export function LearningRulesSection({
                   </Text>
                 </TouchableOpacity>
               </Field>
+              <Field label={`${BUSINESS_USE_LABEL}・按分`}>
+                <Pills
+                  options={BUSINESS_OPTIONS}
+                  value={r.business}
+                  onChange={(v) => update(r.rowKey, { business: v })}
+                />
+                {r.business === "business" && (
+                  <View style={s.ratioRow}>
+                    <Input
+                      value={r.businessRatio}
+                      placeholder="100"
+                      keyboardType="decimal-pad"
+                      accessibilityLabel="按分（%）"
+                      onChangeText={(t) => update(r.rowKey, { businessRatio: t })}
+                      style={s.ratio}
+                    />
+                    <Text style={s.updated}>%</Text>
+                  </View>
+                )}
+              </Field>
             </View>
           );
         })
@@ -216,4 +275,6 @@ const s = StyleSheet.create({
   },
   pickerText: { fontSize: 14, color: "#1e293b" },
   pickerPlaceholder: { fontSize: 14, color: "#94a3b8" },
+  ratioRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+  ratio: { width: 80 },
 });

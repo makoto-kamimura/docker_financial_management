@@ -128,6 +128,21 @@ function apiFetch(path: string, init?: RequestInit, timeoutMs?: number): Promise
   return fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers }, timeoutMs);
 }
 
+// 明細の事業利用と按分（%）。按分は API が文字列（Decimal）で返すことがあるので数値に直す
+export type BusinessFields = { businessUse: boolean; businessRatio: number | null };
+function withBusiness<T extends { businessUse?: boolean; businessRatio?: unknown }>(
+  row: T,
+): T & BusinessFields {
+  return {
+    ...row,
+    businessUse: row.businessUse ?? false,
+    businessRatio:
+      row.businessRatio === null || row.businessRatio === undefined
+        ? null
+        : Number(row.businessRatio),
+  };
+}
+
 // JSON を送るリクエストの init（POST / PATCH / PUT）
 function jsonInit(method: "POST" | "PATCH" | "PUT", body: unknown): RequestInit {
   return {
@@ -382,7 +397,7 @@ export type CashEntry = {
   categoryAccount: Account | null;
   /** 証憑（レシートの写真など） */
   receipts?: { id: number; fileName: string; fileUrl: string }[];
-};
+} & BusinessFields;
 
 /** その月の現金の明細（カレンダー） */
 export async function fetchActuals(year: number, month: number): Promise<CashEntry[]> {
@@ -390,13 +405,13 @@ export async function fetchActuals(year: number, month: number): Promise<CashEnt
     `/actuals?year=${year}&month=${month}`,
     "実績の取得に失敗しました",
   );
-  return (json.data ?? []).map((e) => ({ ...e, amount: Number(e.amount) }));
+  return (json.data ?? []).map((e) => withBusiness({ ...e, amount: Number(e.amount) }));
 }
 
 /** 直近 200 件の現金の明細（履歴） */
 export async function fetchCashEntries(): Promise<CashEntry[]> {
   const json = await request<{ data?: CashEntry[] }>("/actuals", "履歴の取得に失敗しました");
-  return (json.data ?? []).map((e) => ({ ...e, amount: Number(e.amount) }));
+  return (json.data ?? []).map((e) => withBusiness({ ...e, amount: Number(e.amount) }));
 }
 
 /** 現金の明細の登録。learn なら摘要と科目の組を学習ルールに覚える。登録した明細を返す */
@@ -407,6 +422,9 @@ export async function postActual(data: {
   amount: number;
   direction: "income" | "expense";
   learn?: boolean;
+  /** 事業利用（個人事業主モードで付ける）。按分を null にすると科目の事業利用按分の割合（無ければ 100%） */
+  businessUse?: boolean;
+  businessRatio?: number | null;
 }): Promise<CashEntry> {
   const json = await request<{ data: CashEntry }>(
     "/actuals",
@@ -442,7 +460,13 @@ export type ReceiptScanResult = {
   };
   engine: ReceiptEngine;
   remaining: number;
-  suggestedAccount: { code: string; name: string; category: string } | null;
+  suggestedAccount: {
+    code: string;
+    name: string;
+    category: string;
+    /** 学習ルールが事業利用を決めていれば、その事業利用 */
+    business?: { businessUse: boolean; businessRatio: number | null } | null;
+  } | null;
 };
 
 export async function fetchReceiptScanStatus(): Promise<ReceiptScanStatus> {
@@ -938,10 +962,20 @@ export type CategoryRule = {
     soleName: string | null;
     corporateName: string | null;
   };
+  /** 事業利用（null = ルールは事業利用を決めない。true = 事業利用・按分、false = 事業利用なし） */
+  businessUse: boolean | null;
+  businessRatio: number | null;
 };
 
 /** 保存する行（id ありは変更、id なしは追加） */
-export type CategoryRuleInput = { id?: number; keyword: string; categoryAccountId: number };
+export type CategoryRuleInput = {
+  id?: number;
+  keyword: string;
+  categoryAccountId: number;
+  businessUse?: boolean | null;
+  /** businessUse が true のときの按分（%）。省略すると 100% */
+  businessRatio?: number | null;
+};
 
 export async function fetchCategoryRules(): Promise<CategoryRule[]> {
   const json = await request<{ data?: CategoryRule[] }>(
@@ -1090,6 +1124,8 @@ export type BankAccount = {
   /** 明細上の最新の取引日 */
   lastTransactionDate: string | null;
   _count: { transactions: number };
+  /** 事業利用（個人事業主モードで表示・集計する。入ってくる明細も事業利用で入る） */
+  businessUse?: boolean;
 };
 
 export async function fetchBankAccounts(): Promise<BankAccount[]> {
@@ -1109,6 +1145,7 @@ export type BankAccountInput = {
   lastFour?: string;
   accountCode?: string;
   note?: string;
+  businessUse?: boolean;
 };
 
 export async function postBankAccount(data: BankAccountInput): Promise<void> {
@@ -1124,6 +1161,7 @@ export async function patchBankAccount(
     accountCode: string;
     note: string;
     balanceAdjustment: number;
+    businessUse?: boolean;
   },
 ): Promise<void> {
   await request(`/bank-accounts/${id}`, "口座の更新に失敗しました", jsonInit("PATCH", data));
@@ -1152,21 +1190,28 @@ export type BankTransaction = {
   chargeToAccount: { id: number; name: string } | null;
   /** チャージ先の明細と対になっていれば値が入る */
   chargeGroupId: string | null;
-};
+} & BusinessFields;
 
 export async function fetchBankTransactions(accountId: number): Promise<BankTransaction[]> {
   const json = await request<{ data?: BankTransaction[] }>(
     `/bank-accounts/${accountId}/transactions`,
     "入出金明細の取得に失敗しました",
   );
-  return (json.data ?? []).map((t) => ({ ...t, amount: Number(t.amount) }));
+  return (json.data ?? []).map((t) => withBusiness({ ...t, amount: Number(t.amount) }));
 }
 
 // 手動登録（収入は正、支出は負の金額）
 export async function postBankTransaction(
   accountId: number,
   /** categoryAccountId を省くと学習ルールで科目を決める（付けた明細はそのまま実績） */
-  data: { date: string; description: string; amount: number; categoryAccountId?: number },
+  data: {
+    date: string;
+    description: string;
+    amount: number;
+    categoryAccountId?: number;
+    businessUse?: boolean;
+    businessRatio?: number | null;
+  },
 ): Promise<void> {
   await request(
     `/bank-accounts/${accountId}/transactions`,
@@ -1245,6 +1290,8 @@ export type LinkedAccount = {
   account?: { id: number; code: string; name: string } | null;
   /** このカードをチャージ先に指定している明細の件数（種別をクレジットへ戻すときの警告に使う） */
   chargeSourceCount?: number;
+  /** 事業利用（個人事業主モードで表示・集計する。入ってくる明細も事業利用で入る） */
+  businessUse?: boolean;
 };
 
 export async function fetchLinkedAccounts(): Promise<LinkedAccount[]> {
@@ -1262,6 +1309,7 @@ export type LinkedAccountInput = {
   lastFour?: string;
   accountCode?: string;
   note?: string;
+  businessUse?: boolean;
 };
 
 export async function postLinkedAccount(data: LinkedAccountInput): Promise<LinkedAccount> {
@@ -1299,21 +1347,28 @@ export type CardTransaction = {
    * 「チャージ先に入った入金側」で、こちらも収入として計上しない
    */
   chargeGroupId: string | null;
-};
+} & BusinessFields;
 
 export async function fetchCardTransactions(accountId: number): Promise<CardTransaction[]> {
   const json = await request<{ data?: CardTransaction[] }>(
     `/linked-accounts/${accountId}/transactions`,
     "利用明細の取得に失敗しました",
   );
-  return (json.data ?? []).map((t) => ({ ...t, amount: Number(t.amount) }));
+  return (json.data ?? []).map((t) => withBusiness({ ...t, amount: Number(t.amount) }));
 }
 
 // 利用は正、返金は負の金額で登録する（web 版の手動登録と同じ符号）
 export async function postCardTransaction(
   accountId: number,
   /** categoryAccountId を省くと学習ルールで科目を決める（付けた明細はそのまま実績） */
-  data: { date: string; description: string; amount: number; categoryAccountId?: number },
+  data: {
+    date: string;
+    description: string;
+    amount: number;
+    categoryAccountId?: number;
+    businessUse?: boolean;
+    businessRatio?: number | null;
+  },
 ): Promise<void> {
   await request(
     `/linked-accounts/${accountId}/transactions`,
@@ -1492,18 +1547,34 @@ export type UnassignedEntry = {
   /** +入金 / −出金 */
   amount: number;
   sourceName: string;
-};
+  /** 付いている科目（未割り当ては null。割り当て済みも表示するときに値が入る） */
+  categoryAccountId: number | null;
+  categoryAccount: { id: number; code: string; name: string; category: string } | null;
+  /** 事業の分の実績の金額（科目の向き。事業利用でなければ 0） */
+  businessAmount: number;
+} & BusinessFields;
 
 /** その月の未割り当て（科目が付いていない）明細。残っている間は実績を確定できない */
 export async function fetchUnassignedEntries(
   year: number,
   month: number,
-): Promise<UnassignedEntry[]> {
-  const json = await request<{ data?: UnassignedEntry[] }>(
-    `/ledger/unassigned?year=${year}&month=${month}`,
+  /** true なら科目の付いた明細も返す（付けた科目・事業利用を見直すため） */
+  includeAssigned = false,
+): Promise<{ data: UnassignedEntry[]; unassignedCount: number; truncated: boolean }> {
+  const json = await request<{
+    data?: UnassignedEntry[];
+    unassignedCount?: number;
+    truncated?: boolean;
+  }>(
+    `/ledger/unassigned?year=${year}&month=${month}${includeAssigned ? "&includeAssigned=1" : ""}`,
     "未割り当ての明細の取得に失敗しました",
   );
-  return json.data ?? [];
+  const data = (json.data ?? []).map(withBusiness);
+  return {
+    data,
+    unassignedCount: json.unassignedCount ?? data.length,
+    truncated: json.truncated ?? false,
+  };
 }
 
 const ENTRY_CATEGORIZE_PATH: Record<UnassignedEntry["kind"], (id: number) => string> = {
@@ -1512,18 +1583,43 @@ const ENTRY_CATEGORIZE_PATH: Record<UnassignedEntry["kind"], (id: number) => str
   CARD: (id) => `/card-transactions/${id}/categorize`,
 };
 
-/** 明細（現金・銀行・カード）に科目を付ける。学習し、同じ摘要の未割り当ての明細にも付ける */
+export type EntryChange = {
+  categoryAccountId?: number;
+  businessUse?: boolean;
+  /** null = 科目の事業利用按分の割合（無ければ 100%） */
+  businessRatio?: number | null;
+};
+
+/**
+ * 明細（現金・銀行・カード）の科目・事業利用を変える。学習ルールにも覚え、
+ * 科目を付けたときは同じ摘要の未割り当ての明細にも付ける（web 版と同じ）
+ */
 export async function categorizeEntry(
   kind: UnassignedEntry["kind"],
   id: number,
-  categoryAccountId: number,
+  change: EntryChange,
 ): Promise<{ updatedSiblingCount: number }> {
   const json = await request<{ updatedSiblingCount?: number }>(
     ENTRY_CATEGORIZE_PATH[kind](id),
-    "科目の設定に失敗しました",
-    jsonInit("PATCH", { categoryAccountId, learn: true }),
+    "変更に失敗しました",
+    jsonInit("PATCH", { ...change, learn: true }),
   );
   return { updatedSiblingCount: json?.updatedSiblingCount ?? 0 };
+}
+
+/** その月のその科目の明細をまとめて事業利用にする（確定済みの月の明細は変えず、件数を返す） */
+export async function setMonthBusinessUse(data: {
+  year: number;
+  month: number;
+  categoryAccountId: number;
+  businessRatio: number | null;
+}): Promise<{ updated: number; locked: number }> {
+  const json = await request<{ data: { updated: number; locked: number } }>(
+    "/ledger/business",
+    "まとめての変更に失敗しました",
+    jsonInit("PATCH", { ...data, businessUse: true }),
+  );
+  return json.data;
 }
 
 export type AutoProcessResult = {
@@ -1619,6 +1715,8 @@ export async function postLoan(data: {
   note?: string;
   loanType: string;
   linkedAccountCode?: string;
+  /** 事業利用（個人事業主モードで表示・集計する） */
+  businessUse?: boolean;
   monthlyPayment?: number;
   residualValue?: number;
   /** 返済の引き落とし口座と日（入れると資金繰りに自動で並ぶ） */
@@ -1655,6 +1753,7 @@ export async function patchLoan(
     /** 返済の引き落とし口座と日（null で外す） */
     debitBankAccountId?: number | null;
     debitDay?: number | null;
+    businessUse?: boolean;
   },
 ): Promise<void> {
   await request(`/loans/${id}`, "借入金の更新に失敗しました", jsonInit("PATCH", data));
@@ -1733,6 +1832,8 @@ export type PersonalAsset = ValuationSettingsFields &
     /** 純資産に評価額を計上するか。false = 負債のみ反映（ローンの諸費用等） */
     countAsAsset: boolean;
     note: string | null;
+    /** 事業利用（個人事業主モードで表示・集計する） */
+    businessUse?: boolean;
     linkedAccountId: number | null;
     debtStartOn: string | null; // 支払い開始年月
     debtPayoffDue: string | null; // 負債解消（完済）予定年月
@@ -1812,6 +1913,8 @@ export type PersonalAssetInput = {
   currentValue?: number;
   countAsAsset: boolean;
   note: string | null;
+  /** 事業利用（個人事業主モードで表示・集計する） */
+  businessUse?: boolean;
   // 借入の項目（以前の資産の画面から送っていたもの。今の画面は借入金の画面で入力するので送らない）
   linkedAccountId?: number | null;
   debtStartOn?: string | null;

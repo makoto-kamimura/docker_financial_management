@@ -4,7 +4,7 @@
 //   - 全件 / 未割り当て / 実績 の絞り込み
 //   - 科目の紐付け（付けた明細がそのまま実績。チャージ・チャージ入金は対象外）
 //   - チャージ先の指定・解除、固定決済（毎月このカードで決済される支払い）の登録・書き換え・解除、削除
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   categorizeTransaction,
@@ -48,6 +48,7 @@ import {
   TermList,
 } from "../ui";
 import { CARD_HELP, CARD_TERMS } from "../../shared/help-texts";
+import { BusinessTag, useBusinessOnlyFilter } from "../BusinessUseControls";
 
 const PAGE_SIZE = 30;
 type PostFilter = "all" | "unassigned" | "actual";
@@ -118,13 +119,16 @@ export function CardTransactionsList({
     load();
   }, [load]);
 
-  const filtered = useMemo(() => {
+  // 個人事業主モードは「事業利用のみ」に絞る（切り替えで全件。web 版と同じ）
+  const businessFilter = useBusinessOnlyFilter(viewMode);
+  const scoped = businessFilter.keep(txns);
+  const filtered = (() => {
     // 科目を付けた明細がそのまま実績。チャージは科目を付けない明細なので未割り当てから除く
-    if (filter === "actual") return txns.filter((t) => t.categoryAccountId !== null);
+    if (filter === "actual") return scoped.filter((t) => t.categoryAccountId !== null);
     if (filter === "unassigned")
-      return txns.filter((t) => t.categoryAccountId === null && !isMovement(t));
-    return txns;
-  }, [txns, filter]);
+      return scoped.filter((t) => t.categoryAccountId === null && !isMovement(t));
+    return scoped;
+  })();
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pageCount - 1);
   const paged = filtered.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
@@ -288,6 +292,7 @@ export function CardTransactionsList({
           setPage(0);
         }}
       />
+      {businessFilter.toggle}
       <LedgerCount total={filtered.length} offset={current * PAGE_SIZE} pageSize={PAGE_SIZE} />
 
       {filtered.length === 0 ? (
@@ -348,6 +353,7 @@ export function CardTransactionsList({
                 ) : (
                   <LedgerBadge tone="amber">未割り当て</LedgerBadge>
                 )}
+                <BusinessTag businessUse={t.businessUse} businessRatio={t.businessRatio} />
               </>
             }
             actions={
