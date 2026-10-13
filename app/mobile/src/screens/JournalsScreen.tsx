@@ -1,4 +1,5 @@
 // 仕訳帳（web 版 /journals の一覧と同じ表示を閲覧のみで出す。仕訳の入力・承認・削除・証憑の添付は web 版）。
+// 個人事業主モードは、実績から作った仕訳（GET /api/journals/auto）を出す（AutoJournals）。
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -8,7 +9,14 @@ import {
   Text,
   View,
 } from "react-native";
-import { fetchJournals, type JournalEntry, type ViewMode } from "../api";
+import {
+  fetchAutoJournals,
+  fetchJournals,
+  type AutoJournal,
+  type JournalEntry,
+  type ViewMode,
+} from "../api";
+import { BOOKS_HELP } from "../shared/help-texts";
 import { Card, EmptyText, Notice, Pills } from "../components/ui";
 import { fmtDate, MONTHS, yen } from "../format";
 import { displayName } from "../shared/display-name";
@@ -36,6 +44,105 @@ const TAX_LABELS: Record<string, string> = {
 type Props = { viewMode: ViewMode };
 
 export function JournalsScreen({ viewMode }: Props) {
+  return viewMode === "sole" ? <AutoJournals /> : <ManualJournals viewMode={viewMode} />;
+}
+
+const bookAccountLabel = (a: AutoJournal["lines"][number]["account"]) =>
+  a.sub ? `${a.name}（${a.sub}）` : a.name;
+
+// 個人事業主モード: 実績から作った仕訳（入力はできない）
+function AutoJournals() {
+  const year = useFiscalYear();
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [data, setData] = useState<Awaited<ReturnType<typeof fetchAutoJournals>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setData(await fetchAutoJournals(year, month));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "取得に失敗しました");
+      setData({ data: [], total: 0, skippedJournals: [] });
+    }
+  }, [year, month]);
+
+  useEffect(() => {
+    setData(null);
+    load();
+  }, [load]);
+
+  return (
+    <ScrollView
+      style={s.root}
+      contentContainerStyle={s.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={async () => {
+            setRefreshing(true);
+            await load();
+            setRefreshing(false);
+          }}
+        />
+      }
+    >
+      <Notice>{BOOKS_HELP.journal}</Notice>
+      <Pills
+        options={MONTHS.map((m) => ({ value: m, label: `${m}月` }))}
+        value={month}
+        onChange={setMonth}
+      />
+      <Text style={s.count}>{data?.total ?? 0}件</Text>
+      {error && <Notice tone="error">{error}</Notice>}
+      {data && data.skippedJournals.length > 0 && (
+        <Notice>
+          {`含めていない仕訳が ${data.skippedJournals.length} 件あります。${BOOKS_HELP.skipped}`}
+        </Notice>
+      )}
+
+      {data === null ? (
+        <ActivityIndicator color="#4f46e5" style={{ marginTop: 32 }} />
+      ) : data.data.length === 0 ? (
+        <EmptyText>{BOOKS_HELP.empty}</EmptyText>
+      ) : (
+        data.data.map((j) => {
+          const debits = j.lines.filter((l) => l.side === "debit");
+          const credits = j.lines.filter((l) => l.side === "credit");
+          const sum = debits.reduce((acc, l) => acc + l.amount, 0);
+          return (
+            <Card key={j.no}>
+              <View style={s.head}>
+                <Text style={s.date}>
+                  {j.no}・{j.date.replace(/-/g, "/")}
+                </Text>
+              </View>
+              <View style={s.titleRow}>
+                <Text style={s.desc}>{j.description}</Text>
+                <Text style={s.total}>{yen(sum)}</Text>
+              </View>
+              {[...debits, ...credits].map((l, i) => (
+                <View key={i} style={[s.line, l.side === "debit" ? s.lineDebit : s.lineCredit]}>
+                  <Text style={[s.side, { color: l.side === "debit" ? "#2563eb" : "#ea580c" }]}>
+                    {l.side === "debit" ? "借方" : "貸方"}
+                  </Text>
+                  <Text style={s.account} numberOfLines={1}>
+                    <Text style={s.code}>{l.account.code} </Text>
+                    {bookAccountLabel(l.account)}
+                  </Text>
+                  <Text style={s.amount}>{yen(l.amount)}</Text>
+                </View>
+              ))}
+            </Card>
+          );
+        })
+      )}
+    </ScrollView>
+  );
+}
+
+function ManualJournals({ viewMode }: Props) {
   const now = new Date();
   // 年は画面上部のサブヘッダーの対象年度（全画面で共通）。ここでは月だけを選ぶ
   const year = useFiscalYear();

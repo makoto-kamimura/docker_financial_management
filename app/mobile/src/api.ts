@@ -6,6 +6,7 @@ import type { ViewMode } from "./shared/display-name";
 import type { PersonalAssetCategory } from "./shared/labels";
 import type { BuildingStructure, ValuationMethod, ValueTrend } from "./shared/asset-valuation";
 import type { Loan } from "./shared/loan-schedule";
+import { scopeOfMode, withScope } from "./shared/business-use";
 
 const _devHost = Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
 const API_BASE_URL: string = process.env.EXPO_PUBLIC_API_BASE_URL ?? `http://${_devHost}:3000/api`;
@@ -107,6 +108,12 @@ export function setViewMode(m: ViewMode) {
 let _viewModeSwitched = false;
 export function hasSwitchedViewMode() {
   return _viewModeSwitched;
+}
+
+// 実績・口座・予算を範囲（家庭・事業）で分けて返す API に付ける範囲。個人事業主モードは事業の分（?scope=business）。
+// 範囲は呼んだときの表示モードで決まるので、画面は表示モードが変わったら読み直す
+function scoped(path: string): string {
+  return withScope(path, scopeOfMode(_viewMode));
 }
 
 // 表示モードの型は web と共有する（shared/display-name.ts）
@@ -285,7 +292,7 @@ export type KpiResponse = {
 // period 省略時はサーバー既定（現在月以前で最も新しい実績月）
 export async function fetchKpi(period?: string): Promise<KpiResponse> {
   const json = await request<Partial<KpiResponse>>(
-    period ? `/kpi?period=${period}` : "/kpi",
+    scoped(period ? `/kpi?period=${period}` : "/kpi"),
     "KPI の取得に失敗しました",
   );
   return {
@@ -351,7 +358,10 @@ export async function fetchFinancialMatrix(year?: number): Promise<{
     years?: number[];
     data?: FinancialRecordRow[];
     confirmedMonths?: number[];
-  }>(year ? `/financials/matrix?year=${year}` : "/financials/matrix", "実績の取得に失敗しました");
+  }>(
+    scoped(year ? `/financials/matrix?year=${year}` : "/financials/matrix"),
+    "実績の取得に失敗しました",
+  );
   return {
     year: json.year,
     years: json.years ?? [],
@@ -507,7 +517,7 @@ export type NetWorthSummary = {
 
 export async function fetchNetWorthSummary(year: number, month: number): Promise<NetWorthSummary> {
   return request<NetWorthSummary>(
-    `/assets/summary?year=${year}&month=${month}`,
+    scoped(`/assets/summary?year=${year}&month=${month}`),
     "総資産サマリの取得に失敗しました",
   );
 }
@@ -537,7 +547,7 @@ export type LoanSummary = {
 
 export async function fetchLoanSummary(year: number, month: number): Promise<LoanSummary> {
   const json = await request<{ data: LoanSummary }>(
-    `/loans/summary?year=${year}&month=${month}`,
+    scoped(`/loans/summary?year=${year}&month=${month}`),
     "総借入サマリの取得に失敗しました",
   );
   return json.data;
@@ -558,7 +568,7 @@ export type BankSummary = {
 
 export async function fetchBankSummary(year: number, month: number): Promise<BankSummary> {
   const json = await request<{ data: BankSummary }>(
-    `/bank-accounts/summary?year=${year}&month=${month}`,
+    scoped(`/bank-accounts/summary?year=${year}&month=${month}`),
     "口座残高サマリの取得に失敗しました",
   );
   return json.data;
@@ -575,7 +585,10 @@ export type CashOutlook = {
 };
 
 export async function fetchCashOutlook(): Promise<CashOutlook> {
-  return request<CashOutlook>("/bank-accounts/cash-outlook", "残高の推移の取得に失敗しました");
+  return request<CashOutlook>(
+    scoped("/bank-accounts/cash-outlook"),
+    "残高の推移の取得に失敗しました",
+  );
 }
 
 // ── 予算 ──────────────────────────────────────────────────────────────
@@ -624,7 +637,7 @@ export async function fetchBudgets(year: number): Promise<BudgetResponse> {
     personalAssetDebtOverlay?: PersonalAssetDebtOverlayRow[];
     confirmedMonths?: number[];
     items?: BudgetResponse["items"];
-  }>(`/budgets?year=${year}`, "予算データの取得に失敗しました");
+  }>(scoped(`/budgets?year=${year}`), "予算データの取得に失敗しました");
   return {
     budgets: (json.data ?? []).map((b) => ({ ...b, amount: Number(b.amount) })),
     years: json.years ?? [],
@@ -646,7 +659,7 @@ export type BudgetItemRow = {
 
 export async function fetchBudgetItems(year: number, month: number): Promise<BudgetItemRow[]> {
   const json = await request<{ data?: BudgetItemRow[] }>(
-    `/budget-items?year=${year}&month=${month}`,
+    scoped(`/budget-items?year=${year}&month=${month}`),
     "予算の取得に失敗しました",
   );
   return (json.data ?? []).map((i) => ({ ...i, amount: Number(i.amount) }));
@@ -658,7 +671,7 @@ export async function postBudgetItem(data: {
   description: string;
   amount: number;
 }): Promise<void> {
-  await request("/budget-items", "予算の登録に失敗しました", jsonInit("POST", data));
+  await request(scoped("/budget-items"), "予算の登録に失敗しました", jsonInit("POST", data));
 }
 
 export async function deleteBudgetItem(id: number): Promise<void> {
@@ -672,7 +685,7 @@ export async function postBudget(data: {
   month: number;
   amount: number;
 }): Promise<void> {
-  await request("/budgets", "予算の保存に失敗しました", jsonInit("POST", data));
+  await request(scoped("/budgets"), "予算の保存に失敗しました", jsonInit("POST", data));
 }
 
 export async function deleteBudget(id: number): Promise<void> {
@@ -740,7 +753,7 @@ export async function fetchLastActualsConfirmed(): Promise<string | null> {
 
 export async function fetchCycleStatus(year: number, month: number): Promise<CycleStatus> {
   const json = await request<{ data: CycleStatus }>(
-    `/cycle-status?year=${year}&month=${month}`,
+    scoped(`/cycle-status?year=${year}&month=${month}`),
     "確定状況の取得に失敗しました",
   );
   return json.data;
@@ -761,7 +774,7 @@ export type BudgetVariance = CycleStatus & {
 
 export async function fetchBudgetVariance(year: number, month: number): Promise<BudgetVariance> {
   const json = await request<{ data: BudgetVariance }>(
-    `/budgets/variance?year=${year}&month=${month}`,
+    scoped(`/budgets/variance?year=${year}&month=${month}`),
     "予実の取得に失敗しました",
   );
   return json.data;
@@ -773,12 +786,12 @@ export async function confirmBudget(data: {
   month: number;
   items: { accountId: number; amount: number }[];
 }): Promise<void> {
-  await request("/budgets/confirm", "確定に失敗しました", jsonInit("POST", data));
+  await request(scoped("/budgets/confirm"), "確定に失敗しました", jsonInit("POST", data));
 }
 
 // 確定の解除（管理者だけ）
 export async function unconfirmBudget(year: number, month: number): Promise<void> {
-  const res = await apiFetch(`/budgets/confirm?year=${year}&month=${month}`, {
+  const res = await apiFetch(scoped(`/budgets/confirm?year=${year}&month=${month}`), {
     method: "DELETE",
   });
   if (res.ok) return;
@@ -822,7 +835,7 @@ export type AllocationGuideRow = {
 
 export async function fetchAllocationGuide(year: number): Promise<AllocationGuideRow[]> {
   const json = await request<{ data?: AllocationGuideRow[] }>(
-    `/budgets/allocation-guide?year=${year}`,
+    scoped(`/budgets/allocation-guide?year=${year}`),
     "適正金額の取得に失敗しました",
   );
   return json.data ?? [];
@@ -858,7 +871,7 @@ export async function fetchBudgetHistory(year: number, q: HistoryQuery): Promise
   const json = await request<{
     data?: (Omit<ChangeHistoryRow, "targetId"> & { budgetId: number | null })[];
     total?: number;
-  }>(`/budgets/history?year=${year}&${historyParams(q)}`, "履歴の取得に失敗しました");
+  }>(scoped(`/budgets/history?year=${year}&${historyParams(q)}`), "履歴の取得に失敗しました");
   return {
     data: (json.data ?? []).map(({ budgetId, ...h }) => ({ ...h, targetId: budgetId })),
     total: json.total ?? 0,
@@ -867,7 +880,8 @@ export async function fetchBudgetHistory(year: number, q: HistoryQuery): Promise
 
 // ── 予算配分ルール（テナント別マスタ。web 版 予算管理の「設定」タブと同じ）──────
 export const ALLOCATION_GROUPS = ["固定費", "生活費", "その他"] as const;
-export type AllocationGroup = (typeof ALLOCATION_GROUPS)[number];
+// 個人事業主モードの事業の予算の配分ルールは「生活費」の代わりに「変動費」
+export const BUSINESS_ALLOCATION_GROUPS = ["固定費", "変動費", "その他"] as const;
 
 export type AllocationRule = {
   id: number;
@@ -951,7 +965,7 @@ export async function saveCategoryRules(
 
 export async function fetchAllocationRules(): Promise<AllocationRule[]> {
   const json = await request<{ data?: AllocationRule[] }>(
-    "/allocation-rules",
+    scoped("/allocation-rules"),
     "予算配分ルールの取得に失敗しました",
   );
   return json.data ?? [];
@@ -962,7 +976,7 @@ export async function saveAllocationRules(
   removedKeys: string[],
 ): Promise<AllocationRule[]> {
   const json = await request<{ data?: AllocationRule[] }>(
-    "/allocation-rules",
+    scoped("/allocation-rules"),
     "予算配分ルールの保存に失敗しました",
     jsonInit("PUT", { items, removedKeys: removedKeys.length ? removedKeys : undefined }),
   );
@@ -975,7 +989,7 @@ export async function importDefaultAllocationRules(): Promise<{
   created: number;
 }> {
   const json = await request<{ data?: AllocationRule[]; created?: number }>(
-    "/allocation-rules/defaults",
+    scoped("/allocation-rules/defaults"),
     "既定ルールの取り込みに失敗しました",
     { method: "POST" },
   );
@@ -1030,7 +1044,9 @@ export async function fetchAllocationSuggestion(params: {
 }): Promise<AllocationSuggestion> {
   const amount = params.basis === "manual" ? `&amount=${params.amount ?? 0}` : "";
   const json = await request<{ data: AllocationSuggestion }>(
-    `/budgets/allocation-suggest?year=${params.year}&month=${params.month}&basis=${params.basis}${amount}`,
+    scoped(
+      `/budgets/allocation-suggest?year=${params.year}&month=${params.month}&basis=${params.basis}${amount}`,
+    ),
     "配分提案の取得に失敗しました",
   );
   return json.data;
@@ -1043,7 +1059,7 @@ export async function applyAllocationToBudget(
 ): Promise<{ applied: number; skipped: number }> {
   // 予算が入っている科目は書き換えない（サーバー側でも飛ばす）
   const json = await request<{ data: { applied: number; skipped: number } }>(
-    "/budgets/allocation-apply",
+    scoped("/budgets/allocation-apply"),
     "予算への反映に失敗しました",
     jsonInit("POST", { year, items, onlyUnset: true }),
   );
@@ -1078,7 +1094,7 @@ export type BankAccount = {
 
 export async function fetchBankAccounts(): Promise<BankAccount[]> {
   const json = await request<{ data?: BankAccount[] }>(
-    "/bank-accounts",
+    scoped("/bank-accounts"),
     "銀行口座の取得に失敗しました",
   );
   return json.data ?? [];
@@ -1233,7 +1249,7 @@ export type LinkedAccount = {
 
 export async function fetchLinkedAccounts(): Promise<LinkedAccount[]> {
   const json = await request<{ data?: LinkedAccount[] }>(
-    "/linked-accounts",
+    scoped("/linked-accounts"),
     "カード・電子マネーの取得に失敗しました",
   );
   return json.data ?? [];
@@ -1429,7 +1445,7 @@ export type CardUsageTrend = {
 
 export async function fetchCardUsageTrend(): Promise<CardUsageTrend> {
   return request<CardUsageTrend>(
-    "/linked-accounts/usage-trend",
+    scoped("/linked-accounts/usage-trend"),
     "利用額の推移の取得に失敗しました",
   );
 }
@@ -1589,7 +1605,7 @@ export async function deleteTransfer(id: number): Promise<void> {
 export type { Loan };
 
 export async function fetchLoans(): Promise<Loan[]> {
-  const json = await request<{ data?: Loan[] }>("/loans", "借入金の取得に失敗しました");
+  const json = await request<{ data?: Loan[] }>(scoped("/loans"), "借入金の取得に失敗しました");
   return json.data ?? [];
 }
 
@@ -1773,7 +1789,7 @@ export type AssetTrend = {
 
 export async function fetchAssetTrend(): Promise<AssetTrend> {
   const json = await request<{ data: AssetTrend }>(
-    "/personal-assets/trend",
+    scoped("/personal-assets/trend"),
     "評価額の推移の取得に失敗しました",
   );
   return json.data;
@@ -1781,7 +1797,7 @@ export async function fetchAssetTrend(): Promise<AssetTrend> {
 
 export async function fetchPersonalAssets(): Promise<PersonalAsset[]> {
   const json = await request<{ data?: PersonalAsset[] }>(
-    "/personal-assets",
+    scoped("/personal-assets"),
     "資産の取得に失敗しました",
   );
   return json.data ?? [];
@@ -1850,6 +1866,39 @@ export async function fetchJournals(
     "仕訳帳の取得に失敗しました",
   );
   return { data: json.data ?? [], total: json.total ?? 0 };
+}
+
+// 個人事業主モードの仕訳帳: 実績から作った仕訳（web の lib/accounting/auto-journal.ts。閲覧のみ）
+export type AutoJournal = {
+  no: number;
+  date: string;
+  description: string;
+  lines: {
+    key: string;
+    side: "debit" | "credit";
+    amount: number;
+    account: { key: string; code: string; name: string; sub: string | null };
+  }[];
+};
+
+export async function fetchAutoJournals(
+  year: number,
+  month: number,
+): Promise<{
+  data: AutoJournal[];
+  total: number;
+  skippedJournals: { id: number; date: string; description: string }[];
+}> {
+  const json = await request<{
+    data?: AutoJournal[];
+    total?: number;
+    skippedJournals?: { id: number; date: string; description: string }[];
+  }>(`/journals/auto?year=${year}&month=${month}`, "仕訳帳の取得に失敗しました");
+  return {
+    data: json.data ?? [],
+    total: json.total ?? 0,
+    skippedJournals: json.skippedJournals ?? [],
+  };
 }
 
 // ── インボイス（閲覧のみ。作成・発行・入金・削除は web 版）──────────────────────────
@@ -1928,7 +1977,7 @@ export type ClosingStatements = {
 
 export async function fetchClosing(year: number): Promise<ClosingStatements> {
   return request<ClosingStatements>(
-    `/closing/statements?year=${year}`,
+    scoped(`/closing/statements?year=${year}`),
     "決算データの取得に失敗しました",
   );
 }

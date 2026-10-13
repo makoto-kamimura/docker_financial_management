@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { scopeOfMode } from "./shared/business-use";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -213,8 +214,8 @@ export default function App() {
         <Text style={s.userName}>{user.name}</Text>
       </View>
 
-      {/* コンテンツ */}
-      <View style={s.body}>
+      {/* コンテンツ。個人事業主モードとの切り替えでは、事業の分（?scope=business）で読み直すため作り直す */}
+      <View style={s.body} key={scopeOfMode(viewMode)}>
         {activeTab === "home" && <DashboardScreen viewMode={viewMode} onOpenCycle={openCycle} />}
         {activeTab === "budget" && (
           <BudgetScreen

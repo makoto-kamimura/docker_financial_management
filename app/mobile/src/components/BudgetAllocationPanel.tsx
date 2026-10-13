@@ -3,10 +3,12 @@
 //   科目は科目名のキーワードと受け皿の区分で自動で振り分ける（ここでは表示のみ。移すのは web 版）。
 //   この割合で予算を入れる「配分提案」は、はじめての予算の確定のときに「予算の確定」に出す
 //   （components/AllocationSuggestSection.tsx）。
+//   個人事業主モードは事業の予算の配分ルール（家庭とは別。グループは「生活費」の代わりに「変動費」）。
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   ALLOCATION_GROUPS,
+  BUSINESS_ALLOCATION_GROUPS,
   fetchAllocationRules,
   importDefaultAllocationRules,
   saveAllocationRules,
@@ -56,6 +58,8 @@ const newRuleKey = () => `rule_${Date.now().toString(36)}`;
 type Message = { ok: boolean; text: string } | null;
 
 function AllocationRulesSection({ viewMode }: { viewMode: ViewMode }) {
+  const groups: readonly string[] =
+    viewMode === "sole" ? BUSINESS_ALLOCATION_GROUPS : ALLOCATION_GROUPS;
   const [rules, setRules] = useState<RuleEdit[]>([]);
   const [removedKeys, setRemovedKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,7 +84,7 @@ function AllocationRulesSection({ viewMode }: { viewMode: ViewMode }) {
         origKey: null,
         key: newRuleKey(),
         label: "",
-        group: ALLOCATION_GROUPS[0],
+        group: groups[0],
         minPercent: "0",
         maxPercent: "",
         note: "",
@@ -146,7 +150,13 @@ function AllocationRulesSection({ viewMode }: { viewMode: ViewMode }) {
 
   return (
     <Card>
-      <SectionTitle note={BUDGET_HELP.allocationRules}>予算配分ルール</SectionTitle>
+      <SectionTitle
+        note={
+          viewMode === "sole" ? BUDGET_HELP.allocationRulesBusiness : BUDGET_HELP.allocationRules
+        }
+      >
+        予算配分ルール
+      </SectionTitle>
       <View style={s.actions}>
         <Button small label="変更を保存" onPress={save} loading={saving} />
         <Button
@@ -167,7 +177,7 @@ function AllocationRulesSection({ viewMode }: { viewMode: ViewMode }) {
             <View style={s.ruleHead}>
               <Pills
                 scroll={false}
-                options={ALLOCATION_GROUPS.map((g) => ({ value: g as string, label: g }))}
+                options={groups.map((g) => ({ value: g, label: g }))}
                 value={r.group}
                 onChange={(g) => setField(i, "group", g)}
               />
