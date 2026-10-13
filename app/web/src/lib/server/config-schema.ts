@@ -9,6 +9,13 @@ export const Env = z.object({
   COOKIE_SECURE: z.enum(["true", "false"]).default("true"),
   SESSION_IDLE_HOURS: z.coerce.number().positive().default(24),
   SESSION_ABSOLUTE_DAYS: z.coerce.number().positive().default(7),
+  // 証憑の置き場所。r2 なら Cloudflare R2（R2_* が要る）、既定はローカル（/app/uploads）
+  UPLOAD_STORAGE: z.enum(["local", "r2"]).default("local"),
+  R2_ACCOUNT_ID: z.string().min(1).optional(),
+  R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+  R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  R2_BUCKET: z.string().min(1).optional(),
+  R2_ENDPOINT: z.string().url().optional(), // テストで MinIO などに向けるときだけ
   UPLOAD_MAX_BYTES: z.coerce
     .number()
     .int()

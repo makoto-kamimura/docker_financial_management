@@ -10,6 +10,8 @@
 **/.env.*
 **/test-results
 **/playwright-report
+# 開発中にアップロードした証憑（利用者のファイル）をイメージに入れない
+app/web/uploads
 **/e2e/.auth
 .git
 .github

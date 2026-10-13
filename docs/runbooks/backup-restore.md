@@ -23,4 +23,5 @@ DATABASE_URL=postgresql://app:app@localhost:5432/financial \
 
 - 復元の前に、web を止めてから行う（`docker compose -f platform/docker-compose.yml stop web`）。
 - 復元のあと、web を起動すると、entrypoint が未適用のマイグレーションを適用する。
-- 証憑のファイル（`/app/uploads`）は DB のバックアップに含まれない。開発環境では `uploads_data` ボリュームに残る。
+- 証憑のファイルは DB のバックアップに含まれない。置き場所が `UPLOAD_STORAGE=local`（既定）なら `/app/uploads`（開発環境は `uploads_data`、本番は `uploads-data` のボリューム）にあり、ボリュームを失うと戻せない。`UPLOAD_STORAGE=r2` なら Cloudflare R2 にあり、ホストを失っても残る（R2 の画面などアプリの外で消したものは戻らない）。移し方は [uploads-to-r2.md](uploads-to-r2.md)。
+- DB を古いダンプに戻すと、そのあとに付けた証憑のファイルは、行の無いファイルとして置き場所に残る（配信はされない）。

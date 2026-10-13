@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
+    "@aws-sdk/client-s3": "^3.1142.0",
     "@prisma/client": "^6.1.0",
     "@tailwindcss/postcss": "^4.3.1",
     "@tanstack/react-query": "^5.62.0",

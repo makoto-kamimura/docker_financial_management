@@ -8,11 +8,10 @@
  * - 銀行の明細・他テナントの明細には付けられない。viewer は付けられない
  * - 証憑は仕訳か現金の明細のどちらか一方に付く（CHECK 制約）
  *
+ * 置き場所は環境変数のとおり（既定はローカル。UPLOAD_STORAGE=r2 と R2_* を付けると R2 / MinIO）。
  * 実行: `npm run test:integration`（DB 起動が前提）
  */
-import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
 vi.mock("@/lib/server/redis", () => ({
@@ -37,6 +36,7 @@ vi.mock("@/lib/server/authz", () => ({
 
 import { prisma } from "@/lib/server/prisma";
 import { tenantUploadDir } from "@/lib/server/upload";
+import { uploadStorage } from "@/lib/server/storage";
 import { GET as listGet, POST as attachPost } from "./route";
 import { DELETE as receiptDelete } from "./[receiptId]/route";
 import { GET as actualsGet, POST as actualsPost, DELETE as actualsDelete } from "../../route";
@@ -60,6 +60,8 @@ const idParams = (id: number, extra: Record<string, string> = {}) => ({
   params: Promise.resolve({ id: String(id), ...extra }),
 });
 const photo = () => new File([JPEG], "receipt.jpg", { type: "image/jpeg" });
+/** 置き場所（ローカル / R2）に入っている中身 */
+const stored = (savedName: string) => uploadStorage().get(tenantId, savedName);
 
 let tenantId: number;
 let otherTenantId: number;
@@ -140,6 +142,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const tids = [tenantId, otherTenantId];
+  const left = await prisma.receipt.findMany({
+    where: { financialRecord: { tenantId: { in: tids } } },
+    select: { savedName: true },
+  });
+  for (const r of left) await uploadStorage().remove(tenantId, r.savedName!);
   await prisma.auditLog.deleteMany({
     where: { userId: { in: [editor.id, viewer.id, outsider.id] } },
   });
@@ -164,7 +171,7 @@ describe("現金の明細の証憑", () => {
     expect(res.status).toBe(201);
     const receipt = (await res.json()).data;
     expect(receipt).toMatchObject({ fileName: "receipt.jpg", fileType: "image" });
-    expect(existsSync(path.join(tenantUploadDir(tenantId), receipt.savedName))).toBe(true);
+    expect((await stored(receipt.savedName))?.equals(JPEG)).toBe(true);
 
     const list = await (
       await listGet(req(`/api/actuals/${entryId}/receipts`), idParams(entryId))
@@ -223,7 +230,7 @@ describe("現金の明細の証憑", () => {
     );
     expect(res.status).toBe(200);
     expect(await prisma.receipt.count({ where: { id: receipt.id } })).toBe(0);
-    expect(existsSync(path.join(tenantUploadDir(tenantId), receipt.savedName))).toBe(false);
+    expect(await stored(receipt.savedName)).toBeNull();
   });
 
   it("明細を消すと、証憑の行もファイルも消える", async () => {
@@ -241,7 +248,7 @@ describe("現金の明細の証憑", () => {
     });
     expect(res.status).toBe(200);
     expect(await prisma.receipt.count({ where: { id: receipt.id } })).toBe(0);
-    expect(existsSync(path.join(tenantUploadDir(tenantId), receipt.savedName))).toBe(false);
+    expect(await stored(receipt.savedName)).toBeNull();
   });
 
   it("銀行の明細には付けられない（404）。viewer は付けられない（403）", async () => {
