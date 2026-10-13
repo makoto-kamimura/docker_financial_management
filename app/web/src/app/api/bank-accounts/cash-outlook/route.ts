@@ -5,15 +5,24 @@ import { shiftYm, trendMonths, ym } from "@/lib/ledger/balance-trend";
 import { buildCashOutlook, type OutlookRule } from "@/lib/ledger/cash-outlook";
 import { categoryBucket } from "@/lib/accounting/kpi";
 import { loanFundingTransfers } from "@/lib/assets/loan-funding";
-import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
+import { actualRows } from "@/lib/ledger/actuals";
+import {
+  actualWhere,
+  businessOwnedWhere,
+  SCOPE_SELECT,
+  scopedAmount,
+  ScopeQuery,
+} from "@/lib/ledger/scope";
 
 // GET /api/bank-accounts/cash-outlook?before=12&after=12 … 銀行管理の残高の推移。
 //   今月の前後の月末残高を、口座ごとと合計で返す（計算は lib/ledger/cash-outlook.ts）。
 //   過去は明細のある月からにする（最大 before か月前）。口座ごとの先の見込みは資金繰りと同じく
 //   資金移動ルール + 借入の返済の自動の引き落とし、合計の先の見込みは予算と実績の収支から出す。
+//   scope=business（個人事業主モード）は、事業利用の口座・借入金と事業の分の実績だけを使う
+//   （事業の予算はまだ無いので、予算の収支は使わない）。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     before: z.coerce.number().int().min(0).max(36).default(12),
     after: z.coerce.number().int().min(1).max(24).default(12),
   }),
@@ -23,27 +32,33 @@ export const GET = withApi({
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
     const currentKey = ym(year, month);
+    const { scope } = query;
+    const owned = businessOwnedWhere(scope);
 
     const [bankAccounts, txns, transfers, loans, records, budgets] = await Promise.all([
       db.bankAccount.findMany({
-        where: { tenantId },
+        where: { tenantId, ...owned },
         orderBy: { id: "asc" },
         select: { id: true, name: true, balanceAdjustment: true },
       }),
       db.financialRecord.findMany({
-        where: { kind: "BANK" },
+        where: { kind: "BANK", ...(scope === "business" ? { bankAccount: owned } : {}) },
         select: { bankAccountId: true, date: true, flow: true },
       }),
       db.transfer.findMany({ where: { tenantId } }),
-      db.loan.findMany({ where: { tenantId, debitBankAccountId: { not: null } } }),
+      db.loan.findMany({ where: { tenantId, ...owned, debitBankAccountId: { not: null } } }),
       db.financialRecord
         .findMany({
-          where: { tenantId, ...ACTUAL_WHERE, period: { fiscalYear: year, month } },
-          select: { amount: true, account: { select: { category: true } } },
+          where: { tenantId, ...actualWhere(scope), period: { fiscalYear: year, month } },
+          select: { amount: true, ...SCOPE_SELECT, account: { select: { category: true } } },
         })
         .then(actualRows),
       db.budget.findMany({
-        where: { tenantId, period: { fiscalYear: { gte: year, lte: year + 3 } } },
+        where: {
+          tenantId,
+          period: { fiscalYear: { gte: year, lte: year + 3 } },
+          ...(scope === "business" ? { id: { in: [] } } : {}),
+        },
         select: {
           amount: true,
           period: { select: { fiscalYear: true, month: true } },
@@ -87,7 +102,7 @@ export const GET = withApi({
     for (const r of records) {
       actualNet.set(
         currentKey,
-        (actualNet.get(currentKey) ?? 0) + netOf(r.account.category, Number(r.amount)),
+        (actualNet.get(currentKey) ?? 0) + netOf(r.account.category, scopedAmount(r, scope)),
       );
     }
 

@@ -10,14 +10,17 @@ import {
 } from "@/lib/accounting/kpi";
 import { forecast } from "@/lib/budget/forecast";
 import { loadLastActualsConfirmed } from "@/lib/budget/cycle-status";
-import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
+import { actualRows } from "@/lib/ledger/actuals";
+import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 
 // GET /api/kpi?period=YYYY-MM … 指定月（既定は現在月以前の最新月）の主要 KPI を返す。
 // periods は実データのある月の昇順リストで、ダッシュボードの対象月セレクタが使う。
 // 累計と年間見込みは、テナントの決算月（tenants.closingMonth、既定 12 ＝ 1〜12 月）で締める期で集計する。
+// scope=business（個人事業主モード）は事業の分の実績だけを数える（lib/ledger/scope.ts）。
+// 事業の予算はまだ無いので、business では予算（budget）を返さない。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     period: z
       .string()
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
@@ -32,7 +35,7 @@ export const GET = withApi({
     const [records, budgets, tenant, lastConfirmed] = await Promise.all([
       db.financialRecord
         .findMany({
-          where: { tenantId, ...ACTUAL_WHERE },
+          where: { tenantId, ...actualWhere(query.scope) },
           include: { period: true, account: true },
         })
         .then(actualRows),
@@ -46,20 +49,23 @@ export const GET = withApi({
     const closingMonth = tenant?.closingMonth ?? 12;
 
     // 実績・予算を同じ形（月 × カテゴリ）に畳む
-    const fold = (rows: typeof records | typeof budgets) => {
+    const fold = <R extends (typeof records)[number] | (typeof budgets)[number]>(
+      rows: R[],
+      amountOf: (r: R) => number,
+    ) => {
       const byKey = new Map<string, MonthlyByCategory>();
       for (const r of rows) {
         const key = `${r.period.fiscalYear}-${String(r.period.month).padStart(2, "0")}`;
         const bucket = byKey.get(key) ?? { key, revenue: 0, cogs: 0, expense: 0 };
         const target = categoryBucket(r.account.category);
-        if (target) bucket[target] += Number(r.amount);
+        if (target) bucket[target] += amountOf(r);
         byKey.set(key, bucket);
       }
       return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
     };
 
-    const monthly = fold(records);
-    const budgetMonthly = fold(budgets);
+    const monthly = fold(records, (r) => scopedAmount(r, query.scope));
+    const budgetMonthly = fold(budgets, (r) => Number(r.amount));
     const periods = monthly.map((m) => m.key);
 
     // 既定は「現在月以前で最も新しい月」。未来分の記録しか無ければ最新月へフォールバックする。
@@ -68,7 +74,10 @@ export const GET = withApi({
     const targetKey = query.period && periods.includes(query.period) ? query.period : defaultKey;
 
     const kpi = computeKpiAt(monthly, targetKey, closingMonth);
-    const budget = targetKey ? computeKpiBudgetAt(budgetMonthly, targetKey, kpi) : null;
+    const budget =
+      targetKey && query.scope === "household"
+        ? computeKpiBudgetAt(budgetMonthly, targetKey, kpi)
+        : null;
     // 見込みで実績として扱う最後の月。対象月より前に実績を確定した月があれば、その最後の月まで
     // （明細が途中までしか無い未確定の月で見込みがぶれないように）。確定を使っていない場合と、
     // 対象月以降に確定済みの月がある（過去の月を見ている）場合は対象月まで。

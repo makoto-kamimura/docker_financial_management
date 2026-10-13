@@ -11,6 +11,7 @@ import {
   type ForecastMethod,
 } from "@/lib/budget/forecast";
 import { resolvePeriod } from "@/lib/accounting/period";
+import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 
 const METHODS = [
   "moving_average",
@@ -22,10 +23,11 @@ const METHODS = [
 
 const SCENARIO_FACTOR = { optimistic: 1.1, base: 1.0, pessimistic: 0.9 } as const;
 
-// GET /api/forecasts?accountCode=4000&months=6&method=linear_regression&scenario=base
+// GET /api/forecasts?accountCode=4000&months=6&method=linear_regression&scenario=base&scope=
+//   scope=business（個人事業主モード）は事業の分の実績から予測する
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     months: z.coerce.number().int().min(1).max(60).default(6),
     accountCode: z.string().default("4000"),
     method: z.enum(METHODS).default("linear_regression"),
@@ -49,13 +51,13 @@ export const GET = withApi({
     };
 
     const records = await db.financialRecord.findMany({
-      where: { tenantId, account: { code: accountCode } },
+      where: { tenantId, ...actualWhere(query.scope), account: { code: accountCode } },
       include: { period: true },
     });
 
     const monthly = aggregate(
       records.map((r) => ({
-        amount: Number(r.amount),
+        amount: scopedAmount(r, query.scope),
         fiscalYear: r.period.fiscalYear,
         quarter: r.period.quarter,
         month: r.period.month,

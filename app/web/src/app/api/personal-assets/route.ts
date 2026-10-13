@@ -21,6 +21,7 @@ import {
   valuationData,
   valuationFields,
 } from "@/lib/assets/personal-asset-valuation";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 const CreateSchema = z
   .object({
@@ -32,6 +33,8 @@ const CreateSchema = z
     currentValue: z.number().optional(),
     // 純資産に評価額を計上するか。false = 負債のみ反映（ローンの諸費用等）
     countAsAsset: z.boolean().default(true),
+    // 事業利用（個人事業主モードで出す）。この資産と一緒に作る借入金も同じにする
+    businessUse: z.boolean().default(false),
     note: z.string().optional(),
     linkedAccountId: z.number().int().optional(),
     debtStartOn: zYearMonth.optional(), // 支払い開始年月（"YYYY-MM"）
@@ -59,11 +62,13 @@ const CreateSchema = z
 // GET /api/personal-assets … 実物資産一覧（負債スケジュール・内訳・評価額の見積もり付き）
 // D-4: 負債の実体は Loan（personal_assets.loanId）。レスポンスは旧フィールド名を維持する
 // 評価額の見積もり（estimatedValue）と向き（trend）は lib/shared/asset-valuation.ts で今日の時点を出す
+//   scope=business（個人事業主モード）は事業利用のものだけ
 export const GET = withApi({
   role: "viewer",
-  handler: async ({ user, db }) => {
+  querySchema: ScopeQuery,
+  handler: async ({ user, db, query }) => {
     const assets = await db.personalAsset.findMany({
-      where: { tenantId: user.tenantId },
+      where: { tenantId: user.tenantId, ...businessOwnedWhere(query.scope) },
       orderBy: { createdAt: "asc" },
       include: { loan: { include: { repayments: true } }, ...VALUATION_INCLUDE },
     });
@@ -110,11 +115,14 @@ export const POST = withApi({
 
     const parts = body.parts ?? [];
     const asset = await db.$transaction(async (tx) => {
-      const loan = debtData ? await tx.loan.create({ data: { tenantId, ...debtData } }) : null;
+      const loan = debtData
+        ? await tx.loan.create({ data: { tenantId, ...debtData, businessUse: body.businessUse } })
+        : null;
       const created = await tx.personalAsset.create({
         data: {
           tenantId,
           name: body.name,
+          businessUse: body.businessUse,
           category: body.category,
           acquiredOn: body.acquiredOn ? new Date(body.acquiredOn) : null,
           acquisitionCost: body.acquisitionCost ?? null,

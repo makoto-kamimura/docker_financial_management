@@ -13,6 +13,7 @@ import {
 } from "@/lib/ledger/ledger-import";
 import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
 import { invalidateCache } from "@/lib/server/redis";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // 取り込み先ごとの結果。skipped は重複で飛ばした件数、locked は実績を確定済みの月のため飛ばした件数、
 // offset は自動相殺で振替・チャージの組にした数
@@ -37,6 +38,11 @@ export const POST = withApi({
   querySchema: z.object({
     target: z.enum(["actual", "cash", "bank", "card"]).default("bank"),
     accountId: z.coerce.number().int().positive().optional(),
+    // 1 なら、学習ルールが事業利用を決めていない明細を事業利用で取り込む（個人事業主モードの画面から）
+    business: z
+      .enum(["0", "1"])
+      .optional()
+      .transform((v) => v === "1"),
   }),
   handler: async ({ req, user, db, query, audit }) => {
     const { tenantId } = user;
@@ -94,6 +100,7 @@ export const POST = withApi({
         destination,
         rows,
         "CSV",
+        { business: query.business },
       );
       results.push({
         kind: destination.kind,
@@ -110,6 +117,7 @@ export const POST = withApi({
     }
 
     const total = results.reduce((s, r) => s + r.inserted, 0);
+    await invalidateActualsCaches(user.tenantId);
     await audit("import", `ledger:${total}`);
     return NextResponse.json({ results, errors: [] }, { status: 201 });
   },

@@ -8,6 +8,7 @@ import { LOAN_INCLUDE, loanBalanceAt } from "@/lib/assets/loan-balance";
 import { loanFundingTransfers } from "@/lib/assets/loan-funding";
 import { PERSONAL_ASSET_CATEGORIES } from "@/lib/assets/personal-asset";
 import { recordValuation, ruleOfRow } from "@/lib/assets/personal-asset-valuation";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 // この借入で買った資産（任意）。その場で作るか、ローンの無い既存の資産にひも付ける
 const LoanAssetSchema = z.discriminatedUnion("mode", [
@@ -38,17 +39,24 @@ const LoanSchema = z.object({
   // 返済の引き落とし口座と日（入れると資金繰りに自動で並ぶ）
   debitBankAccountId: z.number().int().nullable().optional(),
   debitDay: z.number().int().min(1).max(31).nullable().optional(),
+  // 事業利用（個人事業主モードで出す）。この借入で一緒に作る資産も同じにする
+  businessUse: z.boolean().default(false),
 });
 
 // GET /api/loans?status=active … 借入金一覧
 //   remainingAmount は今日の時点の残高（lib/assets/loan-balance.ts）。返済の記録が無いローンも返済予定どおりに減る
+//   scope=business（個人事業主モード）は事業利用のものだけ
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({ status: z.string().optional() }),
+  querySchema: ScopeQuery.extend({ status: z.string().optional() }),
   handler: async ({ user, db, query }) => {
     const [loans, transfers] = await Promise.all([
       db.loan.findMany({
-        where: { tenantId: user.tenantId, ...(query.status ? { status: query.status } : {}) },
+        where: {
+          tenantId: user.tenantId,
+          ...businessOwnedWhere(query.scope),
+          ...(query.status ? { status: query.status } : {}),
+        },
         include: LOAN_INCLUDE,
         orderBy: { borrowedOn: "desc" },
       }),
@@ -114,6 +122,7 @@ export const POST = withApi({
           residualValue: body.residualValue ?? null,
           debitBankAccountId: body.debitBankAccountId ?? null,
           debitDay: body.debitDay ?? null,
+          businessUse: body.businessUse,
         },
       });
       // この借入で買った資産: その場で作る（評価額の記録も残す）か、既存の資産にひも付ける
@@ -127,6 +136,7 @@ export const POST = withApi({
             acquisitionCost: body.asset.acquisitionCost ?? null,
             currentValue: body.asset.currentValue,
             loanId: created.id,
+            businessUse: body.businessUse,
           },
         });
         await recordValuation(

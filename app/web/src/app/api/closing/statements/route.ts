@@ -2,12 +2,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { withCache } from "@/lib/server/redis";
-import { ACTUAL_WHERE, actualRows } from "@/lib/ledger/actuals";
+import { actualRows } from "@/lib/ledger/actuals";
+import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 
-// GET /api/closing/statements?year=&departmentId= … P/L・B/S・財務指標（Redis キャッシュ）
+// GET /api/closing/statements?year=&departmentId=&scope= … P/L・B/S・財務指標（Redis キャッシュ）
+//   scope=business（個人事業主モード）は、事業利用の明細と明細でない行（仕訳・減価償却など）を数える。
+//   費用は、明細の全額を total、按分した事業の分を deductible（経費にできる額）、その比を businessRate とする
+//   （按分は明細ごと。lib/ledger/scope.ts）。収入・原価は事業の分を total にする。
+//   household（家庭・法人モード）は按分しない（deductible = total）。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     year: z.coerce.number().int().optional(),
     departmentId: z.coerce.number().int().positive().optional(),
   }),
@@ -15,29 +20,22 @@ export const GET = withApi({
     const { tenantId } = user;
     const fiscalYear = query.year ?? new Date().getFullYear();
     const { departmentId } = query;
+    const { scope } = query;
     const cacheKey = departmentId
-      ? `closing:statements:${tenantId}:${fiscalYear}:dept:${departmentId}`
-      : `closing:statements:${tenantId}:${fiscalYear}`;
+      ? `closing:statements:${tenantId}:${fiscalYear}:${scope}:dept:${departmentId}`
+      : `closing:statements:${tenantId}:${fiscalYear}:${scope}`;
 
     const payload = await withCache(cacheKey, 3600, async () => {
       const records = actualRows(
         await db.financialRecord.findMany({
           where: {
             tenantId,
-            ...ACTUAL_WHERE,
+            ...actualWhere(scope),
             period: { fiscalYear },
             ...(departmentId ? { departmentId } : {}),
           },
           include: { account: true, period: true },
         }),
-      );
-
-      const apportionments = await db.apportionment.findMany({
-        where: { tenantId },
-        include: { account: true },
-      });
-      const apportionMap = new Map(
-        apportionments.map((a) => [a.accountId, Number(a.businessRate)]),
       );
 
       type AccountSummary = {
@@ -48,6 +46,8 @@ export const GET = withApi({
         corporateName: string | null;
         category: string;
         total: number;
+        /** 事業の分（費用の経費にできる額）。household では total と同じ */
+        deductible: number;
         parentId: number | null;
       };
 
@@ -68,6 +68,7 @@ export const GET = withApi({
             category: r.account.category,
             parentId: r.account.parentId,
             total: 0,
+            deductible: 0,
           });
         }
         const entry = summaryMap.get(key)!;
@@ -77,9 +78,13 @@ export const GET = withApi({
           if (latestMonth === undefined || r.period.month > latestMonth) {
             latestBsMonthByAccount.set(key, r.period.month);
             entry.total = Number(r.amount);
+            entry.deductible = entry.total;
           }
         } else {
-          entry.total += Number(r.amount);
+          const portion = scopedAmount(r, scope);
+          // 費用は明細の全額と事業の分を分けて出す。収入・原価は事業の分を合計にする
+          entry.total += r.account.category === "EXPENSE" ? Number(r.amount) : portion;
+          entry.deductible += portion;
         }
       }
 
@@ -92,9 +97,10 @@ export const GET = withApi({
       for (const r of records) {
         const m = r.period.month;
         const cat = r.account.category;
-        if (cat === "REVENUE") monthly[m].revenue += Number(r.amount);
-        if (cat === "COGS") monthly[m].cogs += Number(r.amount);
-        if (cat === "EXPENSE") monthly[m].expense += Number(r.amount);
+        const amount = scopedAmount(r, scope);
+        if (cat === "REVENUE") monthly[m].revenue += amount;
+        if (cat === "COGS") monthly[m].cogs += amount;
+        if (cat === "EXPENSE") monthly[m].expense += amount;
       }
 
       const revenue = all
@@ -111,10 +117,10 @@ export const GET = withApi({
       const cogsTotal = cogs.reduce((s, a) => s + a.total, 0);
       const grossProfit = revenueTotal - cogsTotal;
 
+      // 按分率は科目の全額に対する事業の分の割合（0.1% 単位）。明細ごとに按分しているので目安の値
       const expensesWithApportionment = expenses.map((e) => ({
         ...e,
-        businessRate: apportionMap.get(e.accountId) ?? 100,
-        deductible: Math.floor((e.total * (apportionMap.get(e.accountId) ?? 100)) / 100),
+        businessRate: e.total === 0 ? 100 : Math.round((e.deductible / e.total) * 1000) / 10,
       }));
 
       const expenseTotal = expenses.reduce((s, a) => s + a.total, 0);

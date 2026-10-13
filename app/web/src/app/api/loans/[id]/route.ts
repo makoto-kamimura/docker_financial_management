@@ -24,6 +24,8 @@ const UpdateSchema = z.object({
   // 返済の引き落とし口座と日（入れると資金繰りに自動で並ぶ。null で外す）
   debitBankAccountId: z.number().int().nullable().optional(),
   debitDay: z.number().int().min(1).max(31).nullable().optional(),
+  // 事業利用（個人事業主モードで出す）
+  businessUse: z.boolean().optional(),
 });
 
 // PATCH /api/loans/[id] … 借入条件の編集（借入額・借入日・金利・支払い完了年月・月々の返済額・連携科目・資産 等）
@@ -89,6 +91,7 @@ export const PATCH = withApi({
             debitBankAccountId: body.debitBankAccountId,
           }),
           ...(body.debitDay !== undefined && { debitDay: body.debitDay }),
+          ...(body.businessUse !== undefined && { businessUse: body.businessUse }),
           ...(body.interestRate !== undefined && { interestRate: body.interestRate }),
           ...(body.repaymentDate !== undefined && { repaymentDate: new Date(body.repaymentDate) }),
           ...(body.note !== undefined && { note: body.note }),

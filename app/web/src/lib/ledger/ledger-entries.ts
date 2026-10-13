@@ -12,9 +12,12 @@ import { applyAutoOffset } from "@/lib/ledger/auto-offset";
 import {
   NOT_BUSINESS,
   businessFields,
+  loadApportionmentRates,
   ruleBusiness,
+  targetIsBusiness,
   type BusinessSetting,
 } from "@/lib/ledger/business-use";
+import { defaultBusinessRatio } from "@/lib/shared/business-use";
 
 // 明細（実績の表 financial_records の kind を持つ行）の読み書きの共通部分。
 //
@@ -309,6 +312,8 @@ export async function loadRuleClassifier(db: TenantDbClient) {
 // 摘要が学習ルールに当たった明細には科目を付け、その行はそのまま実績になる。
 // カードは、取り込む先のカードのチャージのルール（card_transfer_rules）に当たった行をチャージにし、科目を付けない。
 // 実績を確定済みの月の行は、実績を変えないよう登録しない（locked に数える）。
+// 事業利用は、学習ルールが決めていればルールのとおり。決めていなければ、取り込み先が事業利用の口座・カード
+// か、business（CSV の「事業利用として取り込む」）のとき事業利用にする（按分は科目の事業利用按分、無ければ 100%）。
 // 登録したあと、その日付の明細に自動相殺（lib/ledger/auto-offset.ts）をかける。
 export async function insertExternalEntries(
   db: TenantDb,
@@ -316,6 +321,7 @@ export async function insertExternalEntries(
   target: EntryTarget,
   rows: ExternalEntryRow[],
   source: Extract<TxnSource, "CSV" | "SYNC">,
+  options: { business?: boolean } = {},
 ): Promise<InsertResult> {
   if (rows.length === 0) return { inserted: 0, locked: 0, offset: 0 };
 
@@ -330,6 +336,16 @@ export async function insertExternalEntries(
         })
       : Promise.resolve([]),
   ]);
+
+  const businessDefault = options.business || (await targetIsBusiness(db, target));
+  const rates = businessDefault ? await loadApportionmentRates(db) : new Map<number, number>();
+  const defaultBusiness = (categoryId: number | null): BusinessSetting | undefined =>
+    businessDefault
+      ? {
+          businessUse: true,
+          businessRatio: defaultBusinessRatio(categoryId === null ? null : rates.get(categoryId)),
+        }
+      : undefined;
 
   const dated = rows.map((r) => ({ ...r, date: new Date(r.date) }));
   const periods = await resolveEntryPeriods(
@@ -362,7 +378,7 @@ export async function insertExternalEntries(
         externalId: r.externalId,
         chargeToCardId,
         category: hit,
-        business: hit?.business,
+        business: hit?.business ?? defaultBusiness(hit?.id ?? null),
       });
     }),
     skipDuplicates: true,

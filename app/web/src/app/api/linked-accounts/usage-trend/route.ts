@@ -4,13 +4,15 @@ import { withApi } from "@/lib/server/api-handler";
 import { shiftYm, trendMonths, ym } from "@/lib/ledger/balance-trend";
 import { buildCardUsageTrend } from "@/lib/ledger/card-usage";
 import { CARD, cardSpend } from "@/lib/ledger/ledger-entries";
+import { businessOwnedWhere, ScopeQuery } from "@/lib/ledger/scope";
 
 // GET /api/linked-accounts/usage-trend?before=12&after=6 … カード・電子マネー管理のサマリ「利用額の推移」。
 //   今月の前後の月ごとの利用額を、カードごとと合計で返す（計算は lib/ledger/card-usage.ts）。
 //   過去は明細のある月からにする（最大 before か月前）。先の月は固定決済の合計で見込む。
+//   scope=business（個人事業主モード）は事業利用のものだけ
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     before: z.coerce.number().int().min(0).max(36).default(12),
     after: z.coerce.number().int().min(0).max(24).default(6),
   }),
@@ -24,12 +26,15 @@ export const GET = withApi({
 
     const [cards, txns, recurring] = await Promise.all([
       db.linkedAccount.findMany({
-        where: { tenantId },
+        where: { tenantId, ...businessOwnedWhere(query.scope) },
         orderBy: { id: "asc" },
         select: { id: true, name: true },
       }),
       db.financialRecord.findMany({
-        where: { ...CARD },
+        where: {
+          ...CARD,
+          ...(query.scope === "business" ? { cardAccount: { businessUse: true } } : {}),
+        },
         select: {
           cardAccountId: true,
           date: true,
@@ -39,7 +44,10 @@ export const GET = withApi({
         },
       }),
       db.cardRecurringPayment.findMany({
-        where: { tenantId },
+        where: {
+          tenantId,
+          ...(query.scope === "business" ? { account: { businessUse: true } } : {}),
+        },
         select: { accountId: true, amount: true },
       }),
     ]);

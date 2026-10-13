@@ -79,18 +79,45 @@ export function businessFields(r: {
 }
 
 /**
- * 画面から登録する明細の事業利用。入力の指定 > 学習ルールの事業利用（ルールが科目を決めたとき）> 事業利用なし。
+ * 画面から登録する明細の事業利用。入力の指定 > 学習ルールの事業利用（ルールが科目を決めたとき）>
+ * 取り込み先の既定（事業利用の口座・カード）> 事業利用なし。
  */
 export async function entryBusiness(
   db: TenantDbClient,
   input: BusinessInput,
   category: { id: number; business?: BusinessSetting } | null,
+  businessDefault = false,
 ): Promise<BusinessSetting> {
-  const needsRates = input.businessUse === true && input.businessRatio == null;
-  const fromInput = resolveBusiness(
-    input,
-    category?.id ?? null,
-    needsRates ? await loadApportionmentRates(db) : new Map(),
+  const fromRule =
+    input.businessUse === undefined && input.businessRatio == null ? category?.business : undefined;
+  if (fromRule) return fromRule;
+  const effective: BusinessInput =
+    input.businessUse === undefined && businessDefault ? { ...input, businessUse: true } : input;
+  const needsRates = effective.businessUse === true && effective.businessRatio == null;
+  return (
+    resolveBusiness(
+      effective,
+      category?.id ?? null,
+      needsRates ? await loadApportionmentRates(db) : new Map(),
+    ) ?? NOT_BUSINESS
   );
-  return fromInput ?? category?.business ?? NOT_BUSINESS;
+}
+
+/** 明細の取り込み先（口座・カード）が事業利用か（現金は口座が無いので false） */
+export async function targetIsBusiness(
+  db: TenantDbClient,
+  target: { kind: "CASH" } | { kind: "BANK" | "CARD"; accountId: number },
+): Promise<boolean> {
+  if (target.kind === "CASH") return false;
+  const row =
+    target.kind === "BANK"
+      ? await db.bankAccount.findUnique({
+          where: { id: target.accountId },
+          select: { businessUse: true },
+        })
+      : await db.linkedAccount.findUnique({
+          where: { id: target.accountId },
+          select: { businessUse: true },
+        });
+  return row?.businessUse ?? false;
 }

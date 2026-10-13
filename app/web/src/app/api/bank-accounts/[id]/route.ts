@@ -16,6 +16,8 @@ const UpdateSchema = z.object({
   note: z.string().optional().nullable(),
   // 明細合計と実際の残高との差額（期首残高相当）。残高算出は lib/ledger/bank-balance.ts を参照
   balanceAdjustment: z.number().optional(),
+  // 事業利用（個人事業主モードで出す）
+  businessUse: z.boolean().optional(),
 });
 
 // PATCH /api/bank-accounts/[id] … 銀行口座の更新（editor 以上）

@@ -3,12 +3,12 @@ import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { DIRECT_ACTUALS_GONE_MESSAGE, gone } from "@/lib/server/api-error";
 import { aggregate, type Granularity, type RecordWithPeriod } from "@/lib/accounting/aggregate";
-import { ACTUAL_WHERE } from "@/lib/ledger/actuals";
+import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 
-// GET /api/financials?granularity=month&accountCode=4000
+// GET /api/financials?granularity=month&accountCode=4000&scope= … scope=business は事業の分の実績だけ
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     granularity: z.enum(["month", "quarter", "year"]).default("month"),
     accountCode: z.string().optional(),
   }),
@@ -19,14 +19,14 @@ export const GET = withApi({
     const records = await db.financialRecord.findMany({
       where: {
         tenantId,
-        ...ACTUAL_WHERE,
+        ...actualWhere(query.scope),
         ...(query.accountCode ? { account: { code: query.accountCode } } : {}),
       },
       include: { period: true },
     });
 
     const mapped: RecordWithPeriod[] = records.map((r) => ({
-      amount: Number(r.amount),
+      amount: scopedAmount(r, query.scope),
       fiscalYear: r.period.fiscalYear,
       quarter: r.period.quarter,
       month: r.period.month,

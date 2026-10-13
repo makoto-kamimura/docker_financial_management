@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { autoProcessEntries } from "@/lib/ledger/ledger-auto-process";
 import { invalidateCache } from "@/lib/server/redis";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // POST /api/ledger/auto-process … 今ある明細のまとめての処理（editor 以上。lib/ledger/ledger-auto-process.ts）。
 //   ?reset=0（既定）: 「まとめて自動処理」。未割り当ての明細に学習ルールで科目を付ける
@@ -14,6 +15,7 @@ export const POST = withApi({
   handler: async ({ user, db, query, audit }) => {
     const reset = query.reset === "1";
     const result = await autoProcessEntries(db, { reset });
+    await invalidateActualsCaches(user.tenantId);
     await audit(reset ? "ledger_recategorize" : "ledger_auto_process", `tenant:${user.tenantId}`, {
       after: result,
     });

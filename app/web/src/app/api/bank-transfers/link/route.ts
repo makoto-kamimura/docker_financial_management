@@ -4,6 +4,7 @@ import { withApi } from "@/lib/server/api-handler";
 import { notFound } from "@/lib/server/api-error";
 import { BANK } from "@/lib/ledger/ledger-entries";
 import { invalidateCache } from "@/lib/server/redis";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // DELETE /api/bank-transfers/link … 振替の組（transferGroupId）を解除して、もとの独立した 2 明細に戻す。
 // 組は、同じ日・同じ金額の出金と入金が 1 組だけのときに自動で作られる（lib/ledger/auto-offset.ts）。
@@ -30,6 +31,7 @@ export const DELETE = withApi({
       data: { transferGroupId: null },
     });
 
+    await invalidateActualsCaches(user.tenantId);
     await audit("unlink_bank_transfer", `bank_transfer:${transferGroupId}`, {
       before: { transferGroupId, txnIds: txns.map((t) => t.id) },
     });

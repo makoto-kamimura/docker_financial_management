@@ -10,6 +10,7 @@ import { isChargeableType } from "@/lib/shared/linked-account-type";
 import { invalidateCache } from "@/lib/server/redis";
 import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 import { PAIRED_CLEAR } from "@/lib/ledger/business-use";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // PATCH /api/card-transactions/[id]/transfer … 明細 1 件のチャージ指定・解除（editor 以上）
 //
@@ -153,6 +154,7 @@ export const PATCH = withApi({
       });
     });
 
+    await invalidateActualsCaches(user.tenantId);
     await audit("set_card_transfer", `card_txn:${id}`, {
       before: { transferToAccountId: txn.transferToAccountId, chargeGroupId: txn.chargeGroupId },
       after: { transferToAccountId: body.transferToAccountId, chargeGroupId, pairTxnId },

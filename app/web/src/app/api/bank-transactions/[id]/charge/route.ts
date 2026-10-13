@@ -9,6 +9,7 @@ import { isChargeableType } from "@/lib/shared/linked-account-type";
 import { invalidateCache } from "@/lib/server/redis";
 import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 import { PAIRED_CLEAR } from "@/lib/ledger/business-use";
+import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
 // PATCH /api/bank-transactions/[id]/charge … 銀行明細のチャージ指定・解除（editor 以上）
 //
@@ -133,6 +134,7 @@ export const PATCH = withApi({
       });
     });
 
+    await invalidateActualsCaches(user.tenantId);
     await audit("set_bank_charge", `bank_transaction:${id}`, {
       before: { chargeToAccountId: txn.chargeToCardId, chargeGroupId: txn.chargeGroupId },
       after: { chargeToAccountId: body.chargeToAccountId, chargeGroupId, pairTxnId },

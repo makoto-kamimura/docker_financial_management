@@ -13,6 +13,8 @@ const UpdateSchema = z.object({
   lastFour: z.string().max(4).optional().nullable(),
   accountCode: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
+  // 事業利用（個人事業主モードで出す）
+  businessUse: z.boolean().optional(),
 });
 
 // PATCH /api/linked-accounts/[id] … クレジットカード・電子マネーの更新（editor 以上）
