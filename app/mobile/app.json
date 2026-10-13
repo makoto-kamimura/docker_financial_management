@@ -23,6 +23,16 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "レシートを撮影して、実績の入力に使います。",
+          "photosPermission": "レシートの写真を選んで、実績の入力に使います。",
+          "microphonePermission": false
+        }
+      ]
+    ]
   }
 }

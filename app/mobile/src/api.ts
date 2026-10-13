@@ -18,9 +18,13 @@ const TIMEOUT_MS = 10_000;
 const CLIENT_HEADER = "X-Requested-With";
 const CLIENT_HEADER_VALUE = "fm-mobile";
 
-function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs = TIMEOUT_MS,
+): Promise<Response> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   // credentials: "omit" は必須。React Native は Cookie ストア（iOS: NSHTTPCookieStorage /
   // Android: okhttp CookieJar）を既定で有効にしているため、ログイン成功時にサーバが返す
   // セッション Cookie が保存され、以降の全リクエストに自動付与されてしまう。
@@ -109,12 +113,12 @@ export function hasSwitchedViewMode() {
 export type { ViewMode };
 export { VIEW_MODES } from "./shared/mode-labels";
 
-function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+function apiFetch(path: string, init?: RequestInit, timeoutMs?: number): Promise<Response> {
   const headers: Record<string, string> = {
     ...((init?.headers as Record<string, string>) ?? {}),
   };
   if (_session) headers["Authorization"] = `Bearer ${_session}`;
-  return fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers });
+  return fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers }, timeoutMs);
 }
 
 // JSON を送るリクエストの init（POST / PATCH / PUT）
@@ -133,8 +137,13 @@ function errorMessage(json: unknown, fallback: string): string {
 }
 
 // レスポンス本文を JSON で返す。失敗時はサーバーのエラー文言（無ければ fallback）で例外にする。
-async function request<T>(path: string, fallback: string, init?: RequestInit): Promise<T> {
-  const res = await apiFetch(path, init);
+async function request<T>(
+  path: string,
+  fallback: string,
+  init?: RequestInit,
+  timeoutMs?: number,
+): Promise<T> {
+  const res = await apiFetch(path, init, timeoutMs);
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(errorMessage(json, fallback));
   return json as T;
@@ -361,6 +370,8 @@ export type CashEntry = {
   amount: number;
   categoryAccountId: number | null;
   categoryAccount: Account | null;
+  /** 証憑（レシートの写真など） */
+  receipts?: { id: number; fileName: string; fileUrl: string }[];
 };
 
 /** その月の現金の明細（カレンダー） */
@@ -378,14 +389,90 @@ export async function fetchCashEntries(): Promise<CashEntry[]> {
   return (json.data ?? []).map((e) => ({ ...e, amount: Number(e.amount) }));
 }
 
+/** 現金の明細の登録。learn なら摘要と科目の組を学習ルールに覚える。登録した明細を返す */
 export async function postActual(data: {
   date: string;
   description: string;
   accountCode: string;
   amount: number;
   direction: "income" | "expense";
-}): Promise<void> {
-  await request("/actuals", "登録に失敗しました", jsonInit("POST", data));
+  learn?: boolean;
+}): Promise<CashEntry> {
+  const json = await request<{ data: CashEntry }>(
+    "/actuals",
+    "登録に失敗しました",
+    jsonInit("POST", data),
+  );
+  return json.data;
+}
+
+// ── レシートの読み取り（GET/POST /actuals/receipt-scan）と証憑（POST /actuals/[id]/receipts）──
+// 有料プランは高精度（Claude）、無料プランは簡易（サーバーの中の OCR）で読む。web 版と同じ API。
+// 有料プランの申し込みは web だけで行う（アプリには申し込みの画面もリンクも置かない）。
+export type ReceiptEngine = "claude" | "tesseract";
+
+export type ReceiptScanStatus = {
+  engine: ReceiptEngine;
+  plan: "free" | "premium";
+  limit: number;
+  remaining: number;
+  /** 使えないときの理由（使えるなら null） */
+  reason: string | null;
+  /** 有料プランにすると高精度で読めるか */
+  upgradeAvailable: boolean;
+};
+
+export type ReceiptScanResult = {
+  draft: {
+    date: string | null;
+    merchant: string | null;
+    total: number | null;
+    items: { name: string; amount: number }[];
+    paymentMethod: "cash" | "card" | "emoney" | "unknown";
+  };
+  engine: ReceiptEngine;
+  remaining: number;
+  suggestedAccount: { code: string; name: string; category: string } | null;
+};
+
+export async function fetchReceiptScanStatus(): Promise<ReceiptScanStatus> {
+  const json = await request<{ data: ReceiptScanStatus }>(
+    "/actuals/receipt-scan",
+    "読み取りの状態を取得できませんでした",
+  );
+  return json.data;
+}
+
+// 読み取り（Claude）と写真の送信は、通常の API より時間がかかる
+const SCAN_TIMEOUT_MS = 90_000;
+const UPLOAD_TIMEOUT_MS = 30_000;
+
+// React Native の FormData は { uri, name, type } でファイルを送る
+function photoForm(uri: string): FormData {
+  const body = new FormData();
+  body.append("file", { uri, name: "receipt.jpg", type: "image/jpeg" } as unknown as Blob);
+  return body;
+}
+
+/** 撮ったレシートの写真（JPEG）を読み取る。登録はしない */
+export async function scanReceipt(uri: string): Promise<ReceiptScanResult> {
+  const json = await request<{ data: ReceiptScanResult }>(
+    "/actuals/receipt-scan",
+    "読み取りに失敗しました",
+    { method: "POST", body: photoForm(uri) },
+    SCAN_TIMEOUT_MS,
+  );
+  return json.data;
+}
+
+/** 登録した現金の明細に、レシートの写真を証憑として付ける */
+export async function attachActualReceipt(id: number, uri: string): Promise<void> {
+  await request(
+    `/actuals/${id}/receipts`,
+    "写真の保存に失敗しました",
+    { method: "POST", body: photoForm(uri) },
+    UPLOAD_TIMEOUT_MS,
+  );
 }
 
 export async function deleteActual(id: number): Promise<void> {

@@ -2,16 +2,20 @@
 // 現金の明細を GET/POST/DELETE /actuals で扱う。月の収入・支出合計と日別の増減を表示し、
 // 選んだ日に「収入 / 支出・摘要・科目・金額」で登録できる（出どころの「現金」）。
 // 科目を付けて登録するので、登録した時点で実績になる。
+// レシートを撮影すると読み取った内容がフォームに入り、登録した明細に写真が証憑として付く。
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import {
+  attachActualReceipt,
   deleteActual,
   fetchActuals,
   postActual,
   type Account,
   type CashEntry,
+  type ReceiptScanResult,
   type ViewMode,
 } from "../api";
+import { ReceiptScanButton } from "./ReceiptScanButton";
 import { displayName } from "../shared/display-name";
 import { digitsOnly, isoDate, yen } from "../format";
 import { AccountPickerModal } from "./CategoryPickerModal";
@@ -48,6 +52,9 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [picking, setPicking] = useState(false);
+  // 読み取ったレシートの写真。登録した明細に証憑として付ける
+  const [receiptUri, setReceiptUri] = useState<string | null>(null);
+  const [learn, setLearn] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,20 +119,51 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
     setSaving(true);
     setError("");
     try {
-      await postActual({
+      const created = await postActual({
         date: isoDate(year, month, selectedDay),
         description: form.description.trim(),
         accountCode: form.accountCode,
         amount: Number(form.amount),
         direction: form.direction,
+        learn: receiptUri !== null && learn,
       });
+      if (receiptUri) {
+        try {
+          await attachActualReceipt(created.id, receiptUri);
+        } catch {
+          setError("実績は登録しましたが、レシートの写真を保存できませんでした");
+        }
+      }
       setForm(BLANK_FORM);
+      setReceiptUri(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "登録に失敗しました");
     } finally {
       setSaving(false);
     }
+  }
+
+  // レシートの読み取り結果をフォームに入れる。日付が読めたら、その日を選ぶ
+  function applyReceipt({ draft, suggestedAccount }: ReceiptScanResult, photoUri: string) {
+    if (draft.date) {
+      const [y, m, d] = draft.date.split("-").map(Number);
+      setYear(y);
+      setMonth(m);
+      setSelectedDay(d);
+    }
+    const expense = suggestedAccount && EXPENSE_CATS.includes(suggestedAccount.category);
+    setForm({
+      direction: "expense",
+      description: draft.merchant ?? "",
+      amount: draft.total ? String(draft.total) : "",
+      accountCode:
+        expense && accounts.some((a) => a.code === suggestedAccount.code)
+          ? suggestedAccount.code
+          : "",
+    });
+    setReceiptUri(photoUri);
+    setError("");
   }
 
   function confirmDelete(e: CashEntry) {
@@ -194,6 +232,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                   <View style={{ flex: 1 }}>
                     <Text style={s.entryDesc} numberOfLines={1}>
                       {e.description}
+                      {e.receipts?.length ? " 📎" : ""}
                     </Text>
                     <Text style={s.entryAccounts} numberOfLines={1}>
                       {e.categoryAccount ? displayName(e.categoryAccount, viewMode) : "未割り当て"}
@@ -212,6 +251,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
 
           <Card>
             <Text style={s.formTitle}>実績を追加</Text>
+            <ReceiptScanButton onScanned={applyReceipt} />
             <Pills
               scroll={false}
               options={[
@@ -243,6 +283,12 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                 onChangeText={(t) => setForm((f) => ({ ...f, amount: digitsOnly(t) }))}
               />
             </Field>
+            {receiptUri && form.description.trim() ? (
+              <View style={s.learnRow}>
+                <Switch value={learn} onValueChange={setLearn} />
+                <Text style={s.learnText}>次から同じ店名には、この科目を使う</Text>
+              </View>
+            ) : null}
             {error ? <Notice tone="error">{error}</Notice> : null}
             <Button label={saving ? "登録中..." : "登録"} onPress={submit} loading={saving} />
           </Card>
@@ -293,4 +339,6 @@ const s = StyleSheet.create({
     backgroundColor: "#fff",
   },
   pickerText: { fontSize: 14, color: "#1e293b" },
+  learnRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  learnText: { flex: 1, fontSize: 12, color: "#475569" },
 });
