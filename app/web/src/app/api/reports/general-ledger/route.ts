@@ -3,19 +3,55 @@ import { z } from "zod";
 import { prisma } from "@/lib/server/prisma";
 import { withApi } from "@/lib/server/api-handler";
 import { withCache } from "@/lib/server/redis";
+import { ScopeQuery } from "@/lib/ledger/scope";
+import { loadAutoBook } from "@/lib/accounting/auto-journal-data";
+import { buildLedgers } from "@/lib/accounting/auto-journal";
 
 // GET /api/reports/general-ledger?accountId=&year=&format= … 総勘定元帳（JSON は Redis キャッシュ）
+//   scope=business（個人事業主モード）は、実績から作った仕訳の元帳（lib/accounting/auto-journal.ts）。
+//   科目は補助科目（口座・カード）ごとに分かれ、key で識別する。accountId は使わない。キャッシュはしない。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     accountId: z.coerce.number().int().positive().optional(),
     year: z.coerce.number().int().optional(),
     format: z.enum(["json", "csv"]).default("json"),
   }),
-  handler: async ({ user, query }) => {
+  handler: async ({ user, db, query }) => {
     const { tenantId } = user;
     const { accountId, format } = query;
     const year = query.year ?? new Date().getFullYear();
+
+    if (query.scope === "business") {
+      const ledgers = buildLedgers(await loadAutoBook(db, tenantId, year));
+      if (format === "csv") {
+        const lines = ["科目コード,科目名,補助科目,日付,仕訳番号,摘要,借方,貸方,残高"];
+        for (const l of ledgers) {
+          for (const r of l.rows) {
+            lines.push(
+              [
+                l.account.code,
+                l.account.name,
+                l.account.sub ?? "",
+                r.date,
+                r.no,
+                `"${r.description.replace(/"/g, '""')}"`,
+                r.debit,
+                r.credit,
+                r.balance,
+              ].join(","),
+            );
+          }
+        }
+        return new NextResponse(lines.join("\n"), {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="general-ledger-${year}.csv"`,
+          },
+        });
+      }
+      return NextResponse.json({ data: ledgers, year });
+    }
     const cacheKey =
       format === "json" ? `reports:ledger:${tenantId}:${year}:${accountId ?? "all"}` : null;
 

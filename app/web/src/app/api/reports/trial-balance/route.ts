@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
+import { ScopeQuery } from "@/lib/ledger/scope";
+import { loadAutoBook } from "@/lib/accounting/auto-journal-data";
+import { buildTrialBalance } from "@/lib/accounting/auto-journal";
 
 // GET /api/reports/trial-balance?year=&month=&format=&rollup= … 試算表（親科目ロールアップ対応）
+//   scope=business（個人事業主モード）は、実績から作った仕訳の年度の試算表（lib/accounting/auto-journal.ts）。
+//   month・rollup は使わない。income は損益の科目から求めた所得で、決算書の所得と一致する。
 export const GET = withApi({
   role: "viewer",
-  querySchema: z.object({
+  querySchema: ScopeQuery.extend({
     year: z.coerce.number().int().optional(),
     month: z.coerce.number().int().min(1).max(12).optional(),
     format: z.enum(["json", "csv"]).default("json"),
@@ -16,6 +21,34 @@ export const GET = withApi({
     const year = query.year ?? new Date().getFullYear();
     const { month, format } = query;
     const rollup = query.rollup !== "false";
+
+    if (query.scope === "business") {
+      const tb = buildTrialBalance(await loadAutoBook(db, tenantId, year));
+      if (format === "csv") {
+        const lines = ["科目コード,科目名,補助科目,区分,借方合計,貸方合計,残高"];
+        for (const r of tb.rows) {
+          lines.push(
+            [
+              r.account.code,
+              r.account.name,
+              r.account.sub ?? "",
+              r.account.category,
+              r.debit,
+              r.credit,
+              r.balance,
+            ].join(","),
+          );
+        }
+        lines.push(`,,,合計,${tb.totalDebit},${tb.totalCredit},`);
+        return new NextResponse(lines.join("\n"), {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="trial-balance-${year}.csv"`,
+          },
+        });
+      }
+      return NextResponse.json({ data: tb, year });
+    }
 
     const startDate = month
       ? new Date(`${year}-${String(month).padStart(2, "0")}-01T00:00:00.000Z`)

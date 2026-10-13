@@ -263,7 +263,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     // 枠は画面（100vh）ではなく body の高さに合わせ、モバイルのメニューと暗幕も画面の上端ではなく枠に重ねる
     // （body に上の余白があっても、ヘッダーやメニューの上端が隠れないようにする）
-    <div className="relative flex h-full overflow-hidden bg-slate-50">
+    // 印刷ではメニューとヘッダーを隠し、本文を高さの制限なしで流す（帳簿の印刷など）
+    <div className="relative flex h-full overflow-hidden bg-slate-50 print:block print:h-auto print:overflow-visible print:bg-white">
       {/* モバイルオーバーレイ */}
       {sidebarOpen && (
         <div
@@ -275,7 +276,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <aside
         id="app-sidebar"
-        className={`w-56 flex-shrink-0 bg-slate-900 flex flex-col
+        className={`w-56 flex-shrink-0 bg-slate-900 flex flex-col print:hidden
           absolute md:static inset-y-0 left-0 z-30 transition-transform duration-200
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
@@ -363,9 +364,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex-1 overflow-auto min-w-0">
+      <div className="flex-1 overflow-auto min-w-0 print:overflow-visible">
         {/* モバイルヘッダー: サイドメニューが隠れる幅では、ここのハンバーガーから開く */}
-        <header className="md:hidden sticky top-0 z-10 flex items-center gap-2 bg-slate-900 text-white px-3 py-2.5 shadow">
+        <header className="md:hidden print:hidden sticky top-0 z-10 flex items-center gap-2 bg-slate-900 text-white px-3 py-2.5 shadow">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
