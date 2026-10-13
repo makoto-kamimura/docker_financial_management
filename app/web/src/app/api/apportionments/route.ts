@@ -10,7 +10,7 @@ const ApportionmentSchema = z.object({
   description: z.string().nullable().optional(),
 });
 
-// GET /api/apportionments … 家事按分一覧
+// GET /api/apportionments … 事業利用按分一覧
 export const GET = withApi({
   role: "viewer",
   handler: async ({ user, db }) => {
@@ -23,7 +23,7 @@ export const GET = withApi({
   },
 });
 
-// POST /api/apportionments … 家事按分の登録・更新（科目単位 upsert、editor 以上）
+// POST /api/apportionments … 事業利用按分の登録・更新（科目単位 upsert、editor 以上）
 export const POST = withApi({
   role: "editor",
   schema: ApportionmentSchema,
@@ -49,7 +49,7 @@ export const POST = withApi({
   },
 });
 
-// DELETE /api/apportionments?accountId= … 家事按分の削除（editor 以上）
+// DELETE /api/apportionments?accountId= … 事業利用按分の削除（editor 以上）
 export const DELETE = withApi({
   role: "editor",
   querySchema: z.object({ accountId: z.coerce.number().int().positive() }),

@@ -9,6 +9,8 @@ import { KPI_LABELS } from "@/lib/shared/mode-labels";
 import { kpiTermHelp } from "@/lib/shared/help-texts";
 import { useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { yen, yenNet } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type Kpi = {
   period: string;
@@ -172,8 +174,10 @@ export function KpiCards({
   const [period, setPeriod] = useState<string | null>(null);
   // 対象年度（左のメニュー）。年度を変えたら、その年でデータのある最新の月へ移す
   const fiscalYear = useFiscalYear();
+  const scope = useActualsScope();
   const { data } = useQuery({
-    queryKey: ["kpi", period],
+    queryKey: ["kpi", period, scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<{
       kpi: Kpi | null;
       budget: KpiBudget | null;
@@ -181,7 +185,7 @@ export function KpiCards({
       annual: AnnualOutlook | null;
       annualProfit: AnnualOutlook | null;
     }> => {
-      const res = await fetch(period ? `/api/kpi?period=${period}` : "/api/kpi");
+      const res = await fetch(withScope(period ? `/api/kpi?period=${period}` : "/api/kpi", scope!));
       return res.json();
     },
     // 月の切り替え中も前の値を表示し続け、カードのちらつきを防ぐ

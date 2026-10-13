@@ -74,7 +74,7 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/journal-templates",
         label: "仕訳テンプレート",
         icon: FileStack,
-        modes: ["sole", "corporate"],
+        modes: ["corporate"],
       },
       {
         href: "/reports/ledger",
@@ -102,7 +102,12 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/inventories", label: "棚卸管理", icon: Package, modes: ["sole", "corporate"] },
       { href: "/fixed-assets", label: "固定資産", icon: Building2, modes: ["sole", "corporate"] },
-      { href: "/apportionments", label: "家事按分", icon: SplitSquareHorizontal, modes: ["sole"] },
+      {
+        href: "/apportionments",
+        label: "事業利用按分",
+        icon: SplitSquareHorizontal,
+        modes: ["sole"],
+      },
       {
         href: "/assets",
         label: "資産管理",
@@ -131,7 +136,7 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/integrations",
         label: "外部サービス連携",
         icon: Plug,
-        modes: ["sole", "corporate"],
+        modes: ["corporate"],
       },
     ],
   },
@@ -161,13 +166,13 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/account-conversion",
         label: "勘定科目変換",
         icon: Repeat,
-        modes: ["sole", "corporate"],
+        modes: ["corporate"],
       },
       {
         href: "/learning",
         label: "学習ガイド",
         icon: GraduationCap,
-        modes: ["sole", "corporate"],
+        modes: ["corporate"],
       },
       {
         href: "/settings",
@@ -209,6 +214,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // F-11: 新規ユーザー（localStorage 未設定）の初期値はステップ導線と整合させ household とする。
   // 既存ユーザーは下の useEffect で保存済みの viewMode に上書きされるため影響しない。
   const [viewMode, setViewMode] = useState<ViewMode>("household");
+  // 保存済みのモードを読んだか（読む前の household で、ほかのモードの画面から戻してしまわないように）
+  const [modeLoaded, setModeLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -216,7 +223,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (saved && ["household", "sole", "corporate"].includes(saved)) {
       setViewMode(saved);
     }
+    setModeLoaded(true);
   }, []);
+
+  // モードのメニューに無い画面（個人事業主モードの仕訳テンプレートなど）を URL で開いたときは、
+  // ダッシュボードへ戻す（メニューに挙げた画面だけを見る。挙げていない画面は対象外）
+  useEffect(() => {
+    if (!modeLoaded) return;
+    const item = NAV_GROUPS.flatMap((g) => g.items).find(
+      (i) => pathname === i.href || pathname.startsWith(`${i.href}/`),
+    );
+    if (item && !item.modes.includes(viewMode)) router.replace("/dashboard");
+  }, [modeLoaded, pathname, viewMode, router]);
 
   function changeViewMode(mode: ViewMode) {
     const previous = viewMode;

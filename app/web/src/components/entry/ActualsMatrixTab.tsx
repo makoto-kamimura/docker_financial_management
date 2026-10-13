@@ -14,6 +14,8 @@ import { categoryRank } from "@/lib/shared/labels";
 import { yen, yenAbs } from "@/lib/common/format";
 import { negativeAmountWord } from "@/lib/shared/amount-direction";
 import { type Account } from "@/components/entry/types";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 // 実績 1 行の出どころ（GET /api/financials/matrix）。セルの内訳モーダルで表示する
 type RecordSource = {
@@ -67,13 +69,16 @@ export function ActualsMatrixTab({
   // 「◯件」を押して開くセル内訳モーダル（同じ科目・月に複数の実績があるセル）
   const [cellDetail, setCellDetail] = useState<{ accountCode: string; month: number } | null>(null);
 
+  // 個人事業主モードは事業の分の実績（按分した額）だけ
+  const scope = useActualsScope();
   const { data: matrixData, isLoading: matrixLoading } = useQuery({
-    queryKey: ["financials-matrix", matrixYear],
+    queryKey: ["financials-matrix", matrixYear, scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<MatrixResponse> => {
       const url = matrixYear
         ? `/api/financials/matrix?year=${matrixYear}`
         : "/api/financials/matrix";
-      return (await fetch(url)).json();
+      return (await fetch(withScope(url, scope!))).json();
     },
     placeholderData: (prev) => prev,
   });

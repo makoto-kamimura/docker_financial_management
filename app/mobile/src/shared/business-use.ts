@@ -3,7 +3,7 @@
 // Web とモバイルで同じ内容を持つ（shared-with-mobile.ts）。
 
 export const BUSINESS_USE_LABEL = "事業利用";
-/** 科目ごとの按分の初期値の画面（旧・家事按分） */
+/** 科目ごとの按分の初期値の画面（旧・家事按分。apportionments） */
 export const BUSINESS_APPORTIONMENT_LABEL = "事業利用按分";
 
 export const BUSINESS_RATIO_MAX = 100;
@@ -40,4 +40,18 @@ export function defaultBusinessRatio(accountRate: number | null | undefined): nu
 export function businessUseText(businessUse: boolean, ratio: number | null): string {
   if (!businessUse || ratio === null) return "";
   return `事業 ${Number.isInteger(ratio) ? ratio : ratio.toFixed(2).replace(/0+$/, "")}%`;
+}
+
+/** 実績の範囲。家庭・法人モードは全件・全額（household）、個人事業主モードは事業の分だけ（business） */
+export type ActualsScope = "household" | "business";
+
+/** 表示モード（household / sole / corporate）から実績の範囲を決める */
+export function scopeOfMode(mode: string): ActualsScope {
+  return mode === "sole" ? "business" : "household";
+}
+
+/** API の URL に範囲を付ける（household は付けない。API の既定が household のため） */
+export function withScope(url: string, scope: ActualsScope): string {
+  if (scope === "household") return url;
+  return `${url}${url.includes("?") ? "&" : "?"}scope=business`;
 }

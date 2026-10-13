@@ -183,7 +183,6 @@ export function AccountNamesSection() {
                 <th className="text-left py-2 pr-3 whitespace-nowrap">コード</th>
                 <th className="text-left py-2 pr-3 whitespace-nowrap">家庭科目名</th>
                 <th className="text-left py-2 pr-3 whitespace-nowrap">区分</th>
-                <th className="text-left py-2 pr-3">個人事業主モード表示名</th>
                 <th className="text-left py-2 pr-3">法人モード表示名</th>
                 <th className="text-left py-2 pr-3 whitespace-nowrap">予算配分</th>
                 <th className="py-2"></th>
@@ -218,14 +217,6 @@ export function AccountNamesSection() {
                         </option>
                       ))}
                     </select>
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <input
-                      value={r.soleName ?? ""}
-                      placeholder={r.name}
-                      onChange={(e) => setField(r.id, "soleName", e.target.value)}
-                      className="input-field w-full min-w-[12rem]"
-                    />
                   </td>
                   <td className="py-1.5 pr-3">
                     <input

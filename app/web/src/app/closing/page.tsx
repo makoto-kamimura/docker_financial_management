@@ -7,6 +7,8 @@ import { useViewMode } from "@/lib/client/use-view-mode";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { YearBadge } from "@/components/YearBadge";
 import { useFiscalYear } from "@/lib/client/use-fiscal-year";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 // ── 型定義 ──────────────────────────────────────────────────────────────
 type AccountRow = {
@@ -138,7 +140,7 @@ function PnlTab({ pnl, sysMode }: { pnl: Statements["pnl"]; sysMode: ViewMode })
         <h3 className="text-sm font-semibold text-slate-700 mb-2 border-b border-slate-200 pb-1">
           経費
           {pnl.expenseTotal !== pnl.expenseDeductible && (
-            <span className="ml-2 text-xs font-normal text-slate-400">（家事按分後）</span>
+            <span className="ml-2 text-xs font-normal text-slate-400">（事業利用按分後）</span>
           )}
         </h3>
         <table className="w-full text-sm">
@@ -200,7 +202,7 @@ function PnlTab({ pnl, sysMode }: { pnl: Statements["pnl"]; sysMode: ViewMode })
           >
             事業所得（課税所得）
           </p>
-          <p className="text-xs text-slate-500 mt-0.5">収入 − 原価 − 必要経費（家事按分後）</p>
+          <p className="text-xs text-slate-500 mt-0.5">収入 − 原価 − 必要経費（事業利用按分後）</p>
         </div>
         <span
           className={`text-2xl font-bold ${pnl.netIncome >= 0 ? "text-emerald-700" : "text-red-600"}`}
@@ -532,9 +534,12 @@ export default function ClosingPage() {
     return () => document.removeEventListener("mousedown", close);
   }, [etaxOpen]);
 
+  const scope = useActualsScope();
   const { data, isLoading } = useQuery<Statements>({
-    queryKey: ["closing-statements", year],
-    queryFn: () => fetch(`/api/closing/statements?year=${year}`).then((r) => r.json()),
+    queryKey: ["closing-statements", year, scope],
+    enabled: scope !== null,
+    queryFn: () =>
+      fetch(withScope(`/api/closing/statements?year=${year}`, scope!)).then((r) => r.json()),
   });
 
   const finalizeMut = useMutation({
@@ -608,7 +613,10 @@ export default function ClosingPage() {
                 ).map(({ type, label }) => (
                   <a
                     key={type}
-                    href={`/api/closing/etax?fiscalYear=${year}&type=${type}`}
+                    href={withScope(
+                      `/api/closing/etax?fiscalYear=${year}&type=${type}`,
+                      scope ?? "household",
+                    )}
                     download={`etax_${type}_${year}.xml`}
                     onClick={() => setEtaxOpen(false)}
                     className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg"

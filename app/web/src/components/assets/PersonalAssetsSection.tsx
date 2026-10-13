@@ -14,6 +14,8 @@ import { PERSONAL_ASSET_CATEGORY_LABEL } from "@/lib/shared/labels";
 import { yenShort } from "@/lib/common/format";
 import { PersonalAsset } from "@/components/assets/types";
 import { PersonalAssetFormModal } from "@/components/assets/PersonalAssetFormModal";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 // 評価額・資産計上・負債は、推移と総資産サマリ（ダッシュボード）の元データでもあるので一緒に取り直す
 export function useInvalidateAssets() {
@@ -86,10 +88,12 @@ export function PersonalAssetsSection() {
   const [showModal, setShowModal] = useState(false);
   const [editAsset, setEditAsset] = useState<PersonalAsset | null>(null);
 
+  const scope = useActualsScope();
   const { data, isLoading } = useQuery({
-    queryKey: ["personal-assets"],
+    queryKey: ["personal-assets", scope],
+    enabled: scope !== null,
     queryFn: () =>
-      fetch("/api/personal-assets")
+      fetch(withScope("/api/personal-assets", scope!))
         .then((r) => r.json())
         .then((r) => (r.data ?? []) as PersonalAsset[]),
   });

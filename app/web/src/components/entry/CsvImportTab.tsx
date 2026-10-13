@@ -9,6 +9,7 @@ import { ENTRY_HELP } from "@/lib/shared/help-texts";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/client/import-error";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { type Source, type SourceAccount } from "@/components/entry/types";
+import { useActualsScope } from "@/lib/client/use-view-mode";
 
 // CSV インポートの結果（POST /api/imports）。取り込み先ごとの登録件数と、重複・確定済みの月で飛ばした件数
 // offset は自動相殺で振替・チャージの組にした数
@@ -53,6 +54,10 @@ export function CsvImportTab({
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  // 個人事業主モードだけ「事業利用として取り込む」を出す（初期値はオフ。銀行の CSV には家計の分も混ざるため。
+  // 事業利用の口座・カードへの取り込みは、この印が無くても事業利用で入る）
+  const scope = useActualsScope();
+  const [asBusiness, setAsBusiness] = useState(false);
 
   // ── CSV ハンドラ ─────────────────────────────────────────────
   // 取り込みの前の確認（銀行・カードへ、登録先の列が無い CSV を入れるとき。取り違えを防ぐ）
@@ -108,6 +113,7 @@ export function CsvImportTab({
       });
       const id = source === "bank" ? bankAccountId : source === "card" ? cardId : null;
       if (id !== null) params.set("accountId", String(id));
+      if (scope === "business" && asBusiness) params.set("business", "1");
       const res = await fetch(`/api/imports?${params}`, {
         method: "POST",
         headers: { "Content-Type": "text/csv; charset=utf-8" },
@@ -175,6 +181,23 @@ export function CsvImportTab({
     <>
       <div className="max-w-2xl space-y-6">
         <CsvDropzone busy={importing} onFile={importFile} />
+        {scope === "business" && (
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={asBusiness}
+              onChange={(e) => setAsBusiness(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              事業利用として取り込む
+              <span className="block text-xs text-slate-500">
+                学習ルールが事業利用を決めていない明細を、事業利用（按分は科目の事業利用按分の割合、無ければ
+                100%）で取り込みます。事業利用の口座・カードへの取り込みは、印を付けなくても事業利用になります。
+              </span>
+            </span>
+          </label>
+        )}
         {/* 銀行の自動取得（同期）。銀行管理の CSV インポートから移した */}
         {source === "bank" && bankAccountId !== null && (
           <div className="card flex items-center justify-between gap-3">

@@ -4,7 +4,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { LoadingSpinner } from "@/components/StateViews";
-import { LedgerBadge, LedgerTable } from "@/components/LedgerTable";
+import {
+  BusinessTag,
+  LedgerBadge,
+  LedgerTable,
+  useBusinessOnlyFilter,
+} from "@/components/LedgerTable";
 import { Notice } from "@/components/ui";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
@@ -31,7 +36,9 @@ export function CashHistoryTab({
     queryKey: ["actuals", "recent"],
     queryFn: async (): Promise<{ data: CashEntry[] }> => (await fetch("/api/actuals")).json(),
   });
-  const cashHistory = cashHistoryData?.data;
+  // 個人事業主モードは事業利用の明細だけ（切り替えで全件）
+  const businessFilter = useBusinessOnlyFilter();
+  const cashHistory = cashHistoryData?.data && businessFilter.keep(cashHistoryData.data);
   const histTotal = cashHistory?.length ?? 0;
   const [histMsg, setHistMsg] = useState<string | null>(null);
 
@@ -81,11 +88,17 @@ export function CashHistoryTab({
         pageSize={HISTORY_PAGE_SIZE}
         onPageChange={setHistOffset}
         emptyText="現金の明細はまだありません。カレンダーから登録できます。"
+        toolbar={businessFilter.toggle}
         rows={(cashHistory ?? []).slice(histOffset, histOffset + HISTORY_PAGE_SIZE).map((e) => ({
           key: e.id,
           date: new Date(e.date).toLocaleDateString("ja-JP"),
           account: "現金",
-          description: e.description,
+          description: (
+            <>
+              {e.description}
+              <BusinessTag businessUse={e.businessUse} businessRatio={e.businessRatio} />
+            </>
+          ),
           amount: yenAbs(e.amount),
           tone: flowSide("cash", e.amount),
           directionLabel: flowLabel("cash", e.amount),

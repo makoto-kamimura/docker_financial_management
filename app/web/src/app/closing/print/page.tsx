@@ -55,7 +55,8 @@ function PrintPage() {
 
   useEffect(() => {
     const year = yearParam ?? new Date().getFullYear().toString();
-    fetch(`/api/closing/statements?year=${year}`)
+    // 個人事業主の決算書（青色申告）なので、事業の分の実績で作る
+    fetch(`/api/closing/statements?year=${year}&scope=business`)
       .then((r) => r.json())
       .then((d) => {
         setData(d);
@@ -453,11 +454,11 @@ function PrintPage() {
           </div>
         )}
 
-        {/* ─────────────────── 家事按分計算書 ─────────────────── */}
+        {/* ─────────────────── 事業利用按分計算書 ─────────────────── */}
         {pnl.expenses.some((e) => (e.businessRate ?? 100) < 100) && (
           <div className="doc-section">
             <h2 className="text-lg font-bold border-b-2 border-gray-800 mb-3 pb-1">
-              家事按分計算書
+              事業利用按分計算書
             </h2>
             <table>
               <thead>

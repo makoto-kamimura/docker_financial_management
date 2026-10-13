@@ -7,9 +7,9 @@
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { ACTUAL_WHERE } from "@/lib/ledger/actuals";
-import { businessPortion } from "@/lib/shared/business-use";
+import { businessPortion, type ActualsScope } from "@/lib/shared/business-use";
 
-export type ActualsScope = "household" | "business";
+export type { ActualsScope };
 
 /** API のクエリの scope（省略は household） */
 export const ScopeQuery = z.object({

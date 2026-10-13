@@ -11,6 +11,8 @@ import { SERIES_COLORS, ValueLineChart } from "@/components/ValueLineChart";
 import { asOfDateLabel } from "@/lib/shared/asset-valuation";
 import { BANK_HELP } from "@/lib/shared/help-texts";
 import { yenShort } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type CashOutlookResponse = {
   months: string[];
@@ -21,10 +23,12 @@ type CashOutlookResponse = {
 };
 
 export function CashFlowTrendCharts() {
+  const scope = useActualsScope();
   const { data } = useQuery({
-    queryKey: ["cash-outlook"],
+    queryKey: ["cash-outlook", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<CashOutlookResponse> => {
-      const res = await fetch("/api/bank-accounts/cash-outlook");
+      const res = await fetch(withScope("/api/bank-accounts/cash-outlook", scope!));
       if (!res.ok) throw new Error("failed");
       return res.json();
     },

@@ -19,6 +19,8 @@ import { ASSETS_HELP } from "@/lib/shared/help-texts";
 import { PERSONAL_ASSET_CATEGORY_LABEL, type PersonalAssetCategory } from "@/lib/shared/labels";
 import { asOfDateLabel, TREND_LABEL, type ValueTrend } from "@/lib/shared/asset-valuation";
 import { yenShort } from "@/lib/common/format";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 type TrendSeries = {
   id: number;
@@ -80,10 +82,12 @@ function partSeries(parts: TrendSeries[]): ChartSeries[] {
 }
 
 export function AssetTrendCharts() {
+  const scope = useActualsScope();
   const { data, isLoading } = useQuery({
-    queryKey: ["personal-assets-trend"],
+    queryKey: ["personal-assets-trend", scope],
+    enabled: scope !== null,
     queryFn: async (): Promise<TrendResponse> =>
-      (await (await fetch("/api/personal-assets/trend")).json()).data,
+      (await (await fetch(withScope("/api/personal-assets/trend", scope!))).json()).data,
   });
 
   if (isLoading) {

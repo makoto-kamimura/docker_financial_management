@@ -32,6 +32,8 @@ export type LoanRateChange = {
   note: string | null;
 };
 export type Loan = {
+  /** 事業利用（個人事業主モードで出す） */
+  businessUse?: boolean;
   id: number;
   lenderName: string;
   amount: string;

@@ -31,6 +31,8 @@ import { LoanAddModal, LoanEditModal } from "@/components/loans/LoanFormModals";
 import { PendingPaymentModal, RateChangeModal } from "@/components/loans/LoanRateModals";
 import { RepayModal } from "@/components/loans/RepayModal";
 import type { AccountRef, AssetRef, BankAccountRef, PendingChange } from "@/components/loans/types";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { withScope } from "@/lib/shared/business-use";
 
 // ── ページ ──────────────────────────────────────────────────────
 export default function LoansPage() {
@@ -48,32 +50,39 @@ export default function LoansPage() {
     null,
   );
 
+  // 個人事業主モードは事業利用の借入金・口座・資産だけ
+  const scope = useActualsScope();
   const load = () => {
+    if (scope === null) return;
     setLoading(true);
-    fetch("/api/loans")
+    fetch(withScope("/api/loans", scope))
       .then((r) => r.json())
       .then((j) => {
         setLoans(j.data ?? []);
         setLoading(false);
       });
     // 引き落とし口座の候補
-    fetch("/api/bank-accounts")
+    fetch(withScope("/api/bank-accounts", scope))
       .then((r) => r.json())
       .then((j) => setBankAccounts(j.data ?? []))
       .catch(() => setBankAccounts([]));
     // ひも付ける資産の候補（ローンの無い資産）
-    fetch("/api/personal-assets")
+    fetch(withScope("/api/personal-assets", scope))
       .then((r) => r.json())
       .then((j) => setAssets(j.data ?? []))
       .catch(() => setAssets([]));
   };
 
   useEffect(() => {
-    load();
     fetch("/api/accounts")
       .then((r) => r.json())
       .then((j) => setAccounts(j.data ?? []));
   }, []);
+  // 表示モードを読んだら、またモードが変わったら読み直す
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
 
   return (
     <AppShell>

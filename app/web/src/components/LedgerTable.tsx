@@ -5,8 +5,10 @@
 // 行の中身（科目の選択・状態のバッジ・操作のボタン）は呼び出し側が組み立てて渡す。
 // 操作は、よく使うもの（削除など）をそのまま出し、残りは「その他」を開くと出る（列が詰まらないように）。
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Pager } from "@/components/ui";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { businessUseText } from "@/lib/shared/business-use";
 import { DirectionTag } from "@/components/DirectedAmount";
 
 export type LedgerColumn =
@@ -218,4 +220,47 @@ export function LedgerFilter<T extends string>({
       ))}
     </div>
   );
+}
+
+/** 摘要の横に出す事業利用の印（「事業 50%」）。事業利用でなければ何も出さない */
+export function BusinessTag({
+  businessUse,
+  businessRatio,
+}: {
+  businessUse?: boolean;
+  businessRatio?: number | null;
+}) {
+  const text = businessUseText(businessUse ?? false, businessRatio ?? null);
+  if (!text) return null;
+  return (
+    <span className="ml-1.5 align-middle">
+      <LedgerBadge tone="indigo" title="事業の分として数える割合（按分）">
+        {text}
+      </LedgerBadge>
+    </span>
+  );
+}
+
+/**
+ * 個人事業主モードの「事業利用のみ」の絞り込み。個人事業主モードでは最初から事業利用の明細だけを出し、
+ * 切り替えで全件も見られる（科目や事業利用を付け直すため）。ほかのモードでは絞らず、切り替えも出さない。
+ */
+export function useBusinessOnlyFilter() {
+  const scope = useActualsScope();
+  const [override, setOverride] = useState<boolean | null>(null);
+  const isBusinessMode = scope === "business";
+  const businessOnly = isBusinessMode && (override ?? true);
+  const toggle = isBusinessMode ? (
+    <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 h-8">
+      <input
+        type="checkbox"
+        checked={businessOnly}
+        onChange={(e) => setOverride(e.target.checked)}
+      />
+      事業利用のみ
+    </label>
+  ) : null;
+  const keep = <T extends { businessUse?: boolean }>(rows: T[]): T[] =>
+    businessOnly ? rows.filter((r) => r.businessUse) : rows;
+  return { businessOnly, toggle, keep };
 }

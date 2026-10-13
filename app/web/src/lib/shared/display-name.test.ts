@@ -8,8 +8,8 @@ describe("displayName", () => {
     expect(displayName(account, "household")).toBe("食費");
   });
 
-  it("sole は soleName を返す", () => {
-    expect(displayName(account, "sole")).toBe("仕入・変動費");
+  it("sole は家庭モードと同じ科目名（soleName は使わない）", () => {
+    expect(displayName(account, "sole")).toBe("食費");
   });
 
   it("corporate は corporateName を返す", () => {

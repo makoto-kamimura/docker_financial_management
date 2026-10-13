@@ -18,6 +18,8 @@ import {
   type AssetRef,
   type BankAccountRef,
 } from "@/components/loans/types";
+import { useActualsScope } from "@/lib/client/use-view-mode";
+import { BusinessUseToggle } from "@/components/BusinessUseToggle";
 
 // 借入の追加（この借入で買った資産も、その場で作るか既存から選んでひも付けられる）
 export function LoanAddModal({
@@ -33,7 +35,10 @@ export function LoanAddModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const scope = useActualsScope();
   const [newLoan, setNewLoan] = useState({
+    // 個人事業主モードで足す借入は、事業利用で始める
+    businessUse: scope === "business",
     lenderName: "",
     amount: "",
     interestRate: "0",
@@ -112,7 +117,7 @@ export function LoanAddModal({
             ["interestRate", "年利率（例: 0.03）"],
             ["borrowedOn", "借入日 *", "date"],
             ["repaymentDate", "支払い完了年月（完済予定日）*", "date"],
-          ] as [keyof typeof newLoan, string, string?][]
+          ] as [Exclude<keyof typeof newLoan, "businessUse">, string, string?][]
         ).map(([k, label, type]) => (
           <div key={k}>
             <label className="block text-sm font-medium text-slate-600 mb-1">{label}</label>
@@ -331,6 +336,11 @@ export function LoanAddModal({
             className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
           />
         </div>
+        <BusinessUseToggle
+          kind="loan"
+          checked={newLoan.businessUse}
+          onChange={(v) => setNewLoan((f) => ({ ...f, businessUse: v }))}
+        />
       </div>
       <div className="flex justify-end gap-2 mt-5">
         <button
@@ -365,6 +375,7 @@ type EditForm = {
   assetId: string;
   debitBankAccountId: string;
   debitDay: string;
+  businessUse: boolean;
 };
 
 // 借入条件の編集（支払い完了年月・月々の返済額・予算連携先・引き落とし・資産）
@@ -396,6 +407,7 @@ export function LoanEditModal({
     monthlyPayment: loan.monthlyPayment ?? "",
     residualValue: loan.residualValue ?? "",
     linkedAccountCode: loan.linkedAccount?.code ?? "",
+    businessUse: loan.businessUse ?? false,
   }));
 
   const saveEdit = async () => {
@@ -416,6 +428,7 @@ export function LoanEditModal({
           ? Number(editForm.debitBankAccountId)
           : null,
         debitDay: editForm.debitDay ? Number(editForm.debitDay) : null,
+        businessUse: editForm.businessUse,
       }),
     });
     if (r.ok) onSaved();
@@ -577,6 +590,11 @@ export function LoanEditModal({
           </select>
           <p className="text-xs text-slate-400 mt-1">{LOANS_HELP.asset}</p>
         </div>
+        <BusinessUseToggle
+          kind="loan"
+          checked={editForm.businessUse}
+          onChange={(v) => setEditForm((f) => ({ ...f, businessUse: v }))}
+        />
       </div>
       <div className="flex justify-end gap-2 mt-5">
         <button
