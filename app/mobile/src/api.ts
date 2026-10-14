@@ -7,6 +7,7 @@ import type { PersonalAssetCategory } from "./shared/labels";
 import type { BuildingStructure, ValuationMethod, ValueTrend } from "./shared/asset-valuation";
 import type { Loan } from "./shared/loan-schedule";
 import { scopeOfMode, withScope } from "./shared/business-use";
+import type { TaxEstimate, TaxInputs, TaxLedger } from "./shared/tax-estimate";
 
 const _devHost = Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
 const API_BASE_URL: string = process.env.EXPO_PUBLIC_API_BASE_URL ?? `http://${_devHost}:3000/api`;
@@ -2125,6 +2126,24 @@ export async function fetchClosing(year: number): Promise<ClosingStatements> {
     scoped(`/closing/statements?year=${year}`),
     "決算データの取得に失敗しました",
   );
+}
+
+// ── 控除・確定申告（閲覧のみ。入力は web 版）─────────────────────────────────
+export type TaxReturn = {
+  year: number;
+  ledger: TaxLedger;
+  inputs: TaxInputs;
+  rulesInfo: { baseYear: number; fallback: boolean; changed: string[] };
+  estimate: TaxEstimate;
+};
+
+/** 個人事業主モードでは事業所得を決算の数字から下書きする（scope=business） */
+export async function fetchTaxReturn(year: number): Promise<TaxReturn> {
+  const json = await request<{ data: TaxReturn }>(
+    scoped(`/tax-return?year=${year}`),
+    "控除・確定申告のデータの取得に失敗しました",
+  );
+  return json.data;
 }
 
 // ── 法人ガバナンス（閲覧のみ。追加・削除は web 版）───────────────────────────────

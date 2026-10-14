@@ -29,6 +29,7 @@ import { JournalsScreen } from "./screens/JournalsScreen";
 import { InvoicesScreen } from "./screens/InvoicesScreen";
 import { ClosingScreen } from "./screens/ClosingScreen";
 import { GovernanceScreen } from "./screens/GovernanceScreen";
+import { TaxReturnScreen } from "./screens/TaxReturnScreen";
 import { setFiscalYear, useFiscalYear } from "./fiscal-year";
 
 type BottomTab = "home" | "budget" | "entry" | "more";
@@ -56,6 +57,7 @@ const MORE_TITLES: Record<MoreRoute, string> = {
   journals: "仕訳帳",
   invoices: "インボイス発行",
   closing: "決算処理",
+  "tax-return": "控除・確定申告",
   governance: "ガバナンス管理",
 };
 
@@ -267,6 +269,7 @@ function AppContent() {
         {activeTab === "more" && moreRoute === "journals" && <JournalsScreen viewMode={viewMode} />}
         {activeTab === "more" && moreRoute === "invoices" && <InvoicesScreen />}
         {activeTab === "more" && moreRoute === "closing" && <ClosingScreen viewMode={viewMode} />}
+        {activeTab === "more" && moreRoute === "tax-return" && <TaxReturnScreen />}
         {activeTab === "more" && moreRoute === "governance" && <GovernanceScreen />}
       </View>
 

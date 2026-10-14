@@ -11,6 +11,7 @@ export type MoreRoute =
   | "journals"
   | "invoices"
   | "closing"
+  | "tax-return"
   | "governance";
 
 type MenuItem = {
@@ -80,6 +81,19 @@ const MENU_ITEMS: { group: string; items: MenuItem[] }[] = [
         modes: ["sole", "corporate"],
       },
       {
+        id: "governance",
+        label: "ガバナンス管理",
+        icon: "shield-checkmark-outline",
+        color: "#1d4ed8",
+        bg: "#eff6ff",
+        modes: ["corporate"],
+      },
+    ],
+  },
+  {
+    group: "決算・申告",
+    items: [
+      {
         id: "closing",
         label: "決算処理",
         icon: "bar-chart-outline",
@@ -88,12 +102,12 @@ const MENU_ITEMS: { group: string; items: MenuItem[] }[] = [
         modes: ["sole", "corporate"],
       },
       {
-        id: "governance",
-        label: "ガバナンス管理",
-        icon: "shield-checkmark-outline",
-        color: "#1d4ed8",
-        bg: "#eff6ff",
-        modes: ["corporate"],
+        id: "tax-return",
+        label: "控除・確定申告",
+        icon: "calculator-outline",
+        color: "#be185d",
+        bg: "#fdf2f8",
+        modes: ["household", "sole"],
       },
     ],
   },
