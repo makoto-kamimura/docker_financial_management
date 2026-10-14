@@ -57,7 +57,7 @@ export const HOME_ACCOUNTS_SEED = [
   { code: "H-2016", name: "冠婚葬祭費", category: "COGS" },
   { code: "H-2017", name: "趣味用品費", category: "COGS" },
 
-  // ── 固定費・経費（EXPENSE）H-3001〜H-3038 ────────────────────────────────
+  // ── 固定費・経費（EXPENSE）H-3001〜H-3039 ────────────────────────────────
   { code: "H-3001", name: "電気代", category: "EXPENSE" },
   { code: "H-3002", name: "ガス代", category: "EXPENSE" },
   { code: "H-3003", name: "水道代", category: "EXPENSE" },
@@ -97,6 +97,8 @@ export const HOME_ACCOUNTS_SEED = [
   { code: "H-3036", name: "介護保険料", category: "EXPENSE" },
   { code: "H-3037", name: "厚生年金保険料", category: "EXPENSE" },
   { code: "H-3038", name: "雇用保険料", category: "EXPENSE" },
+  // ふるさと納税は控除・確定申告のページで寄付済みの額として使う（それ以外の寄付は H-3033）
+  { code: "H-3039", name: "ふるさと納税", category: "EXPENSE" },
 
   // ── 負債・ローン（LIABILITY）H-4001〜H-4005 ──────────────────────────────
   { code: "H-4001", name: "住宅ローン", category: "LIABILITY" },

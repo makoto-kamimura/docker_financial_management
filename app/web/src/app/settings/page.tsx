@@ -12,6 +12,7 @@ import {
   BusinessProfileSection,
 } from "@/components/settings/ProfileSections";
 import { TaxSettingsSection } from "@/components/settings/TaxSettingsSection";
+import { IncomeTaxRulesSection } from "@/components/settings/IncomeTaxRulesSection";
 import { SecuritySection } from "@/components/settings/SecuritySection";
 import { AccountNamesSection } from "@/components/settings/AccountNamesSection";
 import { BillingSection } from "@/components/settings/BillingSection";
@@ -22,7 +23,7 @@ type Tab = "profile" | "tax" | "security" | "accountNames" | "billing";
 // ── メインページ ─────────────────────────────────────────────────
 const TABS: readonly (readonly [Tab, string])[] = [
   ["profile", "基本設定"],
-  ["tax", "消費税設定"],
+  ["tax", "税制設定"],
   ["accountNames", "科目名設定"],
   ["security", "セキュリティ"],
   ["billing", "プランと支払い"],
@@ -50,7 +51,12 @@ function SettingsContent() {
           <BusinessProfileSection />
         </>
       )}
-      {tab === "tax" && <TaxSettingsSection />}
+      {tab === "tax" && (
+        <>
+          <TaxSettingsSection />
+          <IncomeTaxRulesSection />
+        </>
+      )}
       {tab === "accountNames" && <AccountNamesSection />}
       {tab === "security" && <SecuritySection />}
       {tab === "billing" && <BillingSection />}

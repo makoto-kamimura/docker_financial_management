@@ -607,6 +607,35 @@ model TaxSetting {
   @@map("tax_settings")
 }
 
+// 控除・確定申告のページの入力（年ごと）。中身は lib/tax/inputs.ts で検証する TaxInputs（lib/shared/tax-estimate.ts）
+model TaxReturnInput {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  taxYear   Int // 所得の年
+  inputs    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, taxYear])
+  @@index([tenantId])
+  @@map("tax_return_inputs")
+}
+
+// 所得税・住民税の控除額・税率などの上書き（年ごと）。既定値は lib/shared/tax-rules.ts。
+// values は「項目の path → 値」で、設定の「税制設定」で既定値から変えた項目だけを持つ
+model TaxRuleOverride {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  taxYear   Int // 所得の年
+  values    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, taxYear])
+  @@index([tenantId])
+  @@map("tax_rule_overrides")
+}
+
 // F002 仕訳帳ヘッダ
 model JournalEntry {
   id              Int      @id @default(autoincrement())
