@@ -32,6 +32,7 @@ import {
   ExternalLink,
   Repeat,
   GraduationCap,
+  Calculator,
   Menu,
   X,
 } from "lucide-react";
@@ -144,6 +145,12 @@ const NAV_GROUPS: NavGroup[] = [
     group: "決算・申告",
     items: [
       { href: "/closing", label: "決算処理", icon: FileBarChart2, modes: ["sole", "corporate"] },
+      {
+        href: "/tax-return",
+        label: "控除・確定申告",
+        icon: Calculator,
+        modes: ["household", "sole"],
+      },
     ],
   },
   {

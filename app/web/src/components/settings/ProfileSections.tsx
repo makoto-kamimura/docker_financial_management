@@ -322,7 +322,7 @@ export function BusinessProfileSection() {
               ))}
             </select>
             <p className="text-[11px] text-slate-400 mt-1">
-              「消費税設定」タブで対象年度の設定があれば、そちらが優先されます。
+              「税制設定」タブの消費税設定で対象年度の設定があれば、そちらが優先されます。
             </p>
           </label>
         </div>

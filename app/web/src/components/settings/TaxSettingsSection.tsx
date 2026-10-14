@@ -1,6 +1,6 @@
 "use client";
 
-// 設定の「消費税設定」タブ。
+// 設定の「税制設定」タブの消費税設定（所得税・住民税の控除額は IncomeTaxRulesSection）。
 
 import { useEffect, useState } from "react";
 import { SETTINGS_HELP } from "@/lib/shared/help-texts";

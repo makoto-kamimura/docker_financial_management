@@ -84,6 +84,7 @@ export const ACCOUNT_DISPLAY_NAMES: Record<string, AccountDisplayNames> = {
   "H-3032": { sole: "通信費 / 消耗品費", corporate: "通信費 / 消耗品費" },
   "H-3033": { sole: "租税公課（ふるさと納税） / ❌", corporate: "寄付金" },
   "H-3034": { sole: "❌ 経費不可", corporate: "❌ 経費不可" },
+  "H-3039": { sole: "❌（寄附金控除）", corporate: "寄付金" },
 
   // ── 4. 負債・ローン（LIABILITY）───────────────────────────────
   "H-4001": { sole: "長期借入金（按分）", corporate: "長期借入金 / 短期借入金" },
