@@ -21,6 +21,10 @@ export const SHARED_WITH_MOBILE = [
   "mode-labels.ts",
   "rate-forecast.ts",
   "step-checklist.ts",
+  "tax-estimate.ts",
+  "tax-family.ts",
+  "tax-guide.ts",
+  "tax-rules.ts",
 ] as const;
 
 /** web/src/lib/shared から見たモバイル側の複製先 */
