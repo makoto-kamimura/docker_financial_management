@@ -130,17 +130,91 @@ export type TaxLedger = {
   sideIncome: number;
   fireEarthquake: number;
   otherDonation: number;
+  /** 保険の割戻金（一般生命保険料から引いた額） */
+  insuranceRefund: number;
+  /** どの月から予定（予算）で数えたか */
+  plan: LedgerPlan;
+  /** 各値のうち予定（入力月以降の予算）の分。0 の項目は持たない */
+  planned: Partial<Record<LedgerAmountKey, number>>;
 };
+
+/** 帳簿の値のうち、実績と予定に分けられる金額の項目 */
+export type LedgerAmountKey =
+  | "salary"
+  | "salaryDeposit"
+  | "socialInsurance"
+  | "withheldTax"
+  | "lifeGeneral"
+  | "lifeCare"
+  | "medical"
+  | "furusato"
+  | "businessIncome"
+  | "sideIncome"
+  | "fireEarthquake"
+  | "otherDonation"
+  | "insuranceRefund";
+
+/**
+ * 帳簿の値の予定の扱い。入力月（ページを開いた月）より前は実績、入力月以降は予算で数える。
+ * fromMonth は予定として数え始める月（過去の年は null）
+ */
+export type LedgerPlan = { fromMonth: number | null; status: "actual" | "mixed" | "plan" };
+
+/** 年の合計の呼び方（予定を含むときは「予定年合計」） */
+export function yearTotalLabel(plan: LedgerPlan): string {
+  return plan.status === "actual" ? "年合計" : "予定年合計";
+}
+
+/** 予定を含む値の後ろに付ける言葉 */
+export function planSuffix(plan: LedgerPlan): string {
+  return plan.status === "actual" ? "" : "（予定）";
+}
+
+/** 予定の扱いの説明。すべて実績なら null */
+export function planNote(year: number, plan: LedgerPlan): string | null {
+  if (plan.fromMonth === null) return null;
+  if (plan.fromMonth === 1) {
+    return `${year} 年はすべての月を予定（予算管理の予算）として数えています。`;
+  }
+  return `${year} 年は ${plan.fromMonth} 月以降を予定（予算管理の予算）として数えています。${plan.fromMonth - 1} 月までは実績です。`;
+}
+
+/**
+ * 実績と予定の内訳の文言（例「実績 300,000円（9 月まで）＋ 予定 100,000円（10〜12 月）」）。
+ * 予定の月に予算が無ければ、そのことを書く。すべて実績なら null
+ */
+export function planBreakdown(
+  total: number,
+  planned: number | undefined,
+  plan: LedgerPlan,
+): string | null {
+  if (plan.fromMonth === null) return null;
+  const yen = (n: number) => `${n.toLocaleString("ja-JP")}円`;
+  const later = plan.fromMonth === 12 ? "12 月" : `${plan.fromMonth}〜12 月`;
+  if (!planned) {
+    return plan.fromMonth === 1
+      ? "予算管理に予算がありません"
+      : `${later}の予算が無いため、${plan.fromMonth - 1} 月までの実績だけです`;
+  }
+  if (plan.fromMonth === 1) return `予定 ${yen(planned)}（${later}）`;
+  return `実績 ${yen(total - planned)}（${plan.fromMonth - 1} 月まで）＋ 予定 ${yen(planned)}（${later}）`;
+}
 
 export function emptyPayrollItem(): PayrollItem {
   return { monthly: 0, months: 12, bonus: 0, annual: null };
 }
 
-export function emptyPayroll(): PayrollInput {
+/** 子ども・子育て支援金の月数の目安（2026 年 4 月分の保険料＝5 月の給与から天引き） */
+export function childSupportMonths(year: number): number {
+  return year < 2026 ? 0 : year === 2026 ? 8 : 12;
+}
+
+export function emptyPayroll(year: number): PayrollInput {
   const items = Object.fromEntries(PAYROLL_ITEM_KEYS.map((k) => [k, emptyPayrollItem()])) as Record<
     PayrollItemKey,
     PayrollItem
   >;
+  items.childSupport.months = childSupportMonths(year);
   return {
     ...items,
     enabled: false,
@@ -192,7 +266,7 @@ export function emptyTaxInputs(year: number): TaxInputs {
     otherTaxCredit: 0,
     furusatoMunicipalities: 0,
     otherDonation: 0,
-    payroll: emptyPayroll(),
+    payroll: emptyPayroll(year),
     checks: [],
   };
 }

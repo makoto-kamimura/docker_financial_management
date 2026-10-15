@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import { yen } from "@/lib/common/format";
 import { DEDUCTION_GUIDES, type DeductionGuide } from "@/lib/shared/tax-guide";
+import { planSuffix } from "@/lib/shared/tax-estimate";
 import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { AmountField, Check, Field, LedgerAmountField, TwoAmounts } from "./fields";
@@ -71,7 +72,7 @@ function Inputs({
         return (
           <Grid>
             <Field
-              label="給与からの天引き"
+              label={`給与からの天引き${planSuffix(ledger.plan)}`}
               hint="給与明細（家族と所得のタブ）の健康保険・介護保険・子ども・子育て支援金・厚生年金・雇用保険"
             >
               <div className="py-2 text-right font-semibold tabular-nums text-slate-900">
@@ -93,6 +94,8 @@ function Inputs({
             label="支払った社会保険料"
             value={draft.socialInsurance}
             ledger={ledger.socialInsurance}
+            plan={ledger.plan}
+            planned={ledger.planned.socialInsurance}
             onChange={(v) => update({ socialInsurance: v })}
           />
         </Grid>
@@ -121,7 +124,14 @@ function Inputs({
               label="一般（新契約）"
               value={draft.lifeGeneralNew}
               ledger={ledger.lifeGeneral}
+              plan={ledger.plan}
+              planned={ledger.planned.lifeGeneral}
               onChange={(v) => update({ lifeGeneralNew: v })}
+              hint={
+                ledger.insuranceRefund > 0
+                  ? `生命保険・学資保険から保険割戻金 ${yen(ledger.insuranceRefund)} を差し引いた額`
+                  : undefined
+              }
             />
             <AmountField
               label="一般（旧契約）"
@@ -133,6 +143,8 @@ function Inputs({
               label="介護医療"
               value={draft.lifeCare}
               ledger={ledger.lifeCare}
+              plan={ledger.plan}
+              planned={ledger.planned.lifeCare}
               onChange={(v) => update({ lifeCare: v })}
             />
             <AmountField
@@ -167,6 +179,8 @@ function Inputs({
               label="支払った医療費（家族の分も）"
               value={draft.medicalPaid}
               ledger={ledger.medical}
+              plan={ledger.plan}
+              planned={ledger.planned.medical}
               onChange={(v) => update({ medicalPaid: v })}
             />
             <AmountField
@@ -227,6 +241,8 @@ function Inputs({
             label="ふるさと納税"
             value={draft.furusato}
             ledger={ledger.furusato}
+            plan={ledger.plan}
+            planned={ledger.planned.furusato}
             onChange={(v) => update({ furusato: v })}
             hint="上限と残り枠は「ふるさと納税」のタブで"
           />
