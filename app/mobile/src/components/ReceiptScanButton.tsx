@@ -28,8 +28,8 @@ const PAYMENT_WARNINGS: Partial<Record<ReceiptScanResult["draft"]["paymentMethod
     "電子マネーや QR コード決済のレシートのようです。電子マネーの明細から入る分と二重に計上しないよう注意してください。",
 };
 
-/** 写真を長辺 MAX_EDGE の JPEG にする（送る量と読み取りの課金を抑える） */
-async function shrink(asset: ImagePicker.ImagePickerAsset): Promise<string> {
+/** 写真を長辺 MAX_EDGE の JPEG にする（送る量と読み取りの課金を抑える）。証明書の撮影でも使う */
+export async function shrink(asset: ImagePicker.ImagePickerAsset): Promise<string> {
   const ctx = ImageManipulator.manipulate(asset.uri);
   if (Math.max(asset.width, asset.height) > MAX_EDGE) {
     ctx.resize(asset.width >= asset.height ? { width: MAX_EDGE } : { height: MAX_EDGE });

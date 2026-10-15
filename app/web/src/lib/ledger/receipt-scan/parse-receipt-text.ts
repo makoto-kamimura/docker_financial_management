@@ -94,14 +94,47 @@ export function findPaymentMethod(raw: string): PaymentMethod {
   return "unknown";
 }
 
-/** OCR の文字からレシートの下書きを作る（品目は読み違いが多いので拾わない） */
+// セルフメディケーション税制の対象品の印（レシートの注記で示される。★ が多い）
+const SELF_MED_MARK = /^[★☆◆◇■□●※]/;
+const SELF_MED_NOTE = /(?:セルフ|メディケ|対象商品|印は|印の)/;
+
+/**
+ * セルフメディケーション税制の対象品（印の付いた品目の行）と、印字された対象額。
+ * 「セルフメディケーション」の注記があるレシートだけを見る（印は店によって別の意味のこともあるため）
+ */
+export function findSelfMedication(text: string): {
+  items: ReceiptDraft["items"];
+  total: number | null;
+} {
+  if (!/セルフメディケ/.test(text)) return { items: [], total: null };
+  const items: ReceiptDraft["items"] = [];
+  let total: number | null = null;
+  for (const line of text.split("\n")) {
+    if (/セルフメディケ/.test(line) && /(?:対象|額|計)/.test(line) && !SELF_MED_MARK.test(line)) {
+      total ??= lastAmount(line);
+      continue;
+    }
+    if (!SELF_MED_MARK.test(line) || SELF_MED_NOTE.test(line)) continue;
+    const amount = lastAmount(line);
+    const name = line
+      .replace(SELF_MED_MARK, "")
+      .replace(/[¥]?\d{1,3}(?:,\d{3})+\S*$|[¥]?\d+\S*$/, "")
+      .trim();
+    if (amount !== null && name !== "") items.push({ name, amount, selfMedication: true });
+  }
+  return { items, total };
+}
+
+/** OCR の文字からレシートの下書きを作る（品目は読み違いが多いので、セルフメディケーションの対象品だけ拾う） */
 export function parseReceiptText(raw: string): ReceiptDraft {
   const text = normalizeOcrText(raw);
+  const selfMed = findSelfMedication(text);
   return {
     date: findReceiptDate(text),
     merchant: findMerchant(text),
     total: findReceiptTotal(text),
-    items: [],
+    items: selfMed.items,
+    selfMedicationTotal: selfMed.total,
     paymentMethod: findPaymentMethod(text),
   };
 }

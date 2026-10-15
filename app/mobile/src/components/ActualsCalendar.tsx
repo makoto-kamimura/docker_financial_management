@@ -24,6 +24,7 @@ import { AccountPickerModal } from "./CategoryPickerModal";
 import { Button, Card, Field, Input, Notice, Pills } from "./ui";
 import { CalendarTotals, DayAmounts, MonthCalendar } from "./MonthCalendar";
 import { flowLabel } from "../shared/amount-direction";
+import { selfMedicationOf } from "../shared/self-medication";
 import { businessPortion, isValidBusinessRatio } from "../shared/business-use";
 import { BusinessRatioControl, BusinessTag } from "./BusinessUseControls";
 
@@ -65,6 +66,12 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   // 読み取ったレシートの写真。登録した明細に証憑として付ける
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [learn, setLearn] = useState(true);
+  // セルフメディケーション税制の対象の市販薬を含むレシート。証憑に対象の額と品目を残す（控除・確定申告で使う）
+  const [selfMed, setSelfMed] = useState<{
+    on: boolean;
+    amount: string;
+    items: { name: string; amount: number }[];
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -165,13 +172,20 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
       });
       if (receiptUri) {
         try {
-          await attachActualReceipt(created.id, receiptUri);
+          await attachActualReceipt(
+            created.id,
+            receiptUri,
+            selfMed?.on && /^\d+$/.test(selfMed.amount)
+              ? { amount: Number(selfMed.amount), items: selfMed.items }
+              : null,
+          );
         } catch {
           setError("実績は登録しましたが、レシートの写真を保存できませんでした");
         }
       }
       setForm(BLANK_FORM);
       setReceiptUri(null);
+      setSelfMed(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "登録に失敗しました");
@@ -201,6 +215,8 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
           : "",
     });
     setReceiptUri(photoUri);
+    const sm = selfMedicationOf(draft);
+    setSelfMed({ on: sm !== null, amount: sm ? String(sm.amount) : "", items: sm?.items ?? [] });
     setError("");
   }
 
@@ -343,6 +359,34 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                 <Switch value={learn} onValueChange={setLearn} />
                 <Text style={s.learnText}>次から同じ店名には、この科目を使う</Text>
               </View>
+            ) : null}
+            {receiptUri && selfMed ? (
+              <>
+                <View style={s.learnRow}>
+                  <Switch
+                    value={selfMed.on}
+                    onValueChange={(on) => setSelfMed({ ...selfMed, on })}
+                  />
+                  <Text style={s.learnText}>
+                    セルフメディケーション税制の対象の市販薬を含む（レシートを控除・確定申告で使う）
+                  </Text>
+                </View>
+                {selfMed.on ? (
+                  <Field label="対象の額（円）">
+                    <Input
+                      value={selfMed.amount}
+                      keyboardType="number-pad"
+                      accessibilityLabel="セルフメディケーションの対象の額"
+                      onChangeText={(t) => setSelfMed({ ...selfMed, amount: digitsOnly(t) })}
+                    />
+                    {selfMed.items.length > 0 ? (
+                      <Text style={s.learnText}>
+                        対象の品目: {selfMed.items.map((i) => i.name).join("、")}
+                      </Text>
+                    ) : null}
+                  </Field>
+                ) : null}
+              </>
             ) : null}
             {error ? <Notice tone="error">{error}</Notice> : null}
             <Button label={saving ? "登録中..." : "登録"} onPress={submit} loading={saving} />

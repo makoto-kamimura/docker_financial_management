@@ -621,6 +621,24 @@ model TaxReturnInput {
   @@map("tax_return_inputs")
 }
 
+// 控除・確定申告で使う証明書の画像・PDF（源泉徴収票・控除証明書など）。docId は控除・確定申告のページの
+// 「必要な書類」の id（lib/shared/tax-estimate.ts の documents）。ファイルは証憑と同じ置き場所（lib/server/upload.ts）
+model TaxDocument {
+  id         Int      @id @default(autoincrement())
+  tenantId   Int
+  taxYear    Int // 所得の年
+  docId      String
+  fileName   String // アップロード時の元ファイル名（表示用）
+  savedName  String   @unique // 置き場所のファイル名
+  mimeType   String
+  fileType   String // pdf / image
+  fileSize   Int
+  uploadedAt DateTime @default(now())
+
+  @@index([tenantId, taxYear])
+  @@map("tax_documents")
+}
+
 // 所得税・住民税の控除額・税率などの上書き（年ごと）。既定値は lib/shared/tax-rules.ts。
 // values は「項目の path → 値」で、設定の「税制設定」で既定値から変えた項目だけを持つ
 model TaxRuleOverride {
@@ -692,18 +710,22 @@ model JournalDetail {
 
 // F005 証憑ファイル。仕訳か現金の明細のどちらか一方に付く（CHECK 制約で保証する）
 model Receipt {
-  id                Int              @id @default(autoincrement())
-  journalEntry      JournalEntry?    @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  journalEntryId    Int?
-  financialRecord   FinancialRecord? @relation(fields: [financialRecordId], references: [id], onDelete: Cascade)
-  financialRecordId Int?
-  fileName          String // アップロード時の元ファイル名（表示用）
-  fileUrl           String // 配信 URL（/api/uploads/<savedName>）
-  savedName         String? // uploads/ 配下の実ファイル名（配信時の所有確認・Content-Type 決定に使用）
-  mimeType          String? // アップロード時に検証済みの MIME タイプ
-  fileType          String // pdf / image / other
-  fileSize          Int
-  uploadedAt        DateTime         @default(now())
+  id                   Int              @id @default(autoincrement())
+  journalEntry         JournalEntry?    @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  journalEntryId       Int?
+  financialRecord      FinancialRecord? @relation(fields: [financialRecordId], references: [id], onDelete: Cascade)
+  financialRecordId    Int?
+  fileName             String // アップロード時の元ファイル名（表示用）
+  fileUrl              String // 配信 URL（/api/uploads/<savedName>）
+  savedName            String? // uploads/ 配下の実ファイル名（配信時の所有確認・Content-Type 決定に使用）
+  mimeType             String? // アップロード時に検証済みの MIME タイプ
+  fileType             String // pdf / image / other
+  fileSize             Int
+  uploadedAt           DateTime         @default(now())
+  // セルフメディケーション税制の対象の市販薬の額（円）。null は対象外。控除・確定申告のページで一覧にする
+  selfMedicationAmount Decimal?         @db.Decimal(18, 2)
+  // 対象の品目（[{ name, amount }]）。セルフメディケーション税制の明細書の品名に使う
+  selfMedicationItems  Json?
 
   @@unique([savedName])
   @@index([journalEntryId])

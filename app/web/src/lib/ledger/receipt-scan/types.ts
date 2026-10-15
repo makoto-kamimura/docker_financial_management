@@ -21,9 +21,21 @@ export const ReceiptDraftSchema = z.object({
       z.object({
         name: z.string(),
         amount: z.number().int().describe("金額（円）。値引きは負の数"),
+        selfMedication: z
+          .boolean()
+          .describe(
+            "セルフメディケーション税制の対象品なら true（品名の前後の ★・◆ などの印が、レシートの注記で対象を示しているもの）",
+          ),
       }),
     )
     .describe("品目。読めなければ空の配列"),
+  selfMedicationTotal: z
+    .number()
+    .int()
+    .nullable()
+    .describe(
+      "レシートに印字されたセルフメディケーション税制の対象額の合計（円）。印字が無ければ null",
+    ),
   paymentMethod: z
     .enum(PAYMENT_METHODS)
     .describe("支払方法。現金=cash、クレジットカード=card、電子マネー・QR コード決済=emoney"),
@@ -57,10 +69,20 @@ export function normalizeDraft(draft: ReceiptDraft): ReceiptDraft {
     merchant: draft.merchant?.trim() || null,
     total:
       draft.total !== null && Number.isInteger(draft.total) && draft.total > 0 ? draft.total : null,
-    items: draft.items.filter((i) => i.name.trim() !== "" && Number.isInteger(i.amount)),
+    items: draft.items
+      .filter((i) => i.name.trim() !== "" && Number.isInteger(i.amount))
+      .map((i) => ({ ...i, selfMedication: i.selfMedication === true })),
+    selfMedicationTotal:
+      draft.selfMedicationTotal !== null &&
+      Number.isInteger(draft.selfMedicationTotal) &&
+      draft.selfMedicationTotal > 0
+        ? draft.selfMedicationTotal
+        : null,
     paymentMethod: draft.paymentMethod,
   };
 }
+
+export { selfMedicationOf } from "@/lib/shared/self-medication";
 
 function validIsoDate(s: string | null): s is string {
   if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
