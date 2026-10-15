@@ -128,7 +128,7 @@ export function TaxReturnScreen() {
 function Kpis({ data }: { data: TaxReturn }) {
   const e = data.estimate;
   // 給与があるのに源泉徴収税額が入っていなければ、還付・追加納付は出さない（web 版と同じ）
-  const withheldUnknown = e.income.salary > 0 && e.refund.withheld === 0;
+  const withheldUnknown = e.income.salary > 0 && e.refund.salaryWithheld === 0;
   const refund = e.refund.amount;
   const items: [string, string, string][] = [
     [`合計所得${planSuffix(planOf(data))}`, yen(e.income.total), COLORS.text],
@@ -203,6 +203,9 @@ function Overview({ data }: { data: TaxReturn }) {
         <SectionTitle>内訳</SectionTitle>
         <Line label="給与収入" value={yen(e.income.salary)} />
         <Line label="給与所得" value={yen(e.income.salaryIncome)} />
+        {e.income.salaryAdjustment > 0 && (
+          <Line label="うち所得金額調整控除" value={`−${yen(e.income.salaryAdjustment)}`} />
+        )}
         {e.payroll && (
           <>
             <Line label={`総支給額${planSuffix(planOf(data))}`} value={yen(e.payroll.gross)} />
@@ -227,6 +230,7 @@ function Overview({ data }: { data: TaxReturn }) {
           value={`${yen(e.taxable.income)}（税率 ${Math.round(e.incomeTax.rate * 100)}%）`}
         />
         <Line label="源泉徴収済み" value={yen(e.refund.withheld)} />
+        {e.refund.prepaid > 0 && <Line label="予定納税" value={yen(e.refund.prepaid)} />}
       </Card>
       <Card style={s.card}>
         <SectionTitle>基本の考え方</SectionTitle>

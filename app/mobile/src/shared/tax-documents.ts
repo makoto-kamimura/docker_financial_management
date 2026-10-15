@@ -3,7 +3,7 @@
 
 /**
  * 書類を撮影・アップロードする場所。
- * income = 給与（給与明細・所得の給与の欄）、business = 事業所得、disability = 障害者控除、
+ * income = 給与（給与明細・所得の給与の欄）、business = 事業所得・予定納税、disability = 障害者控除、
  * deduction:<控除> = 所得控除の各控除、housing = 住宅ローン控除、filing = 提出のときに用意するもの
  */
 export type TaxDocumentPlace =
@@ -31,6 +31,11 @@ export const TAX_DOCUMENTS = {
   withholdingSlip: { label: "源泉徴収票", place: "income", uploadable: true },
   businessStatement: {
     label: "青色申告決算書（または収支内訳書）",
+    place: "business",
+    uploadable: true,
+  },
+  prepaidTaxNotice: {
+    label: "予定納税額の通知書（または納付の控え）",
     place: "business",
     uploadable: true,
   },

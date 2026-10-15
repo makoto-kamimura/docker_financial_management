@@ -35,6 +35,10 @@ const ledger = (over: Partial<TaxLedger> = {}): TaxLedger => ({
   blueReturnDeduction: null,
   housingBalance: null,
   sideIncome: 0,
+  pensionIncome: 0,
+  realEstateIncome: 0,
+  householdBusinessIncome: 0,
+  cryptoIncome: 0,
   fireEarthquake: 0,
   otherDonation: 0,
   insuranceRefund: 0,
@@ -500,5 +504,115 @@ describe("予定の表記", () => {
     expect(emptyPayroll(2026).childSupport.months).toBe(8);
     expect(emptyPayroll(2027).childSupport.months).toBe(12);
     expect(emptyPayroll(2026).health.months).toBe(12);
+  });
+});
+
+describe("所得金額調整控除", () => {
+  const adjust = (salary: number, over: Partial<TaxInputs> = {}) =>
+    estimateTax(r2026, 2026, salaried(salary), inputs(over)).income;
+
+  it("給与収入 850 万円超で 23 歳未満の扶養親族がいれば、(給与 − 850 万) × 10% を引く", () => {
+    const income = adjust(9_000_000, { family: [child("2016-05-01")] });
+    expect(income.salaryAdjustment).toBe(50_000);
+    // 給与所得控除後 7,050,000 − 50,000
+    expect(income.salaryIncome).toBe(7_000_000);
+  });
+
+  it("給与収入は 1,000 万円で頭打ち（最高 15 万円）", () => {
+    expect(adjust(12_000_000, { family: [child("2016-05-01")] }).salaryAdjustment).toBe(150_000);
+  });
+
+  it("要件の家族がいない・850 万円以下なら 0", () => {
+    expect(adjust(9_000_000).salaryAdjustment).toBe(0);
+    expect(adjust(8_500_000, { family: [child("2016-05-01")] }).salaryAdjustment).toBe(0);
+    // 23 歳以上の子は対象外
+    expect(adjust(9_000_000, { family: [child("2000-05-01")] }).salaryAdjustment).toBe(0);
+  });
+
+  it("共働きで相手の扶養に入れている子でも受けられる", () => {
+    const c = { ...child("2016-05-01"), dependentOfOther: true };
+    expect(adjust(9_000_000, { family: [c] }).salaryAdjustment).toBe(50_000);
+  });
+
+  it("本人・配偶者が特別障害者なら対象", () => {
+    expect(adjust(9_000_000, { selfDisability: "special" }).salaryAdjustment).toBe(50_000);
+    const spouse: FamilyMember = {
+      ...child("1980-01-01"),
+      relation: "spouse",
+      disability: "special",
+    };
+    expect(adjust(9_000_000, { family: [spouse] }).salaryAdjustment).toBe(50_000);
+    // 一般の障害者は対象外
+    expect(adjust(9_000_000, { selfDisability: "general" }).salaryAdjustment).toBe(0);
+  });
+});
+
+describe("地震保険料控除（旧長期損害保険料）", () => {
+  const quake = (over: Partial<TaxInputs>) =>
+    estimateTax(r2026, 2026, salaried(5_000_000), inputs(over)).deductions.find(
+      (d) => d.key === "earthquake",
+    );
+
+  it("旧長期だけ: 2 万円超は所得税 15,000・住民税 10,000", () => {
+    expect(quake({ earthquakeOldLongTerm: 30_000 })).toMatchObject({
+      income: 15_000,
+      resident: 10_000,
+    });
+  });
+
+  it("旧長期の中間の区分: 16,000 円 → 所得税 13,000・住民税 10,000", () => {
+    expect(quake({ earthquakeOldLongTerm: 16_000 })).toMatchObject({
+      income: 13_000,
+      resident: 10_000,
+    });
+  });
+
+  it("地震保険料と合わせても上限は所得税 5 万円・住民税 2.5 万円", () => {
+    expect(quake({ earthquake: 50_000, earthquakeOldLongTerm: 30_000 })).toMatchObject({
+      income: 50_000,
+      resident: 25_000,
+    });
+  });
+});
+
+describe("従たる給与・予定納税・報酬の源泉", () => {
+  it("従たる給与と給与以外の所得の合計が 20 万円を超えると申告が要る", () => {
+    const e = estimateTax(r2026, 2026, salaried(5_000_000), inputs({ secondarySalary: 250_000 }));
+    expect(e.filing.required.map((r) => r.key)).toContain("secondarySalary");
+    expect(e.income.salary).toBe(5_250_000);
+    expect(e.income.secondarySalary).toBe(250_000);
+    const small = estimateTax(
+      r2026,
+      2026,
+      salaried(5_000_000),
+      inputs({ secondarySalary: 150_000 }),
+    );
+    expect(small.filing.required.map((r) => r.key)).not.toContain("secondarySalary");
+  });
+
+  it("従たる給与の源泉は源泉徴収税額に足し、主たる給与の分は別に持つ", () => {
+    const e = estimateTax(
+      r2026,
+      2026,
+      { ...salaried(5_000_000), withheldTax: 100_000 },
+      inputs({ secondarySalary: 250_000, secondaryWithheld: 8_000 }),
+    );
+    expect(e.refund.salaryWithheld).toBe(100_000);
+    expect(e.refund.withheld).toBe(108_000);
+  });
+
+  it("予定納税と報酬の源泉は還付・納付の見込みに入る", () => {
+    const base = ledger({ businessIncome: 3_000_000, blueReturnDeduction: 650_000 });
+    const without = estimateTax(r2026, 2026, base, inputs());
+    const e = estimateTax(
+      r2026,
+      2026,
+      base,
+      inputs({ prepaidTax: 100_000, businessWithheld: 50_000 }),
+    );
+    expect(e.refund.prepaid).toBe(100_000);
+    expect(e.refund.withheld).toBe(50_000);
+    expect(e.refund.amount).toBe(without.refund.amount + 150_000);
+    expect(e.documents.map((d) => d.id)).toContain("prepaidTaxNotice");
   });
 });

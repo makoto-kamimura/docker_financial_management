@@ -183,6 +183,12 @@ function Inputs({
             onChange={(v) => update({ earthquake: v })}
             hint={`帳簿の火災保険・地震保険: ${yen(ledger.fireEarthquake)}（地震保険の分だけを入れてください）`}
           />
+          <AmountField
+            label="旧長期損害保険料"
+            value={draft.earthquakeOldLongTerm}
+            onChange={(v) => update({ earthquakeOldLongTerm: v })}
+            hint="平成 18 年末までに結んだ、満期返戻金のある 10 年以上の損害保険（控除証明書に記載）"
+          />
         </Grid>
       );
     case "medical":

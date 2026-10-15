@@ -5,6 +5,7 @@ import { amountFor, findRow, rateFor, type HousingRow, type TaxRules } from "./t
 import { TAX_DOCUMENTS, type TaxDocumentId } from "./tax-documents";
 import {
   ageAt,
+  hasAdjustmentDependent,
   isHousingSpecialHousehold,
   judgeFamily,
   salaryIncome,
@@ -90,12 +91,22 @@ export type TaxInputs = {
   selfMedication: number | null;
   furusato: number | null;
   // 手入力だけの値
+  /** 従たる給与（2 か所目の勤め先など、年末調整されない給与）の収入（額面） */
+  secondarySalary: number;
+  /** 従たる給与の源泉徴収税額 */
+  secondaryWithheld: number;
   otherIncome: number;
+  /** 報酬・料金から源泉徴収された所得税（個人事業主・副業の報酬） */
+  businessWithheld: number;
+  /** 予定納税額（第 1 期・第 2 期の合計） */
+  prepaidTax: number;
   smallBusinessMutualAid: number;
   lifeGeneralOld: number;
   lifePensionNew: number;
   lifePensionOld: number;
   earthquake: number;
+  /** 旧長期損害保険料（平成 18 年末までに結んだ長期の損害保険） */
+  earthquakeOldLongTerm: number;
   medicalReimbursed: number;
   /** 健康診断・予防接種などを受けている（セルフメディケーション税制の条件） */
   selfMedicationEligible: boolean;
@@ -133,6 +144,11 @@ export type TaxLedger = {
   housingBalance: number | null;
   // 参考に見せるだけの値
   sideIncome: number;
+  /** 帳簿の年金収入・不動産所得・事業所得・仮想通貨売却益（「その他の所得」の参考） */
+  pensionIncome: number;
+  realEstateIncome: number;
+  householdBusinessIncome: number;
+  cryptoIncome: number;
   fireEarthquake: number;
   otherDonation: number;
   /** 保険の割戻金（一般生命保険料から引いた額） */
@@ -156,6 +172,10 @@ export type LedgerAmountKey =
   | "furusato"
   | "businessIncome"
   | "sideIncome"
+  | "pensionIncome"
+  | "realEstateIncome"
+  | "householdBusinessIncome"
+  | "cryptoIncome"
   | "fireEarthquake"
   | "otherDonation"
   | "insuranceRefund";
@@ -248,12 +268,17 @@ export function emptyTaxInputs(year: number): TaxInputs {
     medicalPaid: null,
     selfMedication: null,
     furusato: null,
+    secondarySalary: 0,
+    secondaryWithheld: 0,
     otherIncome: 0,
+    businessWithheld: 0,
+    prepaidTax: 0,
     smallBusinessMutualAid: 0,
     lifeGeneralOld: 0,
     lifePensionNew: 0,
     lifePensionOld: 0,
     earthquake: 0,
+    earthquakeOldLongTerm: 0,
     medicalReimbursed: 0,
     selfMedicationEligible: false,
     casualtyLoss: 0,
@@ -392,7 +417,18 @@ export type TaxEstimate = {
     | "housingBalance",
     ResolvedValue
   >;
-  income: { salary: number; salaryIncome: number; business: number; other: number; total: number };
+  income: {
+    /** 給与収入（主たる給与＋従たる給与） */
+    salary: number;
+    secondarySalary: number;
+    /** 給与所得（所得金額調整控除を引いた後） */
+    salaryIncome: number;
+    /** 所得金額調整控除 */
+    salaryAdjustment: number;
+    business: number;
+    other: number;
+    total: number;
+  };
   family: FamilySummary;
   deductions: DeductionLine[];
   deductionTotal: { income: number; resident: number };
@@ -437,7 +473,17 @@ export type TaxEstimate = {
     oneStopAvailable: boolean;
     warnings: string[];
   };
-  refund: { withheld: number; incomeTax: number; amount: number };
+  refund: {
+    /** 源泉徴収税額の合計（給与・従たる給与・報酬） */
+    withheld: number;
+    /** うち主たる給与の分（源泉徴収票の源泉徴収税額） */
+    salaryWithheld: number;
+    /** 予定納税額 */
+    prepaid: number;
+    incomeTax: number;
+    /** 還付（プラス）・納付（マイナス）の見込み */
+    amount: number;
+  };
   filing: { required: FilingReason[]; beneficial: FilingReason[]; willFile: boolean };
   documents: DocumentItem[];
   notes: string[];
@@ -628,8 +674,18 @@ export function estimateTax(
   const notes: string[] = [];
 
   // ── 所得 ──
-  const salary = pos(values.salary.value);
-  const salaryInc = salaryIncome(rules, salary);
+  const secondarySalary = pos(inputs.secondarySalary);
+  const salary = pos(values.salary.value) + secondarySalary;
+  // 所得金額調整控除（給与収入が 850 万円を超え、23 歳未満の扶養親族・特別障害者がいる）
+  const sa = rules.salary;
+  const salaryAdjustment =
+    salary > sa.adjustThreshold &&
+    (inputs.selfDisability === "special" ||
+      inputs.selfDisability === "livingSpecial" ||
+      hasAdjustmentDependent(rules, year, inputs.family))
+      ? Math.ceil((Math.min(salary, sa.adjustCap) - sa.adjustThreshold) * sa.adjustRate)
+      : 0;
+  const salaryInc = pos(salaryIncome(rules, salary) - salaryAdjustment);
   // 事業所得は青色申告特別控除を引いた後。控除は利益を超えない
   const businessGross = values.businessIncome.value;
   const blue = Math.min(pos(values.blueReturnDeduction.value), pos(businessGross));
@@ -662,12 +718,17 @@ export function estimateTax(
   );
   push("lifeInsurance", "生命保険料控除", life.income, life.resident);
   const quake = pos(inputs.earthquake);
+  const quakeOld = pos(inputs.earthquakeOldLongTerm);
   push(
     "earthquake",
     "地震保険料控除",
-    Math.min(quake, rules.insurance.earthquakeMaxIncome),
     Math.min(
-      Math.floor(quake * rules.insurance.earthquakeRateResident),
+      quake + (quakeOld > 0 ? rateFor(rules.insurance.earthquakeOldIncome, quakeOld) : 0),
+      rules.insurance.earthquakeMaxIncome,
+    ),
+    Math.min(
+      Math.floor(quake * rules.insurance.earthquakeRateResident) +
+        (quakeOld > 0 ? rateFor(rules.insurance.earthquakeOldResident, quakeOld) : 0),
       rules.insurance.earthquakeMaxResident,
     ),
   );
@@ -787,7 +848,9 @@ export function estimateTax(
 
   const furusatoDonated = pos(values.furusato.value);
   const otherDonation = pos(inputs.otherDonation);
-  const withheld = pos(values.withheldTax.value);
+  const salaryWithheld = pos(values.withheldTax.value);
+  const withheld = salaryWithheld + pos(inputs.secondaryWithheld) + pos(inputs.businessWithheld);
+  const prepaid = pos(inputs.prepaidTax);
 
   const compute = (fileReturn: boolean) => {
     const donationDeduction =
@@ -912,6 +975,13 @@ export function estimateTax(
       label: `給与収入が ${f.salaryThreshold.toLocaleString()} 円を超える`,
     });
   }
+  // 2 か所以上から給与: 年末調整されない給与と給与以外の所得の合計が 20 万円を超える（国税庁 No.1900）
+  if (secondarySalary > 0 && secondarySalary + pos(nonSalary) > f.otherIncomeThreshold) {
+    required.push({
+      key: "secondarySalary",
+      label: `2 か所以上から給与があり、年末調整されない給与と給与以外の所得の合計が ${f.otherIncomeThreshold.toLocaleString()} 円を超える`,
+    });
+  }
   if (salary > 0 && inputs.yearEndAdjusted && nonSalary > f.otherIncomeThreshold) {
     required.push({
       key: "otherIncome",
@@ -960,6 +1030,16 @@ export function estimateTax(
       label: "年末調整を受けておらず、源泉徴収された税金が戻る",
     });
   }
+  if (
+    prepaid + pos(inputs.businessWithheld) > 0 &&
+    withheld + prepaid > pre.incomeTax.total &&
+    !beneficial.some((b) => b.key === "notAdjustedRefund")
+  ) {
+    beneficial.push({
+      key: "prepaidRefund",
+      label: "予定納税・報酬から源泉徴収された税金が、税額より多い（差額が戻る）",
+    });
+  }
   const willFile = required.length > 0 || beneficial.length > 0;
   const result = willFile ? compute(true) : pre;
 
@@ -990,13 +1070,18 @@ export function estimateTax(
     furusatoWarnings.push("寄付額が上限の目安を超えています。超えた分は自己負担になります。");
   }
 
-  const refundAmount = withheld - result.incomeTax.total;
+  const refundAmount = withheld + prepaid - result.incomeTax.total;
 
   // ── 必要な書類 ──
   const documents: DocumentItem[] = [];
   const doc = (id: TaxDocumentId, why: string) =>
     documents.push({ id, label: TAX_DOCUMENTS[id].label, why });
-  if (salary > 0) doc("withholdingSlip", "給与の収入と源泉徴収税額");
+  if (salary > 0) {
+    doc(
+      "withholdingSlip",
+      secondarySalary > 0 ? "給与の収入と源泉徴収税額（勤め先ごと）" : "給与の収入と源泉徴収税額",
+    );
+  }
   if (values.businessIncome.ledger !== null) doc("businessStatement", "事業所得");
   // 給与天引きの分は証明書が要らない。給与明細を使うときは、自分で払った分があるときだけ
   const selfPaidSocial = payroll ? pos(inputs.payroll.otherSocialInsurance) > 0 : social > 0;
@@ -1005,7 +1090,7 @@ export function estimateTax(
   }
   if (aid > 0) doc("mutualAidCert", "iDeCo などの掛金");
   if (life.income > 0) doc("lifeInsuranceCert", "生命保険料控除");
-  if (quake > 0) doc("earthquakeCert", "地震保険料控除");
+  if (quake + quakeOld > 0) doc("earthquakeCert", "地震保険料控除");
   if (chosen === "medical") doc("medicalStatement", "医療費控除");
   if (chosen === "selfMedication") {
     doc("selfMedicationStatement", "セルフメディケーション税制");
@@ -1025,6 +1110,7 @@ export function estimateTax(
   if (inputs.selfDisability !== "none" || family.members.some((j) => j.disabilityIncome > 0)) {
     doc("disabilityProof", "障害者控除");
   }
+  if (prepaid > 0) doc("prepaidTaxNotice", "予定納税額");
   if (willFile) doc("myNumber", "申告書の提出");
 
   if (inputs.housingLoan.enabled && housing?.reason) notes.push(housing.reason);
@@ -1042,7 +1128,15 @@ export function estimateTax(
   return {
     year,
     values,
-    income: { salary, salaryIncome: salaryInc, business, other, total },
+    income: {
+      salary,
+      secondarySalary,
+      salaryIncome: salaryInc,
+      salaryAdjustment,
+      business,
+      other,
+      total,
+    },
     family,
     deductions,
     deductionTotal,
@@ -1067,7 +1161,13 @@ export function estimateTax(
       oneStopAvailable,
       warnings: furusatoWarnings,
     },
-    refund: { withheld, incomeTax: result.incomeTax.total, amount: refundAmount },
+    refund: {
+      withheld,
+      salaryWithheld,
+      prepaid,
+      incomeTax: result.incomeTax.total,
+      amount: refundAmount,
+    },
     filing: { required, beneficial, willFile },
     documents,
     notes,

@@ -14,7 +14,7 @@ export function OverviewTab({ year, ledger, estimate: e }: TabProps) {
   const note = planNote(year, ledger.plan);
   const refund = e.refund.amount;
   // 給与があるのに源泉徴収税額が入っていなければ、還付・追加納付は出さない（年末調整済みなら差はほぼ 0）
-  const withheldUnknown = e.income.salary > 0 && e.refund.withheld === 0;
+  const withheldUnknown = e.income.salary > 0 && e.refund.salaryWithheld === 0;
   return (
     <>
       {note && (
@@ -55,7 +55,11 @@ export function OverviewTab({ year, ledger, estimate: e }: TabProps) {
             label={refund >= 0 ? "還付の見込み" : "追加で納める見込み"}
             value={yenAbs(refund)}
             tone={refund >= 0 ? "green" : "red"}
-            sub={`源泉徴収済み ${yen(e.refund.withheld)}`}
+            sub={
+              e.refund.prepaid > 0
+                ? `源泉徴収済み ${yen(e.refund.withheld)}・予定納税 ${yen(e.refund.prepaid)}`
+                : `源泉徴収済み ${yen(e.refund.withheld)}`
+            }
           />
         )}
         <StatTile
