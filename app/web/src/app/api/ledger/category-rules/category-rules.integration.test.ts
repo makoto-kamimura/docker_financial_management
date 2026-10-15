@@ -46,7 +46,13 @@ function makeReq(method: string, body?: unknown) {
   } as unknown as import("next/server").NextRequest;
 }
 
-type RuleRow = { id: number; keyword: string; priority: number; categoryAccount: { id: number } };
+type RuleRow = {
+  id: number;
+  keyword: string;
+  flowSide: "ANY" | "IN" | "OUT";
+  priority: number;
+  categoryAccount: { id: number };
+};
 
 let tenantId: number;
 let otherTenantId: number;
@@ -197,6 +203,57 @@ describe("学習ルールの一覧と変更", () => {
       ],
     });
     expect(dup.status).toBe(400);
+  });
+
+  it("同じキーワードでも向きが違えば別のルールにでき、同じ向きの重複は 400。向きを省くと今のまま", async () => {
+    actingUser = editor;
+    const rows = await list();
+    const keep = rows.map((r) => ({
+      id: r.id,
+      keyword: r.keyword,
+      categoryAccountId: r.categoryAccount.id,
+    }));
+    const res = await put({
+      items: [
+        ...keep,
+        { keyword: "共済", flowSide: "OUT", categoryAccountId: ids.daily },
+        { keyword: "共済", flowSide: "IN", categoryAccountId: ids.salary },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const saved: RuleRow[] = (await res.json()).data;
+    expect(
+      saved
+        .filter((r) => r.keyword === "共済")
+        .map((r) => [r.flowSide, r.categoryAccount.id])
+        .sort(),
+    ).toEqual(
+      [
+        ["IN", ids.salary],
+        ["OUT", ids.daily],
+      ].sort(),
+    );
+    // 既存のルールは向きを省いて送ったので ANY のまま
+    expect(saved.filter((r) => r.keyword !== "共済").every((r) => r.flowSide === "ANY")).toBe(true);
+
+    const dup = await put({
+      items: [
+        ...saved.map((r) => ({
+          id: r.id,
+          keyword: r.keyword,
+          categoryAccountId: r.categoryAccount.id,
+        })),
+        { keyword: "共済", flowSide: "OUT", categoryAccountId: ids.food },
+      ],
+    });
+    expect(dup.status).toBe(400);
+
+    // 片方を消して元に戻す
+    const removed = await put({
+      items: [],
+      removedIds: saved.filter((r) => r.keyword === "共済").map((r) => r.id),
+    });
+    expect(removed.status).toBe(200);
   });
 
   it("他テナントの科目は 404、収入・支出以外の科目は 400、他テナントのルールの id は 404", async () => {

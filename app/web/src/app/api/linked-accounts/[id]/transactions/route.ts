@@ -66,6 +66,7 @@ export const POST = withApi({
         user.tenantId,
         body.categoryAccountId,
         body.description,
+        -body.amount,
       );
       const txn = await createEntry(
         db,

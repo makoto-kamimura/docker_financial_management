@@ -12,6 +12,7 @@ import { isValidBusinessRatio } from "@/lib/shared/business-use";
 // ルールを変えても、すでに付いている明細の科目は変えない（付け直すのは実績の確定タブの「科目を付け直す」）。
 // ルールは事業利用も持てる（businessUse: true = 事業利用・按分 businessRatio、false = 事業利用なし、
 // null = ルールでは決めない）。
+// ルールは当てる明細の向き（flowSide: ANY = 両方、IN = 入金、OUT = 出金）を持ち、キーワードと向きの組で一意。
 
 /** ルールに付けられる科目の区分（明細に付けられる収入・支出の科目） */
 const RULE_CATEGORIES = ["REVENUE", "COGS", "EXPENSE"] as const;
@@ -21,6 +22,8 @@ const ItemSchema = z.object({
   id: z.number().int().positive().optional(),
   keyword: z.string().max(200),
   categoryAccountId: z.number().int().positive(),
+  /** 当てる明細の向き。省略 = 今の設定のまま（新規は ANY） */
+  flowSide: z.enum(["ANY", "IN", "OUT"]).optional(),
   /** 省略 = 今の設定のまま（新規は「決めない」） */
   businessUse: z.boolean().nullable().optional(),
   /** businessUse が true のときの按分（%）。省略すると 100% */
@@ -44,6 +47,7 @@ async function loadRules(db: TenantDbClient, tenantId: number) {
     select: {
       id: true,
       keyword: true,
+      flowSide: true,
       priority: true,
       businessUse: true,
       businessRatio: true,
@@ -115,6 +119,7 @@ export const PUT = withApi({
       select: {
         id: true,
         keyword: true,
+        flowSide: true,
         categoryAccountId: true,
         businessUse: true,
         businessRatio: true,
@@ -126,16 +131,23 @@ export const PUT = withApi({
       if (i.id !== undefined && !existingIds.has(i.id)) throw notFound("ルールが見つかりません");
     }
 
-    // 保存後のキーワードが重ならないこと（画面に出していない既存のルールも含めて見る）
+    // 保存後の向き（省略は今のまま、新規は ANY）
+    const sideOf = (i: (typeof items)[number]) =>
+      i.flowSide ?? (i.id === undefined ? "ANY" : existingById.get(i.id)!.flowSide);
+
+    // 保存後のキーワードと向きの組が重ならないこと（画面に出していない既存のルールも含めて見る）
     const sentIds = new Set(items.flatMap((i) => (i.id === undefined ? [] : [i.id])));
-    const finalKeywords = [
-      ...existing.filter((r) => !removed.has(r.id) && !sentIds.has(r.id)).map((r) => r.keyword),
-      ...items.map((i) => i.keyword),
+    const finalKeys = [
+      ...existing
+        .filter((r) => !removed.has(r.id) && !sentIds.has(r.id))
+        .map((r) => [r.keyword, r.flowSide] as const),
+      ...items.map((i) => [i.keyword, sideOf(i)] as const),
     ];
     const seen = new Set<string>();
-    for (const k of finalKeywords) {
-      if (seen.has(k)) throw badRequest(`同じキーワードのルールが 2 つあります: ${k}`);
-      seen.add(k);
+    for (const [k, side] of finalKeys) {
+      const key = `${side}:${k}`;
+      if (seen.has(key)) throw badRequest(`同じキーワード・向きのルールが 2 つあります: ${k}`);
+      seen.add(key);
     }
 
     await db.$transaction(async (tx) => {
@@ -157,6 +169,7 @@ export const PUT = withApi({
         const before = existingById.get(i.id)!;
         return (
           before.keyword !== i.keyword ||
+          before.flowSide !== sideOf(i) ||
           before.categoryAccountId !== i.categoryAccountId ||
           businessChanged(i)
         );
@@ -172,6 +185,7 @@ export const PUT = withApi({
           where: { id: i.id!, tenantId },
           data: {
             keyword: i.keyword,
+            flowSide: sideOf(i),
             categoryAccountId: i.categoryAccountId,
             ...businessOf(i),
           },
@@ -182,6 +196,7 @@ export const PUT = withApi({
           data: {
             tenantId,
             keyword: i.keyword,
+            flowSide: sideOf(i),
             categoryAccountId: i.categoryAccountId,
             priority: 100,
             ...businessOf(i),

@@ -79,7 +79,7 @@ export const POST = withApi({
     if (body.learn) {
       // 事業利用は指定したときだけ覚える（指定しなければ、覚えた事業利用を消さない）
       const learned = body.businessUse === undefined ? undefined : business;
-      await learnCategoryRule(db, tenantId, body.description, account.id, learned);
+      await learnCategoryRule(db, tenantId, body.description, account.id, learned, row.flow);
     }
     await invalidateActualsCaches(user.tenantId);
     await audit("create_cash_entry", `financial_record:${row.id}`);

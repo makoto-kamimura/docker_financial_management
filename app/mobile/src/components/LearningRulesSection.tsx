@@ -11,6 +11,7 @@ import {
   saveCategoryRules,
   type Account,
   type CategoryRule,
+  type RuleFlowSide,
   type ViewMode,
 } from "../api";
 import { displayName } from "../shared/display-name";
@@ -27,6 +28,7 @@ type RuleEdit = {
   id: number | null;
   rowKey: string;
   keyword: string;
+  flowSide: RuleFlowSide;
   categoryAccountId: number | null;
   updatedAt: string | null;
   /** 事業利用（"" = 指定しない） */
@@ -38,6 +40,7 @@ const toEdit = (r: CategoryRule): RuleEdit => ({
   id: r.id,
   rowKey: `id-${r.id}`,
   keyword: r.keyword,
+  flowSide: r.flowSide ?? "ANY",
   categoryAccountId: r.categoryAccount.id,
   updatedAt: r.updatedAt,
   business:
@@ -51,6 +54,12 @@ const toEdit = (r: CategoryRule): RuleEdit => ({
       ? ""
       : String(Number(r.businessRatio)),
 });
+
+const FLOW_SIDE_OPTIONS: { value: RuleFlowSide; label: string }[] = [
+  { value: "ANY", label: "両方" },
+  { value: "IN", label: "入金" },
+  { value: "OUT", label: "出金" },
+];
 
 const BUSINESS_OPTIONS: { value: RuleEdit["business"]; label: string }[] = [
   { value: "", label: "指定しない" },
@@ -100,6 +109,7 @@ export function LearningRulesSection({
         id: null,
         rowKey: `new-${Date.now().toString(36)}-${rs.length}`,
         keyword: "",
+        flowSide: "ANY",
         categoryAccountId: null,
         updatedAt: null,
         business: "",
@@ -137,6 +147,7 @@ export function LearningRulesSection({
         rules.map((r) => ({
           ...(r.id !== null ? { id: r.id } : {}),
           keyword: r.keyword,
+          flowSide: r.flowSide,
           categoryAccountId: r.categoryAccountId!,
           businessUse: r.business === "" ? null : r.business === "business",
           businessRatio:
@@ -195,6 +206,13 @@ export function LearningRulesSection({
                   placeholder={r.id === null ? "例: AMAZON" : undefined}
                   autoCapitalize="characters"
                   onChangeText={(t) => update(r.rowKey, { keyword: t })}
+                />
+              </Field>
+              <Field label="向き">
+                <Pills
+                  options={FLOW_SIDE_OPTIONS}
+                  value={r.flowSide}
+                  onChange={(v) => update(r.rowKey, { flowSide: v })}
                 />
               </Field>
               <Field label="科目">

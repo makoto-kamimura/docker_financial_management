@@ -237,6 +237,48 @@ describe("科目を付けた明細がそのまま実績になる", () => {
     ).toBe(1);
   });
 
+  it("同じ摘要でも入金と出金は別に覚え、同じ摘要の明細へは同じ向きにだけ広げる", async () => {
+    const out1 = await postBankTxn(`${YEAR}-10-15`, "府民共済", -3_000);
+    const out2 = await postBankTxn(`${YEAR}-10-16`, "府民共済", -3_000);
+    const refund = await postBankTxn(`${YEAR}-10-03`, "府民共済", 11_275);
+    const rebate = await prisma.account.create({
+      data: { tenantId, code: `REB_${SUFFIX}`, name: "保険割戻金", category: "REVENUE" },
+    });
+
+    // 割戻金（入金）に収入の科目を付けても、掛金（出金）には広げない
+    const r1 = await bankCategorize(
+      makeReq("PATCH", "http://x", { categoryAccountId: rebate.id, learn: true }),
+      params(refund.id),
+    );
+    expect((await r1.json()).updatedSiblingCount).toBe(0);
+    expect((await row(out1.id)).accountId).toBeNull();
+
+    // 掛金に費用の科目を付けると、同じ向きの掛金にだけ広げる
+    const r2 = await bankCategorize(
+      makeReq("PATCH", "http://x", { categoryAccountId: other.id, learn: true }),
+      params(out1.id),
+    );
+    expect((await r2.json()).updatedSiblingCount).toBe(1);
+    expect((await row(out2.id)).accountId).toBe(other.id);
+    expect((await row(refund.id)).accountId).toBe(rebate.id);
+
+    const rules = await prisma.txnCategoryRule.findMany({
+      where: { tenantId, keyword: "府民共済" },
+      orderBy: { flowSide: "asc" },
+      select: { flowSide: true, categoryAccountId: true },
+    });
+    expect(rules).toEqual([
+      { flowSide: "IN", categoryAccountId: rebate.id },
+      { flowSide: "OUT", categoryAccountId: other.id },
+    ]);
+
+    // 覚えたルールは、あとから登録した明細にも向きごとに当たる
+    const out3 = await postBankTxn(`${YEAR}-10-20`, "府民共済", -3_000);
+    const refund2 = await postBankTxn(`${YEAR}-10-21`, "府民共済", 500);
+    expect((await row(out3.id)).accountId).toBe(other.id);
+    expect((await row(refund2.id)).accountId).toBe(rebate.id);
+  });
+
   it("科目×月の表は明細を実績として返し、1 件のセルも内訳（出どころ）を持つ", async () => {
     const res = await matrixGet(
       makeReq("GET", `http://x/api/financials/matrix?year=${YEAR}`),
@@ -411,7 +453,7 @@ describe("現金の明細", () => {
     expect((await res.json()).updatedSiblingCount).toBe(1);
     expect((await row(b)).accountId).toBe(other.id);
     const rule = await prisma.txnCategoryRule.findUniqueOrThrow({
-      where: { tenantId_keyword: { tenantId, keyword: "魚屋" } },
+      where: { tenantId_keyword_flowSide: { tenantId, keyword: "魚屋", flowSide: "OUT" } },
     });
     expect([rule.categoryAccountId, rule.priority]).toEqual([other.id, 100]);
   });

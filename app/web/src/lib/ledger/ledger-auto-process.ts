@@ -52,7 +52,7 @@ export async function autoProcessEntries(
   let cleared = 0;
   for (const e of entries) {
     if (locked.has(e.periodId)) continue;
-    const category = classify(e.description ?? "");
+    const category = classify(e.description ?? "", Number(e.flow));
     if (category) {
       const sameBusiness =
         !category.business ||
