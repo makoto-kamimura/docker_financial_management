@@ -11,6 +11,7 @@ const ledger: TaxLedger = {
   lifeGeneral: 0,
   lifeCare: 0,
   medical: 0,
+  selfMedication: 0,
   furusato: 30_000,
   businessIncome: null,
   blueReturnDeduction: null,

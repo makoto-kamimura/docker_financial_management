@@ -66,7 +66,7 @@ export const TaxInputsSchema = z
     lifePensionOld: yen,
     earthquake: yen,
     medicalReimbursed: yen,
-    selfMedication: yen,
+    selfMedication: yenOrNull,
     selfMedicationEligible: z.boolean(),
     casualtyLoss: yen,
     casualtyReimbursed: yen,
@@ -102,6 +102,8 @@ export function parseStoredInputs(stored: unknown, year: number): TaxInputs {
     ...base,
     ...s,
     housingLoan: { ...base.housingLoan, ...(s.housingLoan ?? {}) },
+    // セルフメディケーションの購入額は以前は手入力だけで、0 は「入れていない」だった。帳簿の値を使うよう null にする
+    selfMedication: s.selfMedication === 0 ? null : (s.selfMedication ?? null),
     payroll: {
       ...base.payroll,
       ...payroll,

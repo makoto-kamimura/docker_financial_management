@@ -18,7 +18,10 @@ export const TAX_LEDGER_CODES = {
   withheldTax: ["H-3030"],
   lifeGeneral: ["H-3027", "H-3029"],
   lifeCare: ["H-3010"],
+  // 医療費控除は医療費＋医薬品費（治療のための市販薬は対象）。セルフメディケーション税制の下書きは医薬品費。
+  // どちらか一方しか使えないので、控除額の大きい方を選ぶ（lib/shared/tax-estimate.ts）
   medical: ["H-2005", "H-2006"],
+  selfMedication: ["H-2006"],
   furusato: ["H-3039"],
   sideIncome: ["H-1008"],
   fireEarthquake: ["H-3028"],
@@ -187,6 +190,7 @@ export async function loadTaxLedger(
     lifeGeneral,
     lifeCare: total("lifeCare"),
     medical: total("medical"),
+    selfMedication: total("selfMedication"),
     furusato: total("furusato"),
     businessIncome: business?.total ?? null,
     blueReturnDeduction: opts.sole ? (blueReturn?.blueReturn ? BLUE_RETURN_DEDUCTION : 0) : null,

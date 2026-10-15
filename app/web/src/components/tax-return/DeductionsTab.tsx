@@ -182,17 +182,21 @@ function Inputs({
               plan={ledger.plan}
               planned={ledger.planned.medical}
               onChange={(v) => update({ medicalPaid: v })}
+              hint="医療費＋医薬品費。治療のための市販薬は対象、ビタミン剤・予防の薬は除いてください"
             />
             <AmountField
               label="保険などで補填された額"
               value={draft.medicalReimbursed}
               onChange={(v) => update({ medicalReimbursed: v })}
             />
-            <AmountField
+            <LedgerAmountField
               label="対象の市販薬の購入額"
               value={draft.selfMedication}
+              ledger={ledger.selfMedication}
+              plan={ledger.plan}
+              planned={ledger.planned.selfMedication}
               onChange={(v) => update({ selfMedication: v })}
-              hint="セルフメディケーション税制の対象（レシートに印があるもの）"
+              hint="帳簿の医薬品費が下書きです。セルフメディケーション税制の対象（レシートに印があるもの）だけに直してください"
             />
           </Grid>
           <div className="mt-3">

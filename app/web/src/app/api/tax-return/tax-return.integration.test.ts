@@ -393,3 +393,34 @@ describe("予定（予算）を含める", () => {
     expect(json.data.ledger.lifeGeneral).toBe(9_000 - 1_275);
   });
 });
+
+describe("医薬品費", () => {
+  it("医療費控除とセルフメディケーションの両方の下書きになる。以前の保存の 0 は未入力として読む", async () => {
+    const a = await prisma.account.create({
+      data: { tenantId, code: "H-2006", name: "医薬品費", category: "COGS" },
+    });
+    await createTestEntry(
+      tenantId,
+      { kind: "CASH" },
+      {
+        date: new Date(YEAR, 4, 10),
+        description: "ドラッグストア",
+        flow: -6_000,
+        category: { id: a.id, category: "COGS" },
+      },
+    );
+    await prisma.taxReturnInput.upsert({
+      where: { tenantId_taxYear: { tenantId, taxYear: YEAR } },
+      update: { inputs: { ...emptyTaxInputs(YEAR), selfMedication: 0 } },
+      create: { tenantId, taxYear: YEAR, inputs: { ...emptyTaxInputs(YEAR), selfMedication: 0 } },
+    });
+    const { json } = await call(taxReturnGet, `/api/tax-return?year=${YEAR}`);
+    expect(json.data.ledger.selfMedication).toBe(6_000);
+    expect(json.data.ledger.medical).toBe(150_000 + 6_000);
+    expect(json.data.inputs.selfMedication).toBeNull();
+    expect(json.data.estimate.values.selfMedication).toMatchObject({
+      value: 6_000,
+      source: "ledger",
+    });
+  });
+});

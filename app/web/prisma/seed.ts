@@ -110,6 +110,7 @@ function taxOfYear(year: number, rulesYear = year) {
     lifeGeneral: 0,
     lifeCare: 0,
     medical: 0,
+    selfMedication: 0,
     furusato: 0,
     businessIncome: null,
     blueReturnDeduction: null,
