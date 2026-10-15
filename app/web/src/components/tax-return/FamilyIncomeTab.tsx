@@ -7,6 +7,7 @@ import { yen } from "@/lib/common/format";
 import { FAMILY_KIND_LABEL, type Disability, type FamilyMember } from "@/lib/shared/tax-family";
 import { SectionCard } from "@/components/SectionCard";
 import { AmountField, Check, Field, LedgerAmountField, SelectField, YenInput } from "./fields";
+import { PayrollCard } from "./PayrollCard";
 import type { TabProps } from "./types";
 
 const DISABILITY_OPTIONS = [
@@ -37,7 +38,8 @@ function newMember(year: number): FamilyMember {
   };
 }
 
-export function FamilyIncomeTab({ year, ledger, draft, estimate, update }: TabProps) {
+export function FamilyIncomeTab(props: TabProps) {
+  const { year, ledger, draft, estimate, update } = props;
   const setMember = (id: string, patch: Partial<FamilyMember>) =>
     update({ family: draft.family.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
 
@@ -84,25 +86,48 @@ export function FamilyIncomeTab({ year, ledger, draft, estimate, update }: TabPr
         </div>
       </SectionCard>
 
+      <PayrollCard {...props} />
+
       <SectionCard
         title="所得"
-        lead="給与は額面（総支給）です。源泉徴収票が届いたら、その額で上書きすると正確になります。"
+        lead={
+          estimate.payroll
+            ? "給与収入と源泉徴収された所得税は、給与明細から出しています。"
+            : "給与は額面（総支給）です。源泉徴収票が届いたら、その額で上書きすると正確になります。"
+        }
       >
         <div className="grid gap-4 md:grid-cols-3">
-          <LedgerAmountField
-            label="給与収入"
-            value={draft.salary}
-            ledger={ledger.salary}
-            onChange={(v) => update({ salary: v })}
-            hint={`給与所得 ${yen(estimate.income.salaryIncome)}（通勤手当は含めません）`}
-          />
-          <LedgerAmountField
-            label="源泉徴収された所得税"
-            value={draft.withheldTax}
-            ledger={ledger.withheldTax}
-            onChange={(v) => update({ withheldTax: v })}
-            hint="年末調整の後の額（源泉徴収票の「源泉徴収税額」）"
-          />
+          {estimate.payroll ? (
+            <>
+              <Field label="給与収入" hint={`給与所得 ${yen(estimate.income.salaryIncome)}`}>
+                <div className="py-2 text-right font-semibold tabular-nums text-slate-900">
+                  {yen(estimate.income.salary)}
+                </div>
+              </Field>
+              <Field label="源泉徴収された所得税" hint="給与明細の所得税の年合計">
+                <div className="py-2 text-right font-semibold tabular-nums text-slate-900">
+                  {yen(estimate.refund.withheld)}
+                </div>
+              </Field>
+            </>
+          ) : (
+            <>
+              <LedgerAmountField
+                label="給与収入"
+                value={draft.salary}
+                ledger={ledger.salary}
+                onChange={(v) => update({ salary: v })}
+                hint={`給与所得 ${yen(estimate.income.salaryIncome)}（通勤手当は含めません）`}
+              />
+              <LedgerAmountField
+                label="源泉徴収された所得税"
+                value={draft.withheldTax}
+                ledger={ledger.withheldTax}
+                onChange={(v) => update({ withheldTax: v })}
+                hint="年末調整の後の額（源泉徴収票の「源泉徴収税額」）"
+              />
+            </>
+          )}
           <AmountField
             label="その他の所得"
             value={draft.otherIncome}

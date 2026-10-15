@@ -10,6 +10,8 @@ import type { TenantDbClient } from "@/lib/server/tenant-db";
 /** 下書きに使う科目。通勤手当（H-1017）は非課税なので給与に入れない */
 export const TAX_LEDGER_CODES = {
   salary: ["H-1001", "H-1002", "H-1018", "H-1019"],
+  // 給与の振込額は通勤手当を含む（給与明細の手取りの下書き）
+  salaryDeposit: ["H-1001", "H-1002", "H-1017", "H-1018", "H-1019"],
   socialInsurance: ["H-3009", "H-3035", "H-3036", "H-3037", "H-3038"],
   withheldTax: ["H-3030"],
   lifeGeneral: ["H-3027", "H-3029"],
@@ -58,6 +60,7 @@ export async function loadTaxLedger(
 
   return {
     salary: total("salary"),
+    salaryDeposit: total("salaryDeposit"),
     socialInsurance: total("socialInsurance"),
     withheldTax: total("withheldTax"),
     lifeGeneral: total("lifeGeneral"),

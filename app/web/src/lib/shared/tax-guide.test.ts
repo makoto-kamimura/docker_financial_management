@@ -5,6 +5,7 @@ import { DEDUCTION_GUIDES, buildTodos, yearGuideFor } from "./tax-guide";
 
 const ledger: TaxLedger = {
   salary: 5_000_000,
+  salaryDeposit: 0,
   socialInsurance: 750_000,
   withheldTax: 0,
   lifeGeneral: 0,

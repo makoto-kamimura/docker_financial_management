@@ -180,6 +180,16 @@ function Overview({ data }: { data: TaxReturn }) {
         <SectionTitle>内訳</SectionTitle>
         <Line label="給与収入" value={yen(e.income.salary)} />
         <Line label="給与所得" value={yen(e.income.salaryIncome)} />
+        {e.payroll && (
+          <>
+            <Line label="総支給額（給与明細）" value={yen(e.payroll.gross)} />
+            <Line label="社会保険料（天引き）" value={yen(e.payroll.social)} />
+            <Line
+              label={`住民税（${e.year + 1} 年 6 月から・月額）`}
+              value={yen(e.payroll.resident.nextMonthly)}
+            />
+          </>
+        )}
         {e.income.business !== 0 && <Line label="事業所得" value={yen(e.income.business)} />}
         {e.income.other > 0 && <Line label="その他の所得" value={yen(e.income.other)} />}
         <Line label="所得控除（所得税）" value={yen(e.deductionTotal.income)} />

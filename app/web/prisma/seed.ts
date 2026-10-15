@@ -104,6 +104,7 @@ function taxOfYear(year: number, rulesYear = year) {
   const gross = SALARY_MONTHLY[year] * 12 + BONUS[year] * BONUS_MONTHS.length;
   const ledger: TaxLedger = {
     salary: gross,
+    salaryDeposit: 0,
     socialInsurance: Math.round(gross * SOCIAL_INSURANCE_RATE),
     withheldTax: 0,
     lifeGeneral: 0,

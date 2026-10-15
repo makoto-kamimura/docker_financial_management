@@ -1,6 +1,12 @@
 // 控除・確定申告のページの入力（TaxInputs）の検証。DB には Json で入れるので、読むときも書くときもここを通す。
 import { z } from "zod";
-import { emptyTaxInputs, type TaxInputs } from "@/lib/shared/tax-estimate";
+import {
+  emptyPayrollItem,
+  emptyTaxInputs,
+  PAYROLL_ITEM_KEYS,
+  type PayrollItemKey,
+  type TaxInputs,
+} from "@/lib/shared/tax-estimate";
 
 const yen = z.number().int().min(0).max(10_000_000_000);
 const yenOrNull = yen.nullable();
@@ -17,6 +23,24 @@ const FamilyMemberSchema = z.object({
   livingTogether: z.boolean(),
   disability,
   dependentOfOther: z.boolean(),
+});
+
+const PayrollItemSchema = z.object({
+  monthly: yen,
+  months: z.number().int().min(0).max(12),
+  bonus: yen,
+  annual: yenOrNull,
+});
+
+const PayrollSchema = z.object({
+  ...(Object.fromEntries(PAYROLL_ITEM_KEYS.map((k) => [k, PayrollItemSchema])) as Record<
+    PayrollItemKey,
+    typeof PayrollItemSchema
+  >),
+  enabled: z.boolean(),
+  ledgerSalaryIs: z.enum(["takeHome", "gross"]),
+  takeHome: yenOrNull,
+  otherSocialInsurance: yen,
 });
 
 export const TaxInputsSchema = z
@@ -61,6 +85,7 @@ export const TaxInputsSchema = z
     otherTaxCredit: yen,
     furusatoMunicipalities: z.number().int().min(0).max(1000),
     otherDonation: yen,
+    payroll: PayrollSchema,
     checks: z.array(z.string().max(64)).max(100),
   })
   .strict() satisfies z.ZodType<TaxInputs>;
@@ -73,7 +98,19 @@ export function parseStoredInputs(stored: unknown, year: number): TaxInputs {
   const base = emptyTaxInputs(year);
   if (!stored || typeof stored !== "object") return base;
   const s = stored as Partial<TaxInputs>;
-  const merged = { ...base, ...s, housingLoan: { ...base.housingLoan, ...(s.housingLoan ?? {}) } };
+  const payroll: Partial<TaxInputs["payroll"]> = s.payroll ?? {};
+  const merged = {
+    ...base,
+    ...s,
+    housingLoan: { ...base.housingLoan, ...(s.housingLoan ?? {}) },
+    payroll: {
+      ...base.payroll,
+      ...payroll,
+      ...Object.fromEntries(
+        PAYROLL_ITEM_KEYS.map((k) => [k, { ...emptyPayrollItem(), ...(payroll[k] ?? {}) }]),
+      ),
+    },
+  };
   // 保存した後に項目を減らした場合でも読めるよう、知らない項目は捨てる
   const parsed = TaxInputsSchema.strip().safeParse(merged);
   return parsed.success ? parsed.data : base;

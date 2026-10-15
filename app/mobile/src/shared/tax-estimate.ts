@@ -27,6 +27,47 @@ export type HousingLoanInput = {
   creditOverride: number | null;
 };
 
+/** 給与明細の 1 項目。年合計は annual、null なら「月額 × 月数 ＋ 賞与」 */
+export type PayrollItem = { monthly: number; months: number; bonus: number; annual: number | null };
+
+export const PAYROLL_ITEM_KEYS = [
+  "gross",
+  "commute",
+  "health",
+  "care",
+  "childSupport",
+  "pension",
+  "employment",
+  "incomeTax",
+  "residentTax",
+  "other",
+] as const;
+
+export type PayrollItemKey = (typeof PAYROLL_ITEM_KEYS)[number];
+
+/** 社会保険料控除になる天引き */
+export const PAYROLL_SOCIAL_KEYS = [
+  "health",
+  "care",
+  "childSupport",
+  "pension",
+  "employment",
+] as const satisfies readonly PayrollItemKey[];
+
+/**
+ * 給与明細（会社員の天引き）。口座には手取りしか入らないので、額面・社会保険料・源泉所得税はここから出す。
+ * gross（総支給）と commute（通勤手当）は収入の側、それ以外は天引きの側。
+ */
+export type PayrollInput = Record<PayrollItemKey, PayrollItem> & {
+  enabled: boolean;
+  /** 帳簿の給与（振込額）が手取りか額面か */
+  ledgerSalaryIs: "takeHome" | "gross";
+  /** 手取りの年合計。null なら帳簿の振込額 */
+  takeHome: number | null;
+  /** 国民年金・家族の分など、天引き以外で払った社会保険料 */
+  otherSocialInsurance: number;
+};
+
 export type TaxInputs = {
   selfBirthDate: string | null;
   selfDisability: Disability;
@@ -63,6 +104,7 @@ export type TaxInputs = {
   otherTaxCredit: number;
   furusatoMunicipalities: number;
   otherDonation: number;
+  payroll: PayrollInput;
   /** やること・書類のチェック（id） */
   checks: string[];
 };
@@ -70,6 +112,8 @@ export type TaxInputs = {
 /** 帳簿から出した年合計（API が科目コードで集計する） */
 export type TaxLedger = {
   salary: number;
+  /** 給与の振込額（通勤手当を含む）。給与明細の手取りの下書き */
+  salaryDeposit: number;
   socialInsurance: number;
   withheldTax: number;
   lifeGeneral: number;
@@ -87,6 +131,24 @@ export type TaxLedger = {
   fireEarthquake: number;
   otherDonation: number;
 };
+
+export function emptyPayrollItem(): PayrollItem {
+  return { monthly: 0, months: 12, bonus: 0, annual: null };
+}
+
+export function emptyPayroll(): PayrollInput {
+  const items = Object.fromEntries(PAYROLL_ITEM_KEYS.map((k) => [k, emptyPayrollItem()])) as Record<
+    PayrollItemKey,
+    PayrollItem
+  >;
+  return {
+    ...items,
+    enabled: false,
+    ledgerSalaryIs: "takeHome",
+    takeHome: null,
+    otherSocialInsurance: 0,
+  };
+}
 
 export function emptyTaxInputs(year: number): TaxInputs {
   return {
@@ -130,7 +192,67 @@ export function emptyTaxInputs(year: number): TaxInputs {
     otherTaxCredit: 0,
     furusatoMunicipalities: 0,
     otherDonation: 0,
+    payroll: emptyPayroll(),
     checks: [],
+  };
+}
+
+/** 給与明細の 1 項目の年合計 */
+export function payrollTotal(item: PayrollItem): number {
+  if (item.annual !== null) return pos(item.annual);
+  return pos(item.monthly) * pos(item.months) + pos(item.bonus);
+}
+
+export type PayrollResult = {
+  totals: Record<PayrollItemKey, number>;
+  /** 社会保険料（天引き分） */
+  social: number;
+  /** 天引きの合計（社会保険料・所得税・住民税・その他） */
+  withheldTotal: number;
+  takeHome: ResolvedValue;
+  /** 総支給（通勤手当を含む）。入力が無ければ手取りから逆算する */
+  gross: number;
+  grossSource: "input" | "takeHome" | "ledger";
+  /** 課税の給与収入（総支給 − 通勤手当） */
+  taxableSalary: number;
+  /** 総支給 − 天引き − 手取り。総支給を入れ、手取りもあるときだけ（年末調整の精算などの差） */
+  diff: number | null;
+};
+
+/** 給与明細の入力から額面・社会保険料・手取りを出す */
+export function resolvePayroll(payroll: PayrollInput, ledger: TaxLedger): PayrollResult {
+  const totals = Object.fromEntries(
+    PAYROLL_ITEM_KEYS.map((k) => [k, payrollTotal(payroll[k])]),
+  ) as Record<PayrollItemKey, number>;
+  const social = PAYROLL_SOCIAL_KEYS.reduce((s, k) => s + totals[k], 0);
+  const withheldTotal = social + totals.incomeTax + totals.residentTax + totals.other;
+  const takeHome = resolve(
+    payroll.takeHome,
+    payroll.ledgerSalaryIs === "takeHome" ? ledger.salaryDeposit : null,
+  );
+  let gross: number;
+  let grossSource: PayrollResult["grossSource"];
+  if (totals.gross > 0) {
+    gross = totals.gross;
+    grossSource = "input";
+  } else if (payroll.ledgerSalaryIs === "takeHome") {
+    gross = pos(takeHome.value) + withheldTotal;
+    grossSource = "takeHome";
+  } else {
+    // 帳簿の給与は通勤手当を除いた額面
+    gross = pos(ledger.salary) + totals.commute;
+    grossSource = "ledger";
+  }
+  const hasTakeHome = takeHome.value > 0;
+  return {
+    totals,
+    social,
+    withheldTotal,
+    takeHome,
+    gross,
+    grossSource,
+    taxableSalary: pos(gross - totals.commute),
+    diff: grossSource === "input" && hasTakeHome ? gross - withheldTotal - takeHome.value : null,
   };
 }
 
@@ -154,7 +276,7 @@ export type DeductionKey =
 export type DeductionLine = { key: DeductionKey; label: string; income: number; resident: number };
 
 /** 帳簿の値と手入力のどちらを使ったか */
-export type ValueSource = "ledger" | "input";
+export type ValueSource = "ledger" | "input" | "payroll";
 
 export type ResolvedValue = { value: number; source: ValueSource; ledger: number | null };
 
@@ -218,6 +340,13 @@ export type TaxEstimate = {
     total: number;
   };
   housing: HousingResult | null;
+  /** 給与明細から出した値。給与明細を使わないときは null */
+  payroll:
+    | (PayrollResult & {
+        /** 今年天引きされた住民税（前年の所得の分）と、この年の所得から出した来年 6 月からの住民税 */
+        resident: { withheldThisYear: number; nextYear: number; nextMonthly: number };
+      })
+    | null;
   furusato: {
     limit: number;
     donated: number;
@@ -386,10 +515,26 @@ export function estimateTax(
   ledger: TaxLedger,
   inputs: TaxInputs,
 ): TaxEstimate {
+  // 給与明細を使うときは、給与・社会保険料・源泉所得税を給与明細から出す（帳簿の値と上書きは使わない）
+  const payroll = inputs.payroll.enabled ? resolvePayroll(inputs.payroll, ledger) : null;
+  const fromPayroll = (value: number, ledgerValue: number): ResolvedValue => ({
+    value,
+    source: "payroll",
+    ledger: ledgerValue,
+  });
   const values: TaxEstimate["values"] = {
-    salary: resolve(inputs.salary, ledger.salary),
-    socialInsurance: resolve(inputs.socialInsurance, ledger.socialInsurance),
-    withheldTax: resolve(inputs.withheldTax, ledger.withheldTax),
+    salary: payroll
+      ? fromPayroll(payroll.taxableSalary, ledger.salary)
+      : resolve(inputs.salary, ledger.salary),
+    socialInsurance: payroll
+      ? fromPayroll(
+          payroll.social + pos(inputs.payroll.otherSocialInsurance),
+          ledger.socialInsurance,
+        )
+      : resolve(inputs.socialInsurance, ledger.socialInsurance),
+    withheldTax: payroll
+      ? fromPayroll(payroll.totals.incomeTax, ledger.withheldTax)
+      : resolve(inputs.withheldTax, ledger.withheldTax),
     businessIncome: resolve(inputs.businessIncome, ledger.businessIncome),
     blueReturnDeduction: resolve(inputs.blueReturnDeduction, ledger.blueReturnDeduction),
     lifeGeneralNew: resolve(inputs.lifeGeneralNew, ledger.lifeGeneral),
@@ -771,7 +916,9 @@ export function estimateTax(
   if (salary > 0) doc("withholdingSlip", "源泉徴収票", "給与の収入と源泉徴収税額");
   if (values.businessIncome.ledger !== null)
     doc("businessStatement", "青色申告決算書（または収支内訳書）", "事業所得");
-  if (social > 0 && (!inputs.yearEndAdjusted || salary === 0)) {
+  // 給与天引きの分は証明書が要らない。給与明細を使うときは、自分で払った分があるときだけ
+  const selfPaidSocial = payroll ? pos(inputs.payroll.otherSocialInsurance) > 0 : social > 0;
+  if (selfPaidSocial && (payroll || !inputs.yearEndAdjusted || salary === 0)) {
     doc("socialInsuranceCert", "社会保険料（国民年金保険料）控除証明書", "社会保険料控除");
   }
   if (aid > 0) doc("mutualAidCert", "小規模企業共済等掛金払込証明書", "iDeCo などの掛金");
@@ -835,6 +982,14 @@ export function estimateTax(
     incomeTax: result.incomeTax,
     resident: result.resident,
     housing,
+    payroll: payroll && {
+      ...payroll,
+      resident: {
+        withheldThisYear: payroll.totals.residentTax,
+        nextYear: result.resident.total,
+        nextMonthly: Math.floor(result.resident.total / 12),
+      },
+    },
     furusato: {
       limit: result.limit,
       donated: furusatoDonated,
