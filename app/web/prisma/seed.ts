@@ -117,6 +117,9 @@ function taxOfYear(year: number, rulesYear = year) {
     sideIncome: 0,
     fireEarthquake: 0,
     otherDonation: 0,
+    insuranceRefund: 0,
+    plan: { fromMonth: null, status: "actual" },
+    planned: {},
   };
   const e = estimateTax(defaultRulesFor(rulesYear).rules, year, ledger, emptyTaxInputs(year));
   return { gross, incomeTax: e.incomeTax.total, residentTax: e.resident.total };

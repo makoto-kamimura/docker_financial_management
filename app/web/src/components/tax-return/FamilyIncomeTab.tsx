@@ -5,6 +5,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { yen } from "@/lib/common/format";
 import { FAMILY_KIND_LABEL, type Disability, type FamilyMember } from "@/lib/shared/tax-family";
+import { planSuffix, yearTotalLabel } from "@/lib/shared/tax-estimate";
 import { SectionCard } from "@/components/SectionCard";
 import { AmountField, Check, Field, LedgerAmountField, SelectField, YenInput } from "./fields";
 import { PayrollCard } from "./PayrollCard";
@@ -99,12 +100,18 @@ export function FamilyIncomeTab(props: TabProps) {
         <div className="grid gap-4 md:grid-cols-3">
           {estimate.payroll ? (
             <>
-              <Field label="給与収入" hint={`給与所得 ${yen(estimate.income.salaryIncome)}`}>
+              <Field
+                label={`給与収入${planSuffix(ledger.plan)}`}
+                hint={`給与所得 ${yen(estimate.income.salaryIncome)}`}
+              >
                 <div className="py-2 text-right font-semibold tabular-nums text-slate-900">
                   {yen(estimate.income.salary)}
                 </div>
               </Field>
-              <Field label="源泉徴収された所得税" hint="給与明細の所得税の年合計">
+              <Field
+                label={`源泉徴収された所得税${planSuffix(ledger.plan)}`}
+                hint={`給与明細の所得税の${yearTotalLabel(ledger.plan)}`}
+              >
                 <div className="py-2 text-right font-semibold tabular-nums text-slate-900">
                   {yen(estimate.refund.withheld)}
                 </div>
@@ -116,6 +123,8 @@ export function FamilyIncomeTab(props: TabProps) {
                 label="給与収入"
                 value={draft.salary}
                 ledger={ledger.salary}
+                plan={ledger.plan}
+                planned={ledger.planned.salary}
                 onChange={(v) => update({ salary: v })}
                 hint={`給与所得 ${yen(estimate.income.salaryIncome)}（通勤手当は含めません）`}
               />
@@ -123,6 +132,8 @@ export function FamilyIncomeTab(props: TabProps) {
                 label="源泉徴収された所得税"
                 value={draft.withheldTax}
                 ledger={ledger.withheldTax}
+                plan={ledger.plan}
+                planned={ledger.planned.withheldTax}
                 onChange={(v) => update({ withheldTax: v })}
                 hint="年末調整の後の額（源泉徴収票の「源泉徴収税額」）"
               />
@@ -140,6 +151,8 @@ export function FamilyIncomeTab(props: TabProps) {
                 label="事業の利益（決算）"
                 value={draft.businessIncome}
                 ledger={ledger.businessIncome}
+                plan={ledger.plan}
+                planned={ledger.planned.businessIncome}
                 allowNegative
                 onChange={(v) => update({ businessIncome: v })}
               />

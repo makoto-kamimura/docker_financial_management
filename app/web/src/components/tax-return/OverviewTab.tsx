@@ -4,20 +4,28 @@
 
 import { yen, yenAbs } from "@/lib/common/format";
 import { TAX_BASICS, TAX_GUIDE_DISCLAIMER } from "@/lib/shared/tax-guide";
+import { planNote, planSuffix } from "@/lib/shared/tax-estimate";
 import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { StatTile } from "./fields";
 import type { TabProps } from "./types";
 
-export function OverviewTab({ year, estimate: e }: TabProps) {
+export function OverviewTab({ year, ledger, estimate: e }: TabProps) {
+  const note = planNote(year, ledger.plan);
   const refund = e.refund.amount;
   // 給与があるのに源泉徴収税額が入っていなければ、還付・追加納付は出さない（年末調整済みなら差はほぼ 0）
   const withheldUnknown = e.income.salary > 0 && e.refund.withheld === 0;
   return (
     <>
+      {note && (
+        <Notice tone="info" className="mb-4">
+          {note}
+          税額・還付・ふるさと納税の上限は、予定を含めた見込みです。
+        </Notice>
+      )}
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatTile
-          label="合計所得"
+          label={`合計所得${planSuffix(ledger.plan)}`}
           value={yen(e.income.total)}
           sub={`給与所得 ${yen(e.income.salaryIncome)}`}
         />

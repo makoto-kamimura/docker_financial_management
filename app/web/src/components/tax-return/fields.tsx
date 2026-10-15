@@ -4,6 +4,7 @@
 
 import { useId, type ReactNode } from "react";
 import { yen } from "@/lib/common/format";
+import { planBreakdown, type LedgerPlan } from "@/lib/shared/tax-estimate";
 
 export function Field({
   label,
@@ -83,7 +84,10 @@ export function AmountField({
   );
 }
 
-/** 帳簿の値を下書きにして、上書きできる金額（null は帳簿の値を使う） */
+/**
+ * 帳簿の値を下書きにして、上書きできる金額（null は帳簿の値を使う）。
+ * plan を渡すと、予定（入力月以降の予算）を含む年は「予定年合計」と書き、planned で実績と予定の内訳を出す
+ */
 export function LedgerAmountField({
   label,
   value,
@@ -91,6 +95,8 @@ export function LedgerAmountField({
   onChange,
   hint,
   allowNegative = false,
+  plan,
+  planned,
 }: {
   label: ReactNode;
   value: number | null;
@@ -98,18 +104,29 @@ export function LedgerAmountField({
   onChange: (v: number | null) => void;
   hint?: ReactNode;
   allowNegative?: boolean;
+  plan?: LedgerPlan;
+  planned?: number;
 }) {
+  const withPlan = plan !== undefined && plan.status !== "actual";
+  const breakdown = plan && ledger !== null ? planBreakdown(ledger, planned, plan) : null;
   return (
     <Field
       label={label}
       hint={
         <>
           {value === null ? (
-            <span>帳簿の値を使っています</span>
+            <span>
+              {withPlan ? "帳簿の予定年合計を使っています" : "帳簿の値を使っています"}
+              {breakdown && <span className="block">{breakdown}</span>}
+            </span>
           ) : (
             <span className="inline-flex flex-wrap items-center gap-2">
               <span className="badge badge-amber">手入力</span>
-              {ledger !== null && <span>帳簿: {yen(ledger)}</span>}
+              {ledger !== null && (
+                <span>
+                  {withPlan ? "帳簿の予定年合計" : "帳簿"}: {yen(ledger)}
+                </span>
+              )}
               <button
                 type="button"
                 className="text-indigo-600 hover:underline"

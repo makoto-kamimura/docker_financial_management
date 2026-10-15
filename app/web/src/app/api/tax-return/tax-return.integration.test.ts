@@ -7,6 +7,8 @@
  *   - 個人事業主モード（scope=business）は事業の分の利益から事業所得を出し、青色申告なら 65 万円を引く
  *   - 住宅ローンの 12/31 時点の残高を下書きにする
  *   - 設定の上書きが見込みの計算に効き、前年からのコピー・既定値に戻すができる
+ *   - 今年は入力月（今日の月）より前を実績、入力月以降を予算で数える（過去の年は実績だけ）
+ *   - 保険割戻金を一般生命保険料から引く
  *
  * 実行: `npm run test:integration`
  */
@@ -49,7 +51,12 @@ const call = async (handler: any, url: string, method = "GET", body?: unknown) =
 let tenantId: number;
 const accountIds = new Map<string, { id: number; category: "REVENUE" | "EXPENSE" | "COGS" }>();
 
+// 入力月（今日の月）で実績と予定を分けるので、今日を 2026-10-15 に固定する
+const TODAY = new Date(2026, 9, 15, 12);
+
 beforeAll(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(TODAY);
   for (const t of ["tenants", "users", "accounts", "periods", "financial_records", "loans"]) {
     await prisma.$executeRawUnsafe(
       `SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 1))`,
@@ -133,8 +140,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  vi.useRealTimers();
   if (!tenantId) return;
   const where = { tenantId };
+  await prisma.budget.deleteMany({ where });
   await prisma.taxReturnInput.deleteMany({ where });
   await prisma.taxRuleOverride.deleteMany({ where });
   await prisma.financialRecord.deleteMany({ where });
@@ -201,7 +210,7 @@ describe("PUT /api/tax-return", () => {
   it("給与明細を使うと、振込額を手取りとして額面・社会保険料・源泉所得税を出す", async () => {
     const item = (monthly: number) => ({ monthly, months: 12, bonus: 0, annual: null });
     const payroll = {
-      ...emptyPayroll(),
+      ...emptyPayroll(YEAR),
       enabled: true,
       commute: item(10_000),
       health: item(20_000),
@@ -239,7 +248,7 @@ describe("PUT /api/tax-return", () => {
     const { status, json } = await call(taxReturnGet, `/api/tax-return?year=${YEAR}`);
     expect(status).toBe(200);
     expect(json.data.inputs.salary).toBe(6_000_000);
-    expect(json.data.inputs.payroll).toEqual(emptyPayroll());
+    expect(json.data.inputs.payroll).toEqual(emptyPayroll(YEAR));
     expect(json.data.estimate.payroll).toBeNull();
   });
 
@@ -295,5 +304,92 @@ describe("/api/tax-rules", () => {
     expect(res.status).toBe(200);
     expect(res.json.data.override).toEqual({});
     expect(res.json.data.rules.resident.perCapita).toBe(5_000);
+  });
+});
+
+describe("予定（予算）を含める", () => {
+  const budget = async (
+    code: string,
+    fiscalYear: number,
+    month: number,
+    amount: number,
+    scope: "HOUSEHOLD" | "BUSINESS" = "HOUSEHOLD",
+  ) => {
+    const period = await prisma.period.upsert({
+      where: { tenantId_fiscalYear_month: { tenantId, fiscalYear, month } },
+      update: {},
+      create: { tenantId, fiscalYear, month, quarter: Math.ceil(month / 3) },
+    });
+    await prisma.budget.create({
+      data: { tenantId, scope, accountId: accountIds.get(code)!.id, periodId: period.id, amount },
+    });
+  };
+
+  beforeAll(async () => {
+    // 給与の予算: 9 月（実績の月なので数えない）と 10〜12 月。前の年（2025）の予算は数えない
+    await budget("H-1001", YEAR, 9, 999_999);
+    for (const m of [10, 11, 12]) await budget("H-1001", YEAR, m, 400_000);
+    await budget("H-1001", YEAR - 1, 11, 400_000);
+    // 事業の売上の予算（11 月）
+    await budget(`S_${SUFFIX}`, YEAR, 11, 1_000_000, "BUSINESS");
+  });
+
+  it("今年は入力月以降を予算で数え、予定の分と予定の扱いを返す", async () => {
+    const { json } = await call(taxReturnGet, `/api/tax-return?year=${YEAR}`);
+    const { ledger } = json.data;
+    expect(ledger.plan).toEqual({ fromMonth: 10, status: "mixed" });
+    expect(ledger.salary).toBe(5_000_000 + 1_200_000);
+    expect(ledger.salaryDeposit).toBe(5_120_000 + 1_200_000);
+    expect(ledger.planned).toMatchObject({ salary: 1_200_000, salaryDeposit: 1_200_000 });
+    // 予定の無い科目は planned に入らない
+    expect(ledger.planned.medical).toBeUndefined();
+  });
+
+  it("過去の年は実績だけ（予算は足さない）", async () => {
+    const { json } = await call(taxReturnGet, `/api/tax-return?year=${YEAR - 1}`);
+    expect(json.data.ledger.plan).toEqual({ fromMonth: null, status: "actual" });
+    expect(json.data.ledger.salary).toBe(0);
+    expect(json.data.ledger.planned).toEqual({});
+  });
+
+  it("個人事業主モードの事業所得にも事業の予算を足す", async () => {
+    const { json } = await call(taxReturnGet, `/api/tax-return?year=${YEAR}&scope=business`);
+    expect(json.data.ledger.businessIncome).toBe(2_500_000 + 1_000_000);
+    expect(json.data.ledger.planned.businessIncome).toBe(1_000_000);
+  });
+
+  it("保険割戻金を一般生命保険料から引く", async () => {
+    for (const [code, name, category] of [
+      ["H-3027", "生命保険", "EXPENSE"],
+      ["H-1012", "保険割戻金", "REVENUE"],
+    ] as const) {
+      const a = await prisma.account.create({ data: { tenantId, code, name, category } });
+      accountIds.set(code, { id: a.id, category });
+    }
+    for (const month of [1, 2, 3]) {
+      await createTestEntry(
+        tenantId,
+        { kind: "CASH" },
+        {
+          date: new Date(YEAR, month - 1, 15),
+          description: "共済",
+          flow: -3_000,
+          category: accountIds.get("H-3027")!,
+        },
+      );
+    }
+    await createTestEntry(
+      tenantId,
+      { kind: "CASH" },
+      {
+        date: new Date(YEAR, 7, 3),
+        description: "共済",
+        flow: 1_275,
+        category: accountIds.get("H-1012")!,
+      },
+    );
+    const { json } = await call(taxReturnGet, `/api/tax-return?year=${YEAR}`);
+    expect(json.data.ledger.insuranceRefund).toBe(1_275);
+    expect(json.data.ledger.lifeGeneral).toBe(9_000 - 1_275);
   });
 });

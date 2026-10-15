@@ -34,6 +34,8 @@ export function FurusatoTab({ year, ledger, draft, estimate: e, update }: TabPro
             label="今年の寄付額"
             value={draft.furusato}
             ledger={ledger.furusato}
+            plan={ledger.plan}
+            planned={ledger.planned.furusato}
             onChange={(v) => update({ furusato: v })}
           />
           <Field label="寄付先の自治体数" hint="同じ自治体への複数回の寄付は 1 と数えます">

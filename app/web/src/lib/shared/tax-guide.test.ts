@@ -18,6 +18,9 @@ const ledger: TaxLedger = {
   sideIncome: 0,
   fireEarthquake: 0,
   otherDonation: 0,
+  insuranceRefund: 0,
+  plan: { fromMonth: null, status: "actual" },
+  planned: {},
 };
 
 describe("DEDUCTION_GUIDES", () => {

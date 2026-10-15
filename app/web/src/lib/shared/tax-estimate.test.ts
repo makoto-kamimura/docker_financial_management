@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_TAX_RULES } from "./tax-rules";
 import {
+  childSupportMonths,
   emptyPayroll,
   emptyTaxInputs,
   estimateTax,
   housingLoanCredit,
   lifeInsuranceDeduction,
   payrollTotal,
+  planBreakdown,
+  planNote,
+  planSuffix,
+  yearTotalLabel,
   type PayrollInput,
   type TaxInputs,
   type TaxLedger,
@@ -31,6 +36,9 @@ const ledger = (over: Partial<TaxLedger> = {}): TaxLedger => ({
   sideIncome: 0,
   fireEarthquake: 0,
   otherDonation: 0,
+  insuranceRefund: 0,
+  plan: { fromMonth: null, status: "actual" },
+  planned: {},
   ...over,
 });
 
@@ -328,7 +336,7 @@ describe("給与明細から出す", () => {
     annual: null,
   });
   const payroll = (over: Partial<PayrollInput> = {}): PayrollInput => ({
-    ...emptyPayroll(),
+    ...emptyPayroll(2026),
     enabled: true,
     health: monthly(15_000, 30_000),
     care: monthly(0),
@@ -432,5 +440,39 @@ describe("給与明細から出す", () => {
     expect(e.payroll).toBeNull();
     expect(e.values.salary.source).toBe("input");
     expect(e.values.socialInsurance).toEqual({ value: 750_000, source: "ledger", ledger: 750_000 });
+  });
+});
+
+describe("予定の表記", () => {
+  const mixed = { fromMonth: 10, status: "mixed" } as const;
+  const actual = { fromMonth: null, status: "actual" } as const;
+  const plan = { fromMonth: 1, status: "plan" } as const;
+
+  it("予定を含むときは予定年合計・（予定）", () => {
+    expect(yearTotalLabel(actual)).toBe("年合計");
+    expect(yearTotalLabel(mixed)).toBe("予定年合計");
+    expect(planSuffix(actual)).toBe("");
+    expect(planSuffix(plan)).toBe("（予定）");
+  });
+
+  it("説明と内訳は入力月で区切る", () => {
+    expect(planNote(2025, actual)).toBeNull();
+    expect(planNote(2026, mixed)).toBe(
+      "2026 年は 10 月以降を予定（予算管理の予算）として数えています。9 月までは実績です。",
+    );
+    expect(planBreakdown(400_000, 100_000, mixed)).toBe(
+      "実績 300,000円（9 月まで）＋ 予定 100,000円（10〜12 月）",
+    );
+    expect(planBreakdown(400_000, undefined, mixed)).toBe(
+      "10〜12 月の予算が無いため、9 月までの実績だけです",
+    );
+    expect(planBreakdown(400_000, undefined, actual)).toBeNull();
+  });
+
+  it("子ども・子育て支援金の月数の初期値は 2026 年が 8 か月", () => {
+    expect(childSupportMonths(2025)).toBe(0);
+    expect(emptyPayroll(2026).childSupport.months).toBe(8);
+    expect(emptyPayroll(2027).childSupport.months).toBe(12);
+    expect(emptyPayroll(2026).health.months).toBe(12);
   });
 });

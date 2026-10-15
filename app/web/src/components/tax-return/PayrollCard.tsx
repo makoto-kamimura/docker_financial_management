@@ -2,14 +2,19 @@
 
 // 給与明細: 口座には手取りしか入らないので、総支給と天引き（社会保険料・所得税・住民税など）を入れて、
 // 額面・社会保険料控除・源泉徴収税額を出す。項目ごとに「月額 × 月数 ＋ 賞与」、年合計を直接入れてもよい。
+// 確定申告の見込みは予定を含むので、入力月以降を含む年は「予定年合計」「（予定）」と書く。
 
 import { yen } from "@/lib/common/format";
 import {
   payrollTotal,
+  planNote,
+  planSuffix,
+  yearTotalLabel,
   type PayrollInput,
   type PayrollItem,
   type PayrollItemKey,
 } from "@/lib/shared/tax-estimate";
+import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { Check, LedgerAmountField, SelectField, YenInput } from "./fields";
 import type { TabProps } from "./types";
@@ -41,16 +46,19 @@ const ROWS: readonly { key: PayrollItemKey; label: string; hint?: string }[] = [
 
 const DEDUCTION_START = 2;
 
-export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
+export function PayrollCard({ year, ledger, draft, estimate: e, update }: TabProps) {
   const p = draft.payroll;
   const r = e.payroll;
+  const totalLabel = yearTotalLabel(ledger.plan);
+  const sfx = planSuffix(ledger.plan);
+  const note = planNote(year, ledger.plan);
   const set = (patch: Partial<PayrollInput>) => update({ payroll: { ...p, ...patch } });
   const setItem = (key: PayrollItemKey, patch: Partial<PayrollItem>) =>
     set({ [key]: { ...p[key], ...patch } });
 
   return (
     <SectionCard
-      title="給与明細（年の合計）"
+      title={`給与明細（${totalLabel}）`}
       lead="口座には手取りしか入らないため、給与明細の天引きを入れると額面・社会保険料控除・源泉徴収税額を出します。賞与は年の合計です。"
     >
       <Check
@@ -61,6 +69,12 @@ export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
       />
       {p.enabled && r && (
         <>
+          {note && (
+            <Notice tone="info" className="mt-4">
+              {note}
+              月額 × 月数・賞与もまだ支給されていない月の分を含めて入れてください。
+            </Notice>
+          )}
           <div className="mt-4 grid gap-4 md:grid-cols-3">
             <SelectField
               label="帳簿の給与（口座への振込）は"
@@ -73,16 +87,21 @@ export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
             />
             {p.ledgerSalaryIs === "takeHome" && (
               <LedgerAmountField
-                label="手取り（振込額）"
+                label={`手取りの振込額${sfx}`}
                 value={p.takeHome}
                 ledger={ledger.salaryDeposit}
+                plan={ledger.plan}
+                planned={ledger.planned.salaryDeposit}
                 onChange={(v) => set({ takeHome: v })}
                 hint="給与・賞与・各種手当の科目の年合計"
               />
             )}
           </div>
 
-          <div className="mt-4 overflow-x-auto">
+          <p className="mt-4 text-xs text-slate-500">
+            賞与からの天引き（健康保険・厚生年金・雇用保険・所得税など）も、各行の「賞与」に入れてください。
+          </p>
+          <div className="mt-2 overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
@@ -97,7 +116,7 @@ export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
                     賞与
                   </th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-slate-600">
-                    年合計
+                    {totalLabel}
                   </th>
                 </tr>
               </thead>
@@ -150,7 +169,7 @@ export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
                       </td>
                       <td className="w-40 px-3 py-2 align-top">
                         <YenInput
-                          ariaLabel={`${row.label}の年合計`}
+                          ariaLabel={`${row.label}の${totalLabel}`}
                           value={item.annual}
                           placeholder={computed.toLocaleString("ja-JP")}
                           onChange={(v) => setItem(row.key, { annual: v })}
@@ -174,7 +193,7 @@ export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
 
           <dl className="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <Row
-              label="総支給額"
+              label={`総支給額${sfx}`}
               value={yen(r.gross)}
               note={
                 r.grossSource === "takeHome"
@@ -184,10 +203,10 @@ export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
                     : undefined
               }
             />
-            <Row label="給与収入（通勤手当を除く）" value={yen(r.taxableSalary)} />
-            <Row label="給与所得" value={yen(e.income.salaryIncome)} />
+            <Row label={`給与収入${sfx}`} value={yen(r.taxableSalary)} note="通勤手当を除く" />
+            <Row label={`給与所得${sfx}`} value={yen(e.income.salaryIncome)} />
             <Row
-              label="社会保険料控除"
+              label={`社会保険料控除${sfx}`}
               value={yen(e.values.socialInsurance.value)}
               note={
                 p.otherSocialInsurance > 0
@@ -195,7 +214,7 @@ export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
                   : "天引きの分"
               }
             />
-            <Row label="源泉徴収された所得税" value={yen(r.totals.incomeTax)} />
+            <Row label={`源泉徴収された所得税${sfx}`} value={yen(r.totals.incomeTax)} />
             {r.diff !== null && r.diff !== 0 && (
               <Row
                 label="総支給 − 天引き − 手取り"
@@ -204,7 +223,7 @@ export function PayrollCard({ ledger, draft, estimate: e, update }: TabProps) {
               />
             )}
             <Row
-              label="住民税（今年の天引き）"
+              label={`今年天引きされる住民税${sfx}`}
               value={yen(r.resident.withheldThisYear)}
               note="前年の所得の分"
             />

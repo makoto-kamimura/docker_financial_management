@@ -17,6 +17,11 @@ import { yen, yenAbs } from "../format";
 import { useFiscalYear } from "../fiscal-year";
 import { TAX_RETURN_HELP } from "../shared/help-texts";
 import { FAMILY_KIND_LABEL } from "../shared/tax-family";
+import { planNote, planSuffix, type LedgerPlan } from "../shared/tax-estimate";
+
+/** 予定の扱い（古いサーバーの応答には無いので、そのときはすべて実績として扱う） */
+const planOf = (data: TaxReturn): LedgerPlan =>
+  data.ledger.plan ?? { fromMonth: null, status: "actual" };
 import {
   DEDUCTION_GUIDES,
   NOT_COVERED,
@@ -89,6 +94,12 @@ export function TaxReturnScreen() {
               年分の値で計算しています。改正があった場合は Web 版の設定「税制設定」で値を直せます。
             </Notice>
           )}
+          {planNote(data.year, planOf(data)) && (
+            <Notice tone="info">
+              {planNote(data.year, planOf(data))}
+              税額・還付・ふるさと納税の上限は、予定を含めた見込みです。
+            </Notice>
+          )}
           <Kpis data={data} />
           <TabBar tabs={TABS} value={tab} onChange={setTab} />
           {tab === "overview" && <Overview data={data} />}
@@ -108,7 +119,7 @@ function Kpis({ data }: { data: TaxReturn }) {
   const withheldUnknown = e.income.salary > 0 && e.refund.withheld === 0;
   const refund = e.refund.amount;
   const items: [string, string, string][] = [
-    ["合計所得", yen(e.income.total), COLORS.text],
+    [`合計所得${planSuffix(planOf(data))}`, yen(e.income.total), COLORS.text],
     [`${data.year} 年分の所得税`, yen(e.incomeTax.total), COLORS.text],
     withheldUnknown
       ? ["還付の見込み", "—", COLORS.sub]
@@ -182,8 +193,11 @@ function Overview({ data }: { data: TaxReturn }) {
         <Line label="給与所得" value={yen(e.income.salaryIncome)} />
         {e.payroll && (
           <>
-            <Line label="総支給額（給与明細）" value={yen(e.payroll.gross)} />
-            <Line label="社会保険料（天引き）" value={yen(e.payroll.social)} />
+            <Line label={`総支給額${planSuffix(planOf(data))}`} value={yen(e.payroll.gross)} />
+            <Line
+              label={`社会保険料の天引き${planSuffix(planOf(data))}`}
+              value={yen(e.payroll.social)}
+            />
             <Line
               label={`住民税（${e.year + 1} 年 6 月から・月額）`}
               value={yen(e.payroll.resident.nextMonthly)}

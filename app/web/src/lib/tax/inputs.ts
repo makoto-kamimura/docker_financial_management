@@ -1,7 +1,6 @@
 // 控除・確定申告のページの入力（TaxInputs）の検証。DB には Json で入れるので、読むときも書くときもここを通す。
 import { z } from "zod";
 import {
-  emptyPayrollItem,
   emptyTaxInputs,
   PAYROLL_ITEM_KEYS,
   type PayrollItemKey,
@@ -107,7 +106,7 @@ export function parseStoredInputs(stored: unknown, year: number): TaxInputs {
       ...base.payroll,
       ...payroll,
       ...Object.fromEntries(
-        PAYROLL_ITEM_KEYS.map((k) => [k, { ...emptyPayrollItem(), ...(payroll[k] ?? {}) }]),
+        PAYROLL_ITEM_KEYS.map((k) => [k, { ...base.payroll[k], ...(payroll[k] ?? {}) }]),
       ),
     },
   };
