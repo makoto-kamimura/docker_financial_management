@@ -3,10 +3,8 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { withApi } from "@/lib/server/api-handler";
 import { ScopeQuery } from "@/lib/ledger/scope";
-import { estimateTax } from "@/lib/shared/tax-estimate";
-import { TaxInputsSchema, parseStoredInputs } from "@/lib/tax/inputs";
-import { loadTaxLedger } from "@/lib/tax/ledger";
-import { loadRules } from "@/lib/tax/rules";
+import { TaxInputsSchema } from "@/lib/tax/inputs";
+import { loadTaxReturn } from "@/lib/tax/load";
 
 const Year = z.coerce.number().int().min(2000).max(2100);
 
@@ -16,27 +14,9 @@ export const GET = withApi({
   role: "viewer",
   querySchema: ScopeQuery.extend({ year: Year.optional() }),
   handler: async ({ user, db, query }) => {
-    const { tenantId } = user;
     const year = query.year ?? new Date().getFullYear();
-    const [ledger, stored, resolved] = await Promise.all([
-      loadTaxLedger(db, tenantId, year, { sole: query.scope === "business" }),
-      db.taxReturnInput.findUnique({ where: { tenantId_taxYear: { tenantId, taxYear: year } } }),
-      loadRules(db, tenantId, year),
-    ]);
-    const inputs = parseStoredInputs(stored?.inputs, year);
     return NextResponse.json({
-      data: {
-        year,
-        ledger,
-        inputs,
-        rules: resolved.rules,
-        rulesInfo: {
-          baseYear: resolved.baseYear,
-          fallback: resolved.fallback,
-          changed: resolved.changed,
-        },
-        estimate: estimateTax(resolved.rules, year, ledger, inputs),
-      },
+      data: await loadTaxReturn(db, user.tenantId, year, { sole: query.scope === "business" }),
     });
   },
 });

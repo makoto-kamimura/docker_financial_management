@@ -39,6 +39,8 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src/lib ./src/lib
 # 運用のスクリプト（証憑の R2 への移行など。docker compose exec web npx tsx scripts/... で使う）
 COPY --from=builder /app/scripts ./scripts
+# 申告書の転記用 PDF に埋め込む日本語フォント（lib/tax/forms/pdf.ts が実行時に読む）
+COPY --from=builder /app/assets ./assets
 COPY platform/docker/entrypoint.sh ./entrypoint.sh
 RUN chmod +x entrypoint.sh && mkdir -p /app/uploads
 EXPOSE 3000

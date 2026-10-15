@@ -7,6 +7,7 @@ import type { PersonalAssetCategory } from "./shared/labels";
 import type { BuildingStructure, ValuationMethod, ValueTrend } from "./shared/asset-valuation";
 import type { Loan } from "./shared/loan-schedule";
 import { scopeOfMode, withScope } from "./shared/business-use";
+import { File as FsFile, Paths } from "expo-file-system";
 import type { TaxEstimate, TaxInputs, TaxLedger } from "./shared/tax-estimate";
 
 const _devHost = Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
@@ -2223,6 +2224,35 @@ export async function fetchTaxReturn(year: number): Promise<TaxReturn> {
     "控除・確定申告のデータの取得に失敗しました",
   );
   return json.data;
+}
+
+// ── 申告書の転記用 PDF（GET /tax-return/forms・/tax-return/forms/[form]）──
+export type TaxFormItem = {
+  key: string;
+  title: string;
+  group: string;
+  needed: boolean;
+  why: string;
+  pageCount: number;
+};
+
+export async function fetchTaxForms(year: number): Promise<TaxFormItem[]> {
+  const json = await request<{ data: TaxFormItem[] }>(
+    scoped(`/tax-return/forms?year=${year}`),
+    "申告書の一覧を取得できませんでした",
+  );
+  return json.data;
+}
+
+/** 申告書の PDF を端末のキャッシュに保存し、そのファイルの URI を返す（共有シートで開く） */
+export async function downloadTaxFormPdf(year: number, key: string): Promise<string> {
+  const dest = new FsFile(Paths.cache, `tax-form-${year}-${key}.pdf`);
+  const file = await FsFile.downloadFileAsync(
+    `${API_BASE_URL}${scoped(`/tax-return/forms/${key}?year=${year}&download=1`)}`,
+    dest,
+    { headers: _session ? { Authorization: `Bearer ${_session}` } : {}, idempotent: true },
+  );
+  return file.uri;
 }
 
 // ── 法人ガバナンス（閲覧のみ。追加・削除は web 版）───────────────────────────────

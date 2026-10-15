@@ -165,7 +165,7 @@ export default function TaxReturnPage() {
               case "changes":
                 return <ChangesTab {...props} />;
               case "todo":
-                return <TodoTab {...props} />;
+                return <TodoTab {...props} scope={scope!} dirty={dirty} />;
             }
           })()}
         </>
