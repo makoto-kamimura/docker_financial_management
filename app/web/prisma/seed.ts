@@ -1,5 +1,8 @@
 import { PrismaClient } from "@prisma/client";
 import { seedDefaultAllocationRulesForTenant } from "../src/lib/budget/default-allocation-rules";
+import { seedDefaultAccountsForTenant } from "../src/lib/accounting/default-accounts";
+import { defaultRulesFor } from "../src/lib/shared/tax-rules";
+import { emptyTaxInputs, estimateTax, type TaxLedger } from "../src/lib/shared/tax-estimate";
 import { randomBytes, scryptSync } from "node:crypto";
 
 const prisma = new PrismaClient();
@@ -48,30 +51,97 @@ function hashPassword(password: string): string {
 
 type MonthlyRow = { fiscalYear: number; month: number; amount: number };
 
-function incomeRows(): MonthlyRow[] {
+const SALARY_MONTHLY: Record<number, number> = {
+  2023: 400_000,
+  2024: 420_000,
+  2025: 440_000,
+  2026: 450_000,
+};
+const BONUS: Record<number, number> = {
+  2023: 620_000,
+  2024: 660_000,
+  2025: 700_000,
+  2026: 720_000,
+};
+const BONUS_MONTHS = [6, 12];
+
+/** 本人の給与（毎月）と賞与（6 月・12 月） */
+function salaryRows(): MonthlyRow[] {
   const rows: MonthlyRow[] = [];
-  const salary: Record<number, number> = {
-    2023: 400_000,
-    2024: 420_000,
-    2025: 440_000,
-    2026: 450_000,
-  };
-  const bonus: Record<number, number> = {
-    2023: 620_000,
-    2024: 660_000,
-    2025: 700_000,
-    2026: 720_000,
-  };
-  for (const [yearStr, base] of Object.entries(salary)) {
+  for (const [yearStr, base] of Object.entries(SALARY_MONTHLY)) {
     const year = Number(yearStr);
     const maxMonth = year === 2026 ? 6 : 12;
-    for (let m = 1; m <= maxMonth; m++) {
-      const b = m === 6 || m === 12 ? bonus[year] : 0;
-      rows.push({ fiscalYear: year, month: m, amount: base + b });
+    for (let m = 1; m <= maxMonth; m++) rows.push({ fiscalYear: year, month: m, amount: base });
+  }
+  return rows;
+}
+
+function bonusRows(): MonthlyRow[] {
+  const rows: MonthlyRow[] = [];
+  for (const [yearStr, amount] of Object.entries(BONUS)) {
+    const year = Number(yearStr);
+    const maxMonth = year === 2026 ? 6 : 12;
+    for (const m of BONUS_MONTHS) {
+      if (m <= maxMonth) rows.push({ fiscalYear: year, month: m, amount });
     }
   }
   return rows;
 }
+
+/** その月の本人の額面（給与＋賞与） */
+function grossOf(year: number, month: number): number {
+  return SALARY_MONTHLY[year] + (BONUS_MONTHS.includes(month) ? BONUS[year] : 0);
+}
+
+// 給与天引きの社会保険料は額面の 15% とする
+const SOCIAL_INSURANCE_RATE = 0.15;
+
+/**
+ * その年の所得税・住民税の見込み（本人の給与だけ。控除・確定申告のページと同じ計算）。
+ * 2026 年分の毎月の源泉徴収は改正前の税額表で行われるため、源泉徴収の額は前年の制度で出す
+ */
+function taxOfYear(year: number, rulesYear = year) {
+  const gross = SALARY_MONTHLY[year] * 12 + BONUS[year] * BONUS_MONTHS.length;
+  const ledger: TaxLedger = {
+    salary: gross,
+    socialInsurance: Math.round(gross * SOCIAL_INSURANCE_RATE),
+    withheldTax: 0,
+    lifeGeneral: 0,
+    lifeCare: 0,
+    medical: 0,
+    furusato: 0,
+    businessIncome: null,
+    blueReturnDeduction: null,
+    housingBalance: null,
+    sideIncome: 0,
+    fireEarthquake: 0,
+    otherDonation: 0,
+  };
+  const e = estimateTax(defaultRulesFor(rulesYear).rules, year, ledger, emptyTaxInputs(year));
+  return { gross, incomeTax: e.incomeTax.total, residentTax: e.resident.total };
+}
+
+// 医療費（通院・歯科など）とふるさと納税（年末に寄付）の実績
+const MEDICAL_PAYMENTS: [number, number, number][] = [
+  [2023, 4, 18_000],
+  [2023, 10, 26_000],
+  [2024, 2, 32_000],
+  [2024, 9, 21_000],
+  [2025, 3, 12_000],
+  [2025, 7, 45_000],
+  [2025, 10, 38_000],
+  [2025, 12, 30_000],
+  [2026, 2, 8_000],
+  [2026, 4, 22_000],
+];
+const FURUSATO_DONATIONS: [number, number, number][] = [
+  [2023, 12, 50_000],
+  [2024, 11, 30_000],
+  [2024, 12, 40_000],
+  [2025, 11, 35_000],
+  [2025, 12, 40_000],
+  [2026, 5, 20_000],
+];
 
 function subIncomeRows(): MonthlyRow[] {
   const rows: MonthlyRow[] = [];
@@ -91,7 +161,7 @@ function subIncomeRows(): MonthlyRow[] {
   return rows;
 }
 
-// 変動費（COGS）月次データ（季節変動あり）
+// 変動費の月次データ（季節変動あり）。交通費・娯楽/外食費は既定科目では固定費（EXPENSE）
 const FOOD_MONTHLY = [
   65_000, 60_000, 63_000, 68_000, 70_000, 73_000, 76_000, 78_000, 70_000, 66_000, 68_000, 82_000,
 ];
@@ -167,66 +237,74 @@ async function main() {
   console.log("  ✓ Demo users ready (password: 'password')");
 
   // ── 1. 既存の取引データをクリア ──────────────────────────────────────────
-  // 明細の行（kind あり）は残す（以前の bank_transactions と同じく、取引データのクリアの対象外）
-  await prisma.financialRecord.deleteMany({ where: { kind: null } });
-  await prisma.budget.deleteMany({});
-  await prisma.officer.deleteMany({});
+  // 明細の行（kind あり）は残す（以前の bank_transactions と同じく、取引データのクリアの対象外）。
+  // 消すのはサンプルのテナントの行だけ（同じ DB のほかのテナントのデータには触れない）。以下の各節も同じ
+  await prisma.financialRecord.deleteMany({ where: { tenantId: tid, kind: null } });
+  await prisma.budget.deleteMany({ where: { tenantId: tid } });
+  await prisma.officer.deleteMany({ where: { tenantId: tid } });
   console.log("  ✓ Cleared financial records, budgets & officers");
 
-  // ── 2. 勘定科目 upsert ─────────────────────────────────────────────────
-  const accs = await Promise.all([
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H1000" } },
-      update: { name: "給与・賞与" },
-      create: { tenantId: tid, code: "H1000", name: "給与・賞与", category: "REVENUE" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H1100" } },
-      update: { name: "配偶者給与" },
-      create: { tenantId: tid, code: "H1100", name: "配偶者給与", category: "REVENUE" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H2000" } },
-      update: { name: "食費" },
-      create: { tenantId: tid, code: "H2000", name: "食費", category: "COGS" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H2100" } },
-      update: { name: "日用品・消耗品" },
-      create: { tenantId: tid, code: "H2100", name: "日用品・消耗品", category: "COGS" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H2200" } },
-      update: { name: "交通費" },
-      create: { tenantId: tid, code: "H2200", name: "交通費", category: "COGS" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H2300" } },
-      update: { name: "娯楽・外食費" },
-      create: { tenantId: tid, code: "H2300", name: "娯楽・外食費", category: "COGS" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H3000" } },
-      update: { name: "家賃" },
-      create: { tenantId: tid, code: "H3000", name: "家賃", category: "EXPENSE" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H3100" } },
-      update: { name: "水道光熱費" },
-      create: { tenantId: tid, code: "H3100", name: "水道光熱費", category: "EXPENSE" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H3200" } },
-      update: { name: "通信費" },
-      create: { tenantId: tid, code: "H3200", name: "通信費", category: "EXPENSE" },
-    }),
-    prisma.account.upsert({
-      where: { tenantId_code: { tenantId: tid, code: "H3300" } },
-      update: { name: "保険料" },
-      create: { tenantId: tid, code: "H3300", name: "保険料", category: "EXPENSE" },
-    }),
-  ]);
-  const [h1000, h1100, h2000, h2100, h2200, h2300, h3000, h3100, h3200, h3300] = accs;
+  // ── 2. 勘定科目 ─────────────────────────────────────────────────────
+  // 家計の科目は、新規テナントと同じ既定科目（lib/accounting/default-accounts.ts）を使う。
+  // 控除・確定申告のページは既定科目のコードで年合計を下書きするため、サンプルもそろえる
+  await seedDefaultAccountsForTenant(prisma, tid);
+  const homeAccount = (code: string) =>
+    prisma.account.findUniqueOrThrow({ where: { tenantId_code: { tenantId: tid, code } } });
+  const [
+    salary,
+    bonus,
+    food,
+    daily,
+    transport,
+    leisure,
+    rent,
+    electricity,
+    gas,
+    water,
+    internet,
+    mobile,
+    lifeInsurance,
+    medicalInsurance,
+    carInsurance,
+    fireInsurance,
+    socialInsurance,
+    incomeTax,
+    residentTax,
+    medical,
+    medicine,
+    furusato,
+  ] = await Promise.all(
+    [
+      "H-1001",
+      "H-1002",
+      "H-2001",
+      "H-2004",
+      "H-3007",
+      "H-3008",
+      "H-3018",
+      "H-3001",
+      "H-3002",
+      "H-3003",
+      "H-3004",
+      "H-3005",
+      "H-3027",
+      "H-3010",
+      "H-3011",
+      "H-3028",
+      "H-3009",
+      "H-3030",
+      "H-3014",
+      "H-2005",
+      "H-2006",
+      "H-3039",
+    ].map(homeAccount),
+  );
+  // 配偶者の給与は既定科目に無い。控除・確定申告の下書き（本人の給与）に混ざらないよう別の科目にする
+  const spouseSalary = await prisma.account.upsert({
+    where: { tenantId_code: { tenantId: tid, code: "H-1090" } },
+    update: { name: "配偶者給与" },
+    create: { tenantId: tid, code: "H-1090", name: "配偶者給与", category: "REVENUE" },
+  });
 
   // 資産口座 upsert（親科目）
   const haParents = await Promise.all([
@@ -426,10 +504,11 @@ async function main() {
     }
   }
 
-  await insertRows(h1000.id, incomeRows());
-  await insertRows(h1100.id, subIncomeRows());
+  await insertRows(salary.id, salaryRows());
+  await insertRows(bonus.id, bonusRows());
+  await insertRows(spouseSalary.id, subIncomeRows());
 
-  // 変動費（COGS）
+  // 変動費（食費・日用品）と、交通費・娯楽/外食費
   for (const [year, scale] of [
     [2023, 1.0],
     [2024, 1.04],
@@ -444,25 +523,25 @@ async function main() {
       await prisma.financialRecord.createMany({
         data: [
           {
-            accountId: h2000.id,
+            accountId: food.id,
             departmentId: dept.id,
             periodId: p.id,
             amount: Math.round(FOOD_MONTHLY[i] * scale),
           },
           {
-            accountId: h2100.id,
+            accountId: daily.id,
             departmentId: dept.id,
             periodId: p.id,
             amount: Math.round(DAILY_MONTHLY[i] * scale),
           },
           {
-            accountId: h2200.id,
+            accountId: transport.id,
             departmentId: dept.id,
             periodId: p.id,
             amount: Math.round(TRANSPORT_MONTHLY[i] * scale),
           },
           {
-            accountId: h2300.id,
+            accountId: leisure.id,
             departmentId: dept.id,
             periodId: p.id,
             amount: Math.round(LEISURE_MONTHLY[i] * scale),
@@ -480,28 +559,79 @@ async function main() {
       if (!p) continue;
       const i = m - 1;
       const commScale = year >= 2025 ? 0.85 : 1.0; // 2025年にプラン見直しで通信費削減
+      // 水道光熱費は電気 5 割・ガス 3 割・水道 2 割、通信費は固定回線 5,000 円と残りをスマホ、
+      // 保険料（月 2.8 万円）は生命・医療・自動車・火災地震に分ける
+      const utilities = UTILITIES_MONTHLY[i];
+      const electricityAmount = Math.round(utilities * 0.5);
+      const gasAmount = Math.round(utilities * 0.3);
+      const communication = Math.round(11_000 * commScale);
       await prisma.financialRecord.createMany({
         data: [
-          { accountId: h3000.id, departmentId: dept.id, periodId: p.id, amount: 115_000 },
+          { accountId: rent.id, departmentId: dept.id, periodId: p.id, amount: 115_000 },
           {
-            accountId: h3100.id,
+            accountId: electricity.id,
             departmentId: dept.id,
             periodId: p.id,
-            amount: UTILITIES_MONTHLY[i],
+            amount: electricityAmount,
           },
+          { accountId: gas.id, departmentId: dept.id, periodId: p.id, amount: gasAmount },
           {
-            accountId: h3200.id,
+            accountId: water.id,
             departmentId: dept.id,
             periodId: p.id,
-            amount: Math.round(11_000 * commScale),
+            amount: utilities - electricityAmount - gasAmount,
           },
-          { accountId: h3300.id, departmentId: dept.id, periodId: p.id, amount: 28_000 },
+          { accountId: internet.id, departmentId: dept.id, periodId: p.id, amount: 5_000 },
+          {
+            accountId: mobile.id,
+            departmentId: dept.id,
+            periodId: p.id,
+            amount: communication - 5_000,
+          },
+          { accountId: lifeInsurance.id, departmentId: dept.id, periodId: p.id, amount: 12_000 },
+          { accountId: medicalInsurance.id, departmentId: dept.id, periodId: p.id, amount: 6_000 },
+          { accountId: carInsurance.id, departmentId: dept.id, periodId: p.id, amount: 8_000 },
+          { accountId: fireInsurance.id, departmentId: dept.id, periodId: p.id, amount: 2_000 },
         ].map((r) => ({ ...r, tenantId: tid })),
       });
     }
   }
 
   console.log("  ✓ Created income & expense records");
+
+  // 税金まわり（控除・確定申告のページで下書きに使う）。給与天引きの社会保険料・源泉所得税・住民税、
+  // 医療費・医薬品、ふるさと納税
+  const taxes = new Map([2023, 2024, 2025, 2026].map((y) => [y, taxOfYear(y)]));
+  const withholding = new Map(
+    [2023, 2024, 2025, 2026].map((y) => [y, taxOfYear(y, y === 2026 ? 2025 : y)]),
+  );
+  const addRecord = async (accountId: number, year: number, month: number, amount: number) => {
+    const p = periodMap.get(`${year}-${month}`);
+    if (!p || amount <= 0) return;
+    await prisma.financialRecord.create({
+      data: { tenantId: tid, accountId, departmentId: dept.id, periodId: p.id, amount },
+    });
+  };
+  for (const year of [2023, 2024, 2025, 2026]) {
+    const maxMonth = year === 2026 ? 6 : 12;
+    const w = withholding.get(year)!;
+    for (let m = 1; m <= maxMonth; m++) {
+      const gross = grossOf(year, m);
+      await addRecord(socialInsurance.id, year, m, Math.round(gross * SOCIAL_INSURANCE_RATE));
+      // 源泉所得税は年額を額面の割合で毎月に分ける
+      await addRecord(incomeTax.id, year, m, Math.round((w.incomeTax * gross) / w.gross));
+      // 住民税は前年の所得の分を 6 月から翌年 5 月まで払う（2023 年以前の分は 2023 年の所得で代用）
+      const basis = Math.max(2023, m >= 6 ? year - 1 : year - 2);
+      await addRecord(residentTax.id, year, m, Math.round(taxes.get(basis)!.residentTax / 12));
+      await addRecord(medicine.id, year, m, 1_500);
+    }
+  }
+  for (const [year, month, amount] of MEDICAL_PAYMENTS)
+    await addRecord(medical.id, year, month, amount);
+  for (const [year, month, amount] of FURUSATO_DONATIONS) {
+    await addRecord(furusato.id, year, month, amount);
+  }
+  console.log("  ✓ Created tax-related records");
 
   // ── 5. 資産残高（月末）──────────────────────────────────────────────────
   const assetData: [number, number[]][] = [
@@ -561,16 +691,27 @@ async function main() {
 
   // ── 6. 予算（年間計画）─────────────────────────────────────────────────
   const budgetDef: [number, number][] = [
-    [h1000.id, 6_000_000], // 給与・賞与: 月50万×12
-    [h1100.id, 3_000_000], // 配偶者給与: 月25万×12
-    [h2000.id, 840_000], // 食費: 月7万×12
-    [h2100.id, 216_000], // 日用品: 月1.8万×12
-    [h2200.id, 276_000], // 交通費: 月2.3万×12
-    [h2300.id, 360_000], // 娯楽: 月3万×12
-    [h3000.id, 1_380_000], // 家賃: 月11.5万×12
-    [h3100.id, 144_000], // 光熱費: 月1.2万×12
-    [h3200.id, 120_000], // 通信費: 月1万×12
-    [h3300.id, 336_000], // 保険料: 月2.8万×12
+    [salary.id, 4_800_000], // 給与: 月40万×12
+    [bonus.id, 1_200_000], // 賞与: 年2回×60万（月割り）
+    [spouseSalary.id, 3_000_000], // 配偶者給与: 月25万×12
+    [food.id, 840_000], // 食費: 月7万×12
+    [daily.id, 216_000], // 日用品: 月1.8万×12
+    [transport.id, 276_000], // 交通費: 月2.3万×12
+    [leisure.id, 360_000], // 娯楽・外食: 月3万×12
+    [rent.id, 1_380_000], // 家賃: 月11.5万×12
+    [electricity.id, 72_000], // 電気代: 月6千×12
+    [gas.id, 43_200], // ガス代: 月3.6千×12
+    [water.id, 28_800], // 水道代: 月2.4千×12
+    [internet.id, 60_000], // 固定回線: 月5千×12
+    [mobile.id, 60_000], // スマホ: 月5千×12
+    [lifeInsurance.id, 144_000], // 生命保険: 月1.2万×12
+    [medicalInsurance.id, 72_000], // 医療保険: 月6千×12
+    [carInsurance.id, 96_000], // 自動車保険: 月8千×12
+    [fireInsurance.id, 24_000], // 火災・地震保険: 月2千×12
+    [socialInsurance.id, 900_000], // 社会保険: 額面の15%
+    [incomeTax.id, 240_000], // 所得税: 月2万×12
+    [residentTax.id, 360_000], // 住民税: 月3万×12
+    [furusato.id, 72_000], // ふるさと納税: 年7.2万（月割り）
   ];
 
   for (const year of [2023, 2024, 2025, 2026]) {
@@ -1092,7 +1233,7 @@ async function main() {
   ]);
 
   // ── 個人事業主: 仕訳帳デモデータ（2025-12 〜 2026-06）──────────────────────
-  await prisma.journalEntry.deleteMany({});
+  await prisma.journalEntry.deleteMany({ where: { tenantId: tid } });
 
   type JeDef = {
     transactionDate: Date;
@@ -1692,7 +1833,7 @@ async function main() {
   console.log(`  ✓ Created ${JE.length} journal entries`);
 
   // ── 個人事業主: インボイスデモデータ─────────────────────────────────────────
-  await prisma.invoice.deleteMany({});
+  await prisma.invoice.deleteMany({ where: { tenantId: tid } });
 
   type InvDef = {
     invoiceNumber: string;
@@ -2497,8 +2638,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 12. 借入金 + 返済履歴 ────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.loanRepayment.deleteMany({});
-  await prisma.loan.deleteMany({});
+  await prisma.loanRepayment.deleteMany({ where: { loan: { tenantId: tid } } });
+  await prisma.loan.deleteMany({ where: { tenantId: tid } });
 
   const loan1 = await prisma.loan.create({
     data: {
@@ -2539,7 +2680,7 @@ async function main() {
       note: "短期運転資金",
     },
   });
-  // 住宅ローン: 家賃（H3000）に月々の返済額を自動反映
+  // 住宅ローン: 家賃（H-3018）に月々の返済額を自動反映
   const loan4 = await prisma.loan.create({
     data: {
       tenantId: tid,
@@ -2552,7 +2693,7 @@ async function main() {
       status: "active",
       note: "住宅ローン（自宅マンション購入）",
       loanType: "housing",
-      linkedAccountId: h3000.id,
+      linkedAccountId: rent.id,
       monthlyPayment: 89_000,
     },
   });
@@ -2652,8 +2793,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 13. 売掛金・買掛金 ───────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.receivable.deleteMany({});
-  await prisma.payable.deleteMany({});
+  await prisma.receivable.deleteMany({ where: { tenantId: tid } });
+  await prisma.payable.deleteMany({ where: { tenantId: tid } });
 
   await prisma.receivable.createMany({
     data: [
@@ -2783,8 +2924,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 14. 固定資産 + 減価償却 ──────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.depreciation.deleteMany({});
-  await prisma.fixedAsset.deleteMany({});
+  await prisma.depreciation.deleteMany({ where: { fixedAsset: { tenantId: tid } } });
+  await prisma.fixedAsset.deleteMany({ where: { tenantId: tid } });
 
   const fa1 = await prisma.fixedAsset.create({
     data: {
@@ -2856,8 +2997,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 15. 棚卸 ────────────────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.inventoryItem.deleteMany({});
-  await prisma.inventory.deleteMany({});
+  await prisma.inventoryItem.deleteMany({ where: { inventory: { tenantId: tid } } });
+  await prisma.inventory.deleteMany({ where: { tenantId: tid } });
 
   const inv1 = await prisma.inventory.create({
     data: {
@@ -2969,16 +3110,16 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 16. 家事按分 ─────────────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.apportionment.deleteMany({});
+  await prisma.apportionment.deleteMany({ where: { tenantId: tid } });
 
-  const [a7000, a7500, a7100, aH3100, aH3200] = await Promise.all([
+  const [a7000, a7500, a7100, aElectricity, aMobile] = await Promise.all([
     prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "7000" } } }),
     prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "7500" } } }),
     prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "7100" } } }),
-    prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "H3100" } } }),
-    prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "H3200" } } }),
+    prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "H-3001" } } }),
+    prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "H-3005" } } }),
   ]);
-  if (a7000 && a7500 && a7100 && aH3100 && aH3200) {
+  if (a7000 && a7500 && a7100 && aElectricity && aMobile) {
     await prisma.apportionment.createMany({
       data: [
         {
@@ -2986,11 +3127,11 @@ async function main() {
           businessRate: 50,
           description: "自宅兼事務所（居室の50%を事業利用）",
         },
-        { accountId: aH3100.id, businessRate: 30, description: "電気代（事業利用30%）" },
+        { accountId: aElectricity.id, businessRate: 30, description: "電気代（事業利用30%）" },
         {
-          accountId: aH3200.id,
+          accountId: aMobile.id,
           businessRate: 60,
-          description: "通信費（スマホ・ネット、事業利用60%）",
+          description: "スマホ（事業利用60%）",
         },
         { accountId: a7000.id, businessRate: 80, description: "インターネット回線（事業利用80%）" },
         { accountId: a7100.id, businessRate: 70, description: "消耗品（文具等、事業利用70%）" },
@@ -3002,8 +3143,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 17. 仕訳テンプレート ─────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.journalTemplateLine.deleteMany({});
-  await prisma.journalTemplate.deleteMany({});
+  await prisma.journalTemplateLine.deleteMany({ where: { template: { tenantId: tid } } });
+  await prisma.journalTemplate.deleteMany({ where: { tenantId: tid } });
 
   const [t4000, t1100, t5000, t7500, t7000, t7100, t7400, t3100] = await Promise.all([
     prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "4000" } } }),
@@ -3221,7 +3362,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 18. 会計年度 ─────────────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.fiscalYear.deleteMany({});
+  await prisma.fiscalYear.deleteMany({ where: { tenantId: tid } });
 
   await prisma.fiscalYear.createMany({
     data: [
@@ -3260,8 +3401,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 19. 事業者情報（個人）・消費税設定 ──────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.taxSetting.deleteMany({});
-  await prisma.businessProfile.deleteMany({});
+  await prisma.taxSetting.deleteMany({ where: { tenantId: tid } });
+  await prisma.businessProfile.deleteMany({ where: { tenantId: tid } });
 
   await prisma.businessProfile.create({
     data: {
@@ -3288,8 +3429,8 @@ async function main() {
   // ── 20. 外部サービス連携 ─────────────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
   // 固定決済はカードを参照する（FK は RESTRICT）ので、カードより先に消す
-  await prisma.cardRecurringPayment.deleteMany({});
-  await prisma.linkedAccount.deleteMany({});
+  await prisma.cardRecurringPayment.deleteMany({ where: { tenantId: tid } });
+  await prisma.linkedAccount.deleteMany({ where: { tenantId: tid } });
 
   const [laAsset, laLiab] = await Promise.all([
     prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "1100" } } }),
@@ -3338,8 +3479,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 21. 決算整理仕訳（未収収益・未払費用）───────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.accruedExpense.deleteMany({});
-  await prisma.accruedRevenue.deleteMany({});
+  await prisma.accruedExpense.deleteMany({ where: { tenantId: tid } });
+  await prisma.accruedRevenue.deleteMany({ where: { tenantId: tid } });
 
   const [ar4000, ae7500, ae7000, ae7700] = await Promise.all([
     prisma.account.findUnique({ where: { tenantId_code: { tenantId: tid, code: "4000" } } }),
@@ -3426,8 +3567,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 22. ガバナンス（株主総会・配当）─────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.dividend.deleteMany({});
-  await prisma.shareholderMeeting.deleteMany({});
+  await prisma.dividend.deleteMany({ where: { tenantId: tid } });
+  await prisma.shareholderMeeting.deleteMany({ where: { tenantId: tid } });
 
   await prisma.shareholderMeeting.createMany({
     data: [
@@ -3491,7 +3632,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   // ── 23. 実物資産（土地・建物・車・金）─────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
-  await prisma.personalAsset.deleteMany({});
+  await prisma.personalAsset.deleteMany({ where: { tenantId: tid } });
   await prisma.personalAsset.createMany({
     data: [
       {
