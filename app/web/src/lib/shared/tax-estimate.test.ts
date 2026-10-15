@@ -29,6 +29,7 @@ const ledger = (over: Partial<TaxLedger> = {}): TaxLedger => ({
   lifeGeneral: 0,
   lifeCare: 0,
   medical: 0,
+  selfMedication: 0,
   furusato: 0,
   businessIncome: null,
   blueReturnDeduction: null,
@@ -212,6 +213,31 @@ describe("医療費控除とセルフメディケーション税制", () => {
     expect(e.medicalChoice).toEqual({ medical: 50_000, selfMedication: 28_000, chosen: "medical" });
     expect(e.filing.beneficial.map((b) => b.key)).toContain("medical");
     expect(e.documents.map((d) => d.id)).toContain("medicalStatement");
+  });
+
+  it("帳簿の医薬品費はセルフメディケーションの下書きになり、医療費控除にも含めたうえで大きい方を選ぶ", () => {
+    // 医療費 20,000 ＋ 医薬品費 60,000。医療費控除は 80,000 − 100,000 で 0、セルフメディケーションは 48,000
+    const e = estimateTax(
+      r2026,
+      2026,
+      ledger({ salary: 5_000_000, medical: 80_000, selfMedication: 60_000 }),
+      inputs({ selfMedicationEligible: true }),
+    );
+    expect(e.values.selfMedication).toEqual({ value: 60_000, source: "ledger", ledger: 60_000 });
+    expect(e.medicalChoice).toEqual({
+      medical: 0,
+      selfMedication: 48_000,
+      chosen: "selfMedication",
+    });
+    // 対象の市販薬だけに直す
+    const fixed = estimateTax(
+      r2026,
+      2026,
+      ledger({ salary: 5_000_000, medical: 80_000, selfMedication: 60_000 }),
+      inputs({ selfMedicationEligible: true, selfMedication: 30_000 }),
+    );
+    expect(fixed.medicalChoice.selfMedication).toBe(18_000);
+    expect(fixed.values.selfMedication.source).toBe("input");
   });
 
   it("所得が低いと足切りは所得の 5%", () => {

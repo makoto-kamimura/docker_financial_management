@@ -85,6 +85,8 @@ export type TaxInputs = {
   lifeGeneralNew: number | null;
   lifeCare: number | null;
   medicalPaid: number | null;
+  /** セルフメディケーション税制の対象の市販薬の購入額（帳簿の医薬品費が下書き） */
+  selfMedication: number | null;
   furusato: number | null;
   // 手入力だけの値
   otherIncome: number;
@@ -94,7 +96,6 @@ export type TaxInputs = {
   lifePensionOld: number;
   earthquake: number;
   medicalReimbursed: number;
-  selfMedication: number;
   /** 健康診断・予防接種などを受けている（セルフメディケーション税制の条件） */
   selfMedicationEligible: boolean;
   casualtyLoss: number;
@@ -118,7 +119,10 @@ export type TaxLedger = {
   withheldTax: number;
   lifeGeneral: number;
   lifeCare: number;
+  /** 医療費控除の医療費（医療費＋医薬品費。治療のための市販薬は対象） */
   medical: number;
+  /** セルフメディケーション税制の購入額の下書き（医薬品費） */
+  selfMedication: number;
   furusato: number;
   /** 個人事業主モードの事業の利益（青色申告特別控除の前）。家計モードでは null */
   businessIncome: number | null;
@@ -147,6 +151,7 @@ export type LedgerAmountKey =
   | "lifeGeneral"
   | "lifeCare"
   | "medical"
+  | "selfMedication"
   | "furusato"
   | "businessIncome"
   | "sideIncome"
@@ -240,6 +245,7 @@ export function emptyTaxInputs(year: number): TaxInputs {
     lifeGeneralNew: null,
     lifeCare: null,
     medicalPaid: null,
+    selfMedication: null,
     furusato: null,
     otherIncome: 0,
     smallBusinessMutualAid: 0,
@@ -248,7 +254,6 @@ export function emptyTaxInputs(year: number): TaxInputs {
     lifePensionOld: 0,
     earthquake: 0,
     medicalReimbursed: 0,
-    selfMedication: 0,
     selfMedicationEligible: false,
     casualtyLoss: 0,
     casualtyReimbursed: 0,
@@ -381,6 +386,7 @@ export type TaxEstimate = {
     | "lifeGeneralNew"
     | "lifeCare"
     | "medicalPaid"
+    | "selfMedication"
     | "furusato"
     | "housingBalance",
     ResolvedValue
@@ -614,6 +620,7 @@ export function estimateTax(
     lifeGeneralNew: resolve(inputs.lifeGeneralNew, ledger.lifeGeneral),
     lifeCare: resolve(inputs.lifeCare, ledger.lifeCare),
     medicalPaid: resolve(inputs.medicalPaid, ledger.medical),
+    selfMedication: resolve(inputs.selfMedication, ledger.selfMedication),
     furusato: resolve(inputs.furusato, ledger.furusato),
     housingBalance: resolve(inputs.housingLoan.balance, ledger.housingBalance),
   };
@@ -675,7 +682,7 @@ export function estimateTax(
     m.max,
   );
   const selfMed = inputs.selfMedicationEligible
-    ? Math.min(pos(pos(inputs.selfMedication) - m.selfMedicationFloor), m.selfMedicationMax)
+    ? Math.min(pos(pos(values.selfMedication.value) - m.selfMedicationFloor), m.selfMedicationMax)
     : 0;
   const chosen =
     medical === 0 && selfMed === 0 ? "none" : selfMed > medical ? "selfMedication" : "medical";
