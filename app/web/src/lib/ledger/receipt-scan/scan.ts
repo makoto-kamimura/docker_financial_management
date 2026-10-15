@@ -138,7 +138,8 @@ export async function scanReceipt(
 /** 店名を学習ルールにかけて、科目の候補（ルールが事業利用を決めていれば、その事業利用も）を返す */
 async function suggestAccount(db: TenantDb, merchant: string | null) {
   if (!merchant) return null;
-  const hit = (await loadRuleClassifier(db))(merchant);
+  // レシートは支払い（出金）
+  const hit = (await loadRuleClassifier(db))(merchant, -1);
   if (!hit) return null;
   const account = await db.account.findUnique({
     where: { id: hit.id },

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { classifyByRules, normalizeKeyword, parseBankCsv } from "@/lib/ledger/banktxn-import";
+import {
+  classifyByRules,
+  normalizeKeyword,
+  parseBankCsv,
+  ruleSideOf,
+} from "@/lib/ledger/banktxn-import";
 
 describe("normalizeKeyword", () => {
   it("trims, collapses whitespace, and uppercases", () => {
@@ -32,6 +37,40 @@ describe("classifyByRules", () => {
 
   it("returns null when no rule matches", () => {
     expect(classifyByRules("UNKNOWN MERCHANT", rules)).toBeNull();
+  });
+
+  describe("flow side", () => {
+    const sided = [
+      { keyword: "府民共済", categoryAccountId: 10, priority: 100, flowSide: "OUT" as const },
+      { keyword: "府民共済", categoryAccountId: 20, priority: 100, flowSide: "IN" as const },
+      { keyword: "共済", categoryAccountId: 30, priority: 100, flowSide: "ANY" as const },
+    ];
+
+    it("only uses rules for the entry's side (plus ANY)", () => {
+      expect(classifyByRules("府民共済", sided, "OUT")?.categoryAccountId).toBe(10);
+      expect(classifyByRules("府民共済", sided, "IN")?.categoryAccountId).toBe(20);
+      // 向きが無い（0 円）なら ANY だけ
+      expect(classifyByRules("府民共済", sided, null)?.categoryAccountId).toBe(30);
+    });
+
+    it("prefers a sided rule over ANY with the same keyword", () => {
+      const rules = [
+        { keyword: "府民共済", categoryAccountId: 1, priority: 100, flowSide: "ANY" as const },
+        { keyword: "府民共済", categoryAccountId: 2, priority: 100, flowSide: "OUT" as const },
+      ];
+      expect(classifyByRules("府民共済", rules, "OUT")?.categoryAccountId).toBe(2);
+      expect(classifyByRules("府民共済", rules, "IN")?.categoryAccountId).toBe(1);
+    });
+
+    it("treats rules without flowSide as ANY", () => {
+      expect(classifyByRules("AMAZON", rules, "IN")?.categoryAccountId).toBe(1);
+    });
+
+    it("ruleSideOf reads the flow sign (+ in / − out)", () => {
+      expect(ruleSideOf(11_275)).toBe("IN");
+      expect(ruleSideOf(-3_000)).toBe("OUT");
+      expect(ruleSideOf(0)).toBeNull();
+    });
   });
 });
 

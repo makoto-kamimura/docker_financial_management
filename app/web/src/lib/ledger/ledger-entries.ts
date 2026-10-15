@@ -1,7 +1,7 @@
 import type { FinancialRecord, Prisma, TxnSource } from "@prisma/client";
 import { resolveReceiptFileUrl } from "@/lib/server/upload";
 import type { TenantDb, TenantDbClient } from "@/lib/server/tenant-db";
-import { classifyByRules } from "@/lib/ledger/banktxn-import";
+import { classifyByRules, ruleSideOf } from "@/lib/ledger/banktxn-import";
 import { resolveTransferTarget } from "@/lib/ledger/card-transfer";
 import type { AccountCategoryValue } from "@/lib/accounting/account-category";
 import { signedActualAmountFromSpend } from "@/lib/accounting/journal";
@@ -290,7 +290,7 @@ export type InsertResult = {
 export type RuleHit = { id: number; category: string; business?: BusinessSetting };
 
 /**
- * 学習ルール（txn_category_rules）で摘要から科目（と事業利用）を決める関数を用意する。
+ * 学習ルール（txn_category_rules）で摘要と明細の向き（flow の符号）から科目（と事業利用）を決める関数を用意する。
  * 当たらなければ null（未割り当て）。
  */
 export async function loadRuleClassifier(db: TenantDbClient) {
@@ -301,11 +301,12 @@ export async function loadRuleClassifier(db: TenantDbClient) {
       priority: true,
       businessUse: true,
       businessRatio: true,
+      flowSide: true,
       categoryAccount: { select: { category: true } },
     },
   });
-  return (description: string): RuleHit | null => {
-    const rule = classifyByRules(description, rules);
+  return (description: string, flow: number): RuleHit | null => {
+    const rule = classifyByRules(description, rules, ruleSideOf(flow));
     if (!rule) return null;
     return {
       id: rule.categoryAccountId,
@@ -377,7 +378,7 @@ export async function insertExternalEntries(
       const chargeToCardId =
         target.kind === "CARD" ? resolveTransferTarget(r.description, transferRules) : null;
       // チャージ（資金移動）と判定した行は支出ではないので科目を付けない
-      const hit = chargeToCardId === null ? classify(r.description) : null;
+      const hit = chargeToCardId === null ? classify(r.description, r.amount) : null;
       return entryCreateData(tenantId, target, periods.periodIdOf(r.date), {
         date: r.date,
         description: r.description,
@@ -412,9 +413,10 @@ export async function entryCategory(
   tenantId: number,
   categoryAccountId: number | null | undefined,
   description: string,
+  flow: number,
 ): Promise<RuleHit | null> {
   if (categoryAccountId === null) return null;
-  if (categoryAccountId === undefined) return (await loadRuleClassifier(db))(description);
+  if (categoryAccountId === undefined) return (await loadRuleClassifier(db))(description, flow);
   const account = await db.account.findUnique({
     where: { id: categoryAccountId, tenantId },
     select: { id: true, category: true },

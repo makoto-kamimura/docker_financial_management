@@ -1104,21 +1104,29 @@ enum LedgerKind {
 
 // 明細の摘要キーワードから科目を自動分類するためのルール（取込時に categoryAccountId を埋めるだけで転記はしない）
 model TxnCategoryRule {
-  id                Int      @id @default(autoincrement())
+  id                Int          @id @default(autoincrement())
   tenantId          Int
   keyword           String // 摘要の部分一致キーワード（大文字小文字無視で評価）
   categoryAccountId Int
-  categoryAccount   Account  @relation(fields: [categoryAccountId], references: [id])
-  priority          Int      @default(0) // 手動学習（learn=true）は 100。優先度降順→キーワード長い順で評価
+  categoryAccount   Account      @relation(fields: [categoryAccountId], references: [id])
+  priority          Int          @default(0) // 手動学習（learn=true）は 100。優先度降順→キーワード長い順で評価
   // ルールに当たった明細の事業利用。null はルールでは決めない（明細の今の設定・取込先の既定に任せる）
   businessUse       Boolean?
-  businessRatio     Decimal? @db.Decimal(5, 2) // 事業利用なら按分（%）。それ以外は null
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  businessRatio     Decimal?     @db.Decimal(5, 2) // 事業利用なら按分（%）。それ以外は null
+  // 当てる明細の向き。同じ摘要でも入金（割戻金など）と出金（掛金など）で科目が違うことがあるため
+  flowSide          RuleFlowSide @default(ANY)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
-  @@unique([tenantId, keyword])
+  @@unique([tenantId, keyword, flowSide])
   @@index([tenantId])
   @@map("txn_category_rules")
+}
+
+enum RuleFlowSide {
+  ANY // 入金・出金の両方
+  IN // 入金（flow が正）
+  OUT // 出金（flow が負）
 }
 
 // 借入金

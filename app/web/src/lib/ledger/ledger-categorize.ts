@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { FinancialRecord } from "@prisma/client";
 import { badRequest, notFound } from "@/lib/server/api-error";
 import { assertActualsPeriodsEditable, confirmedActualsPeriodIds } from "@/lib/budget/budget-lock";
-import { normalizeKeyword } from "@/lib/ledger/banktxn-import";
+import { normalizeKeyword, ruleSideOf } from "@/lib/ledger/banktxn-import";
 import { entryActualAmount, UNPAIRED } from "@/lib/ledger/ledger-entries";
 import type { TenantDb, TenantDbClient } from "@/lib/server/tenant-db";
 import {
@@ -98,19 +98,23 @@ export async function categorizeEntry(
 
     // 学習ルールは銀行・カードで共有する（TxnCategoryRule はテナント単位のキーワードルールのため）
     if (body.learn) {
-      await learnCategoryRule(tx, tenantId, txn.description ?? "", category.id, business);
+      await learnCategoryRule(tx, tenantId, txn.description ?? "", category.id, business, txn.flow);
     }
 
-    // 同じ摘要でまだ未割り当ての、同じ種別（銀行どうし・カードどうし）の明細にも同じ科目を付ける
-    // （学習ルールと同じ正規化で摘要を比べる。確定済みの月の明細は変えない）。
+    // 同じ摘要でまだ未割り当ての、同じ種別（銀行どうし・カードどうし）で同じ向き（入金どうし・出金どうし）の
+    // 明細にも同じ科目を付ける（学習ルールと同じ正規化で摘要を比べる。確定済みの月の明細は変えない）。
+    // 向きを見るのは、同じ摘要でも入金（割戻金など）と出金（掛金など）で科目が違うことがあるため。
     // 事業利用を指定したときは、その明細にも同じ事業利用を付ける
     const normalizedDesc = normalizeKeyword(txn.description ?? "");
     const untagged = await tx.financialRecord.findMany({
       where: { kind, accountId: null, id: { not: id }, ...UNPAIRED },
       select: { id: true, description: true, flow: true, periodId: true },
     });
+    const side = ruleSideOf(Number(txn.flow));
     const sameDesc = untagged.filter(
-      (s) => normalizeKeyword(s.description ?? "") === normalizedDesc,
+      (s) =>
+        normalizeKeyword(s.description ?? "") === normalizedDesc &&
+        ruleSideOf(Number(s.flow)) === side,
     );
     const locked = await confirmedActualsPeriodIds(
       tx,
@@ -131,8 +135,9 @@ export async function categorizeEntry(
 }
 
 /**
- * 摘要（店名）と科目の組を学習ルールに覚えさせる（手で付けた科目は優先度 100）。
- * 同じ摘要のルールがあれば、科目を付け替える。空の摘要は覚えない。
+ * 摘要（店名）と科目の組を、その明細の向き（flow の符号。入金 / 出金）のルールとして学習ルールに覚えさせる
+ * （手で付けた科目は優先度 100）。同じ摘要・同じ向きのルールがあれば、科目を付け替える。空の摘要は覚えない。
+ * 向きの無い明細（flow が 0）は ANY（両方）で覚える。
  * 事業利用は指定したときだけ覚える（科目だけを変えたときに、覚えた事業利用を消さない）。
  */
 export async function learnCategoryRule(
@@ -140,13 +145,15 @@ export async function learnCategoryRule(
   tenantId: number,
   description: string,
   categoryAccountId: number,
-  business?: BusinessSetting,
+  business: BusinessSetting | undefined,
+  flow: unknown,
 ): Promise<void> {
   const keyword = normalizeKeyword(description);
   if (keyword === "") return;
+  const flowSide = ruleSideOf(Number(flow)) ?? "ANY";
   await tx.txnCategoryRule.upsert({
-    where: { tenantId_keyword: { tenantId, keyword } },
+    where: { tenantId_keyword_flowSide: { tenantId, keyword, flowSide } },
     update: { categoryAccountId, priority: 100, ...business },
-    create: { tenantId, keyword, categoryAccountId, priority: 100, ...business },
+    create: { tenantId, keyword, flowSide, categoryAccountId, priority: 100, ...business },
   });
 }

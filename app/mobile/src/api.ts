@@ -949,10 +949,14 @@ export type AllocationRuleInput = {
 };
 
 // ── 学習ルール（摘要のキーワード → 科目。実績の画面の「設定」タブ）──────────────
+export type RuleFlowSide = "ANY" | "IN" | "OUT";
+
 export type CategoryRule = {
   id: number;
   /** 正規化したキーワード（前後の空白を除き、続く空白を 1 つにまとめ、英字は大文字） */
   keyword: string;
+  /** 当てる明細の向き（ANY = 両方、IN = 入金、OUT = 出金） */
+  flowSide: RuleFlowSide;
   priority: number;
   updatedAt: string;
   categoryAccount: {
@@ -972,6 +976,8 @@ export type CategoryRule = {
 export type CategoryRuleInput = {
   id?: number;
   keyword: string;
+  /** 省略 = 今の設定のまま（新規は ANY） */
+  flowSide?: RuleFlowSide;
   categoryAccountId: number;
   businessUse?: boolean | null;
   /** businessUse が true のときの按分（%）。省略すると 100% */

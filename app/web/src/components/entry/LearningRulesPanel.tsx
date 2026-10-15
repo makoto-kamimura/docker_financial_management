@@ -5,6 +5,7 @@
 // カードの右上に「変更を保存」、行ごとの入力と削除、表の下に「+ ルールを追加」。保存は一括（PUT）。
 // ルールを変えても、すでに付いている明細の科目は変わらない（付け直すのは実績の確定タブの「科目を付け直す」）。
 // ルールは事業利用も持てる（指定しない / 事業・按分 / 事業でない）。指定しないルールは、明細の事業利用を変えない。
+// ルールは当てる明細の向き（両方 / 入金 / 出金）を持つ。同じ摘要でも入金と出金で別の科目にできる。
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -24,9 +25,18 @@ type RuleAccount = {
   corporateName: string | null;
 };
 
+type FlowSide = "ANY" | "IN" | "OUT";
+
+const FLOW_SIDE_OPTIONS: [FlowSide, string][] = [
+  ["ANY", "両方"],
+  ["IN", "入金"],
+  ["OUT", "出金"],
+];
+
 type RuleServerRow = {
   id: number;
   keyword: string;
+  flowSide: FlowSide;
   priority: number;
   businessUse: boolean | null;
   businessRatio: number | null;
@@ -43,6 +53,7 @@ type RuleEdit = {
   /** 新規の行を見分けるための key */
   rowKey: string;
   keyword: string;
+  flowSide: FlowSide;
   /** 科目の id（"" = 未選択） */
   categoryAccountId: string;
   business: BusinessChoice;
@@ -63,6 +74,7 @@ const toEdit = (r: RuleServerRow): RuleEdit => ({
   id: r.id,
   rowKey: `id-${r.id}`,
   keyword: r.keyword,
+  flowSide: r.flowSide,
   categoryAccountId: String(r.categoryAccount.id),
   business: r.businessUse === null ? "" : r.businessUse ? "business" : "private",
   businessRatio: r.businessRatio?.toString() ?? "",
@@ -98,7 +110,7 @@ export function LearningRulesPanel({
 
   const setField = (
     index: number,
-    field: "keyword" | "categoryAccountId" | "business" | "businessRatio",
+    field: "keyword" | "flowSide" | "categoryAccountId" | "business" | "businessRatio",
     value: string,
   ) => setRules((rs) => rs.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
 
@@ -109,6 +121,7 @@ export function LearningRulesPanel({
         id: null,
         rowKey: `new-${Date.now().toString(36)}-${rs.length}`,
         keyword: "",
+        flowSide: "ANY",
         categoryAccountId: "",
         business: "",
         businessRatio: "",
@@ -149,6 +162,7 @@ export function LearningRulesPanel({
           items: rules.map((r) => ({
             ...(r.id !== null ? { id: r.id } : {}),
             keyword: r.keyword,
+            flowSide: r.flowSide,
             categoryAccountId: Number(r.categoryAccountId),
             businessUse: r.business === "" ? null : r.business === "business",
             businessRatio:
@@ -217,6 +231,7 @@ export function LearningRulesPanel({
               <thead className="text-xs text-slate-500 border-b border-slate-200">
                 <tr>
                   <th className="text-left py-2 pr-3">キーワード（摘要）</th>
+                  <th className="text-left py-2 pr-3 whitespace-nowrap">向き</th>
                   <th className="text-left py-2 pr-3">科目</th>
                   <th className="text-left py-2 pr-3 whitespace-nowrap">
                     {BUSINESS_USE_LABEL}・按分
@@ -236,6 +251,20 @@ export function LearningRulesPanel({
                         className="input-field w-full min-w-[14rem]"
                         aria-label="キーワード（摘要）"
                       />
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <select
+                        value={r.flowSide}
+                        onChange={(e) => setField(i, "flowSide", e.target.value)}
+                        className="input-field"
+                        aria-label="向き"
+                      >
+                        {FLOW_SIDE_OPTIONS.map(([v, label]) => (
+                          <option key={v} value={v}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td className="py-1.5 pr-3">
                       <select

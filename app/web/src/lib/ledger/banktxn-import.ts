@@ -57,19 +57,41 @@ export function normalizeKeyword(text: string): string {
   return text.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
-export type TxnCategoryRuleInput = { keyword: string; categoryAccountId: number; priority: number };
+/** 学習ルールを当てる明細の向き（ANY は入金・出金の両方） */
+export type RuleFlowSide = "ANY" | "IN" | "OUT";
+
+/** 明細の向き（明細の表の flow は銀行・カード・現金とも +入金 / −出金）。0 は向きなし */
+export function ruleSideOf(flow: number): "IN" | "OUT" | null {
+  const n = Math.round(flow);
+  return n > 0 ? "IN" : n < 0 ? "OUT" : null;
+}
+
+export type TxnCategoryRuleInput = {
+  keyword: string;
+  categoryAccountId: number;
+  priority: number;
+  /** 省略は ANY */
+  flowSide?: RuleFlowSide;
+};
 
 // 摘要にマッチするルールを決定する（取込時の自動分類。科目が付いた明細はそのまま実績になる）。
-// 優先度（priority）降順 → キーワード長い順で評価し、最初に一致したもの（科目・事業利用）を採用する。
+// side（明細の向き）を渡すと、その向きのルールと ANY のルールだけを見る。省略・null なら ANY のルールだけ。
+// 優先度（priority）降順 → キーワード長い順 → 向きを決めたルールを ANY より先、で評価し、
+// 最初に一致したもの（科目・事業利用）を採用する。
 export function classifyByRules<R extends TxnCategoryRuleInput>(
   description: string,
   rules: R[],
+  side?: "IN" | "OUT" | null,
 ): R | null {
   const normalizedDesc = normalizeKeyword(description);
-  const sorted = [...rules].sort((a, b) => {
-    if (b.priority !== a.priority) return b.priority - a.priority;
-    return b.keyword.length - a.keyword.length;
-  });
+  const sideOf = (r: R) => r.flowSide ?? "ANY";
+  const sorted = rules
+    .filter((r) => sideOf(r) === "ANY" || sideOf(r) === side)
+    .sort((a, b) => {
+      if (b.priority !== a.priority) return b.priority - a.priority;
+      if (b.keyword.length !== a.keyword.length) return b.keyword.length - a.keyword.length;
+      return Number(sideOf(b) !== "ANY") - Number(sideOf(a) !== "ANY");
+    });
   for (const rule of sorted) {
     if (normalizedDesc.includes(normalizeKeyword(rule.keyword))) return rule;
   }
