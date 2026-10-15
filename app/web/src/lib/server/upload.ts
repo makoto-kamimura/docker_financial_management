@@ -99,6 +99,8 @@ export type UploadedFile = {
   mimeType: string;
   size: number;
   buf: Buffer;
+  /** file 以外の項目を読むためのフォーム */
+  form?: FormData;
 };
 
 /**
@@ -131,7 +133,7 @@ export async function readUploadedFile(
   const buf = Buffer.from(await file.arrayBuffer());
   // S-8: マジックバイト検証。拡張子・Content-Type の詐称（内容不一致）を検出する
   if (!matchesMagicBytes(buf, ext)) throw badRequest("ファイルの内容が拡張子と一致しません");
-  return { fileName: file.name, ext, mimeType, size: file.size, buf };
+  return { fileName: file.name, ext, mimeType, size: file.size, buf, form: formData };
 }
 
 /** テナントの置き場所に保存し、証憑（Receipt）の行に入れる列を返す */

@@ -19,9 +19,6 @@ import { TAX_RETURN_HELP } from "../shared/help-texts";
 import { FAMILY_KIND_LABEL } from "../shared/tax-family";
 import { planNote, planSuffix, type LedgerPlan } from "../shared/tax-estimate";
 
-/** 予定の扱い（古いサーバーの応答には無いので、そのときはすべて実績として扱う） */
-const planOf = (data: TaxReturn): LedgerPlan =>
-  data.ledger.plan ?? { fromMonth: null, status: "actual" };
 import {
   DEDUCTION_GUIDES,
   NOT_COVERED,
@@ -32,6 +29,11 @@ import {
   type DeductionGuide,
   type GuideSection,
 } from "../shared/tax-guide";
+import { TaxDocumentsSection } from "../components/TaxDocumentsSection";
+
+/** 予定の扱い（古いサーバーの応答には無いので、そのときはすべて実績として扱う） */
+const planOf = (data: TaxReturn): LedgerPlan =>
+  data.ledger.plan ?? { fromMonth: null, status: "actual" };
 
 type Tab = "overview" | "deductions" | "furusato" | "changes" | "todo";
 const TABS = [
@@ -442,30 +444,7 @@ function Todo({ data }: { data: TaxReturn }) {
           </View>
         ))}
       </Card>
-      <Card style={s.card}>
-        <SectionTitle>必要な書類</SectionTitle>
-        {e.documents.length === 0 ? (
-          <Text style={s.muted}>今の入力では、集める書類はありません。</Text>
-        ) : (
-          e.documents.map((d) => (
-            <View key={d.id} style={s.section}>
-              <Text style={s.body}>
-                {checked.has(`doc:${d.id}`) ? "✓ " : "○ "}
-                {d.label}
-              </Text>
-              <Text style={s.muted}>{d.why}</Text>
-            </View>
-          ))
-        )}
-        {e.filing.willFile && (
-          <TouchableOpacity
-            onPress={() => Linking.openURL("https://www.keisan.nta.go.jp/")}
-            hitSlop={4}
-          >
-            <Text style={s.link}>確定申告書等作成コーナー（国税庁）</Text>
-          </TouchableOpacity>
-        )}
-      </Card>
+      <TaxDocumentsSection data={data} />
     </>
   );
 }

@@ -7,6 +7,7 @@ import { buildTodos, yearGuideFor } from "@/lib/shared/tax-guide";
 import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { Check } from "./fields";
+import { DocumentFiles, SelfMedicationReceipts, useTaxDocuments } from "./DocumentFiles";
 import type { TabProps } from "./types";
 
 export function ChangesTab({ year }: TabProps) {
@@ -63,6 +64,9 @@ function Sections({ items }: { items: { title: string; body: string }[] }) {
 
 export function TodoTab({ year, draft, estimate, update }: TabProps) {
   const todos = buildTodos(year, estimate);
+  const files = useTaxDocuments(year);
+  const filesOf = (docId: string) => (files.data?.documents ?? []).filter((f) => f.docId === docId);
+  const selfMedReceipts = files.data?.selfMedicationReceipts ?? [];
   const checked = new Set(draft.checks);
   const toggle = (id: string, on: boolean) =>
     update({
@@ -93,20 +97,21 @@ export function TodoTab({ year, draft, estimate, update }: TabProps) {
       </SectionCard>
       <SectionCard
         title="必要な書類"
-        lead="入力した控除から、申告や年末調整で使う書類を出しています。"
+        lead="入力した控除から、申告や年末調整で使う書類を出しています。届いた証明書は撮影して残せます。"
       >
         {estimate.documents.length === 0 ? (
           <p className="text-sm text-slate-500">今の入力では、集める書類はありません。</p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {estimate.documents.map((d) => (
-              <li key={d.id}>
+              <li key={d.id} className="rounded-lg border border-slate-200 p-3">
                 <Check
                   label={d.label}
                   hint={d.why}
                   checked={checked.has(`doc:${d.id}`)}
                   onChange={(v) => toggle(`doc:${d.id}`, v)}
                 />
+                <DocumentFiles year={year} docId={d.id} files={filesOf(d.id)} />
               </li>
             ))}
           </ul>
@@ -121,6 +126,19 @@ export function TodoTab({ year, draft, estimate, update }: TabProps) {
             確定申告書等作成コーナー（国税庁）
             <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
           </a>
+        )}
+      </SectionCard>
+      <SectionCard
+        title="セルフメディケーションのレシート"
+        lead="セルフメディケーション税制の明細書に書く、対象の市販薬のレシートです。確定申告の後 5 年間は保管が必要です。"
+      >
+        {files.isLoading ? (
+          <p className="text-sm text-slate-500">読み込み中…</p>
+        ) : (
+          <SelfMedicationReceipts
+            receipts={selfMedReceipts}
+            onUseTotal={(total) => update({ selfMedication: total })}
+          />
         )}
       </SectionCard>
     </>

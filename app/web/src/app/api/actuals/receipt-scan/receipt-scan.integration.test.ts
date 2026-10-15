@@ -41,6 +41,7 @@ const { tesseractDraft, scanWithTesseract } = vi.hoisted(() => {
     merchant: "コンビニマート",
     total: 1280,
     items: [],
+    selfMedicationTotal: null,
     paymentMethod: "cash" as const,
   };
   return { tesseractDraft, scanWithTesseract: vi.fn(async () => ({ draft: tesseractDraft })) };
@@ -82,7 +83,8 @@ const claudeDraft = {
   date: "2026-10-12",
   merchant: "スーパーマルヤマ",
   total: 3456,
-  items: [{ name: "牛乳", amount: 250 }],
+  items: [{ name: "牛乳", amount: 250, selfMedication: false }],
+  selfMedicationTotal: null,
   paymentMethod: "card",
 };
 const okReply = (): ClaudeReply => ({

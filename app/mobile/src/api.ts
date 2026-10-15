@@ -456,7 +456,10 @@ export type ReceiptScanResult = {
     date: string | null;
     merchant: string | null;
     total: number | null;
-    items: { name: string; amount: number }[];
+    /** selfMedication はセルフメディケーション税制の対象品（古いサーバーの応答には無い） */
+    items: { name: string; amount: number; selfMedication?: boolean }[];
+    /** 印字されたセルフメディケーション税制の対象額 */
+    selfMedicationTotal?: number | null;
     paymentMethod: "cash" | "card" | "emoney" | "unknown";
   };
   engine: ReceiptEngine;
@@ -483,9 +486,9 @@ const SCAN_TIMEOUT_MS = 90_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
 
 // React Native の FormData は { uri, name, type } でファイルを送る
-function photoForm(uri: string): FormData {
+function photoForm(uri: string, name = "receipt.jpg"): FormData {
   const body = new FormData();
-  body.append("file", { uri, name: "receipt.jpg", type: "image/jpeg" } as unknown as Blob);
+  body.append("file", { uri, name, type: "image/jpeg" } as unknown as Blob);
   return body;
 }
 
@@ -500,14 +503,84 @@ export async function scanReceipt(uri: string): Promise<ReceiptScanResult> {
   return json.data;
 }
 
-/** 登録した現金の明細に、レシートの写真を証憑として付ける */
-export async function attachActualReceipt(id: number, uri: string): Promise<void> {
+export type SelfMedicationDraft = { amount: number; items: { name: string; amount: number }[] };
+
+/**
+ * 登録した現金の明細に、レシートの写真を証憑として付ける。
+ * selfMedication を渡すと、セルフメディケーション税制の対象の額と品目も残す（控除・確定申告で使う）
+ */
+export async function attachActualReceipt(
+  id: number,
+  uri: string,
+  selfMedication?: SelfMedicationDraft | null,
+): Promise<void> {
+  const body = photoForm(uri);
+  if (selfMedication) {
+    body.append("selfMedicationAmount", String(selfMedication.amount));
+    body.append("selfMedicationItems", JSON.stringify(selfMedication.items));
+  }
   await request(
     `/actuals/${id}/receipts`,
     "写真の保存に失敗しました",
-    { method: "POST", body: photoForm(uri) },
+    { method: "POST", body },
     UPLOAD_TIMEOUT_MS,
   );
+}
+
+// ── 控除・確定申告の書類のファイル（GET/POST /tax-return/documents・DELETE /tax-return/documents/[id]）──
+export type TaxDocumentFile = {
+  id: number;
+  docId: string;
+  fileName: string;
+  fileType: string;
+  /** /api から始まる配信の URL。画像の表示は authedImage で */
+  fileUrl: string;
+  uploadedAt: string;
+};
+
+export type SelfMedicationReceipt = {
+  id: number;
+  date: string | null;
+  merchant: string;
+  amount: number;
+  items: { name: string; amount: number }[];
+  fileName: string;
+  fileType: string;
+  fileUrl: string;
+};
+
+export async function fetchTaxDocuments(
+  year: number,
+): Promise<{ documents: TaxDocumentFile[]; selfMedicationReceipts: SelfMedicationReceipt[] }> {
+  const json = await request<{
+    data: { documents: TaxDocumentFile[]; selfMedicationReceipts: SelfMedicationReceipt[] };
+  }>(`/tax-return/documents?year=${year}`, "書類の一覧を取得できませんでした");
+  return json.data;
+}
+
+/** 撮った証明書の写真（JPEG）を、書類（docId）のファイルとして残す */
+export async function uploadTaxDocument(year: number, docId: string, uri: string): Promise<void> {
+  const body = photoForm(uri, `${docId}.jpg`);
+  body.append("year", String(year));
+  body.append("docId", docId);
+  await request(
+    "/tax-return/documents",
+    "写真の保存に失敗しました",
+    { method: "POST", body },
+    UPLOAD_TIMEOUT_MS,
+  );
+}
+
+export async function deleteTaxDocument(id: number): Promise<void> {
+  await request(`/tax-return/documents/${id}`, "削除に失敗しました", { method: "DELETE" });
+}
+
+/** 認証の要る画像（/api/... の URL）を Image に渡す形にする */
+export function authedImage(fileUrl: string): { uri: string; headers: Record<string, string> } {
+  return {
+    uri: `${API_BASE_URL}${fileUrl.replace(/^\/api/, "")}`,
+    headers: _session ? { Authorization: `Bearer ${_session}` } : {},
+  };
 }
 
 export async function deleteActual(id: number): Promise<void> {

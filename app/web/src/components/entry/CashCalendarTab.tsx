@@ -11,6 +11,7 @@ import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { yen } from "@/lib/common/format";
 import { ReceiptScanButton, type ReceiptScanResult } from "@/components/entry/ReceiptScanButton";
+import { selfMedicationOf } from "@/lib/shared/self-medication";
 import { BusinessTag } from "@/components/LedgerTable";
 import {
   BUSINESS_USE_LABEL,
@@ -57,6 +58,12 @@ export function CashCalendarTab({
   // 読み取ったレシートの写真。登録した明細に証憑として付ける
   const [receiptPhoto, setReceiptPhoto] = useState<File | null>(null);
   const [calLearn, setCalLearn] = useState(true);
+  // セルフメディケーション税制の対象の市販薬を含むレシート。証憑に対象の額と品目を残す（控除・確定申告で使う）
+  const [selfMed, setSelfMed] = useState<{
+    on: boolean;
+    amount: string;
+    items: { name: string; amount: number }[];
+  } | null>(null);
   // 個人事業主モードは事業利用の明細だけを、事業の分の額で出す。登録は事業利用で始める
   // （按分を空けると、科目の事業利用按分の割合、無ければ 100%）
   const businessMode = mode === "sole";
@@ -153,12 +160,17 @@ export function CashCalendarTab({
         const { data } = (await res.json()) as { data: CashEntry };
         const body = new FormData();
         body.append("file", receiptPhoto);
+        if (selfMed?.on && /^\d+$/.test(selfMed.amount)) {
+          body.append("selfMedicationAmount", selfMed.amount);
+          body.append("selfMedicationItems", JSON.stringify(selfMed.items));
+        }
         const up = await fetch(`/api/actuals/${data.id}/receipts`, { method: "POST", body });
         if (!up.ok) setCalError("実績は登録しましたが、レシートの写真を保存できませんでした");
       }
       setCalForm(BLANK_CAL_FORM);
       setFromReceipt(false);
       setReceiptPhoto(null);
+      setSelfMed(null);
       invalidateActuals(queryClient);
     } else {
       const j = (await res.json()) as { error?: string };
@@ -192,6 +204,8 @@ export function CashCalendarTab({
     });
     setFromReceipt(true);
     setReceiptPhoto(photo);
+    const sm = selfMedicationOf(draft);
+    setSelfMed({ on: sm !== null, amount: sm ? String(sm.amount) : "", items: sm?.items ?? [] });
     setCalError("");
   }
 
@@ -421,6 +435,38 @@ export function CashCalendarTab({
                     />
                     次から同じ店名には、この科目を使う（学習ルールに覚える）
                   </label>
+                )}
+                {fromReceipt && selfMed && (
+                  <div className="space-y-1 rounded border border-slate-200 p-2 text-[10px] text-slate-600">
+                    <label className="flex items-start gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={selfMed.on}
+                        onChange={(e) => setSelfMed({ ...selfMed, on: e.target.checked })}
+                        className="mt-0.5"
+                      />
+                      セルフメディケーション税制の対象の市販薬を含む（レシートを控除・確定申告で使う）
+                    </label>
+                    {selfMed.on && (
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <span>対象の額</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={selfMed.amount}
+                            onChange={(e) => setSelfMed({ ...selfMed, amount: e.target.value })}
+                            aria-label="セルフメディケーションの対象の額"
+                            className="input-field w-24 text-right text-xs"
+                          />
+                          <span>円</span>
+                        </div>
+                        {selfMed.items.length > 0 && (
+                          <p>対象の品目: {selfMed.items.map((i) => i.name).join("、")}</p>
+                        )}
+                      </>
+                    )}
+                  </div>
                 )}
                 {calError && <p className="text-xs text-red-600">{calError}</p>}
                 <button type="submit" disabled={calSaving} className="btn-primary text-xs mt-1">

@@ -4,6 +4,7 @@ import {
   findPaymentMethod,
   findReceiptDate,
   findReceiptTotal,
+  findSelfMedication,
   normalizeOcrText,
   parseReceiptText,
 } from "./parse-receipt-text";
@@ -90,7 +91,36 @@ describe("parseReceiptText", () => {
       merchant: "コンビニマート",
       total: 1280,
       items: [],
+      selfMedicationTotal: null,
       paymentMethod: "cash",
+    });
+  });
+});
+
+describe("findSelfMedication", () => {
+  it("注記のあるレシートで、印の付いた品目と対象額を拾う", () => {
+    const raw = [
+      "ドラッグストアミドリ",
+      "2026年10月13日",
+      "★ かぜ薬A ¥1,480",
+      "ティッシュ ¥298",
+      "★ 目薬B ¥980",
+      "合計 ¥2,758",
+      "★印はセルフメディケーション税制対象商品",
+      "セルフメディケーション対象額 ¥2,460",
+    ].join("\n");
+    const d = parseReceiptText(raw);
+    expect(d.items).toEqual([
+      { name: "かぜ薬A", amount: 1480, selfMedication: true },
+      { name: "目薬B", amount: 980, selfMedication: true },
+    ]);
+    expect(d.selfMedicationTotal).toBe(2460);
+  });
+
+  it("注記が無ければ印があっても拾わない", () => {
+    expect(findSelfMedication("★ ポイント2倍 ¥100\n合計 ¥100")).toEqual({
+      items: [],
+      total: null,
     });
   });
 });
