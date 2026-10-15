@@ -8,6 +8,8 @@ import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { Check } from "./fields";
 import { DocumentFiles, SelfMedicationReceipts, useTaxDocuments } from "./DocumentFiles";
+import { TaxFormsCard } from "./TaxFormsCard";
+import type { ActualsScope } from "@/lib/shared/business-use";
 import type { TabProps } from "./types";
 
 export function ChangesTab({ year }: TabProps) {
@@ -62,7 +64,14 @@ function Sections({ items }: { items: { title: string; body: string }[] }) {
   );
 }
 
-export function TodoTab({ year, draft, estimate, update }: TabProps) {
+export function TodoTab({
+  year,
+  draft,
+  estimate,
+  update,
+  scope,
+  dirty,
+}: TabProps & { scope: ActualsScope; dirty: boolean }) {
   const todos = buildTodos(year, estimate);
   const files = useTaxDocuments(year);
   const filesOf = (docId: string) => (files.data?.documents ?? []).filter((f) => f.docId === docId);
@@ -95,6 +104,7 @@ export function TodoTab({ year, draft, estimate, update }: TabProps) {
           ))}
         </ul>
       </SectionCard>
+      <TaxFormsCard year={year} scope={scope} dirty={dirty} />
       <SectionCard
         title="必要な書類"
         lead="入力した控除から、申告や年末調整で使う書類を出しています。届いた証明書は撮影して残せます。"

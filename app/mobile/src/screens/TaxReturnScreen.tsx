@@ -30,6 +30,7 @@ import {
   type GuideSection,
 } from "../shared/tax-guide";
 import { TaxDocumentsSection } from "../components/TaxDocumentsSection";
+import { TaxFormsSection } from "../components/TaxFormsSection";
 
 /** 予定の扱い（古いサーバーの応答には無いので、そのときはすべて実績として扱う） */
 const planOf = (data: TaxReturn): LedgerPlan =>
@@ -444,6 +445,7 @@ function Todo({ data }: { data: TaxReturn }) {
           </View>
         ))}
       </Card>
+      <TaxFormsSection year={data.year} />
       <TaxDocumentsSection data={data} />
     </>
   );

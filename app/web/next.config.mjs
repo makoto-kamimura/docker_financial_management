@@ -33,7 +33,9 @@ const nextConfig = {
   typescript: { ignoreBuildErrors: process.env.SKIP_TYPECHECK === "1" },
   // レシートの読み取り（lib/ledger/receipt-scan/tesseract.ts）は、worker_threads と wasm を
   // パッケージの中のパスから読み込むため、バンドルせずに node_modules から読む
-  serverExternalPackages: ["tesseract.js"],
+  // 申告書の PDF（lib/tax/forms/pdf.ts）のフォントのサブセット（subset-font）も、harfbuzz の wasm を
+  // パッケージの中から読むので同じく外に出す
+  serverExternalPackages: ["tesseract.js", "subset-font", "harfbuzzjs"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
