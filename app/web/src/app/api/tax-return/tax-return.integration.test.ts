@@ -3,6 +3,7 @@
  *
  *   - 帳簿の年合計を科目コードで下書きにする（通勤手当 H-1017 は給与に入れない）
  *   - 保存した入力（上書き）が帳簿の値より優先される
+ *   - 給与明細を使うと、帳簿の振込額（手取り）から額面・社会保険料・源泉所得税を出す。給与明細の無い古い入力も読める
  *   - 個人事業主モード（scope=business）は事業の分の利益から事業所得を出し、青色申告なら 65 万円を引く
  *   - 住宅ローンの 12/31 時点の残高を下書きにする
  *   - 設定の上書きが見込みの計算に効き、前年からのコピー・既定値に戻すができる
@@ -22,7 +23,7 @@ vi.mock("@/lib/server/authz", () => ({
 import { prisma } from "@/lib/server/prisma";
 import { emptyRouteContext } from "@/lib/server/api-handler";
 import { createTestEntry } from "@/lib/ledger/test-entries";
-import { emptyTaxInputs } from "@/lib/shared/tax-estimate";
+import { emptyPayroll, emptyTaxInputs } from "@/lib/shared/tax-estimate";
 import { GET as taxReturnGet, PUT as taxReturnPut } from "./route";
 import { GET as rulesGet, PUT as rulesPut, DELETE as rulesDelete } from "../tax-rules/route";
 import { POST as rulesCopy } from "../tax-rules/copy/route";
@@ -153,6 +154,7 @@ describe("GET /api/tax-return", () => {
     const { ledger, estimate, rulesInfo } = json.data;
     expect(ledger).toMatchObject({
       salary: 5_000_000,
+      salaryDeposit: 5_120_000,
       socialInsurance: 750_000,
       withheldTax: 100_000,
       medical: 150_000,
@@ -194,6 +196,51 @@ describe("PUT /api/tax-return", () => {
       source: "input",
       ledger: 5_000_000,
     });
+  });
+
+  it("給与明細を使うと、振込額を手取りとして額面・社会保険料・源泉所得税を出す", async () => {
+    const item = (monthly: number) => ({ monthly, months: 12, bonus: 0, annual: null });
+    const payroll = {
+      ...emptyPayroll(),
+      enabled: true,
+      commute: item(10_000),
+      health: item(20_000),
+      pension: item(36_600),
+      employment: item(2_400),
+      incomeTax: item(10_000),
+      residentTax: { ...item(0), annual: 200_000 },
+    };
+    const put = await call(taxReturnPut, "/api/tax-return", "PUT", {
+      year: YEAR,
+      inputs: { ...emptyTaxInputs(YEAR), payroll },
+    });
+    expect(put.status).toBe(200);
+    const { json } = await call(taxReturnGet, `/api/tax-return?year=${YEAR}`);
+    const e = json.data.estimate;
+    expect(json.data.inputs.payroll.residentTax.annual).toBe(200_000);
+    // 天引き 社会保険 708,000 ＋ 所得税 120,000 ＋ 住民税 200,000
+    expect(e.payroll.gross).toBe(5_120_000 + 1_028_000);
+    expect(e.income.salary).toBe(5_120_000 + 1_028_000 - 120_000);
+    expect(e.values.socialInsurance).toEqual({
+      value: 708_000,
+      source: "payroll",
+      ledger: 750_000,
+    });
+    expect(e.refund.withheld).toBe(120_000);
+  });
+
+  it("給与明細の無い古い入力も初期値で埋めて読める", async () => {
+    const { payroll, ...old } = emptyTaxInputs(YEAR);
+    expect(payroll.enabled).toBe(false);
+    await prisma.taxReturnInput.update({
+      where: { tenantId_taxYear: { tenantId, taxYear: YEAR } },
+      data: { inputs: { ...old, salary: 6_000_000 } },
+    });
+    const { status, json } = await call(taxReturnGet, `/api/tax-return?year=${YEAR}`);
+    expect(status).toBe(200);
+    expect(json.data.inputs.salary).toBe(6_000_000);
+    expect(json.data.inputs.payroll).toEqual(emptyPayroll());
+    expect(json.data.estimate.payroll).toBeNull();
   });
 
   it("形の合わない入力は 400", async () => {

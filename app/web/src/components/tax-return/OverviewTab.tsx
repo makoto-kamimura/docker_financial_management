@@ -54,7 +54,11 @@ export function OverviewTab({ year, estimate: e }: TabProps) {
           label={`${year + 1} 年度の住民税（見込み）`}
           value={yen(e.resident.total)}
           sub={
-            e.resident.nonTaxable ? "非課税の見込み" : `均等割 ${yen(e.resident.perCapita)} を含む`
+            e.resident.nonTaxable
+              ? "非課税の見込み"
+              : e.payroll && e.payroll.resident.withheldThisYear > 0
+                ? `月額の目安 ${yen(e.payroll.resident.nextMonthly)}（今年の天引き ${yen(e.payroll.resident.withheldThisYear)}）`
+                : `均等割 ${yen(e.resident.perCapita)} を含む`
           }
         />
         <StatTile

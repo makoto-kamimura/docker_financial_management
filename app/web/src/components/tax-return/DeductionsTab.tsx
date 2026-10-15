@@ -7,7 +7,7 @@ import { yen } from "@/lib/common/format";
 import { DEDUCTION_GUIDES, type DeductionGuide } from "@/lib/shared/tax-guide";
 import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
-import { AmountField, Check, LedgerAmountField, TwoAmounts } from "./fields";
+import { AmountField, Check, Field, LedgerAmountField, TwoAmounts } from "./fields";
 import { GuideDetails } from "./GuideDetails";
 import type { TabProps } from "./types";
 
@@ -66,6 +66,27 @@ function Inputs({
 }: TabProps & { guide: DeductionGuide }) {
   switch (guide.key) {
     case "socialInsurance":
+      if (e.payroll) {
+        const payroll = e.payroll;
+        return (
+          <Grid>
+            <Field
+              label="給与からの天引き"
+              hint="給与明細（家族と所得のタブ）の健康保険・介護保険・子ども・子育て支援金・厚生年金・雇用保険"
+            >
+              <div className="py-2 text-right font-semibold tabular-nums text-slate-900">
+                {yen(payroll.social)}
+              </div>
+            </Field>
+            <AmountField
+              label="自分で払った社会保険料"
+              value={draft.payroll.otherSocialInsurance}
+              onChange={(v) => update({ payroll: { ...draft.payroll, otherSocialInsurance: v } })}
+              hint="国民年金・国民健康保険、家族の分を払った場合など"
+            />
+          </Grid>
+        );
+      }
       return (
         <Grid>
           <LedgerAmountField

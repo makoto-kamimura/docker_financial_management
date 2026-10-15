@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_TAX_RULES } from "./tax-rules";
 import {
+  emptyPayroll,
   emptyTaxInputs,
   estimateTax,
   housingLoanCredit,
   lifeInsuranceDeduction,
+  payrollTotal,
+  type PayrollInput,
   type TaxInputs,
   type TaxLedger,
 } from "./tax-estimate";
@@ -15,6 +18,7 @@ const r2026 = DEFAULT_TAX_RULES[2026];
 
 const ledger = (over: Partial<TaxLedger> = {}): TaxLedger => ({
   salary: 0,
+  salaryDeposit: 0,
   socialInsurance: 0,
   withheldTax: 0,
   lifeGeneral: 0,
@@ -313,5 +317,120 @@ describe("確定申告の要否と還付", () => {
     const e = estimateTax(r2026, 2026, salaried(5_000_000), inputs({ salary: 6_000_000 }));
     expect(e.values.salary).toEqual({ value: 6_000_000, source: "input", ledger: 5_000_000 });
     expect(e.income.salary).toBe(6_000_000);
+  });
+});
+
+describe("給与明細から出す", () => {
+  const monthly = (m: number, bonus = 0, months = 12) => ({
+    monthly: m,
+    months,
+    bonus,
+    annual: null,
+  });
+  const payroll = (over: Partial<PayrollInput> = {}): PayrollInput => ({
+    ...emptyPayroll(),
+    enabled: true,
+    health: monthly(15_000, 30_000),
+    care: monthly(0),
+    childSupport: monthly(350, 0, 8),
+    pension: monthly(27_450, 54_900),
+    employment: monthly(1_800, 3_600),
+    incomeTax: monthly(8_000, 20_000),
+    residentTax: monthly(15_000),
+    other: monthly(5_000),
+    ...over,
+  });
+
+  it("年合計は月額 × 月数 ＋ 賞与。年合計を入れたらそちらを使う", () => {
+    expect(payrollTotal(monthly(15_000, 30_000))).toBe(210_000);
+    expect(payrollTotal({ ...monthly(15_000, 30_000), annual: 200_000 })).toBe(200_000);
+  });
+
+  it("帳簿が手取りなら、額面は手取り ＋ 天引きの合計で逆算し、通勤手当は課税の給与から除く", () => {
+    const p = payroll({ commute: monthly(10_000) });
+    const e = estimateTax(
+      r2026,
+      2026,
+      ledger({ salaryDeposit: 4_000_000 }),
+      inputs({ payroll: p }),
+    );
+    const social = 210_000 + 2_800 + 384_300 + 25_200;
+    const withheld = social + 116_000 + 180_000 + 60_000;
+    expect(e.payroll?.social).toBe(social);
+    expect(e.payroll?.gross).toBe(4_000_000 + withheld);
+    expect(e.payroll?.grossSource).toBe("takeHome");
+    expect(e.income.salary).toBe(4_000_000 + withheld - 120_000);
+    expect(e.values.socialInsurance).toEqual({ value: social, source: "payroll", ledger: 0 });
+    expect(e.deductions.find((d) => d.key === "socialInsurance")?.income).toBe(social);
+    expect(e.refund.withheld).toBe(116_000);
+  });
+
+  it("総支給を入れたらそれを使い、手取りとの差額を出す", () => {
+    const p = payroll({ gross: { ...monthly(0), annual: 5_000_000 } });
+    const e = estimateTax(
+      r2026,
+      2026,
+      ledger({ salaryDeposit: 4_000_000 }),
+      inputs({ payroll: p }),
+    );
+    expect(e.payroll?.grossSource).toBe("input");
+    expect(e.income.salary).toBe(5_000_000);
+    expect(e.payroll?.diff).toBe(5_000_000 - e.payroll!.withheldTotal - 4_000_000);
+  });
+
+  it("帳簿が額面なら帳簿の給与（通勤手当を除く）を使い、手取りは見ない", () => {
+    const p = payroll({ ledgerSalaryIs: "gross", commute: monthly(10_000) });
+    const e = estimateTax(
+      r2026,
+      2026,
+      ledger({ salary: 5_000_000, salaryDeposit: 5_120_000 }),
+      inputs({ payroll: p }),
+    );
+    expect(e.payroll?.takeHome.value).toBe(0);
+    expect(e.payroll?.gross).toBe(5_120_000);
+    expect(e.income.salary).toBe(5_000_000);
+  });
+
+  it("自分で払った社会保険料を足せる。証明書は自分で払った分があるときだけ", () => {
+    const base = estimateTax(
+      r2026,
+      2026,
+      ledger({ salaryDeposit: 4_000_000 }),
+      inputs({ payroll: payroll() }),
+    );
+    expect(base.documents.map((d) => d.id)).not.toContain("socialInsuranceCert");
+    const e = estimateTax(
+      r2026,
+      2026,
+      ledger({ salaryDeposit: 4_000_000 }),
+      inputs({ payroll: payroll({ otherSocialInsurance: 210_120 }) }),
+    );
+    expect(e.values.socialInsurance.value).toBe(base.values.socialInsurance.value + 210_120);
+    expect(e.documents.map((d) => d.id)).toContain("socialInsuranceCert");
+  });
+
+  it("住民税は今年の天引き額と、来年 6 月からの見込み（月額）を並べる", () => {
+    const e = estimateTax(
+      r2026,
+      2026,
+      ledger({ salaryDeposit: 4_000_000 }),
+      inputs({ payroll: payroll() }),
+    );
+    expect(e.payroll?.resident.withheldThisYear).toBe(180_000);
+    expect(e.payroll?.resident.nextYear).toBe(e.resident.total);
+    expect(e.payroll?.resident.nextMonthly).toBe(Math.floor(e.resident.total / 12));
+  });
+
+  it("使わないときは帳簿の値のまま（上書きも効く）", () => {
+    const p = { ...payroll(), enabled: false };
+    const e = estimateTax(
+      r2026,
+      2026,
+      salaried(5_000_000),
+      inputs({ payroll: p, salary: 6_000_000 }),
+    );
+    expect(e.payroll).toBeNull();
+    expect(e.values.salary.source).toBe("input");
+    expect(e.values.socialInsurance).toEqual({ value: 750_000, source: "ledger", ledger: 750_000 });
   });
 });
