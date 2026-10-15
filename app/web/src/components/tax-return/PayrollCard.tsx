@@ -17,6 +17,7 @@ import {
 import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { Check, LedgerAmountField, SelectField, YenInput } from "./fields";
+import { DocumentUploads } from "./DocumentFiles";
 import type { TabProps } from "./types";
 
 const ROWS: readonly { key: PayrollItemKey; label: string; hint?: string }[] = [
@@ -233,6 +234,7 @@ export function PayrollCard({ year, ledger, draft, estimate: e, update }: TabPro
               note={`この年の所得から出した見込み。月額の目安 ${yen(r.resident.nextMonthly)}`}
             />
           </dl>
+          <DocumentUploads year={year} place="income" documents={e.documents} />
         </>
       )}
     </SectionCard>

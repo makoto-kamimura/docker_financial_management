@@ -9,6 +9,7 @@ import { planSuffix, yearTotalLabel } from "@/lib/shared/tax-estimate";
 import { SectionCard } from "@/components/SectionCard";
 import { AmountField, Check, Field, LedgerAmountField, SelectField, YenInput } from "./fields";
 import { PayrollCard } from "./PayrollCard";
+import { DocumentUploads } from "./DocumentFiles";
 import type { TabProps } from "./types";
 
 const DISABILITY_OPTIONS = [
@@ -85,6 +86,7 @@ export function FamilyIncomeTab(props: TabProps) {
             onChange={(v) => update({ workingStudent: v })}
           />
         </div>
+        <DocumentUploads year={year} place="disability" documents={estimate.documents} />
       </SectionCard>
 
       <PayrollCard {...props} />
@@ -166,6 +168,11 @@ export function FamilyIncomeTab(props: TabProps) {
             </>
           )}
         </div>
+        {/* 給与明細を使うときは、源泉徴収票は給与明細のカードに出す */}
+        {!estimate.payroll && (
+          <DocumentUploads year={year} place="income" documents={estimate.documents} />
+        )}
+        <DocumentUploads year={year} place="business" documents={estimate.documents} />
       </SectionCard>
 
       <SectionCard

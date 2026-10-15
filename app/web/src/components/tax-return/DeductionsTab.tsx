@@ -10,6 +10,8 @@ import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { AmountField, Check, Field, LedgerAmountField, TwoAmounts } from "./fields";
 import { GuideDetails } from "./GuideDetails";
+import { DocumentUploads, SelfMedicationReceiptsSection } from "./DocumentFiles";
+import type { TaxDocumentPlace } from "@/lib/shared/tax-documents";
 import type { TabProps } from "./types";
 
 const FAMILY_KEYS = new Set([
@@ -43,6 +45,18 @@ export function DeductionsTab(props: TabProps) {
           >
             <TwoAmounts income={line?.income ?? 0} resident={line?.resident ?? 0} />
             <Inputs guide={g} {...props} />
+            <DocumentUploads
+              year={props.year}
+              place={`deduction:${g.key}` as TaxDocumentPlace}
+              documents={e.documents}
+            />
+            {g.key === "medical" && (
+              <SelfMedicationReceiptsSection
+                year={props.year}
+                show={props.draft.selfMedicationEligible}
+                onUseTotal={(total) => props.update({ selfMedication: total })}
+              />
+            )}
             {FAMILY_KEYS.has(g.key) && (
               <p className="mt-3 text-xs text-slate-500">入力は「家族と所得」のタブです。</p>
             )}

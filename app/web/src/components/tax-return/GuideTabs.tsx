@@ -7,7 +7,13 @@ import { buildTodos, yearGuideFor } from "@/lib/shared/tax-guide";
 import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { Check } from "./fields";
-import { DocumentFiles, SelfMedicationReceipts, useTaxDocuments } from "./DocumentFiles";
+import { useTaxDocuments } from "./DocumentFiles";
+import {
+  documentStatus,
+  isTaxDocumentId,
+  TAX_DOCUMENTS,
+  type TaxDocumentPlace,
+} from "@/lib/shared/tax-documents";
 import { TaxFormsCard } from "./TaxFormsCard";
 import type { ActualsScope } from "@/lib/shared/business-use";
 import type { TabProps } from "./types";
@@ -64,6 +70,28 @@ function Sections({ items }: { items: { title: string; body: string }[] }) {
   );
 }
 
+/** 書類の置き場所と、その入力欄があるタブ */
+export type DocumentTab = "family" | "deductions" | "housing";
+const PLACE_TAB: Record<TaxDocumentPlace, DocumentTab | null> = {
+  income: "family",
+  business: "family",
+  disability: "family",
+  "deduction:socialInsurance": "deductions",
+  "deduction:smallBusinessMutualAid": "deductions",
+  "deduction:lifeInsurance": "deductions",
+  "deduction:earthquake": "deductions",
+  "deduction:medical": "deductions",
+  "deduction:casualty": "deductions",
+  "deduction:donation": "deductions",
+  housing: "housing",
+  filing: null,
+};
+const TAB_LABEL: Record<DocumentTab, string> = {
+  family: "家族と所得",
+  deductions: "所得控除",
+  housing: "住宅・税額控除",
+};
+
 export function TodoTab({
   year,
   draft,
@@ -71,11 +99,17 @@ export function TodoTab({
   update,
   scope,
   dirty,
-}: TabProps & { scope: ActualsScope; dirty: boolean }) {
+  onOpenTab,
+}: TabProps & { scope: ActualsScope; dirty: boolean; onOpenTab: (tab: DocumentTab) => void }) {
   const todos = buildTodos(year, estimate);
   const files = useTaxDocuments(year);
-  const filesOf = (docId: string) => (files.data?.documents ?? []).filter((f) => f.docId === docId);
-  const selfMedReceipts = files.data?.selfMedicationReceipts ?? [];
+  const status = new Map(
+    documentStatus(
+      estimate.documents,
+      files.data?.documents ?? [],
+      files.data?.selfMedicationReceipts.length ?? 0,
+    ).map((s) => [s.id, s]),
+  );
   const checked = new Set(draft.checks);
   const toggle = (id: string, on: boolean) =>
     update({
@@ -107,23 +141,50 @@ export function TodoTab({
       <TaxFormsCard year={year} scope={scope} dirty={dirty} />
       <SectionCard
         title="必要な書類"
-        lead="入力した控除から、申告や年末調整で使う書類を出しています。届いた証明書は撮影して残せます。"
+        lead="入力した控除から、申告や年末調整で使う書類を出しています。届いた証明書は、それぞれの入力欄のそばで撮影・アップロードして残せます。"
       >
         {estimate.documents.length === 0 ? (
           <p className="text-sm text-slate-500">今の入力では、集める書類はありません。</p>
         ) : (
           <ul className="space-y-3">
-            {estimate.documents.map((d) => (
-              <li key={d.id} className="rounded-lg border border-slate-200 p-3">
-                <Check
-                  label={d.label}
-                  hint={d.why}
-                  checked={checked.has(`doc:${d.id}`)}
-                  onChange={(v) => toggle(`doc:${d.id}`, v)}
-                />
-                <DocumentFiles year={year} docId={d.id} files={filesOf(d.id)} />
-              </li>
-            ))}
+            {estimate.documents.map((d) => {
+              const st = status.get(d.id);
+              const tab = isTaxDocumentId(d.id) ? PLACE_TAB[TAX_DOCUMENTS[d.id].place] : null;
+              const kept = d.id === "selfMedicationStatement" ? "保存したレシート" : "保存済み";
+              return (
+                <li
+                  key={d.id}
+                  className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-slate-200 p-3"
+                >
+                  <Check
+                    label={d.label}
+                    hint={d.why}
+                    checked={checked.has(`doc:${d.id}`)}
+                    onChange={(v) => toggle(`doc:${d.id}`, v)}
+                  />
+                  <div className="flex shrink-0 items-center gap-2">
+                    {files.isLoading ? null : d.id === "myNumber" ? (
+                      <span className="badge badge-slate">提出のときに用意（保存しません）</span>
+                    ) : st && st.count > 0 ? (
+                      <span className="badge badge-green">
+                        {kept} {st.count} 枚
+                      </span>
+                    ) : (
+                      <span className="badge badge-amber">未保存</span>
+                    )}
+                    {tab && (
+                      <button
+                        type="button"
+                        className="text-xs text-indigo-600 hover:underline"
+                        onClick={() => onOpenTab(tab)}
+                      >
+                        {TAB_LABEL[tab]}の入力欄へ
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
         {estimate.filing.willFile && (
@@ -136,19 +197,6 @@ export function TodoTab({
             確定申告書等作成コーナー（国税庁）
             <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
           </a>
-        )}
-      </SectionCard>
-      <SectionCard
-        title="セルフメディケーションのレシート"
-        lead="セルフメディケーション税制の明細書に書く、対象の市販薬のレシートです。確定申告の後 5 年間は保管が必要です。"
-      >
-        {files.isLoading ? (
-          <p className="text-sm text-slate-500">読み込み中…</p>
-        ) : (
-          <SelfMedicationReceipts
-            receipts={selfMedReceipts}
-            onUseTotal={(total) => update({ selfMedication: total })}
-          />
         )}
       </SectionCard>
     </>
