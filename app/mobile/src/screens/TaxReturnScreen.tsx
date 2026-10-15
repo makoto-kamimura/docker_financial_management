@@ -29,7 +29,13 @@ import {
   type DeductionGuide,
   type GuideSection,
 } from "../shared/tax-guide";
-import { TaxDocumentsSection } from "../components/TaxDocumentsSection";
+import {
+  SelfMedicationReceiptList,
+  TaxDocumentStatusCard,
+  TaxDocumentUploads,
+  TaxDocumentsProvider,
+} from "../components/TaxDocumentsSection";
+import type { TaxDocumentPlace } from "../shared/tax-documents";
 import { TaxFormsSection } from "../components/TaxFormsSection";
 
 /** 予定の扱い（古いサーバーの応答には無いので、そのときはすべて実績として扱う） */
@@ -84,7 +90,8 @@ export function TaxReturnScreen() {
     >
       <Lead>{TAX_RETURN_HELP.page}</Lead>
       <Notice>
-        家族・源泉徴収票の額・控除の入力は Web 版で行ってください（モバイルでは閲覧のみ）。
+        家族・源泉徴収票の額・控除の入力は Web
+        版で行ってください。モバイルでは閲覧と、証明書の撮影ができます。
       </Notice>
       {error && <Notice tone="error">{error}</Notice>}
       {!data ? (
@@ -105,11 +112,13 @@ export function TaxReturnScreen() {
           )}
           <Kpis data={data} />
           <TabBar tabs={TABS} value={tab} onChange={setTab} />
-          {tab === "overview" && <Overview data={data} />}
-          {tab === "deductions" && <Deductions data={data} />}
-          {tab === "furusato" && <Furusato data={data} />}
-          {tab === "changes" && <Changes year={data.year} />}
-          {tab === "todo" && <Todo data={data} />}
+          <TaxDocumentsProvider year={data.year} documents={data.estimate.documents}>
+            {tab === "overview" && <Overview data={data} />}
+            {tab === "deductions" && <Deductions data={data} />}
+            {tab === "furusato" && <Furusato data={data} />}
+            {tab === "changes" && <Changes year={data.year} />}
+            {tab === "todo" && <Todo data={data} />}
+          </TaxDocumentsProvider>
         </>
       )}
     </ScrollView>
@@ -119,7 +128,7 @@ export function TaxReturnScreen() {
 function Kpis({ data }: { data: TaxReturn }) {
   const e = data.estimate;
   // 給与があるのに源泉徴収税額が入っていなければ、還付・追加納付は出さない（web 版と同じ）
-  const withheldUnknown = e.income.salary > 0 && e.refund.withheld === 0;
+  const withheldUnknown = e.income.salary > 0 && e.refund.salaryWithheld === 0;
   const refund = e.refund.amount;
   const items: [string, string, string][] = [
     [`合計所得${planSuffix(planOf(data))}`, yen(e.income.total), COLORS.text],
@@ -194,6 +203,9 @@ function Overview({ data }: { data: TaxReturn }) {
         <SectionTitle>内訳</SectionTitle>
         <Line label="給与収入" value={yen(e.income.salary)} />
         <Line label="給与所得" value={yen(e.income.salaryIncome)} />
+        {e.income.salaryAdjustment > 0 && (
+          <Line label="うち所得金額調整控除" value={`−${yen(e.income.salaryAdjustment)}`} />
+        )}
         {e.payroll && (
           <>
             <Line label={`総支給額${planSuffix(planOf(data))}`} value={yen(e.payroll.gross)} />
@@ -207,7 +219,9 @@ function Overview({ data }: { data: TaxReturn }) {
             />
           </>
         )}
+        <TaxDocumentUploads place="income" />
         {e.income.business !== 0 && <Line label="事業所得" value={yen(e.income.business)} />}
+        <TaxDocumentUploads place="business" />
         {e.income.other > 0 && <Line label="その他の所得" value={yen(e.income.other)} />}
         <Line label="所得控除（所得税）" value={yen(e.deductionTotal.income)} />
         <Line label="所得控除（住民税）" value={yen(e.deductionTotal.resident)} />
@@ -216,6 +230,7 @@ function Overview({ data }: { data: TaxReturn }) {
           value={`${yen(e.taxable.income)}（税率 ${Math.round(e.incomeTax.rate * 100)}%）`}
         />
         <Line label="源泉徴収済み" value={yen(e.refund.withheld)} />
+        {e.refund.prepaid > 0 && <Line label="予定納税" value={yen(e.refund.prepaid)} />}
       </Card>
       <Card style={s.card}>
         <SectionTitle>基本の考え方</SectionTitle>
@@ -298,11 +313,20 @@ function Deductions({ data }: { data: TaxReturn }) {
         {DEDUCTION_GUIDES.filter((g) => g.type === "所得控除").map((g) => {
           const line = e.deductions.find((d) => d.key === g.key);
           return (
-            <GuideItem
-              key={g.key}
-              guide={g}
-              amounts={line ? `${yen(line.income)}／${yen(line.resident)}` : "—"}
-            />
+            <View key={g.key}>
+              <GuideItem
+                guide={g}
+                amounts={line ? `${yen(line.income)}／${yen(line.resident)}` : "—"}
+              />
+              <TaxDocumentUploads
+                place={
+                  (g.key === "disability" ? "disability" : `deduction:${g.key}`) as TaxDocumentPlace
+                }
+              />
+              {g.key === "medical" && (
+                <SelfMedicationReceiptList show={data.inputs.selfMedicationEligible} />
+              )}
+            </View>
           );
         })}
       </Card>
@@ -341,6 +365,7 @@ function Deductions({ data }: { data: TaxReturn }) {
             {h.reason && <Notice tone="warn">{h.reason}</Notice>}
           </>
         )}
+        <TaxDocumentUploads place="housing" />
         <GuideItem
           guide={DEDUCTION_GUIDES.find((g) => g.key === "otherTaxCredit")!}
           amounts={yen(e.incomeTax.otherCredit)}
@@ -381,6 +406,7 @@ function Furusato({ data }: { data: TaxReturn }) {
         <Text style={s.muted}>
           帳簿の「ふるさと納税」の科目に記帳すると、寄付済みの額に自動で入ります。
         </Text>
+        <TaxDocumentUploads place="deduction:donation" />
       </Card>
       {guide && (
         <Card style={s.card}>
@@ -446,7 +472,7 @@ function Todo({ data }: { data: TaxReturn }) {
         ))}
       </Card>
       <TaxFormsSection year={data.year} />
-      <TaxDocumentsSection data={data} />
+      <TaxDocumentStatusCard data={data} />
     </>
   );
 }

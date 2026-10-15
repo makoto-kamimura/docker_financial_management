@@ -81,17 +81,28 @@ export function taxLines(e: TaxEstimate) {
   const afterCredits = t.base - t.housingCredit - t.otherCredit; // ㊷（配当控除・災害減免は 0）
   const total = afterCredits + t.surtax; // ㊻
   const withheld = e.refund.withheld; // ㊾
+  const floor100 = (n: number) => Math.floor(n / 100) * 100;
+  // 黒字は 100 円未満を切り捨て、赤字はそのまま（手引き「申告納税額」「第３期分の税額」）
   const diff = total - withheld;
+  const filed = diff > 0 ? floor100(diff) : diff; // ㊿
+  const prepaid = e.refund.prepaid; // 51
+  const third = filed - prepaid;
   return {
     afterCredits,
     total,
     withheld,
-    /** 申告納税額（納める税金。100 円未満は切り捨て） */
-    payable: diff > 0 ? Math.floor(diff / 100) * 100 : 0,
+    /** 申告納税額（赤字はマイナス） */
+    filed,
+    prepaid,
+    /** 第３期分の納める税金 */
+    payable: third > 0 ? floor100(third) : 0,
     /** 還付される税金 */
-    refund: diff < 0 ? -diff : 0,
+    refund: third < 0 ? -third : 0,
   };
 }
+
+/** 赤字は頭に △ を付ける（申告書の書き方） */
+const signedYen = (n: number) => (n < 0 ? `△${yen(-n)}` : yen(n));
 
 const SOCIAL_LABELS: Record<PayrollItemKey, string> = {
   gross: "総支給",
@@ -185,7 +196,15 @@ function returnForm1(ctx: FormContext): FormPage {
       {
         title: "所得金額等",
         rows: [
-          { no: "⑥", label: "給与", value: yenOrBlank(e.income.salaryIncome) },
+          {
+            no: "⑥",
+            label: "給与",
+            value: yenOrBlank(e.income.salaryIncome),
+            note:
+              e.income.salaryAdjustment > 0
+                ? `所得金額調整控除 ${yen(e.income.salaryAdjustment)} を引いた後`
+                : undefined,
+          },
           ...(e.income.other > 0
             ? [{ label: "その他の所得", value: yen(e.income.other), note: "所得の種類の欄に書く" }]
             : []),
@@ -246,11 +265,19 @@ function returnForm1(ctx: FormContext): FormPage {
             value: yenOrBlank(t.withheld),
           },
           {
-            label: "申告納税額（納める税金）",
+            no: "㊿",
+            label: "申告納税額",
+            value: signedYen(t.filed),
+            note: "黒字は 100 円未満切り捨て、赤字は △ を付ける",
+          },
+          { no: "51", label: "予定納税額（第１期分・第２期分）", value: yenOrBlank(t.prepaid) },
+          {
+            no: "52",
+            label: "第３期分の税額（納める税金）",
             value: yenOrBlank(t.payable),
             note: "100 円未満切り捨て",
           },
-          { label: "還付される税金", value: yenOrBlank(t.refund) },
+          { no: "53", label: "第３期分の税額（還付される税金）", value: yenOrBlank(t.refund) },
         ],
       },
     ],
@@ -267,8 +294,17 @@ function returnForm2(ctx: FormContext): FormPage {
       table: {
         columns: ["所得の種類", "支払者の名称", "収入金額", "源泉徴収税額"],
         widths: [2, 5, 3, 3],
-        rows:
-          e.income.salary > 0 ? [["給与", "", yen(e.income.salary), yen(e.refund.withheld)]] : [],
+        rows: [
+          ...(e.values.salary.value > 0
+            ? [["給与", "", yen(e.values.salary.value), yen(e.refund.salaryWithheld)]]
+            : []),
+          ...(e.income.secondarySalary > 0
+            ? [["給与", "", yen(e.income.secondarySalary), yen(inputs.secondaryWithheld)]]
+            : []),
+          ...(inputs.businessWithheld > 0
+            ? [["事業（報酬・料金）", "", "", yen(inputs.businessWithheld)]]
+            : []),
+        ],
       },
       note: "支払者の名称は源泉徴収票のとおりに書きます。",
     },
@@ -298,7 +334,10 @@ function returnForm2(ctx: FormContext): FormPage {
     },
     {
       title: "⑯ 地震保険料控除",
-      rows: [{ label: "地震保険料", value: yenOrBlank(inputs.earthquake) }],
+      rows: [
+        { label: "地震保険料", value: yenOrBlank(inputs.earthquake) },
+        { label: "旧長期損害保険料", value: yenOrBlank(inputs.earthquakeOldLongTerm) },
+      ],
     },
     {
       title: "本人に関する事項（⑰〜⑳）",
@@ -572,6 +611,18 @@ function yearEndDependentsForm(ctx: FormContext): FormPage {
   };
 }
 
+/** 所得金額調整控除の要件（申告書の区分） */
+function adjustmentReason({ estimate: e, inputs }: FormContext): string {
+  if (inputs.selfDisability === "special" || inputs.selfDisability === "livingSpecial") {
+    return "本人が特別障害者";
+  }
+  const special = e.family.members.some(
+    (j) => j.member.disability === "special" || j.member.disability === "livingSpecial",
+  );
+  const young = e.family.members.some((j) => j.member.relation !== "spouse" && j.age < 23);
+  return young ? "年齢 23 歳未満の扶養親族" : special ? "特別障害者の同一生計配偶者・扶養親族" : "";
+}
+
 // ── 年末調整: 基礎控除申告書 兼 配偶者控除等申告書 兼 所得金額調整控除申告書 ──
 function yearEndBasicForm(ctx: FormContext): FormPage {
   const { estimate: e, year } = ctx;
@@ -605,13 +656,23 @@ function yearEndBasicForm(ctx: FormContext): FormPage {
       },
       {
         title: "所得金額調整控除申告書",
-        rows: [
-          {
-            label: "要件（本人・家族の特別障害者、23 歳未満の扶養親族）",
-            value: "",
-            note: "給与収入が 850 万円を超える場合だけ書きます",
-          },
-        ],
+        rows:
+          e.income.salaryAdjustment > 0
+            ? [
+                {
+                  label: "要件（本人・家族の特別障害者、23 歳未満の扶養親族）",
+                  value: adjustmentReason(ctx),
+                  note: "該当する家族の氏名・生年月日なども書きます",
+                },
+                { label: "所得金額調整控除の額", value: yen(e.income.salaryAdjustment) },
+              ]
+            : [
+                {
+                  label: "要件（本人・家族の特別障害者、23 歳未満の扶養親族）",
+                  value: "",
+                  note: "給与収入が 850 万円を超える場合だけ書きます",
+                },
+              ],
       },
     ],
   };
@@ -643,6 +704,7 @@ function yearEndInsuranceForm(ctx: FormContext): FormPage {
         title: "地震保険料控除",
         rows: [
           { label: "地震保険料", value: yenOrBlank(inputs.earthquake) },
+          { label: "旧長期損害保険料", value: yenOrBlank(inputs.earthquakeOldLongTerm) },
           { label: "地震保険料控除額", value: yenOrBlank(deduction(e, "earthquake").income) },
         ],
       },

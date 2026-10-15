@@ -24,6 +24,11 @@ export const TAX_LEDGER_CODES = {
   selfMedication: ["H-2006"],
   furusato: ["H-3039"],
   sideIncome: ["H-1008"],
+  // 「その他の所得」の参考（収入の額。所得は経費・控除を引いて手で入れる）
+  pensionIncome: ["H-1009"],
+  realEstateIncome: ["H-1006"],
+  householdBusinessIncome: ["H-1007"],
+  cryptoIncome: ["H-1014"],
   fireEarthquake: ["H-3028"],
   otherDonation: ["H-3033"],
   // 保険の割戻金。生命保険料控除は「払った保険料 − 割戻金」なので一般生命保険料から引く
@@ -196,6 +201,10 @@ export async function loadTaxLedger(
     blueReturnDeduction: opts.sole ? (blueReturn?.blueReturn ? BLUE_RETURN_DEDUCTION : 0) : null,
     housingBalance,
     sideIncome: total("sideIncome"),
+    pensionIncome: total("pensionIncome"),
+    realEstateIncome: total("realEstateIncome"),
+    householdBusinessIncome: total("householdBusinessIncome"),
+    cryptoIncome: total("cryptoIncome"),
     fireEarthquake: total("fireEarthquake"),
     otherDonation: total("otherDonation"),
     insuranceRefund: refund.total,

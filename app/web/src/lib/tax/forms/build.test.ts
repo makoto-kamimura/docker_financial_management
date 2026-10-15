@@ -24,6 +24,10 @@ const ledger = (over: Partial<TaxLedger> = {}): TaxLedger => ({
   blueReturnDeduction: null,
   housingBalance: null,
   sideIncome: 0,
+  pensionIncome: 0,
+  realEstateIncome: 0,
+  householdBusinessIncome: 0,
+  cryptoIncome: 0,
   fireEarthquake: 0,
   otherDonation: 0,
   insuranceRefund: 0,
@@ -120,5 +124,45 @@ describe("第一表の値", () => {
     const t = taxLines(e);
     expect(t.payable).toBe(Math.floor(t.total / 100) * 100);
     expect(t.refund).toBe(0);
+  });
+  it("予定納税は申告納税額 ㊿ から引いて第３期分（52・53）を出す", () => {
+    const c = context(ledger({ withheldTax: 0 }), { prepaidTax: 1_000_000 });
+    const t = taxLines(c.estimate);
+    expect(t.filed).toBe(Math.floor(t.total / 100) * 100);
+    expect(t.prepaid).toBe(1_000_000);
+    expect(t.payable).toBe(0);
+    expect(t.refund).toBe(1_000_000 - t.filed);
+    const first = doc(buildForms(c), "return-1");
+    expect(rowValue(first, "51")).toBe("1,000,000円");
+    expect(rowValue(first, "53")).toBe(`${t.refund.toLocaleString("ja-JP")}円`);
+  });
+
+  it("源泉徴収税額が多いと申告納税額 ㊿ は △ を付けた赤字", () => {
+    const c = context(ledger({ withheldTax: 1_000_000 }));
+    const t = taxLines(c.estimate);
+    expect(t.filed).toBe(t.total - 1_000_000);
+    expect(rowValue(doc(buildForms(c), "return-1"), "㊿")).toBe(
+      `△${(1_000_000 - t.total).toLocaleString("ja-JP")}円`,
+    );
+  });
+
+  it("所得金額調整控除を引いた給与所得 ⑥ に注記を付ける", () => {
+    const kid = {
+      id: "k",
+      name: "",
+      relation: "child" as const,
+      birthDate: "2016-05-01",
+      salary: 0,
+      otherIncome: 0,
+      livingTogether: true,
+      disability: "none" as const,
+      dependentOfOther: false,
+    };
+    const c = context(ledger({ salary: 9_000_000 }), { family: [kid] });
+    const row = doc(buildForms(c), "return-1")
+      .pages[0].sections.flatMap((s) => s.rows ?? [])
+      .find((r) => r.no === "⑥");
+    expect(row?.value).toBe("7,000,000円");
+    expect(row?.note).toMatch(/所得金額調整控除 50,000円/);
   });
 });

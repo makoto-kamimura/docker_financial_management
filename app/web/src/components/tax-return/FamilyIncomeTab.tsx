@@ -9,6 +9,7 @@ import { planSuffix, yearTotalLabel } from "@/lib/shared/tax-estimate";
 import { SectionCard } from "@/components/SectionCard";
 import { AmountField, Check, Field, LedgerAmountField, SelectField, YenInput } from "./fields";
 import { PayrollCard } from "./PayrollCard";
+import { DocumentUploads } from "./DocumentFiles";
 import type { TabProps } from "./types";
 
 const DISABILITY_OPTIONS = [
@@ -39,8 +40,33 @@ function newMember(year: number): FamilyMember {
   };
 }
 
+/** 「その他の所得」のヒントに並べる帳簿の収入（0 円のものは出さない） */
+function otherIncomeHint(ledger: TabProps["ledger"]): string {
+  const sources = [
+    ["副業収入", ledger.sideIncome],
+    ["年金収入", ledger.pensionIncome],
+    ["不動産所得", ledger.realEstateIncome],
+    ["事業所得", ledger.householdBusinessIncome],
+    ["仮想通貨売却益", ledger.cryptoIncome],
+  ] as const;
+  const shown = sources.filter(([, v]) => v !== 0).map(([label, v]) => `${label} ${yen(v)}`);
+  return `副業・年金・不動産などの所得（収入 − 経費・控除）。帳簿の収入: ${
+    shown.length > 0 ? shown.join("・") : "なし"
+  }`;
+}
+
 export function FamilyIncomeTab(props: TabProps) {
   const { year, ledger, draft, estimate, update } = props;
+  // 予定納税・報酬の源泉は、事業や給与以外の所得がある人の欄。値が入っていれば常に出す
+  const showPrepaid =
+    ledger.businessIncome !== null ||
+    draft.otherIncome > 0 ||
+    draft.prepaidTax > 0 ||
+    draft.businessWithheld > 0;
+  const salaryHint = (base: string) =>
+    estimate.income.salaryAdjustment > 0
+      ? `${base}（所得金額調整控除 ${yen(estimate.income.salaryAdjustment)} を引いた後）`
+      : base;
   const setMember = (id: string, patch: Partial<FamilyMember>) =>
     update({ family: draft.family.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
 
@@ -85,6 +111,7 @@ export function FamilyIncomeTab(props: TabProps) {
             onChange={(v) => update({ workingStudent: v })}
           />
         </div>
+        <DocumentUploads year={year} place="disability" documents={estimate.documents} />
       </SectionCard>
 
       <PayrollCard {...props} />
@@ -102,10 +129,10 @@ export function FamilyIncomeTab(props: TabProps) {
             <>
               <Field
                 label={`給与収入${planSuffix(ledger.plan)}`}
-                hint={`給与所得 ${yen(estimate.income.salaryIncome)}`}
+                hint={salaryHint(`給与所得 ${yen(estimate.income.salaryIncome)}`)}
               >
                 <div className="py-2 text-right font-semibold tabular-nums text-slate-900">
-                  {yen(estimate.income.salary)}
+                  {yen(estimate.values.salary.value)}
                 </div>
               </Field>
               <Field
@@ -113,7 +140,7 @@ export function FamilyIncomeTab(props: TabProps) {
                 hint={`給与明細の所得税の${yearTotalLabel(ledger.plan)}`}
               >
                 <div className="py-2 text-right font-semibold tabular-nums text-slate-900">
-                  {yen(estimate.refund.withheld)}
+                  {yen(estimate.refund.salaryWithheld)}
                 </div>
               </Field>
             </>
@@ -126,7 +153,9 @@ export function FamilyIncomeTab(props: TabProps) {
                 plan={ledger.plan}
                 planned={ledger.planned.salary}
                 onChange={(v) => update({ salary: v })}
-                hint={`給与所得 ${yen(estimate.income.salaryIncome)}（通勤手当は含めません）`}
+                hint={salaryHint(
+                  `給与所得 ${yen(estimate.income.salaryIncome)}（通勤手当は含めません）`,
+                )}
               />
               <LedgerAmountField
                 label="源泉徴収された所得税"
@@ -140,10 +169,22 @@ export function FamilyIncomeTab(props: TabProps) {
             </>
           )}
           <AmountField
+            label="従たる給与の収入（2 か所目）"
+            value={draft.secondarySalary}
+            onChange={(v) => update({ secondarySalary: v })}
+            hint="年末調整を受けない勤め先の給与（額面）。帳簿の給与に振込が入っている場合は、二重にならないよう給与収入を直してください"
+          />
+          <AmountField
+            label="従たる給与の源泉徴収税額"
+            value={draft.secondaryWithheld}
+            onChange={(v) => update({ secondaryWithheld: v })}
+            hint="2 か所目の源泉徴収票の「源泉徴収税額」"
+          />
+          <AmountField
             label="その他の所得"
             value={draft.otherIncome}
             onChange={(v) => update({ otherIncome: v })}
-            hint={`副業・年金などの所得（収入 − 経費）。帳簿の副業収入: ${yen(ledger.sideIncome)}`}
+            hint={otherIncomeHint(ledger)}
           />
           {ledger.businessIncome !== null && (
             <>
@@ -165,7 +206,28 @@ export function FamilyIncomeTab(props: TabProps) {
               />
             </>
           )}
+          {showPrepaid && (
+            <>
+              <AmountField
+                label="報酬から源泉徴収された所得税"
+                value={draft.businessWithheld}
+                onChange={(v) => update({ businessWithheld: v })}
+                hint="原稿料・デザイン料などの報酬・料金から差し引かれた所得税（支払調書・入金額で確認）"
+              />
+              <AmountField
+                label="予定納税額（7 月・11 月）"
+                value={draft.prepaidTax}
+                onChange={(v) => update({ prepaidTax: v })}
+                hint="税務署の通知書の第 1 期・第 2 期の合計（実際に納めたかに関わらず通知書の額）"
+              />
+            </>
+          )}
         </div>
+        {/* 給与明細を使うときは、源泉徴収票は給与明細のカードに出す */}
+        {!estimate.payroll && (
+          <DocumentUploads year={year} place="income" documents={estimate.documents} />
+        )}
+        <DocumentUploads year={year} place="business" documents={estimate.documents} />
       </SectionCard>
 
       <SectionCard

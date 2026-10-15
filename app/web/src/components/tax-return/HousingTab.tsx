@@ -18,11 +18,12 @@ import {
 } from "./fields";
 import { GuideDetails } from "./GuideDetails";
 import type { TabProps } from "./types";
+import { DocumentUploads } from "./DocumentFiles";
 
 const HOUSING_GUIDE = DEDUCTION_GUIDES.find((g) => g.key === "housingLoan")!;
 const OTHER_CREDIT_GUIDE = DEDUCTION_GUIDES.find((g) => g.key === "otherTaxCredit")!;
 
-export function HousingTab({ ledger, draft, estimate: e, update }: TabProps) {
+export function HousingTab({ year, ledger, draft, estimate: e, update }: TabProps) {
   const h = draft.housingLoan;
   const setLoan = (patch: Partial<HousingLoanInput>) => update({ housingLoan: { ...h, ...patch } });
   const r = e.housing;
@@ -132,6 +133,7 @@ export function HousingTab({ ledger, draft, estimate: e, update }: TabProps) {
                 {r.reason}
               </Notice>
             )}
+            <DocumentUploads year={year} place="housing" documents={e.documents} />
           </>
         )}
         <GuideDetails guide={HOUSING_GUIDE} />

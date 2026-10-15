@@ -165,7 +165,17 @@ export default function TaxReturnPage() {
               case "changes":
                 return <ChangesTab {...props} />;
               case "todo":
-                return <TodoTab {...props} scope={scope!} dirty={dirty} />;
+                return (
+                  <TodoTab
+                    {...props}
+                    scope={scope!}
+                    dirty={dirty}
+                    onOpenTab={(t) => {
+                      setTab(t);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                  />
+                );
             }
           })()}
         </>

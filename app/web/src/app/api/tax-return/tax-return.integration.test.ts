@@ -9,6 +9,7 @@
  *   - 設定の上書きが見込みの計算に効き、前年からのコピー・既定値に戻すができる
  *   - 今年は入力月（今日の月）より前を実績、入力月以降を予算で数える（過去の年は実績だけ）
  *   - 保険割戻金を一般生命保険料から引く
+ *   - 年金収入などは「その他の所得」の参考として年合計を返す
  *
  * 実行: `npm run test:integration`
  */
@@ -81,6 +82,7 @@ beforeAll(async () => {
     ["H-3030", "所得税", "EXPENSE"],
     ["H-2005", "医療費", "COGS"],
     ["H-3039", "ふるさと納税", "EXPENSE"],
+    ["H-1009", "年金収入", "REVENUE"],
     [`S_${SUFFIX}`, "売上", "REVENUE"],
     [`E_${SUFFIX}`, "経費", "EXPENSE"],
   ] as const;
@@ -101,6 +103,7 @@ beforeAll(async () => {
   await personal("H-3030", -100_000);
   await personal("H-2005", -150_000);
   await personal("H-3039", -30_000);
+  await personal("H-1009", 600_000);
   // 事業: 売上 3,000,000（明細でない行は全額が事業）、経費 1,000,000 のうち事業 50%
   const period = await prisma.period.findFirstOrThrow({
     where: { tenantId, fiscalYear: YEAR, month: 6 },
@@ -170,7 +173,11 @@ describe("GET /api/tax-return", () => {
       furusato: 30_000,
       businessIncome: null,
       blueReturnDeduction: null,
+      // 参考に見せるだけ（その他の所得には入れない）
+      pensionIncome: 600_000,
+      realEstateIncome: 0,
     });
+    expect(estimate.income.other).toBe(0);
     expect(rulesInfo.fallback).toBe(false);
     expect(estimate.income.salaryIncome).toBe(3_560_000);
     expect(estimate.furusato.donated).toBe(30_000);

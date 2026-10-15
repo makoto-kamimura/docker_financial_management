@@ -11,7 +11,8 @@
 //   （個人住民税: 令和9・10年度分の給与所得控除の最低保障額 74 万円、所得要件 62 万円、
 //    住宅借入金等特別控除の令和8〜12年入居の借入限度額、ふるさと納税の特例控除の上限（令和10年度分から））
 // - 国税庁 タックスアンサー No.1199 基礎控除、No.1410 給与所得控除、No.1260 所得税の税率、
-//   No.1140 生命保険料控除、No.1145 地震保険料控除、No.1120 医療費控除、No.1129 セルフメディケーション税制
+//   No.1140 生命保険料控除、No.1145 地震保険料控除、No.1120 医療費控除、No.1129 セルフメディケーション税制、
+//   No.1411 所得金額調整控除、No.1900 給与所得者で確定申告が必要な人
 // - 個人住民税の特定親族特別控除・配偶者特別控除の額は各市区町村の「住民税の改正」資料（岡山市・世田谷区など）
 
 /** 区分表の 1 行。upTo 以下に当てはまる（upTo が null の行は上限なし。最後の行に置く） */
@@ -46,6 +47,10 @@ export type TaxRules = {
     roundUnit: number;
     /** 給与所得を固定値にする特例の区分（roundFrom 未満に当てはまる） */
     bands: SalaryBandRow[];
+    /** 所得金額調整控除: (min(給与収入, adjustCap) − adjustThreshold) × adjustRate を給与所得から引く */
+    adjustThreshold: number;
+    adjustCap: number;
+    adjustRate: number;
   };
   basic: { income: AmountRow[]; resident: AmountRow[] };
   personal: {
@@ -98,6 +103,9 @@ export type TaxRules = {
     earthquakeMaxIncome: number;
     earthquakeRateResident: number;
     earthquakeMaxResident: number;
+    /** 旧長期損害保険料の表（地震保険料と合わせて上限まで） */
+    earthquakeOldIncome: RateRow[];
+    earthquakeOldResident: RateRow[];
   };
   medical: {
     floor: number;
@@ -255,6 +263,16 @@ const LIFE_OLD_RESIDENT: RateRow[] = [
   { upTo: 70_000, rate: 0.25, add: 17_500 },
   { upTo: null, rate: 0, add: 35_000 },
 ];
+const EARTHQUAKE_OLD_INCOME: RateRow[] = [
+  { upTo: 10_000, rate: 1, add: 0 },
+  { upTo: 20_000, rate: 0.5, add: 5_000 },
+  { upTo: null, rate: 0, add: 15_000 },
+];
+const EARTHQUAKE_OLD_RESIDENT: RateRow[] = [
+  { upTo: 5_000, rate: 1, add: 0 },
+  { upTo: 15_000, rate: 0.5, add: 2_500 },
+  { upTo: null, rate: 0, add: 10_000 },
+];
 const LIFE_YOUNG_NEW_INCOME: RateRow[] = [
   { upTo: 30_000, rate: 1, add: 0 },
   { upTo: 60_000, rate: 0.5, add: 15_000 },
@@ -318,6 +336,9 @@ const RULES_2025: TaxRules = {
     roundTo: 6_600_000,
     roundUnit: 4_000,
     bands: [],
+    adjustThreshold: 8_500_000,
+    adjustCap: 10_000_000,
+    adjustRate: 0.1,
   },
   basic: {
     income: [
@@ -378,6 +399,8 @@ const RULES_2025: TaxRules = {
     earthquakeMaxIncome: 50_000,
     earthquakeRateResident: 0.5,
     earthquakeMaxResident: 25_000,
+    earthquakeOldIncome: EARTHQUAKE_OLD_INCOME,
+    earthquakeOldResident: EARTHQUAKE_OLD_RESIDENT,
   },
   medical: {
     floor: 100_000,
@@ -578,6 +601,14 @@ export const TAX_RULE_FIELDS: RuleField[] = [
     ],
     "from",
   ),
+  value(
+    "salary.adjustThreshold",
+    "給与所得控除",
+    "所得金額調整控除の対象（給与収入が超える）",
+    "yen",
+  ),
+  value("salary.adjustCap", "給与所得控除", "所得金額調整控除の給与収入の上限", "yen"),
+  value("salary.adjustRate", "給与所得控除", "所得金額調整控除の率", "rate"),
   table("basic.income", "基礎控除", "所得税（合計所得の区分）", AMOUNT_COLUMNS, "upTo"),
   table("basic.resident", "基礎控除", "住民税（合計所得の区分）", AMOUNT_COLUMNS, "upTo"),
   value(
@@ -695,6 +726,20 @@ export const TAX_RULE_FIELDS: RuleField[] = [
   value("insurance.earthquakeMaxIncome", "保険料控除", "地震保険料の上限（所得税）", "yen"),
   value("insurance.earthquakeRateResident", "保険料控除", "地震保険料の率（住民税）", "rate"),
   value("insurance.earthquakeMaxResident", "保険料控除", "地震保険料の上限（住民税）", "yen"),
+  table(
+    "insurance.earthquakeOldIncome",
+    "保険料控除",
+    "旧長期損害保険料（所得税）",
+    RATE_COLUMNS,
+    "upTo",
+  ),
+  table(
+    "insurance.earthquakeOldResident",
+    "保険料控除",
+    "旧長期損害保険料（住民税）",
+    RATE_COLUMNS,
+    "upTo",
+  ),
   value("medical.floor", "医療費・雑損", "医療費控除の足切り額", "yen"),
   value("medical.floorRate", "医療費・雑損", "足切りの所得割合", "rate"),
   value("medical.max", "医療費・雑損", "医療費控除の上限", "yen"),

@@ -282,6 +282,23 @@ export function judgeFamily(
 }
 
 /**
+ * 所得金額調整控除の家族の要件。23 歳未満の扶養親族か、特別障害者の同一生計配偶者・扶養親族がいる。
+ * 共働きの夫婦は同じ子で双方が受けられるため、ほかの人の扶養に入れている家族も含める（国税庁 No.1411）
+ */
+export function hasAdjustmentDependent(
+  rules: TaxRules,
+  year: number,
+  members: FamilyMember[],
+): boolean {
+  const limit = rules.personal.dependentIncomeLimit;
+  return members.some((m) => {
+    if (memberIncome(rules, m) > limit) return false;
+    if (m.disability === "special" || m.disability === "livingSpecial") return true;
+    return m.relation !== "spouse" && ageAt(m.birthDate, year) < 23;
+  });
+}
+
+/**
  * 住宅ローン控除の子育て世帯・若者夫婦世帯（特例対象個人）か。入居年の 12/31 時点で判定する。
  * 本人が 40 歳未満で配偶者がいる、配偶者が 40 歳未満、または 19 歳未満の扶養親族がいる
  */

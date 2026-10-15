@@ -8,6 +8,7 @@ import { Notice } from "@/components/ui";
 import { SectionCard } from "@/components/SectionCard";
 import { Field, LedgerAmountField, StatTile } from "./fields";
 import type { TabProps } from "./types";
+import { DocumentUploads } from "./DocumentFiles";
 
 export function FurusatoTab({ year, ledger, draft, estimate: e, update }: TabProps) {
   const f = e.furusato;
@@ -65,6 +66,7 @@ export function FurusatoTab({ year, ledger, draft, estimate: e, update }: TabPro
             {w}
           </Notice>
         ))}
+        <DocumentUploads year={year} place="deduction:donation" documents={e.documents} />
       </SectionCard>
 
       {guide && (
