@@ -95,13 +95,14 @@ function EntryContent() {
   const scope = useActualsScope();
   const { data: bankAccounts } = useQuery({
     queryKey: ["bank-accounts", scope],
-    enabled: sourceTab && source === "bank" && scope !== null,
+    // CSV インポートは、明細を落とすサイトの一覧に銀行・カードの両方を出すので、出どころによらず読む
+    enabled: sourceTab && (source === "bank" || tab === "csv") && scope !== null,
     queryFn: async (): Promise<SourceAccount[]> =>
       (await (await fetch(withScope("/api/bank-accounts", scope!))).json()).data ?? [],
   });
   const { data: cardAccounts } = useQuery({
     queryKey: ["linked-accounts", scope],
-    enabled: sourceTab && source === "card" && scope !== null,
+    enabled: sourceTab && (source === "card" || tab === "csv") && scope !== null,
     queryFn: async (): Promise<SourceAccount[]> =>
       (await (await fetch(withScope("/api/linked-accounts", scope!))).json()).data ?? [],
   });

@@ -15,6 +15,7 @@ import { yen } from "@/lib/common/format";
 import { useActualsScope } from "@/lib/client/use-view-mode";
 import { withScope } from "@/lib/shared/business-use";
 import { BusinessUseToggle } from "@/components/BusinessUseToggle";
+import { StatementUrlField } from "@/components/StatementUrlField";
 
 type BankAccount = {
   id: number;
@@ -26,6 +27,7 @@ type BankAccount = {
   accountNumber: string | null;
   lastFour?: string | null;
   note?: string | null;
+  statementUrl?: string | null;
   account?: { id: number; code: string; name: string } | null;
   /** 明細合計 + 差額（lib/ledger/bank-balance.ts の定義） */
   balance: number;
@@ -72,6 +74,7 @@ type NewAccountForm = {
   lastFour: string;
   accountCode: string;
   note: string;
+  statementUrl: string;
   businessUse: boolean;
 };
 const BLANK_ACCOUNT: NewAccountForm = {
@@ -83,6 +86,7 @@ const BLANK_ACCOUNT: NewAccountForm = {
   lastFour: "",
   accountCode: "",
   note: "",
+  statementUrl: "",
   businessUse: false,
 };
 type AccountRef = { id: number; code: string; name: string; category: string };
@@ -95,6 +99,7 @@ type EditAccountForm = {
   lastFour: string;
   accountCode: string;
   note: string;
+  statementUrl: string;
   /** 明細合計と実際の残高との差額（円。文字列で保持して空欄も許す） */
   balanceAdjustment: string;
   /** 表示用: 明細の増減合計 */
@@ -148,7 +153,14 @@ function BankAccountsContent() {
       accountType: accountForm.accountType,
       businessUse: accountForm.businessUse,
     };
-    for (const k of ["branchName", "accountNumber", "lastFour", "accountCode", "note"] as const) {
+    for (const k of [
+      "branchName",
+      "accountNumber",
+      "lastFour",
+      "accountCode",
+      "note",
+      "statementUrl",
+    ] as const) {
       if (accountForm[k]) body[k] = accountForm[k];
     }
     const r = await fetch("/api/bank-accounts", {
@@ -179,6 +191,7 @@ function BankAccountsContent() {
         lastFour: editAccount.lastFour,
         accountCode: editAccount.accountCode,
         note: editAccount.note,
+        statementUrl: editAccount.statementUrl,
         // 空欄は差額なし（0）として送る
         balanceAdjustment: Number(editAccount.balanceAdjustment || 0),
         businessUse: editAccount.businessUse,
@@ -327,6 +340,7 @@ function BankAccountsContent() {
                               lastFour: a.lastFour ?? "",
                               accountCode: a.account?.code ?? "",
                               note: a.note ?? "",
+                              statementUrl: a.statementUrl ?? "",
                               balanceAdjustment: a.balanceAdjustment
                                 ? String(a.balanceAdjustment)
                                 : "",
@@ -451,6 +465,12 @@ function BankAccountsContent() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
               />
             </div>
+            <StatementUrlField
+              kind="BANK"
+              institution={accountForm.bankName}
+              value={accountForm.statementUrl}
+              onChange={(v) => setAccountForm((f) => ({ ...f, statementUrl: v }))}
+            />
             <BusinessUseToggle
               kind="account"
               checked={accountForm.businessUse}
@@ -500,6 +520,12 @@ function BankAccountsContent() {
                 />
               </div>
             ))}
+            <StatementUrlField
+              kind="BANK"
+              institution={editAccount.bankName}
+              value={editAccount.statementUrl}
+              onChange={(v) => setEditAccount({ ...editAccount, statementUrl: v })}
+            />
 
             {/* 残高の差額。明細に現れない期首残高などを吸収し、サマリの残高に加算される */}
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">

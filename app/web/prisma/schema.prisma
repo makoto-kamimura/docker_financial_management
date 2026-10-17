@@ -367,21 +367,23 @@ model Forecast {
 
 // クレジットカード台帳（D-1: 銀行口座は BankAccount に一本化し、本モデルはカード専用）
 model LinkedAccount {
-  id          Int      @id @default(autoincrement())
-  tenantId    Int
-  name        String // カード名（表示名）
+  id           Int      @id @default(autoincrement())
+  tenantId     Int
+  name         String // カード名（表示名）
   // CREDIT_CARD（クレジットカード）/ DEBIT_CARD（デビットカード）/
   // PREPAID_CARD（プリペイドカード）/ E_MONEY（電子マネー・QR 決済）
-  type        String
-  institution String // カード会社名
-  lastFour    String? // カード番号の下4桁
+  type         String
+  institution  String // カード会社名
+  lastFour     String? // カード番号の下4桁
   // 事業利用（個人事業主モードで出すもの）。lib/ledger/scope.ts の businessOwnedWhere
-  businessUse Boolean  @default(false)
-  accountId   Int? // 紐付く勘定科目（LIABILITY）
-  account     Account? @relation(fields: [accountId], references: [id])
-  note        String? // メモ
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  businessUse  Boolean  @default(false)
+  accountId    Int? // 紐付く勘定科目（LIABILITY）
+  account      Account? @relation(fields: [accountId], references: [id])
+  note         String? // メモ
+  // 利用明細を見る・CSV を落とす公式サイトの URL（空なら lib/shared/statement-links.ts の既定）
+  statementUrl String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   transactions            FinancialRecord[]      @relation("RecordCard")
   transfers               Transfer[]
@@ -1070,6 +1072,8 @@ model BankAccount {
   accountId         Int? // 紐付く勘定科目（ASSET）。資産サマリの二重計上除外に使用
   account           Account?        @relation(fields: [accountId], references: [id])
   note              String? // メモ
+  // 入出金明細を見る・CSV を落とす公式サイトの URL（空なら lib/shared/statement-links.ts の既定）
+  statementUrl      String?
   // 明細の合計と実際の残高との差額（円）。取込開始前から口座にあった残高（期首残高）や
   // 取り込めなかった明細を吸収する。残高＝SUM(bank_transactions.amount) + balanceAdjustment。
   balanceAdjustment Decimal         @default(0) @db.Decimal(18, 2)

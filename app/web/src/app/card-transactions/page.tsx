@@ -19,6 +19,7 @@ import { yen } from "@/lib/common/format";
 import { useActualsScope } from "@/lib/client/use-view-mode";
 import { withScope } from "@/lib/shared/business-use";
 import { BusinessUseToggle } from "@/components/BusinessUseToggle";
+import { StatementUrlField } from "@/components/StatementUrlField";
 
 // ── 型 ──────────────────────────────────────────────────────────
 type CardAccount = {
@@ -29,6 +30,7 @@ type CardAccount = {
   institution: string;
   lastFour: string | null;
   note?: string | null;
+  statementUrl?: string | null;
   account?: { id: number; code: string; name: string } | null;
   /** このカードをチャージ先に指定している明細の件数（カード明細 ＋ 銀行明細） */
   chargeSourceCount?: number;
@@ -44,6 +46,7 @@ type CardForm = {
   lastFour: string;
   accountCode: string;
   note: string;
+  statementUrl: string;
   businessUse: boolean;
 };
 const BLANK_CARD: CardForm = {
@@ -54,6 +57,7 @@ const BLANK_CARD: CardForm = {
   lastFour: "",
   accountCode: "",
   note: "",
+  statementUrl: "",
   businessUse: false,
 };
 type CategoryAccount = { id: number; code: string; name: string; category: string };
@@ -180,6 +184,7 @@ export default function CardTransactionsPage() {
     if (cardForm.lastFour || cardForm.id !== null) body.lastFour = cardForm.lastFour;
     if (cardForm.accountCode || cardForm.id !== null) body.accountCode = cardForm.accountCode;
     if (cardForm.note || cardForm.id !== null) body.note = cardForm.note;
+    if (cardForm.statementUrl || cardForm.id !== null) body.statementUrl = cardForm.statementUrl;
 
     const res = await fetch(
       cardForm.id === null ? "/api/linked-accounts" : `/api/linked-accounts/${cardForm.id}`,
@@ -355,6 +360,12 @@ export default function CardTransactionsPage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
               />
             </div>
+            <StatementUrlField
+              kind="CARD"
+              institution={cardForm.institution}
+              value={cardForm.statementUrl}
+              onChange={(v) => setCardForm({ ...cardForm, statementUrl: v })}
+            />
             <BusinessUseToggle
               kind="account"
               checked={cardForm.businessUse}
@@ -500,6 +511,7 @@ export default function CardTransactionsPage() {
                                 lastFour: a.lastFour ?? "",
                                 accountCode: a.account?.code ?? "",
                                 note: a.note ?? "",
+                                statementUrl: a.statementUrl ?? "",
                                 businessUse: a.businessUse ?? false,
                               });
                             }}
