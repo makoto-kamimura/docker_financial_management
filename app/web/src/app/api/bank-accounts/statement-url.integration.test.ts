@@ -81,7 +81,7 @@ describe("銀行口座の明細ページの URL", () => {
         bankName: "テスト銀行",
         statementUrl: "https://bank.example.com/login",
       }),
-      emptyRouteContext,
+      emptyRouteContext(),
     );
     expect(created.status).toBe(201);
     const id = (await created.json()).data.id as number;
@@ -109,7 +109,7 @@ describe("銀行口座の明細ページの URL", () => {
         bankName: "テスト銀行",
         statementUrl: "javascript:alert(1)",
       }),
-      emptyRouteContext,
+      emptyRouteContext(),
     );
     expect(res.status).toBe(400);
   });
@@ -123,7 +123,7 @@ describe("カードの明細ページの URL", () => {
         institution: "テストカード会社",
         statementUrl: "https://card.example.com/",
       }),
-      emptyRouteContext,
+      emptyRouteContext(),
     );
     expect(created.status).toBe(201);
     const id = (await created.json()).data.id as number;
