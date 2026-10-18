@@ -6,12 +6,15 @@ import { describe, expect, it } from "vitest";
 import {
   convertStatement,
   decodeCsv,
+  directionOf,
   parseStatementAmount,
   parseStatementDate,
   toImportCsv,
 } from "./statement-formats";
 
-// 見本は実在の明細ではなく、よくある形（文字コード・見出しの前後の行・列名）をまねて作ったもの
+// 見本は実在の明細ではなく、よくある形（文字コード・見出しの前後の行・列名）をまねて作ったもの。
+// card-vpass-sjis.csv（三井住友カード）と emoney-jalpay-utf8.csv（JAL Pay）は、実物の CSV の見出しと 1 行を
+// もとに、氏名・番号を見本に替えたもの（JAL Pay の 2 行目以降の支払い・取り消し・外貨・両替の行は推測）
 const fixtureDir = resolve(dirname(fileURLToPath(import.meta.url)), "__fixtures__/statements");
 const fixture = (name: string) => decodeCsv(readFileSync(resolve(fixtureDir, name)));
 
@@ -38,12 +41,41 @@ describe("parseStatementDate", () => {
     ["令和8年10月1日", "2026-10-01"],
     ["令和元年5月1日", "2019-05-01"],
     ["H31.4.30", "2019-04-30"],
+    ["26/10/01", "2026-10-01"],
   ])("%s → %s", (raw, want) => {
     expect(parseStatementDate(raw)).toBe(want);
   });
 
+  it("年の無い日付は、基準の日以前でいちばん近い年にする（基準が無ければ読まない）", () => {
+    const ref = new Date(2026, 9, 18);
+    expect(parseStatementDate("10/01", ref)).toBe("2026-10-01");
+    expect(parseStatementDate("10月18日", ref)).toBe("2026-10-18");
+    expect(parseStatementDate("12/28", ref)).toBe("2025-12-28");
+    expect(parseStatementDate("10/01")).toBeNull();
+  });
+
   it.each(["合計", "", "2026/02/30", "口座番号"])("%s は読めない", (raw) => {
     expect(parseStatementDate(raw)).toBeNull();
+  });
+});
+
+describe("directionOf", () => {
+  it.each([
+    ["入金", 1],
+    ["チャージ", 1],
+    ["振込入金", 1],
+    ["返金", 1],
+    ["出金", -1],
+    ["ATM出金", -1],
+    ["お支払い", -1],
+    ["ショッピング", -1],
+    ["送金", -1],
+  ])("%s → %d", (raw, want) => {
+    expect(directionOf(raw)).toBe(want);
+  });
+
+  it.each(["", "両替", "振込", "支払取消", "入出金"])("%s は決めない", (raw) => {
+    expect(directionOf(raw)).toBeNull();
   });
 });
 
@@ -110,6 +142,52 @@ describe("convertStatement", () => {
       [-500, 87500],
       [30000, 117500],
     ]);
+  });
+
+  it("三井住友カード（Vpass）: 見出しの無いカード明細。利用が 1 件だけの月でも読み、氏名と合計の行は飛ばす", () => {
+    const c = convertStatement(fixture("card-vpass-sjis.csv"))!;
+    expect(c.headerless).toBe(true);
+    expect(c.rows).toEqual([{ date: "2026-08-31", description: "タイムズカー", amount: -880 }]);
+    expect(c.skipped.map((s) => s.reason)).toEqual(["日付が読めない行", "日付が読めない行"]);
+  });
+
+  it("JAL Pay: 取引種別で向きを決め、取り消し・円以外・向きの分からない行は飛ばす", () => {
+    const c = convertStatement(fixture("emoney-jalpay-utf8.csv"))!;
+    expect(c.style).toBe("typed");
+    expect(c.rows).toEqual([
+      { date: "2026-10-18", description: "チャージ クレジットカード", amount: 5000 },
+      { date: "2026-10-18", description: "ショッピング テストストア", amount: -1200 },
+    ]);
+    expect(c.skipped.map((s) => s.reason)).toEqual([
+      "取り消し・失敗の行",
+      "円以外の通貨の行",
+      "入金か出金か分からない行（両替）",
+    ]);
+    expect(c.columns).toContainEqual({ role: "区分", names: ["取引種別"] });
+  });
+
+  it("区分の列と符号の無い金額（区分の読めない負の金額はそのまま）", () => {
+    const c = convertStatement(
+      "取引日,区分,金額,摘要\n2026/10/01,出金,3000,ATM\n2026/10/02,入金,5000,振込\n2026/10/03,その他,-100,手数料",
+    )!;
+    expect(c.rows.map((r) => r.amount)).toEqual([-3000, 5000, -100]);
+  });
+
+  it("年の無い日付は、見出しの前の日付（無ければ today）を基準に年を決める", () => {
+    const titled = convertStatement(
+      "照会日,2026/10/18\n日付,摘要,金額\n12/28,年末,-100\n10/01,今月,-200",
+    )!;
+    expect(titled.rows.map((r) => r.date)).toEqual(["2025-12-28", "2026-10-01"]);
+    const plain = convertStatement("日付,摘要,金額\n12/28,年末,-100", {
+      today: new Date(2027, 0, 5),
+    })!;
+    expect(plain.rows.map((r) => r.date)).toEqual(["2026-12-28"]);
+  });
+
+  it("見出しより列の多い行（カンマの入った金額が引用符で囲まれていない）は飛ばす", () => {
+    const c = convertStatement("日付,摘要,金額\n2026/10/01,振込,5,000\n2026/10/02,振込,300")!;
+    expect(c.rows.map((r) => r.amount)).toEqual([300]);
+    expect(c.skipped[0].reason).toContain("見出しより列が多い行");
   });
 
   it("日付と金額の列が見つからなければ null", () => {
