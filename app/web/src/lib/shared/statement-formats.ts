@@ -4,8 +4,9 @@
 // （アプリの形の CSV も、符号つきの金額の明細として読む）。
 //
 // 各社の CSV は、文字コード（Shift_JIS が多い）、見出しの前後の余計な行、列名、金額の向きがまちまち。
-// 金融機関ごとの決め打ちはせず、見出しの列名から役割（日付・摘要・出金・入金・利用金額・符号つき金額・残高）を
-// 決めて読む。見出しの無い CSV は、先頭から 日付・摘要・金額 の並びのカード明細として読む。
+// 金融機関ごとの決め打ちはせず、見出しの列名から役割（日付・摘要・出金・入金・利用金額・符号つき金額・
+// 入金か出金かの区分・残高・取引の状態・通貨）を決めて読む。見出しの無い CSV は、先頭から 日付・摘要・金額 の
+// 並びのカード明細として読む（三井住友カードの Vpass など。1 行目は氏名とカードの行）。
 
 import Papa from "papaparse";
 
@@ -19,7 +20,9 @@ export type AmountStyle =
   /** 利用金額の列（カード。利用が正なので向きを逆にする） */
   | "usage"
   /** 入金が正・出金が負の 1 列 */
-  | "signed";
+  | "signed"
+  /** 符号の無い金額の列と、入金か出金かの区分の列（取引種別など。電子マネーに多い） */
+  | "typed";
 
 export type StatementConversion = {
   style: AmountStyle;
@@ -64,16 +67,22 @@ const DATE_NAMES = names(
   "取引日",
   "お取引日",
   "取引日付",
+  "取引日時",
   "取扱日",
   "お取扱日",
+  "取扱日付",
   "入出金日",
+  "入出金日時",
   "利用日",
   "ご利用日",
+  "利用日時",
+  "ご利用日時",
   "利用年月日",
   "ご利用年月日",
+  "日時",
   "date",
 );
-// 摘要は当たった列を、この順で最大 2 つつなぐ（例: 摘要 + 摘要内容、取引先 + 取引内容）
+// 摘要は当たった列を、この順で最大 2 つつなぐ（例: 摘要 + 摘要内容、取引先 + 取引内容、取引種別 + 内容）
 const DESCRIPTION_ORDER = [
   "摘要",
   "利用店名・商品名",
@@ -88,6 +97,7 @@ const DESCRIPTION_ORDER = [
   "お取引内容",
   "入出金内容",
   "取引内容",
+  "取引種別",
   "内容",
   "摘要内容",
   "詳細1",
@@ -100,11 +110,15 @@ const WITHDRAWAL_NAMES = names(
   "出金額",
   "お引出し",
   "お引出",
+  "お引き出し",
   "お引出し金額",
   "お引出金額",
+  "お引き出し金額",
+  "引出金額",
   "支払い金額",
   "払出金額",
   "お支払い金額",
+  "お支払金額",
 );
 const DEPOSIT_NAMES = names(
   "入金",
@@ -112,8 +126,11 @@ const DEPOSIT_NAMES = names(
   "入金額",
   "お預入れ",
   "お預入",
+  "お預け入れ",
   "お預入れ金額",
   "お預入金額",
+  "お預け入れ金額",
+  "預入金額",
   "預かり金額",
   "お預かり金額",
   "お預り金額",
@@ -130,6 +147,12 @@ const BALANCE_NAMES = names(
   "現在(貸付)高",
   "balance",
 );
+// 入金か出金かの区分（符号の無い金額の向きを決める）。カードの「支払区分」（1 回払い・分割）は向きではないので入れない
+const KIND_NAMES = names("区分", "入出金区分", "取引区分", "取引種別", "種別", "入出金種別");
+// 取引の状態（取り消し・失敗の行を飛ばす）
+const STATUS_NAMES = names("取引状態", "状態", "ステータス", "処理状況");
+// 通貨（金額が 1 列のとき、円以外の行を飛ばす）
+const CURRENCY_NAMES = names("通貨", "通貨コード");
 
 type Layout = {
   date: number;
@@ -138,7 +161,10 @@ type Layout = {
   deposit: number | null;
   usage: number | null;
   signed: number | null;
+  kind: number | null;
   balance: number | null;
+  status: number | null;
+  currency: number | null;
 };
 
 /** 見出しの行から列の役割を決める。日付と金額の列が無ければ null */
@@ -160,7 +186,10 @@ function layoutOf(header: string[]): Layout | null {
     deposit: find(DEPOSIT_NAMES),
     usage: find(USAGE_NAMES),
     signed: find(SIGNED_NAMES),
+    kind: find(KIND_NAMES),
     balance: find(BALANCE_NAMES),
+    status: find(STATUS_NAMES),
+    currency: find(CURRENCY_NAMES),
   };
   const hasAmount =
     layout.withdrawal !== null ||
@@ -173,7 +202,51 @@ function layoutOf(header: string[]): Layout | null {
 function styleOf(l: Layout): AmountStyle {
   if (l.withdrawal !== null || l.deposit !== null) return "split";
   if (l.usage !== null) return "usage";
-  return "signed";
+  return l.kind !== null ? "typed" : "signed";
+}
+
+// 区分の値の言葉。入金と出金の両方に当たる値・取り消しの値は、向きを決めない
+const IN_WORDS = [
+  "入金",
+  "預入",
+  "預け入",
+  "受入",
+  "チャージ",
+  "返金",
+  "払戻",
+  "払い戻",
+  "受取",
+  "受け取",
+  "キャッシュバック",
+  "還元",
+  "利息",
+  "給与",
+  "賞与",
+];
+const OUT_WORDS = [
+  "出金",
+  "引出",
+  "引き出",
+  "払出",
+  "支払",
+  "利用",
+  "ショッピング",
+  "購入",
+  "送金",
+  "引落",
+  "引き落",
+  "手数料",
+];
+
+/** 区分の値から向きを決める（入金は 1、出金は -1）。決められなければ null */
+export function directionOf(raw: string | undefined): 1 | -1 | null {
+  const s = (raw ?? "").normalize("NFKC").trim();
+  // 「入出金」は向きを表さない総称
+  if (s === "" || /取消|取り消|キャンセル|入出/.test(s)) return null;
+  const isIn = IN_WORDS.some((w) => s.includes(w));
+  const isOut = OUT_WORDS.some((w) => s.includes(w));
+  if (isIn === isOut) return null;
+  return isIn ? 1 : -1;
 }
 
 // ── 値 ─────────────────────────────────────────────────────────────
@@ -194,8 +267,15 @@ function ymd(y: number, m: number, d: number): string | null {
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-/** 日付を YYYY-MM-DD にする（2026/10/1、2026年10月1日、20261001、R8.10.1、令和8年10月1日。時刻は捨てる）。読めなければ null */
-export function parseStatementDate(raw: string): string | null {
+const dateKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * 日付を YYYY-MM-DD にする（2026/10/1、2026年10月1日、20261001、26/10/01、R8.10.1、令和8年10月1日。時刻は捨てる）。
+ * 年の無い日付（10/1、10月1日）は、ref（明細を落とした日など）の日以前でいちばん近い年にする。ref が無ければ読まない。
+ * 読めなければ null
+ */
+export function parseStatementDate(raw: string, ref?: Date): string | null {
   const s = raw.normalize("NFKC").trim().toLowerCase();
   let m = s.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})(?:\D|$)/);
   if (m) return ymd(+m[1], +m[2], +m[3]);
@@ -207,6 +287,15 @@ export function parseStatementDate(raw: string): string | null {
   if (m) {
     const year = m[2] === "元" ? 1 : +m[2];
     return ymd(ERAS[m[1]] + year - 1, +m[3], +m[4]);
+  }
+  // 2 桁の年は 2000 年代
+  m = s.match(/^(\d{2})[/.-](\d{1,2})[/.-](\d{1,2})(?:\D|$)/);
+  if (m) return ymd(2000 + +m[1], +m[2], +m[3]);
+  m = s.match(/^(\d{1,2})(?:[/.-]|月)(\d{1,2})日?(?:\D|$)/);
+  if (m && ref) {
+    const thisYear = ymd(ref.getFullYear(), +m[1], +m[2]);
+    if (thisYear === null) return ymd(ref.getFullYear() - 1, +m[1], +m[2]);
+    return thisYear <= dateKey(ref) ? thisYear : ymd(ref.getFullYear() - 1, +m[1], +m[2]);
   }
   return null;
 }
@@ -233,18 +322,39 @@ export function parseStatementAmount(raw: string | undefined): number | null {
 
 const HEADER_SCAN_LINES = 30;
 
-/** 見出しの無いカード明細か（先頭から 日付・摘要・金額 の並びの行が、データの大半を占める） */
+/**
+ * 見出しの無いカード明細か。日付で始まる行がすべて 日付・摘要・金額 の並びで、ほかの行（1 行目の氏名・カードの行と、
+ * 先頭が空欄の合計の行を除く）より多い。利用が 1 件だけの月でも読めるように、氏名と合計の行は数えない
+ */
 function looksHeaderless(lines: string[][]): boolean {
-  const data = lines.filter((l) => parseStatementDate(l[0] ?? "") !== null);
-  if (data.length === 0 || data.length < lines.length / 2) return false;
-  return data.every((l) => parseStatementAmount(l[2]) !== null);
+  const isData = (l: string[]) => parseStatementDate(l[0] ?? "") !== null;
+  const data = lines.filter(isData);
+  if (data.length === 0 || !data.every((l) => parseStatementAmount(l[2]) !== null)) return false;
+  const others = lines.filter((l, i) => i > 0 && !isData(l) && (l[0] ?? "").trim() !== "");
+  return data.length >= others.length;
+}
+
+/** 見出しの前の行（明細を落とした日時・照会期間など）にある日付のうち、いちばん遅い日 */
+function latestDateIn(lines: string[][]): Date | null {
+  let latest: string | null = null;
+  for (const cell of lines.flat()) {
+    const d = parseStatementDate(cell);
+    if (d && (latest === null || d > latest)) latest = d;
+  }
+  if (latest === null) return null;
+  const [y, m, d] = latest.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 /**
  * 明細の CSV をアプリの形にそろえる。見出しも、見出しの無いカード明細の並びも見つからなければ null。
- * 日付が読めない行・金額の無い行は、エラーにせず skipped に入れる（合計・注記の行があるため）。
+ * 日付が読めない行・金額の無い行・取り消しの行などは、エラーにせず skipped に入れる（合計・注記の行があるため）。
+ * 年の無い日付は、見出しの前の行にある日付（明細を落とした日時など）、無ければ today を基準に年を決める。
  */
-export function convertStatement(text: string): StatementConversion | null {
+export function convertStatement(
+  text: string,
+  options: { today?: Date } = {},
+): StatementConversion | null {
   const lines = Papa.parse<string[]>(text, { skipEmptyLines: "greedy" }).data;
 
   let headerIndex = -1;
@@ -268,24 +378,47 @@ export function convertStatement(text: string): StatementConversion | null {
       deposit: null,
       usage: 2,
       signed: null,
+      kind: null,
       balance: null,
+      status: null,
+      currency: null,
     };
   }
 
+  const ref = latestDateIn(lines.slice(0, Math.max(headerIndex, 0))) ?? options.today ?? new Date();
+  const header = headerless ? [] : lines[headerIndex];
   const style = styleOf(layout);
   const rows: StatementRow[] = [];
   const skipped: StatementConversion["skipped"] = [];
   for (let i = headerIndex + 1; i < lines.length; i++) {
     const cells = lines[i];
     const text = cells.join(",");
-    const date = parseStatementDate(cells[layout.date] ?? "");
+    const skip = (reason: string) => skipped.push({ text, reason });
+    const date = parseStatementDate(cells[layout.date] ?? "", ref);
     if (!date) {
-      skipped.push({ text, reason: "日付が読めない行" });
+      skip("日付が読めない行");
+      continue;
+    }
+    // 見出しより後ろの列に値がある行は、金額のカンマで列がずれているおそれがあるので読まない
+    if (!headerless && cells.slice(header.length).some((c) => c.trim() !== "")) {
+      skip("見出しより列が多い行（金額のカンマで列がずれているかもしれません）");
+      continue;
+    }
+    if (layout.status !== null && isCancelled(cells[layout.status])) {
+      skip("取り消し・失敗の行");
+      continue;
+    }
+    if (
+      (style === "signed" || style === "typed") &&
+      layout.currency !== null &&
+      isForeignCurrency(cells[layout.currency])
+    ) {
+      skip("円以外の通貨の行");
       continue;
     }
     const amount = amountOf(cells, layout, style);
-    if (amount === null) {
-      skipped.push({ text, reason: "金額が無い行" });
+    if (typeof amount === "string") {
+      skip(amount);
       continue;
     }
     const description =
@@ -296,7 +429,6 @@ export function convertStatement(text: string): StatementConversion | null {
     rows.push({ date, description, amount, ...(balance === null ? {} : { balance }) });
   }
 
-  const header = headerless ? [] : lines[headerIndex];
   const col = (i: number | null) => (i === null ? [] : [header[i]?.trim() ?? `${i + 1} 列目`]);
   const columns = headerless
     ? [
@@ -314,25 +446,54 @@ export function convertStatement(text: string): StatementConversion | null {
             ]
           : style === "usage"
             ? [{ role: "利用金額", names: col(layout.usage) }]
-            : [{ role: "金額", names: col(layout.signed) }]),
+            : style === "typed"
+              ? [
+                  { role: "金額", names: col(layout.signed) },
+                  { role: "区分", names: col(layout.kind) },
+                ]
+              : [{ role: "金額", names: col(layout.signed) }]),
         { role: "残高", names: col(layout.balance) },
+        { role: "状態", names: col(layout.status) },
+        ...(style === "signed" || style === "typed"
+          ? [{ role: "通貨", names: col(layout.currency) }]
+          : []),
       ].filter((c) => c.names.length > 0);
 
   return { style, headerless, columns, rows, skipped };
 }
 
-function amountOf(cells: string[], l: Layout, style: AmountStyle): number | null {
+/** 取り消し・失敗の状態か */
+function isCancelled(raw: string | undefined): boolean {
+  return /取消|取り消|キャンセル|失敗|エラー|拒否|無効/.test((raw ?? "").normalize("NFKC"));
+}
+
+/** 円以外の通貨か（JPY・円・空欄・「-」は円とみなす） */
+function isForeignCurrency(raw: string | undefined): boolean {
+  const s = (raw ?? "").normalize("NFKC").trim().toUpperCase();
+  const code = s.match(/^[A-Z]{3}/)?.[0];
+  return code !== undefined && code !== "JPY";
+}
+
+/** 行の金額（入金が正・支出が負）。読めなければ飛ばす理由を返す */
+function amountOf(cells: string[], l: Layout, style: AmountStyle): number | string {
+  const NO_AMOUNT = "金額が無い行";
   if (style === "split") {
     const out = l.withdrawal === null ? null : parseStatementAmount(cells[l.withdrawal]);
     const inn = l.deposit === null ? null : parseStatementAmount(cells[l.deposit]);
-    if (out === null && inn === null) return null;
+    if (out === null && inn === null) return NO_AMOUNT;
     const amount = (inn ?? 0) - (out ?? 0);
-    return amount === 0 ? null : amount;
+    return amount === 0 ? NO_AMOUNT : amount;
   }
   const v = parseStatementAmount(cells[style === "usage" ? l.usage! : l.signed!]);
-  if (v === null || v === 0) return null;
+  if (v === null || v === 0) return NO_AMOUNT;
   // カードの利用は正で書かれているので、支出（負）にする。返金（負）は入金（正）になる
-  return style === "usage" ? -v : v;
+  if (style === "usage") return -v;
+  if (style === "signed") return v;
+  // 区分で向きを決める。区分が読めなくても、負の金額はそのまま出金とする
+  const direction = directionOf(cells[l.kind!]);
+  if (direction !== null) return direction * Math.abs(v);
+  if (v < 0) return v;
+  return `入金か出金か分からない行（${(cells[l.kind!] ?? "").trim() || "区分が空欄"}）`;
 }
 
 /** そろえた明細を、実績管理の取り込みの形（日付,摘要,金額,残高）の CSV にする */
@@ -348,4 +509,5 @@ export const AMOUNT_STYLE_LABEL: Record<AmountStyle, string> = {
   split: "出金・入金が別の列の明細",
   usage: "利用金額の列の明細（カード。利用を支出として取り込みます）",
   signed: "入金が正・出金が負の金額の明細",
+  typed: "金額と、入金か出金かの区分が別の列の明細",
 };
