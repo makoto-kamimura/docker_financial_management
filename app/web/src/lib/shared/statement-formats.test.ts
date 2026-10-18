@@ -18,7 +18,7 @@ import {
 // 見本は実在の明細ではなく、よくある形（文字コード・見出しの前後の行・列名）をまねて作ったもの。
 // card-vpass-sjis.csv（三井住友カード）と emoney-jalpay-utf8.csv（JAL Pay）は、実物の CSV の見出しと 1 行を
 // もとに、氏名・番号を見本に替えたもの（JAL Pay のチャージと支払いの行は実物の形、取り消しと外貨の行は推測）。
-// bank-mizuho-sjis.csv（みずほ銀行）は実物の見出しに、推測した行を付けたもの
+// bank-mizuho-sjis.csv（みずほ銀行）と bank-paypay-sjis.csv（PayPay 銀行）は、実物の見出しに推測した行を付けたもの
 const fixtureDir = resolve(dirname(fileURLToPath(import.meta.url)), "__fixtures__/statements");
 const fixture = (name: string) => decodeCsv(readFileSync(resolve(fixtureDir, name)));
 
@@ -171,6 +171,29 @@ describe("convertStatement", () => {
     ]);
   });
 
+  it("PayPay 銀行: 日付が年・月・日の別の列（時刻の列は読まない）", () => {
+    const c = convertStatement(fixture("bank-paypay-sjis.csv"))!;
+    expect(c.style).toBe("split");
+    expect(c.rows).toEqual([
+      { date: "2026-10-01", description: "ATM　テスト", amount: -3000, balance: 97000 },
+      { date: "2026-10-05", description: "振込　カ）テスト", amount: 250000, balance: 347000 },
+    ]);
+    expect(c.columns[0]).toEqual({
+      role: "日付",
+      names: ["操作日(年)", "操作日(月)", "操作日(日)"],
+    });
+    expect(c.mapping).toMatchObject({ date: 0, dateMonth: 1, dateDay: 2, description: [7] });
+  });
+
+  it("年・月・日の列は「年」「月」「日」の列名でも読み、読み方で渡しても同じに読む", () => {
+    const csv = "年,月,日,内容,金額\n26,10,3,テスト,-500";
+    const c = convertStatement(csv)!;
+    expect(c.rows).toEqual([{ date: "2026-10-03", description: "テスト", amount: -500 }]);
+    const again = convertStatement(csv, { mapping: c.mapping })!;
+    expect(again.mapped).toBe(true);
+    expect(again.rows).toEqual(c.rows);
+  });
+
   it("JAL Pay: 符号つきの金額をそのまま読み、取り消し・円以外の行は飛ばす", () => {
     const c = convertStatement(fixture("emoney-jalpay-utf8.csv"))!;
     // 取引種別の列があっても、負の金額があるので符号のとおりに読む（「非接触」は向きの言葉ではない）
@@ -296,6 +319,10 @@ describe("読み方（mapping）", () => {
     expect(StatementMappingSchema.safeParse(base).success).toBe(false);
     expect(StatementMappingSchema.safeParse({ ...base, signed: 5 }).success).toBe(false);
     expect(StatementMappingSchema.safeParse({ ...base, signed: 1 }).success).toBe(true);
+    // 月の列だけで日の列が無い読み方も受け付けない
+    expect(StatementMappingSchema.safeParse({ ...base, signed: 1, dateMonth: 1 }).success).toBe(
+      false,
+    );
   });
 });
 

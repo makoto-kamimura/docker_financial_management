@@ -52,6 +52,9 @@ export const StatementMappingSchema = z
   .object({
     header: z.array(z.string().max(100)).min(1).max(100),
     date: z.number().int().min(0).max(99),
+    /** 年・月・日が別の列のときの月・日の列（date は年の列）。無ければ省く */
+    dateMonth: column.optional(),
+    dateDay: column.optional(),
     description: z.array(z.number().int().min(0).max(99)).max(2),
     withdrawal: column,
     deposit: column,
@@ -65,8 +68,23 @@ export const StatementMappingSchema = z
     "金額の列を選んでください",
   )
   .refine(
+    (m) => (m.dateMonth ?? null) === null || (m.dateDay ?? null) !== null,
+    "日付の日の列を選んでください",
+  )
+  .refine(
     (m) =>
-      [m.date, ...m.description, m.withdrawal, m.deposit, m.usage, m.signed, m.kind, m.balance]
+      [
+        m.date,
+        m.dateMonth ?? null,
+        m.dateDay ?? null,
+        ...m.description,
+        m.withdrawal,
+        m.deposit,
+        m.usage,
+        m.signed,
+        m.kind,
+        m.balance,
+      ]
         .filter((i): i is number => i !== null)
         .every((i) => i < m.header.length),
     "見出しに無い列を選んでいます",
@@ -220,7 +238,10 @@ const STATUS_NAMES = names("取引状態", "状態", "ステータス", "処理�
 const CURRENCY_NAMES = names("通貨", "通貨コード");
 
 type Layout = {
+  /** 日付の列。年・月・日が別の列（dateMonth・dateDay がある）ときは年の列 */
   date: number;
+  dateMonth: number | null;
+  dateDay: number | null;
   description: number[];
   withdrawal: number | null;
   deposit: number | null;
@@ -239,13 +260,17 @@ function layoutOf(header: string[]): Layout | null {
     const i = norm.findIndex((h) => set.has(h));
     return i < 0 ? null : i;
   };
-  const date = find(DATE_NAMES);
-  if (date === null) return null;
+  // 日付が 1 列でなければ、年・月・日が別の列か（PayPay 銀行の 操作日(年)・操作日(月)・操作日(日) など）
+  const single = find(DATE_NAMES);
+  const parts = single === null ? splitDateOf(norm) : null;
+  if (single === null && parts === null) return null;
   const description = DESCRIPTION_ORDER.map((n) => norm.indexOf(n))
     .filter((i) => i >= 0)
     .slice(0, 2);
   const layout: Layout = {
-    date,
+    date: parts?.year ?? single!,
+    dateMonth: parts?.month ?? null,
+    dateDay: parts?.day ?? null,
     description,
     withdrawal: find(WITHDRAWAL_NAMES),
     deposit: find(DEPOSIT_NAMES),
@@ -262,6 +287,31 @@ function layoutOf(header: string[]): Layout | null {
     layout.usage !== null ||
     layout.signed !== null;
   return hasAmount ? layout : null;
+}
+
+/**
+ * 年・月・日が別の列の日付（「操作日(年)」「操作日(月)」「操作日(日)」のように同じ名前に (年)(月)(日) が付く列、
+ * または「年」「月」「日」の列）。無ければ null
+ */
+function splitDateOf(norm: string[]): { year: number; month: number; day: number } | null {
+  const prefixes = ["", ...norm.flatMap((h) => h.match(/^(.+)\(年\)$/)?.[1] ?? [])];
+  for (const prefix of prefixes) {
+    const at = (unit: string) => norm.indexOf(prefix ? `${prefix}(${unit})` : unit);
+    const [year, month, day] = [at("年"), at("月"), at("日")];
+    if (year >= 0 && month >= 0 && day >= 0) return { year, month, day };
+  }
+  return null;
+}
+
+/** 年・月・日の列の値から YYYY-MM-DD にする（2 桁の年は 2000 年代）。読めなければ null */
+function dateFromParts(y: string | undefined, m: string | undefined, d: string | undefined) {
+  const num = (v: string | undefined) => {
+    const t = (v ?? "").normalize("NFKC").trim();
+    return /^\d{1,4}$/.test(t) ? Number(t) : null;
+  };
+  const [year, month, day] = [num(y), num(m), num(d)];
+  if (year === null || month === null || day === null) return null;
+  return ymd(year < 100 ? 2000 + year : year, month, day);
 }
 
 function styleOf(l: Layout): AmountStyle {
@@ -447,6 +497,8 @@ export function convertStatement(
     headerless = true;
     layout = {
       date: 0,
+      dateMonth: null,
+      dateDay: null,
       description: [1],
       withdrawal: null,
       deposit: null,
@@ -477,7 +529,10 @@ export function convertStatement(
     const cells = lines[i];
     const text = cells.join(",");
     const skip = (reason: string) => skipped.push({ text, reason });
-    const date = parseStatementDate(cells[layout.date] ?? "", ref);
+    const date =
+      layout.dateMonth !== null && layout.dateDay !== null
+        ? dateFromParts(cells[layout.date], cells[layout.dateMonth], cells[layout.dateDay])
+        : parseStatementDate(cells[layout.date] ?? "", ref);
     if (!date) {
       skip("日付が読めない行");
       continue;
@@ -520,7 +575,10 @@ export function convertStatement(
         { role: "利用金額", names: ["3 列目"] },
       ]
     : [
-        { role: "日付", names: col(layout.date) },
+        {
+          role: "日付",
+          names: [layout.date, layout.dateMonth, layout.dateDay].flatMap(col),
+        },
         { role: "摘要", names: layout.description.flatMap(col) },
         ...(style === "split"
           ? [
@@ -563,6 +621,8 @@ function layoutFromMapping(m: StatementMapping, header: string[]): Layout {
   };
   return {
     date: m.date,
+    dateMonth: m.dateMonth ?? null,
+    dateDay: m.dateMonth != null ? (m.dateDay ?? null) : null,
     description: m.description,
     withdrawal: m.withdrawal,
     deposit: m.deposit,
@@ -579,6 +639,7 @@ function layoutFromMapping(m: StatementMapping, header: string[]): Layout {
 function mappingOf(l: Layout, header: string[]): StatementMapping {
   return mappingFor(header, {
     date: l.date,
+    ...(l.dateMonth !== null ? { dateMonth: l.dateMonth, dateDay: l.dateDay } : {}),
     description: l.description,
     withdrawal: l.withdrawal,
     deposit: l.deposit,

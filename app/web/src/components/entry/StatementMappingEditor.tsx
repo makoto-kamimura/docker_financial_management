@@ -20,7 +20,12 @@ import {
 type Col = number | null;
 
 type Roles = {
+  /** 日付の列（年・月・日が別の列なら年の列） */
   date: Col;
+  /** 年・月・日が別の列 */
+  dateSplit: boolean;
+  dateMonth: Col;
+  dateDay: Col;
   desc1: Col;
   desc2: Col;
   style: AmountStyle;
@@ -51,6 +56,9 @@ function rolesOf(m: StatementMapping | null): Roles {
           : "signed";
   return {
     date: m?.date ?? null,
+    dateSplit: (m?.dateMonth ?? null) !== null,
+    dateMonth: m?.dateMonth ?? null,
+    dateDay: m?.dateDay ?? null,
     desc1: m?.description[0] ?? null,
     desc2: m?.description[1] ?? null,
     style,
@@ -63,11 +71,13 @@ function rolesOf(m: StatementMapping | null): Roles {
   };
 }
 
-/** 選んだ役割から読み方を作る（金額の読み方に使わない列は外す）。日付が無ければ null */
+/** 選んだ役割から読み方を作る（金額の読み方に使わない列は外す）。日付（年・月・日）の列がそろわなければ null */
 function buildMapping(cells: string[], r: Roles): StatementMapping | null {
   if (r.date === null) return null;
+  if (r.dateSplit && (r.dateMonth === null || r.dateDay === null)) return null;
   return mappingFor(cells, {
     date: r.date,
+    ...(r.dateSplit ? { dateMonth: r.dateMonth, dateDay: r.dateDay } : {}),
     description: [r.desc1, r.desc2].filter((c): c is number => c !== null),
     withdrawal: r.style === "split" ? r.withdrawal : null,
     deposit: r.style === "split" ? r.deposit : null,
@@ -121,7 +131,11 @@ export function StatementMappingEditor({
   const conversion = !problem && mapping ? convertStatement(text, { mapping }) : null;
 
   const set = (patch: Partial<Roles>) => setRoles((r) => ({ ...r, ...patch }));
-  const select = (label: string, role: keyof Omit<Roles, "style">, optional = true) => (
+  const select = (
+    label: string,
+    role: keyof Omit<Roles, "style" | "dateSplit">,
+    optional = true,
+  ) => (
     <ColumnSelect
       label={label}
       columns={columns}
@@ -161,11 +175,30 @@ export function StatementMappingEditor({
             ))}
           </select>
         </label>
-        {select("日付", "date", false)}
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <span className="w-20 shrink-0">日付の形</span>
+          <select
+            className="input-field text-xs flex-1 min-w-0"
+            value={roles.dateSplit ? "split" : "single"}
+            onChange={(e) => set({ dateSplit: e.target.value === "split" })}
+          >
+            <option value="single">1 つの列（2026/10/01 など）</option>
+            <option value="split">年・月・日が別の列</option>
+          </select>
+        </label>
+        {roles.dateSplit ? (
+          <>
+            {select("年", "date", false)}
+            {select("月", "dateMonth", false)}
+            {select("日", "dateDay", false)}
+          </>
+        ) : (
+          select("日付", "date", false)
+        )}
         {select("摘要", "desc1")}
         {select("摘要（2）", "desc2")}
         <label className="flex items-center gap-2 text-xs text-slate-600">
-          <span className="w-20 shrink-0">金額</span>
+          <span className="w-20 shrink-0">金額の形</span>
           <select
             className="input-field text-xs flex-1 min-w-0"
             value={roles.style}
