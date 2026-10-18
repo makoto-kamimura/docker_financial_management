@@ -21,7 +21,7 @@ export type AmountStyle =
   | "usage"
   /** 入金が正・出金が負の 1 列 */
   | "signed"
-  /** 符号の無い金額の列と、入金か出金かの区分の列（取引種別など。電子マネーに多い） */
+  /** 符号の無い金額の列と、入金か出金かの区分の列（区分など）。負の金額が 1 行でもあれば signed として読む */
   | "typed";
 
 export type StatementConversion = {
@@ -82,7 +82,7 @@ const DATE_NAMES = names(
   "日時",
   "date",
 );
-// 摘要は当たった列を、この順で最大 2 つつなぐ（例: 摘要 + 摘要内容、取引先 + 取引内容、取引種別 + 内容）
+// 摘要は当たった列を、この順で最大 2 つつなぐ（例: 摘要 + 摘要内容、取引先 + 取引内容、内容 + 取引種別）
 const DESCRIPTION_ORDER = [
   "摘要",
   "利用店名・商品名",
@@ -97,8 +97,8 @@ const DESCRIPTION_ORDER = [
   "お取引内容",
   "入出金内容",
   "取引内容",
-  "取引種別",
   "内容",
+  "取引種別",
   "摘要内容",
   "詳細1",
   "詳細2",
@@ -387,7 +387,16 @@ export function convertStatement(
 
   const ref = latestDateIn(lines.slice(0, Math.max(headerIndex, 0))) ?? options.today ?? new Date();
   const header = headerless ? [] : lines[headerIndex];
-  const style = styleOf(layout);
+  // 区分の列があっても、負の金額が 1 行でもある明細は符号のとおりに読む（JAL Pay はチャージが正・支払いが負で、
+  // 取引種別には「非接触」「両替」など向きを表さない言葉も入る）
+  let style = styleOf(layout);
+  if (style === "typed") {
+    const signedColumn = layout.signed!;
+    const hasNegative = lines
+      .slice(headerIndex + 1)
+      .some((cells) => (parseStatementAmount(cells[signedColumn]) ?? 0) < 0);
+    if (hasNegative) style = "signed";
+  }
   const rows: StatementRow[] = [];
   const skipped: StatementConversion["skipped"] = [];
   for (let i = headerIndex + 1; i < lines.length; i++) {
@@ -489,10 +498,9 @@ function amountOf(cells: string[], l: Layout, style: AmountStyle): number | stri
   // カードの利用は正で書かれているので、支出（負）にする。返金（負）は入金（正）になる
   if (style === "usage") return -v;
   if (style === "signed") return v;
-  // 区分で向きを決める。区分が読めなくても、負の金額はそのまま出金とする
+  // 符号の無い明細なので、区分で向きを決める
   const direction = directionOf(cells[l.kind!]);
-  if (direction !== null) return direction * Math.abs(v);
-  if (v < 0) return v;
+  if (direction !== null) return direction * v;
   return `入金か出金か分からない行（${(cells[l.kind!] ?? "").trim() || "区分が空欄"}）`;
 }
 

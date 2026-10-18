@@ -14,7 +14,7 @@ import {
 
 // 見本は実在の明細ではなく、よくある形（文字コード・見出しの前後の行・列名）をまねて作ったもの。
 // card-vpass-sjis.csv（三井住友カード）と emoney-jalpay-utf8.csv（JAL Pay）は、実物の CSV の見出しと 1 行を
-// もとに、氏名・番号を見本に替えたもの（JAL Pay の 2 行目以降の支払い・取り消し・外貨・両替の行は推測）
+// もとに、氏名・番号を見本に替えたもの（JAL Pay のチャージと支払いの行は実物の形、取り消しと外貨の行は推測）
 const fixtureDir = resolve(dirname(fileURLToPath(import.meta.url)), "__fixtures__/statements");
 const fixture = (name: string) => decodeCsv(readFileSync(resolve(fixtureDir, name)));
 
@@ -151,26 +151,25 @@ describe("convertStatement", () => {
     expect(c.skipped.map((s) => s.reason)).toEqual(["日付が読めない行", "日付が読めない行"]);
   });
 
-  it("JAL Pay: 取引種別で向きを決め、取り消し・円以外・向きの分からない行は飛ばす", () => {
+  it("JAL Pay: 符号つきの金額をそのまま読み、取り消し・円以外の行は飛ばす", () => {
     const c = convertStatement(fixture("emoney-jalpay-utf8.csv"))!;
-    expect(c.style).toBe("typed");
+    // 取引種別の列があっても、負の金額があるので符号のとおりに読む（「非接触」は向きの言葉ではない）
+    expect(c.style).toBe("signed");
     expect(c.rows).toEqual([
-      { date: "2026-10-18", description: "チャージ クレジットカード", amount: 5000 },
-      { date: "2026-10-18", description: "ショッピング テストストア", amount: -1200 },
+      { date: "2026-10-18", description: "クレジットカード チャージ", amount: 5000 },
+      { date: "2026-10-08", description: "テストスーパー　テスト店 非接触", amount: -416 },
     ]);
-    expect(c.skipped.map((s) => s.reason)).toEqual([
-      "取り消し・失敗の行",
-      "円以外の通貨の行",
-      "入金か出金か分からない行（両替）",
-    ]);
-    expect(c.columns).toContainEqual({ role: "区分", names: ["取引種別"] });
+    expect(c.skipped.map((s) => s.reason)).toEqual(["取り消し・失敗の行", "円以外の通貨の行"]);
   });
 
-  it("区分の列と符号の無い金額（区分の読めない負の金額はそのまま）", () => {
+  it("区分の列と符号の無い金額は、区分で向きを決め、向きの分からない行は飛ばす", () => {
     const c = convertStatement(
-      "取引日,区分,金額,摘要\n2026/10/01,出金,3000,ATM\n2026/10/02,入金,5000,振込\n2026/10/03,その他,-100,手数料",
+      "取引日,区分,金額,摘要\n2026/10/01,出金,3000,ATM\n2026/10/02,入金,5000,振込\n2026/10/03,両替,100,外貨",
     )!;
-    expect(c.rows.map((r) => r.amount)).toEqual([-3000, 5000, -100]);
+    expect(c.style).toBe("typed");
+    expect(c.rows.map((r) => r.amount)).toEqual([-3000, 5000]);
+    expect(c.skipped.map((s) => s.reason)).toEqual(["入金か出金か分からない行（両替）"]);
+    expect(c.columns).toContainEqual({ role: "区分", names: ["区分"] });
   });
 
   it("年の無い日付は、見出しの前の日付（無ければ today）を基準に年を決める", () => {
