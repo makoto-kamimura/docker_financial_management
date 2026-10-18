@@ -14,7 +14,8 @@ import {
 
 // 見本は実在の明細ではなく、よくある形（文字コード・見出しの前後の行・列名）をまねて作ったもの。
 // card-vpass-sjis.csv（三井住友カード）と emoney-jalpay-utf8.csv（JAL Pay）は、実物の CSV の見出しと 1 行を
-// もとに、氏名・番号を見本に替えたもの（JAL Pay のチャージと支払いの行は実物の形、取り消しと外貨の行は推測）
+// もとに、氏名・番号を見本に替えたもの（JAL Pay のチャージと支払いの行は実物の形、取り消しと外貨の行は推測）。
+// bank-mizuho-sjis.csv（みずほ銀行）は実物の見出しに、推測した行を付けたもの
 const fixtureDir = resolve(dirname(fileURLToPath(import.meta.url)), "__fixtures__/statements");
 const fixture = (name: string) => decodeCsv(readFileSync(resolve(fixtureDir, name)));
 
@@ -149,6 +150,22 @@ describe("convertStatement", () => {
     expect(c.headerless).toBe(true);
     expect(c.rows).toEqual([{ date: "2026-08-31", description: "タイムズカー", amount: -880 }]);
     expect(c.skipped.map((s) => s.reason)).toEqual(["日付が読めない行", "日付が読めない行"]);
+  });
+
+  it("みずほ銀行: お引出金額・お預入金額が別の列で、明細通番の列は読まない", () => {
+    const c = convertStatement(fixture("bank-mizuho-sjis.csv"))!;
+    expect(c.style).toBe("split");
+    expect(c.rows).toEqual([
+      { date: "2026-10-01", description: "ATM　テスト", amount: -3000, balance: 120000 },
+      { date: "2026-10-05", description: "振込　カ）テスト", amount: 250000, balance: 370000 },
+    ]);
+    expect(c.columns).toEqual([
+      { role: "日付", names: ["日付"] },
+      { role: "摘要", names: ["お取引内容"] },
+      { role: "出金", names: ["お引出金額"] },
+      { role: "入金", names: ["お預入金額"] },
+      { role: "残高", names: ["残高"] },
+    ]);
   });
 
   it("JAL Pay: 符号つきの金額をそのまま読み、取り消し・円以外の行は飛ばす", () => {
