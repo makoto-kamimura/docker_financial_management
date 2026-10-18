@@ -80,6 +80,24 @@ describe("routeLedgerRows", () => {
     expect(r.groups[0].destination).toEqual({ kind: "BANK", accountId: 1 });
   });
 
+  it("同じ明細の 2 回目以降は、取り込み先ごとに番号を付けて別の明細にする", () => {
+    const row = { 日付: "2026-10-01", 摘要: "コンビニ", 金額: "-150" };
+    const r = routeLedgerRows(
+      [
+        { 取り込み先: "住信SBI", ...row },
+        { 取り込み先: "現金", ...row },
+        { 取り込み先: "住信SBI", ...row },
+      ],
+      ctx,
+    );
+    const ids = Object.fromEntries(
+      r.groups.map((g) => [g.destination.kind, g.rows.map((t) => t.externalId)]),
+    );
+    expect(ids.BANK).toHaveLength(2);
+    expect(ids.BANK[1]).toBe(`${ids.BANK[0]}#2`);
+    expect(ids.CASH).toEqual([ids.BANK[0].replace(/^csv-\d+-/, "csv-0-")]);
+  });
+
   it("取り込み先・必要な列の誤りを行番号つきで返す", () => {
     const r = routeLedgerRows(
       [

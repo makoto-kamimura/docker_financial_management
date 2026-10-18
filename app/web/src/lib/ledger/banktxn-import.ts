@@ -36,6 +36,21 @@ export function parseBankRow(raw: Record<string, unknown>, accountId: number): P
   };
 }
 
+/**
+ * 1 つのファイルの中で同じ日付・金額・摘要の明細が 2 回目以降に出たら、externalId の末尾に #2, #3… を付ける。
+ * 内容だけで決めた externalId は、同じ日に同じ店で同じ額を 2 回払うと同じになり、2 件目が重複として飛ぶため。
+ * 1 回目は番号を付けない（それまでに取り込んだ明細と同じ id のままにする）。期間の重なる CSV を後から
+ * 入れても、その日の明細がそろっていれば番号も同じになるので、二重には入らない。
+ */
+export function numberRepeatedIds<T extends { externalId: string }>(rows: T[]): T[] {
+  const seen = new Map<string, number>();
+  return rows.map((r) => {
+    const n = (seen.get(r.externalId) ?? 0) + 1;
+    seen.set(r.externalId, n);
+    return n === 1 ? r : { ...r, externalId: `${r.externalId}#${n}` };
+  });
+}
+
 // CSV テキストを入出金明細に変換する。
 export function parseBankCsv(csv: string, accountId: number): ParseResult {
   const parsed = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true });
@@ -48,7 +63,7 @@ export function parseBankCsv(csv: string, accountId: number): ParseResult {
     else rows.push(row);
   });
 
-  return { rows, errors };
+  return { rows: numberRepeatedIds(rows), errors };
 }
 
 // 学習ルールのキーワード正規化（前後空白除去・連続空白の圧縮・大文字化）。

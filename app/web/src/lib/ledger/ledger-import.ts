@@ -8,7 +8,7 @@
 // 科目の列は無い。取り込んだあと、学習ルールで科目を付ける（lib/ledger/ledger-entries.ts の insertExternalEntries）。
 // 誤りが 1 行でもあれば、どの行も取り込まない。
 
-import { parseBankRow, type ParsedTxn } from "@/lib/ledger/banktxn-import";
+import { numberRepeatedIds, parseBankRow, type ParsedTxn } from "@/lib/ledger/banktxn-import";
 
 export type LedgerImportError = { row: number; message: string };
 type NamedAccount = { id: number; name: string };
@@ -130,5 +130,9 @@ export function routeLedgerRows(
     groups.set(key, group);
   });
 
-  return { groups: [...groups.values()], errors };
+  // 同じ明細の 2 回目以降は、取り込み先ごとに番号を付けて別の明細にする
+  return {
+    groups: [...groups.values()].map((g) => ({ ...g, rows: numberRepeatedIds(g.rows) })),
+    errors,
+  };
 }
