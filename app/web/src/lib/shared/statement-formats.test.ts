@@ -7,7 +7,10 @@ import {
   convertStatement,
   decodeCsv,
   directionOf,
+  headerCandidates,
+  mappingFor,
   parseStatementAmount,
+  StatementMappingSchema,
   parseStatementDate,
   toImportCsv,
 } from "./statement-formats";
@@ -208,6 +211,91 @@ describe("convertStatement", () => {
 
   it("日付と金額の列が見つからなければ null", () => {
     expect(convertStatement("名前,メモ\nA,B\n")).toBeNull();
+  });
+});
+
+describe("読み方（mapping）", () => {
+  // 列名が候補に無く、自動では読めない明細
+  const unknown = [
+    "口座,テスト",
+    "取扱年月日,中身,払った,もらった,のこり",
+    "2026/10/01,ATM,3000,,97000",
+    "2026/10/02,給与,,50000,147000",
+  ].join("\n");
+
+  it("自動で読めない明細は null。見出しの行の候補を返す", () => {
+    expect(convertStatement(unknown)).toBeNull();
+    expect(headerCandidates(unknown).map((c) => c.index)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("読み方を渡すと、同じ見出しの行を探してその列で読む", () => {
+    const mapping = mappingFor(["取扱年月日", "中身", "払った", "もらった", "のこり"], {
+      date: 0,
+      description: [1],
+      withdrawal: 2,
+      deposit: 3,
+      usage: null,
+      signed: null,
+      kind: null,
+      balance: 4,
+    });
+    const c = convertStatement(unknown, { mapping })!;
+    expect(c.mapped).toBe(true);
+    expect(c.style).toBe("split");
+    expect(c.rows).toEqual([
+      { date: "2026-10-01", description: "ATM", amount: -3000, balance: 97000 },
+      { date: "2026-10-02", description: "給与", amount: 50000, balance: 147000 },
+    ]);
+    expect(c.mapping).toEqual(mapping);
+  });
+
+  it("見出しの違う CSV には読み方を使わず、自動で読む", () => {
+    const mapping = mappingFor(["別の", "見出し"], {
+      date: 0,
+      description: [],
+      withdrawal: null,
+      deposit: null,
+      usage: null,
+      signed: 1,
+      kind: null,
+      balance: null,
+    });
+    const c = convertStatement(fixture("bank-signed-sjis.csv"), { mapping })!;
+    expect(c.mapped).toBe(false);
+    expect(c.rows).toHaveLength(3);
+  });
+
+  it("自動で読んだ明細も、読み方（画面の初めの値）を返す", () => {
+    const c = convertStatement(fixture("bank-mizuho-sjis.csv"))!;
+    expect(c.mapping).toEqual({
+      header: ["明細通番", "日付", "お引出金額", "お預入金額", "残高", "お取引内容"],
+      date: 1,
+      description: [5],
+      withdrawal: 2,
+      deposit: 3,
+      usage: null,
+      signed: null,
+      kind: null,
+      balance: 4,
+    });
+    expect(convertStatement(fixture("card-vpass-sjis.csv"))!.mapping).toBeNull();
+  });
+
+  it("金額の列が無い・見出しに無い列の読み方は受け付けない", () => {
+    const base = {
+      header: ["a", "b"],
+      date: 0,
+      description: [1],
+      withdrawal: null,
+      deposit: null,
+      usage: null,
+      signed: null,
+      kind: null,
+      balance: null,
+    };
+    expect(StatementMappingSchema.safeParse(base).success).toBe(false);
+    expect(StatementMappingSchema.safeParse({ ...base, signed: 5 }).success).toBe(false);
+    expect(StatementMappingSchema.safeParse({ ...base, signed: 1 }).success).toBe(true);
   });
 });
 

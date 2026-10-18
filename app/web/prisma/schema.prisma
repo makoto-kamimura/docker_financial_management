@@ -382,6 +382,9 @@ model LinkedAccount {
   note         String? // メモ
   // 利用明細を見る・CSV を落とす公式サイトの URL（空なら lib/shared/statement-links.ts の既定）
   statementUrl String?
+  // 明細の CSV の読み方（見出しの列と役割）。自動で読めない・読み違える CSV を、取り込みの画面で直して覚えたもの
+  // （lib/shared/statement-formats.ts の StatementMapping）
+  csvMapping   Json?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -1074,6 +1077,9 @@ model BankAccount {
   note              String? // メモ
   // 入出金明細を見る・CSV を落とす公式サイトの URL（空なら lib/shared/statement-links.ts の既定）
   statementUrl      String?
+  // 明細の CSV の読み方（見出しの列と役割）。自動で読めない・読み違える CSV を、取り込みの画面で直して覚えたもの
+  // （lib/shared/statement-formats.ts の StatementMapping）
+  csvMapping        Json?
   // 明細の合計と実際の残高との差額（円）。取込開始前から口座にあった残高（期首残高）や
   // 取り込めなかった明細を吸収する。残高＝SUM(bank_transactions.amount) + balanceAdjustment。
   balanceAdjustment Decimal         @default(0) @db.Decimal(18, 2)

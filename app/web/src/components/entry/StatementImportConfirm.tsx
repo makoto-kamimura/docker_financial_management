@@ -48,6 +48,10 @@ export function StatementImportConfirm({
   conversion,
   warning,
   preview,
+  mappingSource,
+  onEditMapping,
+  remember,
+  onRememberChange,
   onCancel,
   onConfirm,
 }: {
@@ -62,6 +66,13 @@ export function StatementImportConfirm({
   onCancel: () => void;
   /** excluded は取り込まない明細の位置（取り込み済みかもしれない明細のうち、取り込むと選ばなかったもの） */
   onConfirm: (excluded: Set<number>) => void;
+  /** 読み方の出どころ: 口座に覚えた読み方（saved）・この画面で選んだ読み方（edited）・自動（auto） */
+  mappingSource: "saved" | "edited" | "auto";
+  /** 「読み方を変える」 */
+  onEditMapping: () => void;
+  /** 選んだ読み方を口座に覚えるか（mappingSource が edited のときだけ出す） */
+  remember: boolean;
+  onRememberChange: (remember: boolean) => void;
 }) {
   // 取り込み済みかもしれない明細は、既定では取り込まない（同じ支出の二重計上を防ぐ）。取り込むと選んだものの位置
   const [included, setIncluded] = useState<Set<number>>(new Set());
@@ -94,6 +105,29 @@ export function StatementImportConfirm({
             <p className="text-xs text-slate-500">
               {conversion.columns.map((c) => `${c.role}=${c.names.join("＋")}`).join("、")}
             </p>
+            <p className="flex flex-wrap items-center gap-2 text-xs">
+              {mappingSource === "saved" && (
+                <span className="text-slate-500">この口座に覚えた読み方で読みました。</span>
+              )}
+              <button
+                type="button"
+                onClick={onEditMapping}
+                className="text-indigo-600 hover:underline"
+              >
+                読み方を変える
+              </button>
+            </p>
+            {mappingSource === "edited" && (
+              <label className="flex items-start gap-1.5 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={remember}
+                  onChange={(e) => onRememberChange(e.target.checked)}
+                />
+                この読み方を口座に覚える（次から同じ見出しの CSV に使います）
+              </label>
+            )}
           </dd>
         </div>
       </dl>
@@ -161,8 +195,8 @@ export function StatementImportConfirm({
   );
 }
 
-/** 変換した明細の先頭の行と、飛ばした行 */
-function ConversionPreview({ conversion }: { conversion: StatementConversion }) {
+/** 変換した明細の先頭の行と、飛ばした行（読み方を選ぶ画面でも使う） */
+export function ConversionPreview({ conversion }: { conversion: StatementConversion }) {
   const { rows, skipped } = conversion;
   return (
     <div className="mb-4 space-y-2">
