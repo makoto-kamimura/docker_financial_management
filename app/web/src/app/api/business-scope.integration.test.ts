@@ -404,7 +404,7 @@ describe("口座・カード・実物資産・借入金", () => {
         emptyRouteContext(),
       );
       expect(res.status, JSON.stringify(await res.clone().json())).toBe(201);
-      expect((await res.json()).results[0].inserted).toBe(1);
+      expect((await res.json()).result.inserted).toBe(1);
     }
     const rows = await prisma.financialRecord.findMany({
       where: { tenantId, description: { endsWith: "口座の支払い" } },

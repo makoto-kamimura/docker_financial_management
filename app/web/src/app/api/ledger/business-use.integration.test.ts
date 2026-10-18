@@ -35,6 +35,7 @@ import { createTestEntry } from "@/lib/ledger/test-entries";
 import { PATCH as bankCategorize } from "../bank-transactions/[id]/categorize/route";
 import { PATCH as bankCharge } from "../bank-transactions/[id]/charge/route";
 import { POST as bankTxnPost } from "../bank-accounts/[id]/transactions/route";
+import { POST as importsPost } from "../imports/route";
 import { POST as cashPost } from "../actuals/route";
 import { POST as apportionmentPost } from "../apportionments/route";
 import { GET as unassignedGet } from "./unassigned/route";
@@ -225,9 +226,9 @@ describe("学習ルールの事業利用が当たる", () => {
       `${YEAR}-04-01,レンタルオフィス 4月,-30000`,
       `${YEAR}-04-02,スーパー 駅前,-2000`,
     ].join("\n");
-    const res = await bankTxnPost(
-      makeReq("POST", `http://x/api/bank-accounts/${bankId}/transactions`, csv, "text/csv"),
-      params(bankId),
+    const res = await importsPost(
+      makeReq("POST", `http://x/api/imports?target=bank&accountId=${bankId}`, csv, "text/csv"),
+      emptyRouteContext(),
     );
     expect(res.status).toBe(201);
     const rows = await prisma.financialRecord.findMany({

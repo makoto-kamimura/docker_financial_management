@@ -136,7 +136,7 @@ export function ActualsMatrixTab({
       {matrixRows.length === 0 && (
         <EmptyState
           title="実績データがありません"
-          description={`${matrixCurrentYear}年の実績がありません。明細（現金・銀行・カード）をカレンダーか CSV インポートで入れ、科目を付けると実績になります。`}
+          description={`${matrixCurrentYear}年の実績がありません。明細（現金・銀行・カード）をカレンダーか取り込みで入れ、科目を付けると実績になります。`}
         />
       )}
       <AccountMonthMatrix

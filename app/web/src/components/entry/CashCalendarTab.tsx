@@ -10,29 +10,11 @@ import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { yen } from "@/lib/common/format";
-import { ReceiptScanButton, type ReceiptScanResult } from "@/components/entry/ReceiptScanButton";
-import { selfMedicationOf } from "@/lib/shared/self-medication";
+import { ReceiptScanButton, type ScannedReceipt } from "@/components/entry/ReceiptScanButton";
+import { CashEntryForm } from "@/components/entry/CashEntryForm";
 import { BusinessTag } from "@/components/LedgerTable";
-import {
-  BUSINESS_USE_LABEL,
-  businessPortion,
-  isValidBusinessRatio,
-} from "@/lib/shared/business-use";
-import {
-  EXPENSE_CATS,
-  INCOME_CATS,
-  entryAmount,
-  type Account,
-  type CashEntry,
-} from "@/components/entry/types";
-
-// 現金のカレンダーの登録フォーム。支払元・入金先は現金に固定する（銀行・カードは出どころで選ぶ）
-const BLANK_CAL_FORM = {
-  description: "",
-  accountCode: "",
-  amount: "",
-  direction: "expense" as "income" | "expense",
-};
+import { businessPortion } from "@/lib/shared/business-use";
+import { entryAmount, type Account, type CashEntry } from "@/components/entry/types";
 
 const now = new Date();
 
@@ -50,25 +32,12 @@ export function CashCalendarTab({
   const setViewYear = (f: (y: number) => number) => setFiscalYear(f(viewYear));
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
-  const [calForm, setCalForm] = useState(BLANK_CAL_FORM);
-  const [calSaving, setCalSaving] = useState(false);
+  // 読み取ったレシート。フォームはレシートを読み取るたび・レシートから登録するたびに作り直す（formKey）
+  const [receipt, setReceipt] = useState<ScannedReceipt | null>(null);
+  const [formKey, setFormKey] = useState(0);
   const [calError, setCalError] = useState("");
-  // レシートから入れたときだけ「店名と科目を覚える」を出す
-  const [fromReceipt, setFromReceipt] = useState(false);
-  // 読み取ったレシートの写真。登録した明細に証憑として付ける
-  const [receiptPhoto, setReceiptPhoto] = useState<File | null>(null);
-  const [calLearn, setCalLearn] = useState(true);
-  // セルフメディケーション税制の対象の市販薬を含むレシート。証憑に対象の額と品目を残す（控除・確定申告で使う）
-  const [selfMed, setSelfMed] = useState<{
-    on: boolean;
-    amount: string;
-    items: { name: string; amount: number }[];
-  } | null>(null);
-  // 個人事業主モードは事業利用の明細だけを、事業の分の額で出す。登録は事業利用で始める
-  // （按分を空けると、科目の事業利用按分の割合、無ければ 100%）
+  // 個人事業主モードは事業利用の明細だけを、事業の分の額で出す
   const businessMode = mode === "sole";
-  const [calBusiness, setCalBusiness] = useState(true);
-  const [calRatio, setCalRatio] = useState("");
 
   const { data: cashData, isLoading: calLoading } = useQuery({
     queryKey: ["actuals", viewYear, viewMonth],
@@ -109,10 +78,6 @@ export function CashCalendarTab({
     return { income, expense, net: income - expense, count: calEntries.length };
   }, [calEntries]);
 
-  const incomeAccounts = (accounts ?? []).filter((a) => INCOME_CATS.includes(a.category));
-  const expenseAccounts = (accounts ?? []).filter((a) => EXPENSE_CATS.includes(a.category));
-  const calMainAccounts = calForm.direction === "income" ? incomeAccounts : expenseAccounts;
-
   // ── カレンダーハンドラ ───────────────────────────────────────
   function prevMonth() {
     if (viewMonth === 1) {
@@ -129,83 +94,17 @@ export function CashCalendarTab({
     setSelectedDay(null);
   }
 
-  async function handleCalSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedDay) return;
-    const ratio = calRatio.trim() === "" ? null : Number(calRatio);
-    if (businessMode && calBusiness && ratio !== null && !isValidBusinessRatio(ratio)) {
-      setCalError("按分は 0 より大きく 100 以下で入れてください");
-      return;
-    }
-    setCalSaving(true);
-    setCalError("");
-    const dateStr = `${viewYear}-${String(viewMonth).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`;
-    const res = await fetch("/api/actuals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        date: dateStr,
-        description: calForm.description,
-        accountCode: calForm.accountCode,
-        amount: Number(calForm.amount),
-        direction: calForm.direction,
-        learn: fromReceipt && calLearn,
-        ...(businessMode
-          ? { businessUse: calBusiness, businessRatio: calBusiness ? ratio : null }
-          : {}),
-      }),
-    });
-    if (res.ok) {
-      if (fromReceipt && receiptPhoto) {
-        const { data } = (await res.json()) as { data: CashEntry };
-        const body = new FormData();
-        body.append("file", receiptPhoto);
-        if (selfMed?.on && /^\d+$/.test(selfMed.amount)) {
-          body.append("selfMedicationAmount", selfMed.amount);
-          body.append("selfMedicationItems", JSON.stringify(selfMed.items));
-        }
-        const up = await fetch(`/api/actuals/${data.id}/receipts`, { method: "POST", body });
-        if (!up.ok) setCalError("実績は登録しましたが、レシートの写真を保存できませんでした");
-      }
-      setCalForm(BLANK_CAL_FORM);
-      setFromReceipt(false);
-      setReceiptPhoto(null);
-      setSelfMed(null);
-      invalidateActuals(queryClient);
-    } else {
-      const j = (await res.json()) as { error?: string };
-      setCalError(j.error ?? "登録に失敗しました");
-    }
-    setCalSaving(false);
-  }
-
   // レシートの読み取り結果をフォームに入れる。日付が読めたら、その日を選ぶ
-  function applyReceipt({ draft, suggestedAccount }: ReceiptScanResult, photo: File) {
-    // 学習ルールが事業利用を決めていれば、その事業利用にする
-    if (suggestedAccount?.business) {
-      setCalBusiness(suggestedAccount.business.businessUse);
-      setCalRatio(suggestedAccount.business.businessRatio?.toString() ?? "");
-    }
-    if (draft.date) {
-      const [y, m, d] = draft.date.split("-").map(Number);
+  function applyReceipt(scanned: ScannedReceipt) {
+    const { date } = scanned.result.draft;
+    if (date) {
+      const [y, m, d] = date.split("-").map(Number);
       setFiscalYear(y);
       setViewMonth(m);
       setSelectedDay(d);
     }
-    const account =
-      suggestedAccount && expenseAccounts.some((a) => a.code === suggestedAccount.code)
-        ? suggestedAccount.code
-        : "";
-    setCalForm({
-      direction: "expense",
-      description: draft.merchant ?? "",
-      amount: draft.total ? String(draft.total) : "",
-      accountCode: account,
-    });
-    setFromReceipt(true);
-    setReceiptPhoto(photo);
-    const sm = selfMedicationOf(draft);
-    setSelfMed({ on: sm !== null, amount: sm ? String(sm.amount) : "", items: sm?.items ?? [] });
+    setReceipt(scanned);
+    setFormKey((k) => k + 1);
     setCalError("");
   }
 
@@ -336,143 +235,19 @@ export function CashCalendarTab({
             <div className="card">
               <h3 className="text-xs font-semibold text-slate-600 mb-3">実績を追加</h3>
               <ReceiptScanButton onScanned={applyReceipt} />
-              <form onSubmit={handleCalSubmit} className="flex flex-col gap-2.5">
-                <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs">
-                  {(["expense", "income"] as const).map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setCalForm((f) => ({ ...f, direction: d, accountCode: "" }))}
-                      className={`flex-1 py-1.5 font-medium transition-colors ${
-                        calForm.direction === d
-                          ? d === "expense"
-                            ? "bg-rose-500 text-white"
-                            : "bg-emerald-500 text-white"
-                          : "bg-white text-slate-500 hover:bg-slate-50"
-                      }`}
-                    >
-                      {d === "expense" ? "支出" : "収入"}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-500">摘要</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="例: 食料品"
-                    value={calForm.description}
-                    onChange={(e) => setCalForm((f) => ({ ...f, description: e.target.value }))}
-                    className="input-field text-xs"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-500">
-                    {calForm.direction === "expense" ? "支出科目" : "収入科目"}
-                  </label>
-                  <select
-                    required
-                    value={calForm.accountCode}
-                    onChange={(e) => setCalForm((f) => ({ ...f, accountCode: e.target.value }))}
-                    className="input-field text-xs"
-                  >
-                    <option value="">選択してください</option>
-                    {calMainAccounts.map((a) => (
-                      <option key={a.code} value={a.code}>
-                        {a.code} {a.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-500">金額（円）</label>
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    placeholder="例: 5000"
-                    value={calForm.amount}
-                    onChange={(e) => setCalForm((f) => ({ ...f, amount: e.target.value }))}
-                    className="input-field text-xs"
-                  />
-                </div>
-                {businessMode && (
-                  <div className="flex items-center gap-1.5 text-[10px] text-slate-600">
-                    <label className="inline-flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={calBusiness}
-                        onChange={(e) => setCalBusiness(e.target.checked)}
-                      />
-                      {BUSINESS_USE_LABEL}
-                    </label>
-                    {calBusiness && (
-                      <>
-                        <span>按分</span>
-                        <input
-                          type="number"
-                          min={0.01}
-                          max={100}
-                          step={0.01}
-                          value={calRatio}
-                          placeholder="既定"
-                          onChange={(e) => setCalRatio(e.target.value)}
-                          aria-label="按分（%）"
-                          className="input-field text-xs w-20"
-                        />
-                        <span>%</span>
-                      </>
-                    )}
-                  </div>
-                )}
-                {fromReceipt && calForm.description.trim() !== "" && (
-                  <label className="flex items-start gap-1.5 text-[10px] text-slate-600">
-                    <input
-                      type="checkbox"
-                      checked={calLearn}
-                      onChange={(e) => setCalLearn(e.target.checked)}
-                      className="mt-0.5"
-                    />
-                    次から同じ店名には、この科目を使う（学習ルールに覚える）
-                  </label>
-                )}
-                {fromReceipt && selfMed && (
-                  <div className="space-y-1 rounded border border-slate-200 p-2 text-[10px] text-slate-600">
-                    <label className="flex items-start gap-1.5">
-                      <input
-                        type="checkbox"
-                        checked={selfMed.on}
-                        onChange={(e) => setSelfMed({ ...selfMed, on: e.target.checked })}
-                        className="mt-0.5"
-                      />
-                      セルフメディケーション税制の対象の市販薬を含む（レシートを控除・確定申告で使う）
-                    </label>
-                    {selfMed.on && (
-                      <>
-                        <div className="flex items-center gap-1.5">
-                          <span>対象の額</span>
-                          <input
-                            type="number"
-                            min={0}
-                            value={selfMed.amount}
-                            onChange={(e) => setSelfMed({ ...selfMed, amount: e.target.value })}
-                            aria-label="セルフメディケーションの対象の額"
-                            className="input-field w-24 text-right text-xs"
-                          />
-                          <span>円</span>
-                        </div>
-                        {selfMed.items.length > 0 && (
-                          <p>対象の品目: {selfMed.items.map((i) => i.name).join("、")}</p>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-                {calError && <p className="text-xs text-red-600">{calError}</p>}
-                <button type="submit" disabled={calSaving} className="btn-primary text-xs mt-1">
-                  {calSaving ? "登録中..." : "登録"}
-                </button>
-              </form>
+              <CashEntryForm
+                key={formKey}
+                accounts={accounts}
+                mode={mode}
+                date={`${viewYear}-${String(viewMonth).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`}
+                receipt={receipt}
+                onSaved={() => {
+                  if (!receipt) return;
+                  setReceipt(null);
+                  setFormKey((k) => k + 1);
+                }}
+              />
+              {calError && <p className="text-xs text-red-600 mt-2">{calError}</p>}
             </div>
           </>
         ) : (

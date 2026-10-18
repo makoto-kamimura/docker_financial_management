@@ -1,113 +1,66 @@
 import { describe, expect, it } from "vitest";
-import {
-  hasDestinationColumn,
-  normalizeRow,
-  resolveDestination,
-  routeLedgerRows,
-} from "./ledger-import";
+import { normalizeRow, parseLedgerRows } from "./ledger-import";
 
-const ctx = {
-  bankAccounts: [
-    { id: 1, name: "住信SBI" },
-    { id: 2, name: "共通の名前" },
-  ],
-  cards: [
-    { id: 7, name: "三井住友カード" },
-    { id: 8, name: "共通の名前" },
-  ],
-};
-
-describe("列名と取り込み先", () => {
-  it("日本語・英語のどちらの列名も読め、取り込み先の列の有無を見分ける", () => {
-    expect(normalizeRow({ 取り込み先: "現金", 日付: "2026-10-01", 摘要: "x", 金額: "-1" })).toEqual(
-      {
-        account: "現金",
-        date: "2026-10-01",
-        description: "x",
-        amount: "-1",
-      },
-    );
-    expect(hasDestinationColumn(["取り込み先", "日付"])).toBe(true);
-    expect(hasDestinationColumn(["account", "date"])).toBe(true);
-    expect(hasDestinationColumn(["date", "description", "amount"])).toBe(false);
-  });
-
-  it("名前で現金・銀行・カードに決め、見つからない・重なる名前は理由を返す", () => {
-    expect(resolveDestination("現金", ctx)).toEqual({ kind: "CASH" });
-    expect(resolveDestination(" 住信SBI ", ctx)).toEqual({ kind: "BANK", accountId: 1 });
-    expect(resolveDestination("三井住友カード", ctx)).toEqual({ kind: "CARD", accountId: 7 });
-    expect(resolveDestination("共通の名前", ctx)).toMatchObject({
-      error: expect.stringContaining("複数"),
+describe("normalizeRow", () => {
+  it("日本語・英語のどちらの列名も読める（知らない列はそのまま残す）", () => {
+    expect(
+      normalizeRow({ 日付: "2026-10-01", 摘要: "x", 金額: "-1", 残高: "9", メモ: "m" }),
+    ).toEqual({ date: "2026-10-01", description: "x", amount: "-1", balance: "9", メモ: "m" });
+    expect(normalizeRow({ Date: "2026-10-01", " amount ": "-1" })).toEqual({
+      date: "2026-10-01",
+      amount: "-1",
     });
-    expect(resolveDestination("無い口座", ctx)).toMatchObject({
-      error: expect.stringContaining("見つかりません"),
-    });
-    expect(resolveDestination("", ctx)).toMatchObject({ error: expect.stringContaining("空欄") });
   });
 });
 
-describe("routeLedgerRows", () => {
-  it("取り込み先の列で現金・銀行・カードに振り分ける（金額は CSV のまま）", () => {
-    const r = routeLedgerRows(
+describe("parseLedgerRows", () => {
+  it("行を明細にし、内容から決まる externalId を付ける（金額は CSV のまま）", () => {
+    const r = parseLedgerRows(
       [
-        { 取り込み先: "住信SBI", 日付: "2026-10-06", 摘要: "給与", 金額: "300000", 残高: "500000" },
-        { 取り込み先: "三井住友カード", 日付: "2026-10-07", 摘要: "スーパー", 金額: "-3980" },
-        { 取り込み先: "現金", 日付: "2026-10-08", 摘要: "八百屋", 金額: "-500" },
-        { 取り込み先: "住信SBI", 日付: "2026-10-09", 摘要: "家賃", 金額: "-80000" },
+        { 日付: "2026-10-06", 摘要: "給与", 金額: "300000", 残高: "500000" },
+        { 日付: "2026-10-09", 摘要: "家賃", 金額: "-80000" },
       ],
-      ctx,
+      42,
     );
     expect(r.errors).toEqual([]);
-    const byKind = Object.fromEntries(
-      r.groups.map((g) => [g.destination.kind, g.rows.map((t) => [t.description, t.amount])]),
-    );
-    expect(byKind).toEqual({
-      BANK: [
-        ["給与", 300000],
-        ["家賃", -80000],
-      ],
-      CARD: [["スーパー", -3980]],
-      CASH: [["八百屋", -500]],
-    });
+    expect(r.rows).toEqual([
+      {
+        date: "2026-10-06",
+        description: "給与",
+        amount: 300000,
+        balance: 500000,
+        externalId: "csv-42-2026-10-06-300000-給与",
+      },
+      {
+        date: "2026-10-09",
+        description: "家賃",
+        amount: -80000,
+        balance: undefined,
+        externalId: "csv-42-2026-10-09--80000-家賃",
+      },
+    ]);
   });
 
-  it("列の無い CSV は、指定した取り込み先にすべて入れる", () => {
-    const r = routeLedgerRows([{ date: "2026-10-01", description: "振込", amount: "1000" }], ctx, {
-      kind: "BANK",
-      accountId: 1,
-    });
-    expect(r.groups).toHaveLength(1);
-    expect(r.groups[0].destination).toEqual({ kind: "BANK", accountId: 1 });
-  });
-
-  it("同じ明細の 2 回目以降は、取り込み先ごとに番号を付けて別の明細にする", () => {
+  it("同じ日・同じ摘要・同じ金額の行は、番号を付けて別の明細として残す", () => {
     const row = { 日付: "2026-10-01", 摘要: "コンビニ", 金額: "-150" };
-    const r = routeLedgerRows(
-      [
-        { 取り込み先: "住信SBI", ...row },
-        { 取り込み先: "現金", ...row },
-        { 取り込み先: "住信SBI", ...row },
-      ],
-      ctx,
-    );
-    const ids = Object.fromEntries(
-      r.groups.map((g) => [g.destination.kind, g.rows.map((t) => t.externalId)]),
-    );
-    expect(ids.BANK).toHaveLength(2);
-    expect(ids.BANK[1]).toBe(`${ids.BANK[0]}#2`);
-    expect(ids.CASH).toEqual([ids.BANK[0].replace(/^csv-\d+-/, "csv-0-")]);
+    const r = parseLedgerRows([row, row], 42);
+    expect(r.rows.map((t) => t.externalId)).toEqual([
+      "csv-42-2026-10-01--150-コンビニ",
+      "csv-42-2026-10-01--150-コンビニ#2",
+    ]);
   });
 
-  it("取り込み先・必要な列の誤りを行番号つきで返す", () => {
-    const r = routeLedgerRows(
+  it("日付・摘要・金額の誤りを行番号つきで返す", () => {
+    const r = parseLedgerRows(
       [
-        { account: "無い口座", date: "2026-10-01", description: "x", amount: "1" },
-        { account: "共通の名前", date: "2026-10-01", description: "x", amount: "1" },
-        { account: "住信SBI", date: "2026-10-01", description: "", amount: "1" },
-        { account: "住信SBI", date: "2026-10-01", description: "ok", amount: "1" },
+        { date: "2026-10-01", description: "ok", amount: "1" },
+        { date: "2026-10-01", description: "", amount: "1" },
+        { date: "", description: "x", amount: "1" },
+        { date: "2026-10-01", description: "x", amount: "notanumber" },
       ],
-      ctx,
+      1,
     );
-    expect(r.errors.map((e) => e.row)).toEqual([2, 3, 4]);
+    expect(r.rows).toHaveLength(1);
+    expect(r.errors.map((e) => e.row)).toEqual([3, 4, 5]);
   });
 });

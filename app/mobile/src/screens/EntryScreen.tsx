@@ -1,4 +1,4 @@
-// 実績管理（web 版 /entry と同じ「明細一覧 / カレンダー / 履歴」。CSV インポートは web 版のみ）。
+// 実績管理（web 版 /entry と同じ「明細一覧 / カレンダー / 履歴」。取り込みのタブは web 版のみ）。
 // 明細一覧は web 版の「科目 × 月」の表を 1 か月ずつ表示する（見るだけ）。実績は明細（現金・銀行・カード）に
 // 科目を付けると入るので、ここでは直接入れない。セルを押すと、どの明細・仕訳から入ったかの内訳を出す。
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -56,7 +56,7 @@ import { BusinessTag } from "../components/BusinessUseControls";
 import { useLedgerHistory } from "../components/LedgerHistory";
 import { useFiscalYear } from "../fiscal-year";
 
-// 並びは web 版と同じ（CSV インポートは web 版のみ）。設定（学習ルール）は右端
+// 並びは web 版と同じ（取り込みのタブは web 版のみ）。設定（学習ルール）は右端
 export type EntryTab = "manual" | "calendar" | "confirm" | "history" | "settings";
 type Tab = EntryTab;
 const TABS = [

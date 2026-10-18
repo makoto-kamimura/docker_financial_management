@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   convertStatement,
   decodeCsv,
-  isImportFormat,
   parseStatementAmount,
   parseStatementDate,
   toImportCsv,
@@ -132,14 +131,17 @@ describe("toImportCsv", () => {
   });
 });
 
-describe("isImportFormat", () => {
-  it("アプリの形（日本語・英語）", () => {
-    expect(isImportFormat(["日付", "摘要", "金額", "残高"])).toBe(true);
-    expect(isImportFormat(["date", "description", "amount"])).toBe(true);
-  });
-
-  it("出金・入金などの列があれば各社の形として変換する", () => {
-    expect(isImportFormat(["日付", "摘要", "出金", "入金"])).toBe(false);
-    expect(isImportFormat(["日付", "摘要", "金額", "利用金額"])).toBe(false);
+describe("アプリの形の CSV", () => {
+  it("日付,摘要,金額,残高（日本語・英語）も、符号つきの金額の明細として読む", () => {
+    const ja = convertStatement(
+      "日付,摘要,金額,残高\n2026-10-01,給与,300000,512000\n2026-10-02,家賃,-80000,432000",
+    );
+    expect(ja?.style).toBe("signed");
+    expect(ja?.rows).toEqual([
+      { date: "2026-10-01", description: "給与", amount: 300000, balance: 512000 },
+      { date: "2026-10-02", description: "家賃", amount: -80000, balance: 432000 },
+    ]);
+    const en = convertStatement("date,description,amount\n2026-10-03,AMAZON.CO.JP,-3980");
+    expect(en?.rows).toEqual([{ date: "2026-10-03", description: "AMAZON.CO.JP", amount: -3980 }]);
   });
 });

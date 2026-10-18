@@ -61,7 +61,7 @@ const dateLabel = (v?: string | null) =>
     : "—";
 
 // 銀行管理。資産管理・借入金管理と同じ並びで、残高の推移 → 銀行口座（登録・編集・差額）を置く。
-// 口座残高のサマリはダッシュボード、明細の一覧・手入力の登録・毎月の入出金・振替・CSV インポートは
+// 口座残高のサマリはダッシュボード、明細の一覧・手入力の登録・毎月の入出金・振替・取り込みは
 // 実績管理（出どころに銀行を選ぶ）へまとめた。
 
 // 口座の新規登録フォーム（設定「口座・カード管理」から移設）
@@ -113,7 +113,7 @@ function BankAccountsContent() {
   const qc = useQueryClient();
   const searchParams = useSearchParams();
   const router = useRouter();
-  // 旧タブのリンク: CSV インポートは実績管理へ移した。ほかのタブ（サマリ・振替・一覧など）はこの画面のまま
+  // 旧タブのリンク: CSV の取り込みは実績管理へ移した。ほかのタブ（サマリ・振替・一覧など）はこの画面のまま
   const tabParam = searchParams.get("tab");
   useEffect(() => {
     if (tabParam === "csv") router.replace("/entry?tab=csv&source=bank" as never);

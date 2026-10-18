@@ -1,6 +1,7 @@
-// 銀行・カード会社・電子マネーのサイトから落とした明細の CSV を、実績管理の CSV インポートの形
+// 銀行・カード会社・電子マネーのサイトから落とした明細の CSV を、実績管理の取り込みの形
 // （日付,摘要,金額,残高。金額は入金が正・支出が負）にそろえる。ブラウザで変換し、そろえた CSV を
-// POST /api/imports にそのまま送る（取り込み・重複の判定はサーバーのまま）。
+// POST /api/imports にそのまま送る（取り込み・重複の判定はサーバーのまま）。取り込む CSV はすべてここを通す
+// （アプリの形の CSV も、符号つきの金額の明細として読む）。
 //
 // 各社の CSV は、文字コード（Shift_JIS が多い）、見出しの前後の余計な行、列名、金額の向きがまちまち。
 // 金融機関ごとの決め打ちはせず、見出しの列名から役割（日付・摘要・出金・入金・利用金額・符号つき金額・残高）を
@@ -334,20 +335,12 @@ function amountOf(cells: string[], l: Layout, style: AmountStyle): number | null
   return style === "usage" ? -v : v;
 }
 
-/** そろえた明細を、実績管理の CSV インポートの形（日付,摘要,金額,残高）の CSV にする */
+/** そろえた明細を、実績管理の取り込みの形（日付,摘要,金額,残高）の CSV にする */
 export function toImportCsv(rows: StatementRow[]): string {
   return Papa.unparse({
     fields: ["日付", "摘要", "金額", "残高"],
     data: rows.map((r) => [r.date, r.description, r.amount, r.balance ?? ""]),
   });
-}
-
-/** アプリの形の CSV か（日付・摘要・金額の列がそろっていて、出金・入金などの別の金額の列が無い） */
-export function isImportFormat(header: string[]): boolean {
-  const norm = new Set(header.map(normalizeHeader));
-  const has = (...n: string[]) => n.some((x) => norm.has(normalizeHeader(x)));
-  const other = [...WITHDRAWAL_NAMES, ...DEPOSIT_NAMES, ...USAGE_NAMES].some((n) => norm.has(n));
-  return has("日付", "date") && has("摘要", "description") && has("金額", "amount") && !other;
 }
 
 /** 金額の読み方の説明（取り込み前の確認に出す） */
