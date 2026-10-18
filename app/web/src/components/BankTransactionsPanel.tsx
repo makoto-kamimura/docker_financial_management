@@ -16,6 +16,7 @@ import {
   LedgerTable,
   BusinessTag,
   useLedgerHistory,
+  type LedgerStatus,
 } from "@/components/LedgerTable";
 import { BANK_HELP, BANK_TERMS } from "@/lib/shared/help-texts";
 import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "@/lib/shared/linked-account-type";
@@ -81,10 +82,16 @@ type Props = {
    */
   accountId?: number | null;
   onAccountIdChange?: (id: number) => void;
+  /** 一覧の最初の状態の絞り込み（取り込みの結果から「未割り当て」で開くとき） */
+  initialStatus?: LedgerStatus;
 };
 
 // ── ページ ──────────────────────────────────────────────────────
-export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdChange }: Props = {}) {
+export function BankTransactionsPanel({
+  accountId: accountIdProp,
+  onAccountIdChange,
+  initialStatus,
+}: Props = {}) {
   const qc = useQueryClient();
   const [innerAccountId, setInnerAccountId] = useState<number | null>(null);
   const accountId = accountIdProp !== undefined ? accountIdProp : innerAccountId;
@@ -109,7 +116,12 @@ export function BankTransactionsPanel({ accountId: accountIdProp, onAccountIdCha
   });
 
   // 明細（30 件ずつ。null の口座はすべての銀行。個人事業主モードは最初から事業利用の明細だけ）
-  const history = useLedgerHistory<Txn>({ kind: "BANK", accountId, mode: useViewMode() });
+  const history = useLedgerHistory<Txn>({
+    kind: "BANK",
+    accountId,
+    mode: useViewMode(),
+    initialStatus,
+  });
   const accountNameById = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
 
   const { data: categoryAccounts } = useQuery({
