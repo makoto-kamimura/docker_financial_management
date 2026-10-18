@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { CsvDropzone, Notice } from "@/components/ui";
+import { StatementLinksCard } from "@/components/entry/StatementLinksCard";
 import { ENTRY_HELP } from "@/lib/shared/help-texts";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/client/import-error";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
@@ -146,40 +147,15 @@ export function CsvImportTab({
     }
   }
 
-  // 銀行の自動取得（同期）。銀行管理の CSV インポートから移した
-  async function syncBank() {
-    if (bankAccountId === null) return;
-    setImportResult(null);
-    setImportError(null);
-    const res = await fetch(`/api/bank-accounts/${bankAccountId}/sync`, { method: "POST" });
-    const json = await res.json().catch(() => ({}));
-    if (res.ok) {
-      const name = bankAccounts?.find((a) => a.id === bankAccountId)?.name ?? "";
-      setImportResult({
-        results: [
-          {
-            kind: "BANK",
-            id: bankAccountId,
-            name,
-            inserted: json.inserted ?? 0,
-            skipped: json.skipped ?? 0,
-            locked: json.locked ?? 0,
-            offset: json.offset ?? 0,
-          },
-        ],
-        errors: [],
-      });
-      queryClient.invalidateQueries({ queryKey: ["bank-txns"] });
-      queryClient.invalidateQueries({ queryKey: ["bank-accounts"] });
-      invalidateActuals(queryClient);
-    } else {
-      setImportError("自動取得に失敗しました。");
-    }
-  }
-
   return (
     <>
       <div className="max-w-2xl space-y-6">
+        <StatementLinksCard
+          source={source}
+          selectedId={source === "bank" ? bankAccountId : source === "card" ? cardId : null}
+          bankAccounts={bankAccounts}
+          cardAccounts={cardAccounts}
+        />
         <CsvDropzone busy={importing} onFile={importFile} />
         {scope === "business" && (
           <label className="flex items-start gap-2 text-sm text-slate-700">
@@ -197,18 +173,6 @@ export function CsvImportTab({
               </span>
             </span>
           </label>
-        )}
-        {/* 銀行の自動取得（同期）。銀行管理の CSV インポートから移した */}
-        {source === "bank" && bankAccountId !== null && (
-          <div className="card flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-slate-700">自動取得（同期）</p>
-              <p className="text-xs text-slate-400 mt-0.5">口座と連携して最新の明細を取得します</p>
-            </div>
-            <button onClick={syncBank} className="btn-secondary whitespace-nowrap">
-              同期する
-            </button>
-          </div>
         )}
         {importResult && (
           <div

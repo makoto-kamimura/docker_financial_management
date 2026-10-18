@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { statementUrlInput } from "@/lib/shared/statement-links";
 import { withApi } from "@/lib/server/api-handler";
 import { notFound, conflict } from "@/lib/server/api-error";
 import { requireAccountByCode } from "@/lib/accounting/period";
@@ -14,6 +15,8 @@ const UpdateSchema = z.object({
   lastFour: z.string().max(4).optional().nullable(),
   accountCode: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
+  // 明細を見る公式サイトの URL（空欄は既定に戻す）
+  statementUrl: statementUrlInput,
   // 明細合計と実際の残高との差額（期首残高相当）。残高算出は lib/ledger/bank-balance.ts を参照
   balanceAdjustment: z.number().optional(),
   // 事業利用（個人事業主モードで出す）

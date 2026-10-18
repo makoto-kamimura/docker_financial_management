@@ -46,4 +46,13 @@ export function entryAmount(e: CashEntry): { income: number; expense: number } {
 // カレンダー・履歴で見る出どころ。現金＝実績（現金での支出・収入）、銀行＝入出金の明細、
 // カード・電子マネー＝利用・返金の明細（銀行管理・カード管理の一覧とカレンダーをここへまとめた）
 export type Source = "manual" | "bank" | "card";
-export type SourceAccount = { id: number; name: string };
+export type SourceAccount = {
+  id: number;
+  name: string;
+  /** 明細を見る公式サイトの URL（空なら金融機関名から既定。lib/shared/statement-links.ts） */
+  statementUrl?: string | null;
+  /** 銀行の金融機関名（銀行のとき） */
+  bankName?: string;
+  /** カード会社・発行会社の名前（カード・電子マネーのとき） */
+  institution?: string;
+};

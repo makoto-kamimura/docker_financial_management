@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { statementUrlInput } from "@/lib/shared/statement-links";
 import { withApi } from "@/lib/server/api-handler";
 import { requireAccountByCode } from "@/lib/accounting/period";
 import { buildBankBalanceMap } from "@/lib/ledger/bank-balance";
@@ -15,6 +16,8 @@ const BankAccountSchema = z.object({
   lastFour: z.string().max(4).optional(),
   accountCode: z.string().optional(),
   note: z.string().optional(),
+  // 明細を見る公式サイトの URL（空欄は既定に戻す）
+  statementUrl: statementUrlInput,
   // 事業利用（個人事業主モードで出す）
   businessUse: z.boolean().optional(),
 });
