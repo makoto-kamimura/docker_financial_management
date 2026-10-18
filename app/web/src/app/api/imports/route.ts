@@ -9,7 +9,9 @@ import {
   gone,
   notFound,
 } from "@/lib/server/api-error";
-import { insertExternalEntries } from "@/lib/ledger/ledger-entries";
+import { BANK, insertExternalEntries, planExternalEntries } from "@/lib/ledger/ledger-entries";
+import { checkStatementBalances } from "@/lib/ledger/balance-check";
+import { bankBalanceOf, toNumber } from "@/lib/ledger/bank-balance";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/server/import";
 import { parseLedgerRows } from "@/lib/ledger/ledger-import";
 import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
@@ -23,6 +25,9 @@ import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 //   そのまま実績になる。取り込んだ日付の明細に自動相殺をかける。
 //   結果の skipped は重複で飛ばした件数、locked は確定済みの月のため飛ばした件数、offset は振替・チャージの組にした数。
 //   現金（target=cash。レシートの読み取りに替えた）と、科目×月への直接の取り込み（target=actual）は 410。
+//   dryRun=1 は書き込まずに、取り込む前の確認に出す preview を返す（lib/ledger/ledger-entries.ts の planExternalEntries）:
+//     期間（from・to）、新しく入る件数（fresh）・取り込み済み（duplicate）・確定済みの月（locked）、
+//     取り込み済みかもしれない行（possibleDuplicates）、銀行は残高の照合（balanceCheck。lib/ledger/balance-check.ts）
 export const POST = withApi({
   role: "editor",
   querySchema: z.object({
@@ -30,6 +35,10 @@ export const POST = withApi({
     accountId: z.coerce.number().int().positive().optional(),
     // 1 なら、学習ルールが事業利用を決めていない明細を事業利用で取り込む（個人事業主モードの画面から）
     business: z
+      .enum(["0", "1"])
+      .optional()
+      .transform((v) => v === "1"),
+    dryRun: z
       .enum(["0", "1"])
       .optional()
       .transform((v) => v === "1"),
@@ -47,8 +56,10 @@ export const POST = withApi({
           : await db.linkedAccount.findFirst({ where: { id: query.accountId, tenantId } });
     if (!account) throw notFound("取り込み先の口座が見つかりません");
 
-    // S-9: ユーザー単位のレート制限（10 回 / 10 分）
-    const rate = await checkRateLimit(`rl:import:user:${user.id}`, 10, 600);
+    // S-9: ユーザー単位のレート制限（10 回 / 10 分）。試し取り込みは CSV を入れるたびに呼ぶので別に数える（30 回 / 10 分）
+    const rate = query.dryRun
+      ? await checkRateLimit(`rl:import-preview:user:${user.id}`, 30, 600)
+      : await checkRateLimit(`rl:import:user:${user.id}`, 10, 600);
     if (!rate.allowed) return rateLimitResponse(rate.retryAfterSeconds);
     const contentLength = Number(req.headers.get("content-length") ?? "0");
     if (contentLength > MAX_CSV_BYTES) {
@@ -66,6 +77,16 @@ export const POST = withApi({
     const { rows, errors } = parseLedgerRows(parsed.data, account.id);
     if (errors.length > 0) {
       return NextResponse.json({ result: null, errors }, { status: 400 });
+    }
+    if (query.dryRun) {
+      const [plan, balanceCheck] = await Promise.all([
+        planExternalEntries(db, tenantId, { kind, accountId: account.id }, rows),
+        kind === "BANK" ? checkBalances(db, account.id, rows) : Promise.resolve(null),
+      ]);
+      const dates = rows.map((r) => r.date).sort();
+      return NextResponse.json({
+        preview: { from: dates[0] ?? null, to: dates.at(-1) ?? null, ...plan, balanceCheck },
+      });
     }
 
     const { inserted, locked, offset } = await insertExternalEntries(
@@ -88,3 +109,37 @@ export const POST = withApi({
     );
   },
 });
+
+/**
+ * 残高の照合。CSV の行のつながりと、最初の行の直前の残高をアプリの残高（差額 + その日より前の明細の合計）と比べる。
+ * hasEarlier はその日より前の明細があるか（無ければ初めての取り込みで、差額を直すと合う）
+ */
+async function checkBalances(
+  db: Parameters<typeof planExternalEntries>[0],
+  bankAccountId: number,
+  rows: { date: string; amount: number; balance?: number }[],
+) {
+  const checked = checkStatementBalances(rows);
+  if (!checked) return null;
+  const before = { ...BANK, bankAccountId, date: { lt: new Date(checked.opening.date) } };
+  const [account, sum, earlier] = await Promise.all([
+    db.bankAccount.findUniqueOrThrow({
+      where: { id: bankAccountId },
+      select: { balanceAdjustment: true },
+    }),
+    db.financialRecord.aggregate({ where: before, _sum: { flow: true } }),
+    db.financialRecord.count({ where: before }),
+  ]);
+  const app = Math.round(bankBalanceOf(sum._sum.flow, account.balanceAdjustment));
+  return {
+    gaps: checked.gaps,
+    opening: {
+      date: checked.opening.date,
+      csv: checked.opening.balance,
+      app,
+      diff: checked.opening.balance - app,
+      adjustment: toNumber(account.balanceAdjustment),
+      hasEarlier: earlier > 0,
+    },
+  };
+}

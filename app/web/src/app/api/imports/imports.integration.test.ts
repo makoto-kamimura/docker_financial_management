@@ -6,6 +6,7 @@
  * - 同じ日・同じ金額の口座どうしの出金と入金は、振替の組にする
  * - 現金（target=cash）・target=actual は受け付けない。取り込み先の列は読まない。口座が無ければ 404
  * - 口座・カードごとの明細の API は CSV を受けない（取り込みの入口はここだけ）
+ * - dryRun=1 は書き込まず（期間も作らない）、件数・取り込み済みかもしれない明細・残高の照合を返し、件数は本体と一致する
  * - 実績を確定済みの月の行は飛ばす
  * - 誤りのある行があれば、どの行も登録しない
  * - 同じ日・同じ摘要・同じ金額の行は別の明細として入り、期間の重なる CSV を後から入れても二重には入らない
@@ -212,6 +213,73 @@ describe("POST /api/imports", () => {
     const ctx = (id: number) => ({ params: Promise.resolve({ id: String(id) }) });
     expect((await bankTxnPost(csvReq("", csv), ctx(bankId))).status).toBe(410);
     expect((await cardTxnPost(csvReq("", csv), ctx(cardId))).status).toBe(410);
+  });
+
+  it("dryRun=1 は書き込まず、件数・取り込み済みかもしれない明細・残高の照合を返す", async () => {
+    const checkId = (
+      await prisma.bankAccount.create({
+        data: { tenantId, name: "照合用", bankName: "テスト銀行" },
+      })
+    ).id;
+    await importPost(
+      csvReq(bank(checkId), "日付,摘要,金額,残高\n2032-01-05,スーパーA,-500,99500"),
+      emptyRouteContext(),
+    );
+    const csv = [
+      "日付,摘要,金額,残高",
+      "2032-01-05,スーパーA,-500,99500",
+      "2032-01-05,スーパーB,-500,99000",
+      "2032-01-06,給与,1000,100000",
+    ].join("\n");
+    const records = () => prisma.financialRecord.count({ where: { tenantId } });
+    const before = await records();
+    const res = await importPost(csvReq(`${bank(checkId)}&dryRun=1`, csv), emptyRouteContext());
+    expect(res.status).toBe(200);
+    const { preview } = await res.json();
+    expect(await records()).toBe(before);
+    expect(preview).toMatchObject({
+      from: "2032-01-05",
+      to: "2032-01-06",
+      fresh: 2,
+      duplicate: 1,
+      locked: 0,
+      possibleDuplicates: [{ index: 1, description: "スーパーB", existing: ["スーパーA"] }],
+      balanceCheck: {
+        gaps: [],
+        // 初めての取り込み（その日より前の明細が無い）なので、差額を 100,000 にすると合う
+        opening: { date: "2032-01-05", csv: 100000, app: 0, diff: 100000, hasEarlier: false },
+      },
+    });
+
+    // 本体の取り込みの件数と一致する
+    const real = await (await importPost(csvReq(bank(checkId), csv), emptyRouteContext())).json();
+    expect(real.result).toMatchObject({ inserted: preview.fresh, skipped: preview.duplicate });
+
+    // 残高がつながらない行と、前の明細があるときのずれ
+    const gap = await importPost(
+      csvReq(
+        `${bank(checkId)}&dryRun=1`,
+        "日付,摘要,金額,残高\n2032-01-10,A,-100,500\n2032-01-11,B,-100,300",
+      ),
+      emptyRouteContext(),
+    );
+    expect((await gap.json()).preview.balanceCheck).toMatchObject({
+      gaps: [{ index: 1, date: "2032-01-11", expected: 400, actual: 300 }],
+      // アプリの残高は差額 0 + それより前の明細（-500・-500・+1000）の合計 = 0
+      opening: { csv: 600, app: 0, diff: 600, hasEarlier: true },
+    });
+    await prisma.financialRecord.deleteMany({ where: { bankAccountId: checkId } });
+  });
+
+  it("dryRun=1 は期間（periods）を作らない", async () => {
+    const periods = () => prisma.period.count({ where: { tenantId } });
+    const before = await periods();
+    const res = await importPost(
+      csvReq(`?target=card&accountId=${cardId}&dryRun=1`, "日付,摘要,金額\n2033-02-01,x,-1"),
+      emptyRouteContext(),
+    );
+    expect((await res.json()).preview).toMatchObject({ fresh: 1, balanceCheck: null });
+    expect(await periods()).toBe(before);
   });
 
   it("実績を確定済みの月の行は飛ばす", async () => {

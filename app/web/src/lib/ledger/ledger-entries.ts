@@ -316,6 +316,107 @@ export async function loadRuleClassifier(db: TenantDbClient) {
   };
 }
 
+/** 取り込みの試しで、取り込み済みかもしれない行（同じ口座に、同じ日付・同じ金額で摘要の違う明細がある） */
+export type PossibleDuplicate = {
+  /** 渡した行の位置（0 始まり） */
+  index: number;
+  date: string;
+  description: string;
+  amount: number;
+  /** すでにある明細の摘要 */
+  existing: string[];
+};
+
+/** 取り込みの試しの結果（書き込まない）。fresh は新しく入る件数、duplicate は取り込み済み、locked は確定済みの月 */
+export type EntryPlan = {
+  fresh: number;
+  duplicate: number;
+  locked: number;
+  possibleDuplicates: PossibleDuplicate[];
+};
+
+/**
+ * 銀行・カードへの取り込みを試す（読むだけ）。insertExternalEntries と同じ数え方で、確定済みの月の行と、
+ * 口座にすでにある externalId の行を除いた残りを、新しく入る行とする。期間（periods）は作らず、今ある期間だけを見る。
+ */
+export async function planExternalEntries(
+  db: TenantDb,
+  tenantId: number,
+  target: Exclude<EntryTarget, { kind: "CASH" }>,
+  rows: ExternalEntryRow[],
+): Promise<EntryPlan> {
+  const dated = rows.map((r, index) => ({ ...r, index, at: new Date(r.date) }));
+  const months = [...new Map(dated.map((r) => [ymKey(r.at), r.at])).values()];
+  const periods =
+    months.length === 0
+      ? []
+      : await db.period.findMany({
+          where: {
+            tenantId,
+            OR: months.map((d) => ({ fiscalYear: d.getFullYear(), month: d.getMonth() + 1 })),
+          },
+          select: { id: true, fiscalYear: true, month: true },
+        });
+  const confirmed = await confirmedActualsPeriodIds(
+    db,
+    periods.map((p) => p.id),
+  );
+  const lockedMonths = new Set(
+    periods.filter((p) => confirmed.has(p.id)).map((p) => `${p.fiscalYear}-${p.month}`),
+  );
+  const open = dated.filter((r) => !lockedMonths.has(ymKey(r.at)));
+
+  const account =
+    target.kind === "BANK"
+      ? { ...BANK, bankAccountId: target.accountId }
+      : { ...CARD, cardAccountId: target.accountId };
+  const existing =
+    open.length === 0
+      ? []
+      : await db.financialRecord.findMany({
+          where: { ...account, externalId: { in: open.map((r) => r.externalId) } },
+          select: { externalId: true },
+        });
+  const seen = new Set(existing.map((e) => e.externalId));
+  const fresh = open.filter((r) => !seen.has(r.externalId));
+
+  const sameDay =
+    fresh.length === 0
+      ? []
+      : await db.financialRecord.findMany({
+          where: {
+            ...account,
+            date: { in: [...new Set(fresh.map((r) => r.at.getTime()))].map((t) => new Date(t)) },
+          },
+          select: { date: true, flow: true, description: true },
+        });
+  const possibleDuplicates = fresh.flatMap((r) => {
+    const others = sameDay.filter(
+      (e) =>
+        e.date?.getTime() === r.at.getTime() &&
+        Number(e.flow) === r.amount &&
+        e.description !== r.description,
+    );
+    if (others.length === 0) return [];
+    return [
+      {
+        index: r.index,
+        date: typeof r.date === "string" ? r.date : r.date.toISOString().slice(0, 10),
+        description: r.description,
+        amount: r.amount,
+        existing: [...new Set(others.map((e) => e.description ?? "（摘要なし）"))],
+      },
+    ];
+  });
+
+  return {
+    fresh: fresh.length,
+    duplicate: open.length - fresh.length,
+    locked: dated.length - open.length,
+    possibleDuplicates,
+  };
+}
+
 // 外部由来（CSV 取込・自動同期）の明細を登録する。
 // 銀行・カードは、口座ごとの externalId の一意制約で重複行を自動的にスキップする（createMany + skipDuplicates）。
 // 現金は口座が無く一意制約が効かないので、同じ externalId の現金の明細があれば先に除く。
