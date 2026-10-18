@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyByRules,
   normalizeKeyword,
+  numberRepeatedIds,
   parseBankCsv,
   ruleSideOf,
 } from "@/lib/ledger/banktxn-import";
@@ -74,7 +75,25 @@ describe("classifyByRules", () => {
   });
 });
 
+describe("numberRepeatedIds", () => {
+  it("同じ明細の 2 回目以降に #2, #3 を付け、1 回目と違う明細はそのままにする", () => {
+    const ids = numberRepeatedIds(["a", "b", "a", "a"].map((externalId) => ({ externalId }))).map(
+      (r) => r.externalId,
+    );
+    expect(ids).toEqual(["a", "b", "a#2", "a#3"]);
+  });
+});
+
 describe("parseBankCsv", () => {
+  it("同じ日・同じ摘要・同じ金額の行を、別の明細として残す", () => {
+    const csv = "date,description,amount\n2026-01-05,コンビニ,-150\n2026-01-05,コンビニ,-150\n";
+    const { rows } = parseBankCsv(csv, 42);
+    expect(rows.map((r) => r.externalId)).toEqual([
+      "csv-42-2026-01-05--150-コンビニ",
+      "csv-42-2026-01-05--150-コンビニ#2",
+    ]);
+  });
+
   it("parses valid rows and generates a deterministic externalId", () => {
     const csv = "date,description,amount\n2026-01-05,食料品,-3000\n";
     const { rows, errors } = parseBankCsv(csv, 42);

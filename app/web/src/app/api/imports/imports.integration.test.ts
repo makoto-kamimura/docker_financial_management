@@ -8,6 +8,7 @@
  * - 実績の行（target=実績）・target=actual は受け付けない
  * - 実績を確定済みの月の行は飛ばす
  * - 誤りのある行があれば、どの行も登録しない
+ * - 同じ日・同じ摘要・同じ金額の行は別の明細として入り、期間の重なる CSV を後から入れても二重には入らない
  * - 各社の明細の CSV を画面でそろえた形（lib/shared/statement-formats.ts）は、そのまま取り込め、2 回目は重複になる
  *
  * 実行: `npm run test:integration`（DB 起動が前提）
@@ -234,6 +235,22 @@ describe("POST /api/imports", () => {
     const body = await res.json();
     expect(body.errors.map((e: { row: number }) => e.row)).toEqual([3]);
     expect(await prisma.financialRecord.count({ where: { bankAccountId: bankId } })).toBe(before);
+  });
+
+  it("同じ日・同じ摘要・同じ金額の行は別の明細として入り、重なる CSV を入れても二重には入らない", async () => {
+    const query = `?target=card&accountId=${cardId}`;
+    const first = "日付,摘要,金額\n2031-09-01,コンビニ,-150\n2031-09-01,コンビニ,-150";
+    const r1 = await (await importPost(csvReq(query, first), emptyRouteContext())).json();
+    expect(r1.results).toEqual([expect.objectContaining({ inserted: 2, skipped: 0 })]);
+
+    // 同じ日の 2 件に、3 件目と次の日の明細が増えた CSV
+    const second = `${first}\n2031-09-01,コンビニ,-150\n2031-09-02,コンビニ,-150`;
+    const r2 = await (await importPost(csvReq(query, second), emptyRouteContext())).json();
+    expect(r2.results).toEqual([expect.objectContaining({ inserted: 2, skipped: 2 })]);
+    const count = await prisma.financialRecord.count({
+      where: { cardAccountId: cardId, description: "コンビニ" },
+    });
+    expect(count).toBe(4);
   });
 
   it("各社の明細の CSV をそろえた形は、そのまま取り込め、2 回目は重複になる", async () => {
