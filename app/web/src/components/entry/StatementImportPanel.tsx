@@ -7,7 +7,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { FileDropzone, Notice } from "@/components/ui";
 import { StatementLinksCard } from "@/components/entry/StatementLinksCard";
-import { StatementImportConfirm } from "@/components/entry/StatementImportConfirm";
+import {
+  StatementImportConfirm,
+  type ImportPreview,
+} from "@/components/entry/StatementImportConfirm";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/client/import-error";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { useActualsScope } from "@/lib/client/use-view-mode";
@@ -26,10 +29,15 @@ type ImportResult = {
 };
 
 type Pending = {
+  /** 読んだファイルごとの番号（試し取り込みの結果を、別のファイルの確認に入れないため） */
+  id: number;
   fileName: string;
   conversion: StatementConversion;
   warning: string | null;
+  preview: ImportPreview | "loading" | "failed";
 };
+
+let lastPendingId = 0;
 
 /** 明細の形から見て、取り込み先を取り違えていそうなら注意を返す */
 function kindWarning(kind: "bank" | "card", c: StatementConversion): string | null {
@@ -72,6 +80,13 @@ export function StatementImportPanel({
     );
   }
 
+  function importParams({ dryRun }: { dryRun: boolean }) {
+    const params = new URLSearchParams({ target: kind, accountId: String(account!.id) });
+    if (scope === "business" && asBusiness) params.set("business", "1");
+    if (dryRun) params.set("dryRun", "1");
+    return params;
+  }
+
   async function readFile(file: File) {
     setResult(null);
     setError(null);
@@ -91,16 +106,34 @@ export function StatementImportPanel({
       setError("取り込める明細がありませんでした（日付と金額のある行がありません）。");
       return;
     }
-    setPending({ fileName: file.name, conversion, warning: kindWarning(kind, conversion) });
+    const id = ++lastPendingId;
+    setPending({
+      id,
+      fileName: file.name,
+      conversion,
+      warning: kindWarning(kind, conversion),
+      preview: "loading",
+    });
+    // 取り込み済みの明細と照らし合わせる（書き込まない）
+    let preview: ImportPreview | "failed" = "failed";
+    try {
+      const res = await fetch(`/api/imports?${importParams({ dryRun: true })}`, {
+        method: "POST",
+        headers: { "Content-Type": "text/csv; charset=utf-8" },
+        body: toImportCsv(conversion.rows),
+      });
+      if (res.ok) preview = (await res.json()).preview as ImportPreview;
+    } catch {
+      // 照らし合わせられなくても、取り込みはできる（同じ明細は重ねて登録されない）
+    }
+    setPending((p) => (p?.id === id ? { ...p, preview } : p));
   }
 
   async function runImport(csv: string) {
     setPending(null);
     setImporting(true);
     try {
-      const params = new URLSearchParams({ target: kind, accountId: String(account!.id) });
-      if (scope === "business" && asBusiness) params.set("business", "1");
-      const res = await fetch(`/api/imports?${params}`, {
+      const res = await fetch(`/api/imports?${importParams({ dryRun: false })}`, {
         method: "POST",
         headers: { "Content-Type": "text/csv; charset=utf-8" },
         body: csv,
@@ -173,8 +206,11 @@ export function StatementImportPanel({
           label={`${typeLabel}: ${account.name}`}
           conversion={pending.conversion}
           warning={pending.warning}
+          preview={pending.preview}
           onCancel={() => setPending(null)}
-          onConfirm={() => runImport(toImportCsv(pending.conversion.rows))}
+          onConfirm={(excluded) =>
+            runImport(toImportCsv(pending.conversion.rows.filter((_, i) => !excluded.has(i))))
+          }
         />
       )}
     </div>
