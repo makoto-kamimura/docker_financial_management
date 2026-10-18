@@ -30,8 +30,8 @@ export function StatementUrlField({
       />
       <p className="mt-1 text-xs text-slate-500">
         {preset
-          ? `空欄なら ${preset.siteName} を開きます（実績管理の CSV インポートから）。${preset.note ?? ""}`
-          : "明細を見る・CSV を落とすサイトの URL です（任意）。実績管理の CSV インポートから開けます。"}
+          ? `空欄なら ${preset.siteName} を開きます（実績管理の取り込みから）。${preset.note ?? ""}`
+          : "明細を見る・CSV を落とすサイトの URL です（任意）。実績管理の取り込みから開けます。"}
       </p>
     </div>
   );

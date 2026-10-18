@@ -3,7 +3,6 @@ import {
   classifyByRules,
   normalizeKeyword,
   numberRepeatedIds,
-  parseBankCsv,
   ruleSideOf,
 } from "@/lib/ledger/banktxn-import";
 
@@ -81,32 +80,5 @@ describe("numberRepeatedIds", () => {
       (r) => r.externalId,
     );
     expect(ids).toEqual(["a", "b", "a#2", "a#3"]);
-  });
-});
-
-describe("parseBankCsv", () => {
-  it("同じ日・同じ摘要・同じ金額の行を、別の明細として残す", () => {
-    const csv = "date,description,amount\n2026-01-05,コンビニ,-150\n2026-01-05,コンビニ,-150\n";
-    const { rows } = parseBankCsv(csv, 42);
-    expect(rows.map((r) => r.externalId)).toEqual([
-      "csv-42-2026-01-05--150-コンビニ",
-      "csv-42-2026-01-05--150-コンビニ#2",
-    ]);
-  });
-
-  it("parses valid rows and generates a deterministic externalId", () => {
-    const csv = "date,description,amount\n2026-01-05,食料品,-3000\n";
-    const { rows, errors } = parseBankCsv(csv, 42);
-    expect(errors).toHaveLength(0);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ date: "2026-01-05", description: "食料品", amount: -3000 });
-    expect(rows[0].externalId).toBe("csv-42-2026-01-05--3000-食料品");
-  });
-
-  it("collects validation errors for invalid rows without throwing", () => {
-    const csv = "date,description,amount\n,,notanumber\n";
-    const { rows, errors } = parseBankCsv(csv, 1);
-    expect(rows).toHaveLength(0);
-    expect(errors).toHaveLength(1);
   });
 });

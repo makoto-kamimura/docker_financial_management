@@ -16,19 +16,20 @@ import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "@/lib/shared/help-text
 import { ActualsMatrixTab } from "@/components/entry/ActualsMatrixTab";
 import { CashCalendarTab } from "@/components/entry/CashCalendarTab";
 import { CashHistoryTab } from "@/components/entry/CashHistoryTab";
-import { CsvImportTab } from "@/components/entry/CsvImportTab";
+import { ImportTab } from "@/components/entry/ImportTab";
 import { LearningRulesPanel } from "@/components/entry/LearningRulesPanel";
 import { type Account, type Source, type SourceAccount } from "@/components/entry/types";
 import { useActualsScope } from "@/lib/client/use-view-mode";
 import { withScope } from "@/lib/shared/business-use";
 
-// 各タブの中身は components/entry/（現金の一覧・カレンダー・CSV・履歴）と、銀行・カードの部品に置く
-// 並びは 一覧 → カレンダー → CSV インポート → 実績の確定 → 履歴 → 設定（予算管理と同じく設定は右端）
+// 各タブの中身は components/entry/（現金の一覧・カレンダー・取り込み・履歴）と、銀行・カードの部品に置く
+// 並びは 一覧 → カレンダー → 取り込み → 実績の確定 → 履歴 → 設定（予算管理と同じく設定は右端）
+// 取り込みのタブの id は、他の画面からのリンク（?tab=csv）を変えないよう csv のまま
 type Tab = "manual" | "calendar" | "csv" | "confirm" | "history" | "settings";
 const TABS: readonly (readonly [Tab, string])[] = [
   ["manual", "一覧"],
   ["calendar", "カレンダー"],
-  ["csv", "CSV インポート"],
+  ["csv", "取り込み"],
   ["confirm", "実績の確定"],
   ["history", "履歴"],
   ["settings", "設定"],
@@ -80,7 +81,6 @@ function EntryContent() {
   const [tab, setTab] = useState<Tab>(initial.tab);
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
-  // CSV インポートの取り込み先は銀行・カード（現金の CSV は扱わない）
   const [source, setSource] = useState<Source>(initial.source);
   // 銀行は null で「すべての銀行」。カードは 1 枚ずつ扱う（null なら最初のカード）
   const [bankAccountId, setBankAccountId] = useState<number | null>(
@@ -89,25 +89,27 @@ function EntryContent() {
   const [cardAccountId, setCardAccountId] = useState<number | null>(
     initial.source === "card" ? initial.account : null,
   );
-  // 出どころ（取り込み先）を選ぶタブ。CSV インポートでは、登録先の列が無い CSV の取り込み先になる
+  // 出どころを選ぶタブ。取り込みでは取り込み先になる（現金はレシート、銀行・カードは明細の CSV）
   const sourceTab = tab === "calendar" || tab === "history" || tab === "csv";
   // 個人事業主モードは事業利用の口座・カードだけを選べる
   const scope = useActualsScope();
   const { data: bankAccounts } = useQuery({
     queryKey: ["bank-accounts", scope],
-    // CSV インポートは、明細を落とすサイトの一覧に銀行・カードの両方を出すので、出どころによらず読む
-    enabled: sourceTab && (source === "bank" || tab === "csv") && scope !== null,
+    enabled: sourceTab && source === "bank" && scope !== null,
     queryFn: async (): Promise<SourceAccount[]> =>
       (await (await fetch(withScope("/api/bank-accounts", scope!))).json()).data ?? [],
   });
   const { data: cardAccounts } = useQuery({
     queryKey: ["linked-accounts", scope],
-    enabled: sourceTab && (source === "card" || tab === "csv") && scope !== null,
+    enabled: sourceTab && source === "card" && scope !== null,
     queryFn: async (): Promise<SourceAccount[]> =>
       (await (await fetch(withScope("/api/linked-accounts", scope!))).json()).data ?? [],
   });
   const cardId =
     cardAccounts?.find((a) => a.id === cardAccountId)?.id ?? cardAccounts?.[0]?.id ?? null;
+  // 取り込みは口座を 1 つ選ぶ（「すべての銀行」は無い）。口座が 1 つだけなら、それを選んでおく
+  const importBankId = bankAccountId ?? (bankAccounts?.length === 1 ? bankAccounts[0].id : null);
+  const shownBankId = tab === "csv" ? importBankId : bankAccountId;
 
   // ── クエリ ────────────────────────────────────────────────────
   const { data: accounts } = useQuery({
@@ -135,13 +137,13 @@ function EntryContent() {
             {
               manual: ENTRY_HELP.table,
               calendar: ENTRY_HELP.calendar,
-              csv: ENTRY_HELP.csv,
+              csv: source === "manual" ? ENTRY_HELP.importReceipt : ENTRY_HELP.importStatement,
               history: ENTRY_HELP.history,
             }[tab]
           }
         </SectionLead>
       )}
-      {/* CSV と履歴は科目が学習ルールで付く・学習する場所なので、しくみを開いて読めるようにする */}
+      {/* 取り込みと履歴は科目が学習ルールで付く・学習する場所なので、しくみを開いて読めるようにする */}
       {(tab === "csv" || tab === "history") && (
         <TermDetails
           terms={LEARNING_RULE_TERMS}
@@ -150,7 +152,7 @@ function EntryContent() {
         />
       )}
 
-      {/* ── 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ ── */}
+      {/* ── 出どころの選択（カレンダー・取り込み・履歴）。種別を選び、銀行・カードのときは口座も選ぶ ── */}
       {sourceTab && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <SegmentedControl options={SOURCES} value={source} onChange={setSource} />
@@ -158,7 +160,7 @@ function EntryContent() {
             <select
               aria-label="銀行"
               className="input-field w-60"
-              value={bankAccountId ?? ""}
+              value={shownBankId ?? ""}
               onChange={(e) => setBankAccountId(e.target.value ? Number(e.target.value) : null)}
             >
               <option value="">{tab === "csv" ? "口座を選んでください" : "すべての銀行"}</option>
@@ -208,18 +210,23 @@ function EntryContent() {
       {/* ── 実績の確定タブ（② その月の実績。明細の最終日がそろったら確定する）── */}
       {tab === "confirm" && <ActualsConfirmPanel mode={sysMode} initialMonth={initial.month} />}
 
-      {/* ── 一覧・カレンダー（現金）・CSV インポート・履歴（現金）の各タブ（components/entry/）── */}
+      {/* ── 一覧・カレンダー（現金）・取り込み・履歴（現金）の各タブ（components/entry/）── */}
       {tab === "manual" && <ActualsMatrixTab accounts={accounts} mode={sysMode} />}
       {tab === "calendar" && source === "manual" && (
         <CashCalendarTab accounts={accounts} mode={sysMode} />
       )}
       {tab === "csv" && (
-        <CsvImportTab
+        <ImportTab
           source={source}
-          bankAccountId={bankAccountId}
-          cardId={cardId}
-          bankAccounts={bankAccounts}
-          cardAccounts={cardAccounts}
+          account={
+            (source === "bank"
+              ? bankAccounts?.find((a) => a.id === importBankId)
+              : source === "card"
+                ? cardAccounts?.find((a) => a.id === cardId)
+                : undefined) ?? null
+          }
+          accounts={accounts}
+          mode={sysMode}
         />
       )}
       {tab === "history" && source === "manual" && (

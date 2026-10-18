@@ -7,7 +7,7 @@
 //   Notice           … 成功・エラー・注意・案内のお知らせ（閉じるボタンは任意）
 //   Pager            … 前へ・次へのページ送り
 //   SegmentedControl … 2〜3 択の切替（表示範囲・表示形式など）
-//   CsvDropzone      … CSV ファイルを選ぶ／ドロップする枠
+//   FileDropzone     … ファイル（CSV・画像）を選ぶ／ドロップする枠
 
 import { useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
@@ -195,17 +195,26 @@ export function SegmentedControl<T extends string>({
   );
 }
 
-export function CsvDropzone({
+export function FileDropzone({
   busy,
-  onFile,
+  onFiles,
   accept = ".csv",
+  multiple = false,
   hint = "CSV ファイル (.csv) に対応",
+  busyLabel = "インポート中…",
 }: {
   busy: boolean;
-  onFile: (file: File) => void;
+  /** 選んだ・落としたファイル（multiple でなければ 1 つ） */
+  onFiles: (files: File[]) => void;
   accept?: string;
+  multiple?: boolean;
   hint?: ReactNode;
+  busyLabel?: string;
 }) {
+  const pick = (list: FileList | null | undefined) => {
+    const files = Array.from(list ?? []);
+    if (files.length > 0) onFiles(multiple ? files : files.slice(0, 1));
+  };
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   return (
@@ -220,8 +229,7 @@ export function CsvDropzone({
       onDrop={(e) => {
         e.preventDefault();
         setDragOver(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) onFile(file);
+        pick(e.dataTransfer.files);
       }}
       onClick={() => fileRef.current?.click()}
       onKeyDown={(e) => {
@@ -237,17 +245,17 @@ export function CsvDropzone({
         ref={fileRef}
         type="file"
         accept={accept}
+        multiple={multiple}
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onFile(file);
+          pick(e.target.files);
           e.target.value = "";
         }}
       />
       {busy ? (
         <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
           <span className="w-5 h-5 border-2 border-slate-300 border-t-indigo-500 rounded-full animate-spin" />
-          インポート中…
+          {busyLabel}
         </div>
       ) : (
         <div className="space-y-2">

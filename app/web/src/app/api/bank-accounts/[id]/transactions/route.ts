@@ -1,21 +1,17 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
-import { badRequest, notFound } from "@/lib/server/api-error";
-import { parseBankCsv } from "@/lib/ledger/banktxn-import";
+import { badRequest, CSV_MOVED_MESSAGE, gone, notFound } from "@/lib/server/api-error";
 import {
   BANK,
   CARD,
   createEntry,
   entryCategory,
   ENTRY_REFS_INCLUDE,
-  insertExternalEntries,
   toBankTxn,
 } from "@/lib/ledger/ledger-entries";
 import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
 import { invalidateCache } from "@/lib/server/redis";
-import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
-import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/server/import";
 import { applyAutoOffset } from "@/lib/ledger/auto-offset";
 import { BusinessInput, entryBusiness } from "@/lib/ledger/business-use";
 import { invalidateActualsCaches } from "@/lib/server/closing-cache";
@@ -49,7 +45,7 @@ export const GET = withApi({
   },
 });
 
-// POST /api/bank-accounts/[id]/transactions … 手動登録（JSON）/ CSV 取込（text）
+// POST /api/bank-accounts/[id]/transactions … 手動登録（JSON）。CSV は POST /api/imports
 export const POST = withApi({
   role: "editor",
   handler: async ({ req, user, db, id, audit }) => {
@@ -58,82 +54,45 @@ export const POST = withApi({
 
     const ct = req.headers.get("content-type") ?? "";
 
-    if (ct.includes("application/json")) {
-      const parsed = TxnSchema.safeParse(await req.json());
-      if (!parsed.success) throw badRequest("date, description, amount は必須です");
+    // 明細の CSV は実績管理の取り込み（POST /api/imports）から入れる
+    if (!ct.includes("application/json")) throw gone(CSV_MOVED_MESSAGE);
 
-      const body = parsed.data;
-      const category = await entryCategory(
-        db,
-        user.tenantId,
-        body.categoryAccountId,
-        body.description,
-        body.amount,
-      );
-      const txn = await createEntry(
-        db,
-        user.tenantId,
-        { kind: "BANK", accountId: id },
-        {
-          date: new Date(body.date),
-          description: body.description,
-          flow: body.amount,
-          balance: body.balance ?? null,
-          source: "MANUAL",
-          category,
-          business: await entryBusiness(db, body, category, account.businessUse),
-        },
-      );
-      // 同じ日・同じ金額の対になる明細が 1 組だけあれば、振替・チャージの組にする
-      await applyAutoOffset(db, [txn.date!]);
-      const saved = await db.financialRecord.findUniqueOrThrow({
-        where: { id: txn.id },
-        include: ENTRY_REFS_INCLUDE,
-      });
+    const parsed = TxnSchema.safeParse(await req.json());
+    if (!parsed.success) throw badRequest("date, description, amount は必須です");
 
-      await invalidateActualsCaches(user.tenantId);
-      await audit("create_txn", `bank_account:${id}:${txn.id}`);
-      await invalidateCache(`assets:summary:${user.tenantId}:*`);
-      return NextResponse.json({ data: toBankTxn(saved) }, { status: 201 });
-    }
-
-    // S-9: CSV 取込のみユーザー単位のレート制限を適用（10 回 / 10 分）
-    const rate = await checkRateLimit(`rl:import:user:${user.id}`, 10, 600);
-    if (!rate.allowed) return rateLimitResponse(rate.retryAfterSeconds);
-
-    // S-11: Content-Length で事前拒否（ボディを読む前にサイズ超過を検出する）
-    const contentLength = Number(req.headers.get("content-length") ?? "0");
-    if (contentLength > MAX_CSV_BYTES) {
-      throw badRequest("ファイルサイズが上限（5MB）を超えています。分割して取込してください。");
-    }
-
-    const csv = await req.text();
-    if (!csv.trim()) throw badRequest("empty body");
-
-    const { rows, errors } = parseBankCsv(csv, id);
-    if (rows.length + errors.length > MAX_IMPORT_ROWS) {
-      throw badRequest(
-        `行数が上限（${MAX_IMPORT_ROWS}行）を超えています。分割して取込してください。`,
-      );
-    }
-
-    const { inserted, locked } = await insertExternalEntries(
+    const body = parsed.data;
+    const category = await entryCategory(
+      db,
+      user.tenantId,
+      body.categoryAccountId,
+      body.description,
+      body.amount,
+    );
+    const txn = await createEntry(
       db,
       user.tenantId,
       { kind: "BANK", accountId: id },
-      rows,
-      "CSV",
+      {
+        date: new Date(body.date),
+        description: body.description,
+        flow: body.amount,
+        balance: body.balance ?? null,
+        source: "MANUAL",
+        category,
+        business: await entryBusiness(db, body, category, account.businessUse),
+      },
     );
-    // 同じ内容の明細は externalId の一意制約で自動的にスキップされる（重複取込の防止）。
-    // 実績を確定済みの月の行は登録しない（locked）
-    const skipped = rows.length - inserted - locked;
+    // 同じ日・同じ金額の対になる明細が 1 組だけあれば、振替・チャージの組にする
+    await applyAutoOffset(db, [txn.date!]);
+    const saved = await db.financialRecord.findUniqueOrThrow({
+      where: { id: txn.id },
+      include: ENTRY_REFS_INCLUDE,
+    });
+
     await invalidateActualsCaches(user.tenantId);
-    await audit("import_txn", `bank_account:${id}:${inserted}`);
+    await audit("create_txn", `bank_account:${id}:${txn.id}`);
     await invalidateCache(`assets:summary:${user.tenantId}:*`);
-    return NextResponse.json(
-      { inserted, skipped, locked, errors },
-      { status: errors.length ? 207 : 201 },
-    );
+    return NextResponse.json({ data: toBankTxn(saved) }, { status: 201 });
   },
 });
 

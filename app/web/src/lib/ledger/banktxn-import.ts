@@ -1,7 +1,6 @@
-import Papa from "papaparse";
 import { z } from "zod";
 
-// 銀行入出金 CSV の 1 行スキーマ。
+// 明細の CSV の 1 行スキーマ（実績管理の取り込み。lib/ledger/ledger-import.ts）。
 // ヘッダ: date,description,amount[,balance]
 // amount は +入金 / -出金
 const RowSchema = z.object({
@@ -19,9 +18,7 @@ export type ParsedTxn = {
   externalId: string;
 };
 
-export type ParseResult = { rows: ParsedTxn[]; errors: { row: number; message: string }[] };
-
-/** CSV の 1 行（date,description,amount[,balance]）を明細にする。形が違えば null（実績管理の CSV 取込でも使う） */
+/** CSV の 1 行（date,description,amount[,balance]）を明細にする。形が違えば null */
 export function parseBankRow(raw: Record<string, unknown>, accountId: number): ParsedTxn | null {
   const r = RowSchema.safeParse(raw);
   if (!r.success) return null;
@@ -49,21 +46,6 @@ export function numberRepeatedIds<T extends { externalId: string }>(rows: T[]): 
     seen.set(r.externalId, n);
     return n === 1 ? r : { ...r, externalId: `${r.externalId}#${n}` };
   });
-}
-
-// CSV テキストを入出金明細に変換する。
-export function parseBankCsv(csv: string, accountId: number): ParseResult {
-  const parsed = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true });
-  const rows: ParsedTxn[] = [];
-  const errors: ParseResult["errors"] = [];
-
-  parsed.data.forEach((raw, i) => {
-    const row = parseBankRow(raw, accountId);
-    if (!row) errors.push({ row: i + 2, message: "validation error" });
-    else rows.push(row);
-  });
-
-  return { rows: numberRepeatedIds(rows), errors };
 }
 
 // 学習ルールのキーワード正規化（前後空白除去・連続空白の圧縮・大文字化）。

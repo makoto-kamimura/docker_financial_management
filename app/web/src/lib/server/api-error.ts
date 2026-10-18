@@ -40,6 +40,14 @@ export const serviceUnavailable = (message: string, code?: string) =>
 export const DIRECT_ACTUALS_GONE_MESSAGE =
   "実績は明細（現金・銀行・カード）に科目を付けると入ります。科目×月への直接入力はできません";
 
+/** 現金の明細の CSV の取り込みをやめた API が返すメッセージ */
+export const CASH_CSV_GONE_MESSAGE =
+  "現金の明細は CSV では取り込めません。実績管理の取り込みで、レシートを撮影するか画像を選んで読み取ってください";
+
+/** 口座・カードごとの明細の API に CSV を送ったときのメッセージ（取り込みの入口は 1 つにした） */
+export const CSV_MOVED_MESSAGE =
+  "明細の CSV は、実績管理の取り込み（POST /api/imports）から入れてください";
+
 // ハンドラで発生した例外を HTTP レスポンスへ写像する（withApi の catch 節から呼ばれる）。
 // - ApiError: 指定ステータスで返す
 // - Prisma の既知エラー: P2002(一意制約)→409 / P2025(対象なし)→404
