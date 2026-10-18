@@ -337,13 +337,16 @@ export function useLedgerHistory<T>({
   kind,
   accountId = null,
   mode,
+  initialStatus = "all",
 }: {
   kind: "CASH" | "BANK" | "CARD";
   accountId?: number | null;
   mode: ViewMode;
+  /** 最初の状態の絞り込み（取り込みの結果から「未割り当て」で開くときなど） */
+  initialStatus?: LedgerStatus;
 }) {
   const [offset, setOffset] = useState(0);
-  const [status, setStatus] = useState<LedgerStatus>("all");
+  const [status, setStatus] = useState<LedgerStatus>(initialStatus);
   const [categoryAccountId, setCategoryAccountId] = useState<number | null>(null);
   const businessFilter = useBusinessOnlyFilter();
   const scope = useActualsScope();

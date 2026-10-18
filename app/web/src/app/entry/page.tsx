@@ -9,6 +9,7 @@ import { ActualsConfirmPanel } from "@/components/ActualsConfirmPanel";
 import { BankTransactionsCalendar } from "@/components/BankTransactionsCalendar";
 import { BankTransactionsPanel } from "@/components/BankTransactionsPanel";
 import { CardTransactionsPanel } from "@/components/CardTransactionsPanel";
+import type { LedgerStatus } from "@/components/LedgerTable";
 import { PageHeader, SegmentedControl, Tabs } from "@/components/ui";
 import { SectionLead, TermDetails } from "@/components/Explain";
 import { useViewMode } from "@/lib/client/use-view-mode";
@@ -79,6 +80,8 @@ function EntryContent() {
   // ── タブ ──────────────────────────────────────────────────────
   const initial = useInitialTab();
   const [tab, setTab] = useState<Tab>(initial.tab);
+  // 履歴の一覧の最初の状態の絞り込み（取り込みの結果から「未割り当て」で開くときだけ変える）
+  const [historyStatus, setHistoryStatus] = useState<LedgerStatus>("all");
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
   const [source, setSource] = useState<Source>(initial.source);
@@ -127,6 +130,7 @@ function EntryContent() {
         value={tab}
         onChange={(t) => {
           setTab(t);
+          setHistoryStatus("all");
         }}
       />
 
@@ -201,10 +205,10 @@ function EntryContent() {
         <CardTransactionsPanel view="calendar" accountId={cardId} />
       )}
       {tab === "history" && source === "bank" && (
-        <BankTransactionsPanel accountId={bankAccountId} />
+        <BankTransactionsPanel accountId={bankAccountId} initialStatus={historyStatus} />
       )}
       {tab === "history" && source === "card" && cardId !== null && (
-        <CardTransactionsPanel view="list" accountId={cardId} />
+        <CardTransactionsPanel view="list" accountId={cardId} initialStatus={historyStatus} />
       )}
 
       {/* ── 実績の確定タブ（② その月の実績。明細の最終日がそろったら確定する）── */}
@@ -227,6 +231,12 @@ function EntryContent() {
           }
           accounts={accounts}
           mode={sysMode}
+          onShowUnassigned={(id) => {
+            if (source === "bank") setBankAccountId(id);
+            else setCardAccountId(id);
+            setHistoryStatus("unassigned");
+            setTab("history");
+          }}
         />
       )}
       {tab === "history" && source === "manual" && (

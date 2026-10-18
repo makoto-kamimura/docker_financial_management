@@ -6,6 +6,8 @@
  * - 同じ日・同じ金額の口座どうしの出金と入金は、振替の組にする
  * - 現金（target=cash）・target=actual は受け付けない。取り込み先の列は読まない。口座が無ければ 404
  * - 口座・カードごとの明細の API は CSV を受けない（取り込みの入口はここだけ）
+ * - 結果の unassigned は、科目も振替・チャージの組も付いていない件数
+ * - GET /api/imports/coverage は、CSV・自動取得で入った明細のいちばん新しい日付を返す（手入力は数えない）
  * - dryRun=1 は書き込まず（期間も作らない）、件数・取り込み済みかもしれない明細・残高の照合を返し、件数は本体と一致する
  * - 実績を確定済みの月の行は飛ばす
  * - 誤りのある行があれば、どの行も登録しない
@@ -34,8 +36,10 @@ vi.mock("@/lib/server/authz", () => ({
 }));
 
 import { prisma } from "@/lib/server/prisma";
+import { createTestEntry } from "@/lib/ledger/test-entries";
 import { emptyRouteContext } from "@/lib/server/api-handler";
 import { POST as importPost } from "./route";
+import { GET as coverageGet } from "./coverage/route";
 import { POST as bankTxnPost } from "../bank-accounts/[id]/transactions/route";
 import { POST as cardTxnPost } from "../linked-accounts/[id]/transactions/route";
 import { convertStatement, decodeCsv, toImportCsv } from "@/lib/shared/statement-formats";
@@ -124,7 +128,14 @@ describe("POST /api/imports", () => {
       emptyRouteContext(),
     );
     expect(res.status).toBe(201);
-    expect((await res.json()).result).toEqual({ inserted: 1, skipped: 0, locked: 0, offset: 0 });
+    // 給与は学習ルールで科目が付くので、未割り当ては 0
+    expect((await res.json()).result).toEqual({
+      inserted: 1,
+      skipped: 0,
+      locked: 0,
+      offset: 0,
+      unassigned: 0,
+    });
     const cardRes = await importPost(
       csvReq(
         `?target=card&accountId=${cardId}`,
@@ -132,7 +143,8 @@ describe("POST /api/imports", () => {
       ),
       emptyRouteContext(),
     );
-    expect((await cardRes.json()).result).toMatchObject({ inserted: 1 });
+    // ルールに当たらないスーパーは未割り当て
+    expect((await cardRes.json()).result).toMatchObject({ inserted: 1, unassigned: 1 });
 
     // 給与は学習ルールで科目が付き、その行がそのまま実績（収入は入金が正）。残高も入る
     const salary = await prisma.financialRecord.findFirstOrThrow({
@@ -280,6 +292,39 @@ describe("POST /api/imports", () => {
     );
     expect((await res.json()).preview).toMatchObject({ fresh: 1, balanceCheck: null });
     expect(await periods()).toBe(before);
+  });
+
+  it("coverage は、CSV・自動取得で入った明細のいちばん新しい日付を返す（手入力は数えない）", async () => {
+    const coverage = async (query: string) =>
+      (
+        await coverageGet(
+          {
+            method: "GET",
+            nextUrl: new URL(`http://localhost:3000/api/imports/coverage${query}`),
+            headers: new Headers(),
+          } as unknown as import("next/server").NextRequest,
+          emptyRouteContext(),
+        )
+      ).json();
+    const coveredId = (
+      await prisma.bankAccount.create({
+        data: { tenantId, name: "期間用", bankName: "テスト銀行" },
+      })
+    ).id;
+    expect(await coverage(`?target=bank&accountId=${coveredId}`)).toEqual({ lastDate: null });
+    await importPost(
+      csvReq(bank(coveredId), "日付,摘要,金額\n2032-03-01,a,-1\n2032-03-15,b,-1"),
+      emptyRouteContext(),
+    );
+    await createTestEntry(
+      tenantId,
+      { kind: "BANK", accountId: coveredId },
+      { date: new Date("2032-04-01"), description: "手入力", flow: -1 },
+    );
+    expect(await coverage(`?target=bank&accountId=${coveredId}`)).toEqual({
+      lastDate: "2032-03-15",
+    });
+    await prisma.financialRecord.deleteMany({ where: { bankAccountId: coveredId } });
   });
 
   it("実績を確定済みの月の行は飛ばす", async () => {

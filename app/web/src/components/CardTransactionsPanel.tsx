@@ -29,6 +29,7 @@ import {
   LedgerTable,
   BusinessTag,
   useLedgerHistory,
+  type LedgerStatus,
 } from "@/components/LedgerTable";
 import { yen, yenAbs } from "@/lib/common/format";
 import { flowLabel, flowSide } from "@/lib/shared/amount-direction";
@@ -105,13 +106,20 @@ type Props = {
   view: "list" | "calendar";
   /** 表示するカード・電子マネー（呼び出し側のセレクタで選ぶ） */
   accountId: number | null;
+  /** 一覧の最初の状態の絞り込み（取り込みの結果から「未割り当て」で開くとき） */
+  initialStatus?: LedgerStatus;
 };
 
-export function CardTransactionsPanel({ view, accountId }: Props) {
+export function CardTransactionsPanel({ view, accountId, initialStatus }: Props) {
   const qc = useQueryClient();
   const [msg, setMsg] = useState<string | null>(null);
   // 明細の一覧（30 件ずつ。状態・科目・事業利用で絞り込める。LedgerTable.tsx の useLedgerHistory）
-  const history = useLedgerHistory<Txn>({ kind: "CARD", accountId, mode: useViewMode() });
+  const history = useLedgerHistory<Txn>({
+    kind: "CARD",
+    accountId,
+    mode: useViewMode(),
+    initialStatus,
+  });
   // ── カレンダー ────────────────────────────────────────────────
   // カレンダーの年は対象年度（左のメニュー）に合わせる。月を送って年をまたいだら、対象年度も変える
   const viewYear = useFiscalYear();

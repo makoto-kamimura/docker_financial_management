@@ -1,6 +1,7 @@
 "use client";
 
-// 実績管理の取り込み（銀行・カード）の「① 明細を落とす」。選んだ口座・カードの明細を見る公式サイトを開く。
+// 実績管理の取り込み（銀行・カード）の「① 明細を落とす」。選んだ口座・カードの明細を見る公式サイトを開き、
+// 前回どこまで取り込んだか（GET /api/imports/coverage）から、次に落とす期間の目安を出す。
 // URL は口座・カードに登録したもの、無ければ金融機関名からの既定（lib/shared/statement-links.ts）。
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
@@ -24,9 +25,12 @@ function hostOf(url: string): string {
 export function StatementLinksCard({
   kind,
   account,
+  lastDate,
 }: {
   kind: StatementLinkKind;
   account: SourceAccount;
+  /** CSV・自動取得で入った明細のいちばん新しい日付（まだ無ければ null、読み込み中は undefined） */
+  lastDate: string | null | undefined;
 }) {
   const institution = (kind === "BANK" ? account.bankName : account.institution) ?? "";
   const link = statementLinkFor(kind, { ...account, institution });
@@ -40,6 +44,15 @@ export function StatementLinksCard({
           のサイトで明細を CSV
           で保存します。前回と期間が重なってもかまいません（同じ明細は二重に入りません）。
         </p>
+        {lastDate !== undefined && (
+          <p className="mt-1 text-xs text-slate-700">
+            {lastDate
+              ? `前回は ${lastDate} の明細まで取り込み済みです。その日から今日までの明細を保存してください。`
+              : kind === "BANK"
+                ? "まだ明細を取り込んでいません。取り込む前の確認で、残高が合う差額（期首残高）の目安を出します。"
+                : "まだ明細を取り込んでいません。"}
+          </p>
+        )}
       </div>
       {link?.url ? (
         <a

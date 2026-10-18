@@ -3,7 +3,7 @@
 // 実績管理の取り込み（銀行・カード）。選んだ口座・カードの明細を、銀行・カード会社・電子マネーのサイトから
 // 落とした CSV で取り込む。CSV はブラウザでアプリの形にそろえ（lib/shared/statement-formats.ts）、確認のあと
 // POST /api/imports に送る（取り込み・重複の判定はサーバー）。
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { FileDropzone, Notice } from "@/components/ui";
 import { StatementLinksCard } from "@/components/entry/StatementLinksCard";
@@ -24,7 +24,14 @@ import { type SourceAccount } from "@/components/entry/types";
 
 /** 取り込みの結果（POST /api/imports）。skipped は重複、locked は確定済みの月のため飛ばした件数、offset は振替・チャージにした組の数 */
 type ImportResult = {
-  result: { inserted: number; skipped: number; locked: number; offset: number } | null;
+  result: {
+    inserted: number;
+    skipped: number;
+    locked: number;
+    offset: number;
+    /** この CSV の明細のうち、科目も振替・チャージの組も付いていない件数 */
+    unassigned: number;
+  } | null;
   errors: { row: number; message: string }[];
 };
 
@@ -53,12 +60,25 @@ function kindWarning(kind: "bank" | "card", c: StatementConversion): string | nu
 export function StatementImportPanel({
   kind,
   account,
+  onShowUnassigned,
 }: {
   kind: "bank" | "card";
   /** 取り込み先の口座・カード（null は未選択） */
   account: SourceAccount | null;
+  /** 科目の付いていない明細を、履歴タブ（この口座・未割り当て）で開く */
+  onShowUnassigned: (accountId: number) => void;
 }) {
   const queryClient = useQueryClient();
+  // 前回どこまで取り込んだか（次に落とす明細の期間の目安）
+  const { data: lastDate } = useQuery({
+    queryKey: ["import-coverage", kind, account?.id],
+    enabled: account !== null,
+    queryFn: async (): Promise<string | null> => {
+      const params = new URLSearchParams({ target: kind, accountId: String(account!.id) });
+      const res = await fetch(`/api/imports/coverage?${params}`);
+      return res.ok ? (await res.json()).lastDate : null;
+    },
+  });
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +175,7 @@ export function StatementImportPanel({
         "bank-accounts",
         "cash-outlook",
         "card-usage-trend",
+        "import-coverage",
       ]) {
         queryClient.invalidateQueries({ queryKey: [key] });
       }
@@ -167,7 +188,11 @@ export function StatementImportPanel({
 
   return (
     <div className="max-w-2xl space-y-4">
-      <StatementLinksCard kind={kind === "bank" ? "BANK" : "CARD"} account={account} />
+      <StatementLinksCard
+        kind={kind === "bank" ? "BANK" : "CARD"}
+        account={account}
+        lastDate={lastDate}
+      />
 
       <div className="card space-y-3">
         <div>
@@ -197,7 +222,9 @@ export function StatementImportPanel({
         )}
       </div>
 
-      {result && <ResultCard result={result} />}
+      {result && (
+        <ResultCard result={result} onShowUnassigned={() => onShowUnassigned(account.id)} />
+      )}
       {error && <Notice tone="error">{error}</Notice>}
 
       {pending && (
@@ -217,7 +244,13 @@ export function StatementImportPanel({
   );
 }
 
-function ResultCard({ result: { result, errors } }: { result: ImportResult }) {
+function ResultCard({
+  result: { result, errors },
+  onShowUnassigned,
+}: {
+  result: ImportResult;
+  onShowUnassigned: () => void;
+}) {
   return (
     <div
       className={`card border ${errors.length === 0 ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}
@@ -234,6 +267,14 @@ function ResultCard({ result: { result, errors } }: { result: ImportResult }) {
       ) : (
         <p className="text-sm font-semibold text-slate-800">
           ⚠️ {errors.length} 件のエラーがあるため、取り込みませんでした
+        </p>
+      )}
+      {result && result.unassigned > 0 && (
+        <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+          科目の付いていない明細が {result.unassigned.toLocaleString()} 件あります。
+          <button type="button" onClick={onShowUnassigned} className="btn-secondary text-xs">
+            履歴で科目を付ける
+          </button>
         </p>
       )}
       {errors.length > 0 && (

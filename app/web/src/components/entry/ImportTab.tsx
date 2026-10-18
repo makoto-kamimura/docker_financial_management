@@ -12,6 +12,7 @@ export function ImportTab({
   account,
   accounts,
   mode,
+  onShowUnassigned,
 }: {
   source: Source;
   /** 取り込み先の銀行口座・カード（現金・未選択は null） */
@@ -19,8 +20,17 @@ export function ImportTab({
   /** 科目（現金の登録で使う） */
   accounts: Account[] | undefined;
   mode: ViewMode;
+  /** 取り込んだ口座・カードの、科目の付いていない明細を履歴タブで開く */
+  onShowUnassigned: (accountId: number) => void;
 }) {
   if (source === "manual") return <ReceiptImportPanel accounts={accounts} mode={mode} />;
   // 口座を替えたら、前の口座の結果を残さない
-  return <StatementImportPanel key={account?.id ?? 0} kind={source} account={account} />;
+  return (
+    <StatementImportPanel
+      key={account?.id ?? 0}
+      kind={source}
+      account={account}
+      onShowUnassigned={onShowUnassigned}
+    />
+  );
 }

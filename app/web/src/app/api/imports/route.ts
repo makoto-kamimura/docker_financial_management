@@ -9,7 +9,13 @@ import {
   gone,
   notFound,
 } from "@/lib/server/api-error";
-import { BANK, insertExternalEntries, planExternalEntries } from "@/lib/ledger/ledger-entries";
+import {
+  BANK,
+  CARD,
+  insertExternalEntries,
+  planExternalEntries,
+  UNPAIRED,
+} from "@/lib/ledger/ledger-entries";
 import { checkStatementBalances } from "@/lib/ledger/balance-check";
 import { bankBalanceOf, toNumber } from "@/lib/ledger/bank-balance";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/server/import";
@@ -23,7 +29,8 @@ import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 //   各社の CSV は画面でこの形にそろえて送る）。誤りが 1 行でもあれば何も取り込まない。
 //   同じ明細は重複として飛ばし、実績を確定済みの月の行も飛ばす。学習ルールで科目が付いた行は、
 //   そのまま実績になる。取り込んだ日付の明細に自動相殺をかける。
-//   結果の skipped は重複で飛ばした件数、locked は確定済みの月のため飛ばした件数、offset は振替・チャージの組にした数。
+//   結果の skipped は重複で飛ばした件数、locked は確定済みの月のため飛ばした件数、offset は振替・チャージの組にした数、
+//   unassigned はこの CSV の明細のうち、科目も振替・チャージの組も付いていない件数（履歴で科目を付ける）。
 //   現金（target=cash。レシートの読み取りに替えた）と、科目×月への直接の取り込み（target=actual）は 410。
 //   dryRun=1 は書き込まずに、取り込む前の確認に出す preview を返す（lib/ledger/ledger-entries.ts の planExternalEntries）:
 //     期間（from・to）、新しく入る件数（fresh）・取り込み済み（duplicate）・確定済みの月（locked）、
@@ -97,12 +104,29 @@ export const POST = withApi({
       "CSV",
       { business: query.business },
     );
+    // 学習ルールに当たらず、自動相殺でも組にならなかった明細（取り込み済みだった行も含む）
+    const unassigned = await db.financialRecord.count({
+      where: {
+        ...(kind === "BANK"
+          ? { ...BANK, bankAccountId: account.id }
+          : { ...CARD, cardAccountId: account.id }),
+        externalId: { in: rows.map((r) => r.externalId) },
+        accountId: null,
+        ...UNPAIRED,
+      },
+    });
     if (kind === "BANK") await invalidateCache(`assets:summary:${tenantId}:*`);
     await invalidateActualsCaches(tenantId);
     await audit("import", `${query.target}:${account.id}:${inserted}`);
     return NextResponse.json(
       {
-        result: { inserted, skipped: rows.length - inserted - locked, locked, offset },
+        result: {
+          inserted,
+          skipped: rows.length - inserted - locked,
+          locked,
+          offset,
+          unassigned,
+        },
         errors: [],
       },
       { status: 201 },
