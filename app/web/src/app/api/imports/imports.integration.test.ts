@@ -8,9 +8,12 @@
  * - 実績の行（target=実績）・target=actual は受け付けない
  * - 実績を確定済みの月の行は飛ばす
  * - 誤りのある行があれば、どの行も登録しない
+ * - 各社の明細の CSV を画面でそろえた形（lib/shared/statement-formats.ts）は、そのまま取り込め、2 回目は重複になる
  *
  * 実行: `npm run test:integration`（DB 起動が前提）
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
 vi.mock("@/lib/server/redis", () => ({
@@ -31,6 +34,7 @@ vi.mock("@/lib/server/authz", () => ({
 import { prisma } from "@/lib/server/prisma";
 import { emptyRouteContext } from "@/lib/server/api-handler";
 import { POST as importPost } from "./route";
+import { convertStatement, decodeCsv, toImportCsv } from "@/lib/shared/statement-formats";
 
 const SUFFIX = `imp_${Date.now()}`;
 const code = `H${SUFFIX}`;
@@ -230,5 +234,29 @@ describe("POST /api/imports", () => {
     const body = await res.json();
     expect(body.errors.map((e: { row: number }) => e.row)).toEqual([3]);
     expect(await prisma.financialRecord.count({ where: { bankAccountId: bankId } })).toBe(before);
+  });
+
+  it("各社の明細の CSV をそろえた形は、そのまま取り込め、2 回目は重複になる", async () => {
+    const raw = readFileSync(
+      path.resolve(
+        __dirname,
+        "../../../lib/shared/__fixtures__/statements/card-headerless-sjis.csv",
+      ),
+    );
+    const csv = toImportCsv(convertStatement(decodeCsv(raw))!.rows);
+    const query = `?target=card&accountId=${cardId}`;
+
+    const first = await (await importPost(csvReq(query, csv), emptyRouteContext())).json();
+    expect(first.results).toEqual([expect.objectContaining({ kind: "CARD", inserted: 3 })]);
+    const rows = await prisma.financialRecord.findMany({
+      where: { cardAccountId: cardId, date: { lt: new Date("2027-01-01") } },
+      orderBy: { date: "asc" },
+    });
+    expect(rows.map((r) => Number(r.flow))).toEqual([-1980, -5400, 1980]);
+
+    const second = await (await importPost(csvReq(query, csv), emptyRouteContext())).json();
+    expect(second.results).toEqual([
+      expect.objectContaining({ kind: "CARD", inserted: 0, skipped: 3 }),
+    ]);
   });
 });

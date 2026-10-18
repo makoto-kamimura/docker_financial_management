@@ -1,7 +1,9 @@
 "use client";
 
 // 実績管理の「CSV インポート」タブ。取り込み先の列つきの CSV は行ごとに振り分け、列なしは画面で選んだ取り込み先に入れる。
+// 銀行・カード会社・電子マネーのサイトから落とした CSV は、アプリの形にそろえてから送る（lib/shared/statement-formats.ts）。
 import { useQueryClient } from "@tanstack/react-query";
+import Papa from "papaparse";
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { CsvDropzone, Notice } from "@/components/ui";
@@ -9,7 +11,17 @@ import { StatementLinksCard } from "@/components/entry/StatementLinksCard";
 import { ENTRY_HELP } from "@/lib/shared/help-texts";
 import { importErrorMessage, importNetworkErrorMessage } from "@/lib/client/import-error";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
+import { yen } from "@/lib/common/format";
 import { type Source, type SourceAccount } from "@/components/entry/types";
+import { hasDestinationColumn } from "@/lib/ledger/ledger-import";
+import {
+  AMOUNT_STYLE_LABEL,
+  convertStatement,
+  decodeCsv,
+  isImportFormat,
+  toImportCsv,
+  type StatementConversion,
+} from "@/lib/shared/statement-formats";
 import { useActualsScope } from "@/lib/client/use-view-mode";
 
 // CSV インポートの結果（POST /api/imports）。取り込み先ごとの登録件数と、重複・確定済みの月で飛ばした件数
@@ -34,6 +46,31 @@ const IMPORT_KIND_LABEL: Record<ImportCount["kind"], string> = {
 };
 
 const THIS_YEAR = new Date().getFullYear();
+
+/** 取り込み前の確認に出す、変換した明細の行数 */
+const PREVIEW_ROWS = 5;
+
+// 取り込みの前の確認。csv は送る中身（各社の形から変換したときは、そろえたあとの CSV）
+type PendingImport = {
+  fileName: string;
+  label: string;
+  csv: string;
+  /** 各社の形から変換したときの結果（アプリの形のままなら null） */
+  conversion: StatementConversion | null;
+  /** 明細の形と取り込み先が食い違って見えるときの注意 */
+  warning: string | null;
+};
+
+/** 明細の形から見て、取り込み先を取り違えていそうなら注意を返す */
+function kindWarning(source: Source, c: StatementConversion): string | null {
+  if (c.style === "usage" && source !== "card") {
+    return "カードの利用明細のようです。取り込み先が合っているか確かめてください。";
+  }
+  if (source === "card" && c.columns.some((col) => col.role === "残高")) {
+    return "残高の列がある、銀行の明細のようです。取り込み先が合っているか確かめてください。";
+  }
+  return null;
+}
 
 export function CsvImportTab({
   source,
@@ -61,8 +98,8 @@ export function CsvImportTab({
   const [asBusiness, setAsBusiness] = useState(false);
 
   // ── CSV ハンドラ ─────────────────────────────────────────────
-  // 取り込みの前の確認（銀行・カードへ、登録先の列が無い CSV を入れるとき。取り違えを防ぐ）
-  const [pendingImport, setPendingImport] = useState<{ file: File; label: string } | null>(null);
+  // 取り込みの前の確認（登録先の列が無い CSV を入れるとき。取り違えを防ぎ、変換した中身を見せる）
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
 
   async function importFile(file: File) {
     if (!file.name.toLowerCase().endsWith(".csv")) {
@@ -71,22 +108,17 @@ export function CsvImportTab({
     }
     setImportResult(null);
     setImportError(null);
+    // 銀行・カード会社の CSV は Shift_JIS が多いので、文字コードを見分けて読む（送るのは UTF-8）
+    const text = decodeCsv(await file.arrayBuffer());
+    const header = Papa.parse<string[]>(text, { preview: 1 }).data[0] ?? [];
     // ヘッダに取り込み先の列（取り込み先 / account）があれば行ごとに振り分ける（画面の取り込み先は使わない）
-    const header = (await file.text()).split(/\r?\n/, 1)[0] ?? "";
-    const routed = header
-      .split(",")
-      .map((h) =>
-        h
-          .trim()
-          .replace(/^"|"$/g, "")
-          .replace(/^\uFEFF/, ""),
-      )
-      .some((h) => h === "取り込み先" || h === "account");
-    if (!routed) {
-      if (source === "manual") {
-        setPendingImport({ file, label: "現金" });
-        return;
-      }
+    if (hasDestinationColumn(header)) {
+      await runImport(text);
+      return;
+    }
+
+    let label = "現金";
+    if (source !== "manual") {
       const list = source === "bank" ? bankAccounts : cardAccounts;
       const id = source === "bank" ? bankAccountId : cardId;
       const account = list?.find((a) => a.id === id);
@@ -96,16 +128,35 @@ export function CsvImportTab({
         );
         return;
       }
-      setPendingImport({
-        file,
-        label: `${source === "bank" ? "銀行" : "カード・電子マネー"}: ${account.name}`,
-      });
+      label = `${source === "bank" ? "銀行" : "カード・電子マネー"}: ${account.name}`;
+    }
+
+    // アプリの形（日付・摘要・金額）でなければ、各社の明細として読んでそろえる
+    if (isImportFormat(header)) {
+      setPendingImport({ fileName: file.name, label, csv: text, conversion: null, warning: null });
       return;
     }
-    await runImport(file);
+    const conversion = convertStatement(text);
+    if (!conversion) {
+      setImportError(
+        "明細の形を読み取れませんでした。日付と金額（出金・入金・利用金額など）の列名が入った見出しの行があるか確かめてください。",
+      );
+      return;
+    }
+    if (conversion.rows.length === 0) {
+      setImportError("取り込める明細がありませんでした（日付と金額のある行がありません）。");
+      return;
+    }
+    setPendingImport({
+      fileName: file.name,
+      label,
+      csv: toImportCsv(conversion.rows),
+      conversion,
+      warning: kindWarning(source, conversion),
+    });
   }
 
-  async function runImport(file: File) {
+  async function runImport(csv: string) {
     setPendingImport(null);
     setImporting(true);
     try {
@@ -118,7 +169,7 @@ export function CsvImportTab({
       const res = await fetch(`/api/imports?${params}`, {
         method: "POST",
         headers: { "Content-Type": "text/csv; charset=utf-8" },
-        body: file,
+        body: csv,
       });
       const json = await res
         .clone()
@@ -247,9 +298,18 @@ export function CsvImportTab({
 ${THIS_YEAR}-06-25,給与,300000,512000
 ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
             <p className="mt-1 text-xs text-slate-500">
-              銀行・カード会社のサイトの明細そのままの形式です（英語の列名
-              date・description・amount・balance
-              でもかまいません。入金は正、支出は負。残高は銀行だけで、無くてもかまいません）。
+              英語の列名 date・description・amount・balance
+              でもかまいません。入金は正、支出は負。残高は銀行だけで、無くてもかまいません。
+            </p>
+          </div>
+          <div>
+            <h3 className="text-xs font-semibold text-slate-700 mb-2">
+              銀行・カード会社・電子マネーのサイトから落とした CSV
+            </h3>
+            <p className="text-xs text-slate-500">
+              そのまま入れられます（Shift_JIS
+              でもかまいません）。見出しの列名から、日付・摘要・出金と入金（または利用金額、符号つきの金額）・残高を読み取り、取り込む前に変換した中身を確認できます。見出しの前の口座の情報や、末尾の合計の行は飛ばします。見出しの無いカード明細は、先頭から
+              日付・摘要・利用金額 の並びとして読みます。
             </p>
           </div>
         </div>
@@ -264,13 +324,36 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
           <dl className="text-sm border border-slate-200 rounded-lg divide-y divide-slate-100 mb-4">
             <div className="flex gap-3 px-3 py-2">
               <dt className="w-20 shrink-0 text-slate-500">ファイル</dt>
-              <dd className="text-slate-700 break-all">{pendingImport.file.name}</dd>
+              <dd className="text-slate-700 break-all">{pendingImport.fileName}</dd>
             </div>
             <div className="flex gap-3 px-3 py-2 bg-amber-50">
               <dt className="w-20 shrink-0 text-slate-500">取込先</dt>
               <dd className="font-semibold text-slate-800">{pendingImport.label}</dd>
             </div>
+            {pendingImport.conversion && (
+              <div className="flex gap-3 px-3 py-2">
+                <dt className="w-20 shrink-0 text-slate-500">読み方</dt>
+                <dd className="text-slate-700 space-y-0.5">
+                  <p>
+                    {pendingImport.conversion.headerless
+                      ? "見出しの無いカード明細（日付・摘要・利用金額の並び）"
+                      : AMOUNT_STYLE_LABEL[pendingImport.conversion.style]}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {pendingImport.conversion.columns
+                      .map((c) => `${c.role}=${c.names.join("＋")}`)
+                      .join("、")}
+                  </p>
+                </dd>
+              </div>
+            )}
           </dl>
+          {pendingImport.warning && (
+            <Notice tone="warn" className="mb-4">
+              {pendingImport.warning}
+            </Notice>
+          )}
+          {pendingImport.conversion && <ConversionPreview conversion={pendingImport.conversion} />}
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -281,7 +364,7 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
             </button>
             <button
               type="button"
-              onClick={() => runImport(pendingImport.file)}
+              onClick={() => runImport(pendingImport.csv)}
               className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
             >
               取り込む
@@ -290,5 +373,61 @@ ${THIS_YEAR}-06-27,AMAZON.CO.JP,-3980,508020`}</pre>
         </Modal>
       )}
     </>
+  );
+}
+
+/** 各社の形から変換した明細の先頭の行と、飛ばした行（取り込み前の確認に出す） */
+function ConversionPreview({ conversion }: { conversion: StatementConversion }) {
+  const { rows, skipped } = conversion;
+  return (
+    <div className="mb-4 space-y-2">
+      <p className="text-xs text-slate-500">
+        {rows.length.toLocaleString()} 件を取り込みます
+        {skipped.length > 0 &&
+          `（日付・金額の無い ${skipped.length.toLocaleString()} 行は飛ばします）`}
+        。先頭の {Math.min(rows.length, PREVIEW_ROWS)} 件:
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              <th className="px-2 py-1 text-left font-medium">日付</th>
+              <th className="px-2 py-1 text-left font-medium">摘要</th>
+              <th className="px-2 py-1 text-right font-medium">金額</th>
+              <th className="px-2 py-1 text-right font-medium">残高</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.slice(0, PREVIEW_ROWS).map((r, i) => (
+              <tr key={i} className="text-slate-700">
+                <td className="px-2 py-1 whitespace-nowrap tabular-nums">{r.date}</td>
+                <td className="px-2 py-1 break-all">{r.description}</td>
+                <td
+                  className={`px-2 py-1 text-right whitespace-nowrap tabular-nums ${r.amount < 0 ? "text-red-600" : "text-emerald-700"}`}
+                >
+                  {yen(r.amount)}
+                </td>
+                <td className="px-2 py-1 text-right whitespace-nowrap tabular-nums text-slate-500">
+                  {r.balance === undefined ? "—" : yen(r.balance)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {skipped.length > 0 && (
+        <details className="text-xs text-slate-500">
+          <summary className="cursor-pointer">飛ばす行</summary>
+          <ul className="mt-1 space-y-0.5 font-mono">
+            {skipped.slice(0, PREVIEW_ROWS).map((r, i) => (
+              <li key={i} className="truncate">
+                {r.reason}: {r.text}
+              </li>
+            ))}
+            {skipped.length > PREVIEW_ROWS && <li>ほか {skipped.length - PREVIEW_ROWS} 行</li>}
+          </ul>
+        </details>
+      )}
+    </div>
   );
 }
