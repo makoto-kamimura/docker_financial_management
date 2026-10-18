@@ -7,6 +7,7 @@
  * - 現金（target=cash）・target=actual は受け付けない。取り込み先の列は読まない。口座が無ければ 404
  * - 口座・カードごとの明細の API は CSV を受けない（取り込みの入口はここだけ）
  * - 結果の unassigned は、科目も振替・チャージの組も付いていない件数
+ * - /api/imports/mapping で、口座ごとの CSV の読み方を覚え・読み・忘れる（金額の列が無い読み方は 400）
  * - GET /api/imports/coverage は、CSV・自動取得で入った明細のいちばん新しい日付を返す（手入力は数えない）
  * - dryRun=1 は書き込まず（期間も作らない）、件数・取り込み済みかもしれない明細・残高の照合を返し、件数は本体と一致する
  * - 実績を確定済みの月の行は飛ばす
@@ -40,6 +41,7 @@ import { createTestEntry } from "@/lib/ledger/test-entries";
 import { emptyRouteContext } from "@/lib/server/api-handler";
 import { POST as importPost } from "./route";
 import { GET as coverageGet } from "./coverage/route";
+import { GET as mappingGet, PUT as mappingPut } from "./mapping/route";
 import { POST as bankTxnPost } from "../bank-accounts/[id]/transactions/route";
 import { POST as cardTxnPost } from "../linked-accounts/[id]/transactions/route";
 import { convertStatement, decodeCsv, toImportCsv } from "@/lib/shared/statement-formats";
@@ -325,6 +327,54 @@ describe("POST /api/imports", () => {
       lastDate: "2032-03-15",
     });
     await prisma.financialRecord.deleteMany({ where: { bankAccountId: coveredId } });
+  });
+
+  it("口座ごとの CSV の読み方を覚え・読み・忘れる", async () => {
+    const url = (q = "") => new URL(`http://localhost:3000/api/imports/mapping${q}`);
+    const get = async (q: string) =>
+      mappingGet(
+        {
+          method: "GET",
+          nextUrl: url(q),
+          headers: new Headers(),
+        } as unknown as import("next/server").NextRequest,
+        emptyRouteContext(),
+      );
+    const put = async (body: unknown) =>
+      mappingPut(
+        {
+          method: "PUT",
+          nextUrl: url(),
+          json: () => Promise.resolve(body),
+          text: () => Promise.resolve(JSON.stringify(body)),
+          headers: new Headers({ "Content-Type": "application/json" }),
+        } as unknown as import("next/server").NextRequest,
+        emptyRouteContext(),
+      );
+    const mapping = {
+      header: ["取扱年月日", "中身", "払った", "もらった"],
+      date: 0,
+      description: [1],
+      withdrawal: 2,
+      deposit: 3,
+      usage: null,
+      signed: null,
+      kind: null,
+      balance: null,
+    };
+    const q = `?target=bank&accountId=${bankId}`;
+    expect(await (await get(q)).json()).toEqual({ mapping: null });
+    expect((await put({ target: "bank", accountId: bankId, mapping })).status).toBe(200);
+    expect(await (await get(q)).json()).toEqual({ mapping });
+    // 金額の列が無い読み方は受け付けない
+    const noAmount = { ...mapping, withdrawal: null, deposit: null };
+    expect((await put({ target: "bank", accountId: bankId, mapping: noAmount })).status).toBe(400);
+    // カードの読み方は別に持つ
+    expect(await (await get(`?target=card&accountId=${cardId}`)).json()).toEqual({ mapping: null });
+    expect((await put({ target: "bank", accountId: bankId, mapping: null })).status).toBe(200);
+    expect(await (await get(q)).json()).toEqual({ mapping: null });
+    // 無い口座は 404
+    expect((await get("?target=bank&accountId=999999")).status).toBe(404);
   });
 
   it("実績を確定済みの月の行は飛ばす", async () => {

@@ -2,11 +2,13 @@
 
 // 実績管理の取り込み（銀行・カード）。選んだ口座・カードの明細を、銀行・カード会社・電子マネーのサイトから
 // 落とした CSV で取り込む。CSV はブラウザでアプリの形にそろえ（lib/shared/statement-formats.ts）、確認のあと
-// POST /api/imports に送る（取り込み・重複の判定はサーバー）。
+// POST /api/imports に送る（取り込み・重複の判定はサーバー）。自動で読めない・読み違えた CSV は「読み方を選ぶ」で
+// 列の役割を直し、口座・カードに覚えられる（/api/imports/mapping。次から同じ見出しの CSV に使う）。
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { FileDropzone, Notice } from "@/components/ui";
 import { StatementLinksCard } from "@/components/entry/StatementLinksCard";
+import { StatementMappingEditor } from "@/components/entry/StatementMappingEditor";
 import {
   StatementImportConfirm,
   type ImportPreview,
@@ -19,6 +21,7 @@ import {
   decodeCsv,
   toImportCsv,
   type StatementConversion,
+  type StatementMapping,
 } from "@/lib/shared/statement-formats";
 import { type SourceAccount } from "@/components/entry/types";
 
@@ -36,13 +39,25 @@ type ImportResult = {
 };
 
 type Pending = {
-  /** 読んだファイルごとの番号（試し取り込みの結果を、別のファイルの確認に入れないため） */
+  /** 読み直すごとの番号（試し取り込みの結果を、別の読み方の確認に入れないため） */
   id: number;
   fileName: string;
-  conversion: StatementConversion;
+  /** CSV の中身（読み方を選び直すときに使う） */
+  text: string;
+  /** そろえた明細。自動で読めなかったときは null（読み方を選ぶ画面を開く） */
+  conversion: StatementConversion | null;
   warning: string | null;
   preview: ImportPreview | "loading" | "failed";
+  /** 読み方を選ぶ画面を開いている */
+  editing: boolean;
+  /** 読み方の出どころ（口座に覚えた読み方・この画面で選んだ読み方・自動） */
+  mappingSource: "saved" | "edited" | "auto";
+  /** 選んだ読み方を口座に覚えるか */
+  remember: boolean;
 };
+
+const UNREADABLE_NOTE =
+  "見出しの列名から、日付と金額の列を読み取れませんでした。見出しの行と、それぞれの列の役割を選んでください。";
 
 let lastPendingId = 0;
 
@@ -77,6 +92,16 @@ export function StatementImportPanel({
       const params = new URLSearchParams({ target: kind, accountId: String(account!.id) });
       const res = await fetch(`/api/imports/coverage?${params}`);
       return res.ok ? (await res.json()).lastDate : null;
+    },
+  });
+  // この口座・カードに覚えた読み方
+  const { data: savedMapping } = useQuery({
+    queryKey: ["import-mapping", kind, account?.id],
+    enabled: account !== null,
+    queryFn: async (): Promise<StatementMapping | null> => {
+      const params = new URLSearchParams({ target: kind, accountId: String(account!.id) });
+      const res = await fetch(`/api/imports/mapping?${params}`);
+      return res.ok ? (await res.json()).mapping : null;
     },
   });
   const [importing, setImporting] = useState(false);
@@ -114,27 +139,42 @@ export function StatementImportPanel({
       setError("CSV ファイル (.csv) を選んでください。");
       return;
     }
-    // 銀行・カード会社の CSV は Shift_JIS が多いので、文字コードを見分けて読む（送るのは UTF-8）
-    const conversion = convertStatement(decodeCsv(await file.arrayBuffer()));
-    if (!conversion) {
-      setError(
-        "明細の形を読み取れませんでした。日付と金額（出金・入金・利用金額など）の列名が入った見出しの行があるか確かめてください。",
-      );
+    // 銀行・カード会社の CSV は Shift_JIS が多いので、文字コードを見分けて読む（送るのは UTF-8）。
+    // 覚えた読み方があれば、同じ見出しの CSV にはそれを使う
+    const text = decodeCsv(await file.arrayBuffer());
+    const conversion = convertStatement(text, { mapping: savedMapping });
+    const base = { fileName: file.name, text, remember: true };
+    if (!conversion || conversion.rows.length === 0) {
+      setPending({
+        ...base,
+        id: ++lastPendingId,
+        conversion: null,
+        warning: null,
+        preview: "failed",
+        editing: true,
+        mappingSource: "auto",
+      });
       return;
     }
-    if (conversion.rows.length === 0) {
-      setError("取り込める明細がありませんでした（日付と金額のある行がありません）。");
-      return;
-    }
+    await showConversion(base, conversion, conversion.mapped ? "saved" : "auto");
+  }
+
+  /** そろえた明細で確認の画面を出し、取り込み済みの明細と照らし合わせる（書き込まない） */
+  async function showConversion(
+    base: Pick<Pending, "fileName" | "text" | "remember">,
+    conversion: StatementConversion,
+    mappingSource: Pending["mappingSource"],
+  ) {
     const id = ++lastPendingId;
     setPending({
+      ...base,
       id,
-      fileName: file.name,
       conversion,
       warning: kindWarning(kind, conversion),
       preview: "loading",
+      editing: false,
+      mappingSource,
     });
-    // 取り込み済みの明細と照らし合わせる（書き込まない）
     let preview: ImportPreview | "failed" = "failed";
     try {
       const res = await fetch(`/api/imports?${importParams({ dryRun: true })}`, {
@@ -147,6 +187,27 @@ export function StatementImportPanel({
       // 照らし合わせられなくても、取り込みはできる（同じ明細は重ねて登録されない）
     }
     setPending((p) => (p?.id === id ? { ...p, preview } : p));
+  }
+
+  /** 読み方を口座・カードに覚える（null なら忘れる） */
+  async function saveMapping(mapping: StatementMapping | null): Promise<boolean> {
+    const res = await fetch("/api/imports/mapping", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: kind, accountId: account!.id, mapping }),
+    }).catch(() => null);
+    queryClient.invalidateQueries({ queryKey: ["import-mapping"] });
+    return res?.ok ?? false;
+  }
+
+  async function confirmImport(p: Pending, excluded: Set<number>) {
+    const conversion = p.conversion!;
+    if (p.mappingSource === "edited" && p.remember && conversion.mapping) {
+      if (!(await saveMapping(conversion.mapping))) {
+        setError("読み方を覚えられませんでした（明細の取り込みは続けます）。");
+      }
+    }
+    await runImport(toImportCsv(conversion.rows.filter((_, i) => !excluded.has(i))));
   }
 
   async function runImport(csv: string) {
@@ -203,6 +264,19 @@ export function StatementImportPanel({
           </p>
         </div>
         <FileDropzone busy={importing} busyLabel="取り込み中…" onFiles={([f]) => readFile(f)} />
+        {savedMapping && (
+          <p className="text-xs text-slate-500">
+            この{kind === "bank" ? "口座" : "カード"}には、覚えた読み方があります（同じ見出しの CSV
+            に使います）。
+            <button
+              type="button"
+              onClick={() => void saveMapping(null)}
+              className="ml-1 text-indigo-600 hover:underline"
+            >
+              忘れる
+            </button>
+          </p>
+        )}
         {scope === "business" && (
           <label className="flex items-start gap-2 text-sm text-slate-700">
             <input
@@ -227,17 +301,31 @@ export function StatementImportPanel({
       )}
       {error && <Notice tone="error">{error}</Notice>}
 
-      {pending && (
+      {pending?.editing && (
+        <StatementMappingEditor
+          text={pending.text}
+          initial={pending.conversion?.mapping ?? savedMapping ?? null}
+          note={pending.conversion ? null : UNREADABLE_NOTE}
+          onCancel={() => setPending(pending.conversion ? { ...pending, editing: false } : null)}
+          onApply={(mapping) => {
+            const conversion = convertStatement(pending.text, { mapping });
+            if (conversion) void showConversion(pending, conversion, "edited");
+          }}
+        />
+      )}
+      {pending && !pending.editing && pending.conversion && (
         <StatementImportConfirm
           fileName={pending.fileName}
           label={`${typeLabel}: ${account.name}`}
           conversion={pending.conversion}
           warning={pending.warning}
           preview={pending.preview}
+          mappingSource={pending.mappingSource}
+          onEditMapping={() => setPending({ ...pending, editing: true })}
+          remember={pending.remember}
+          onRememberChange={(remember) => setPending({ ...pending, remember })}
           onCancel={() => setPending(null)}
-          onConfirm={(excluded) =>
-            runImport(toImportCsv(pending.conversion.rows.filter((_, i) => !excluded.has(i))))
-          }
+          onConfirm={(excluded) => void confirmImport(pending, excluded)}
         />
       )}
     </div>

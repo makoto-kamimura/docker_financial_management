@@ -9,6 +9,7 @@
 // 並びのカード明細として読む（三井住友カードの Vpass など。1 行目は氏名とカードの行）。
 
 import Papa from "papaparse";
+import { z } from "zod";
 
 /** 変換したあとの明細 1 行（金額は入金が正・支出が負） */
 export type StatementRow = { date: string; description: string; amount: number; balance?: number };
@@ -33,7 +34,71 @@ export type StatementConversion = {
   rows: StatementRow[];
   /** 日付や金額が読めず飛ばした行（合計・注記の行など）。text はその行の中身 */
   skipped: { text: string; reason: string }[];
+  /** 読んだ見出しの行と列の役割（読み方を直す画面の初めの値）。見出しの無い明細は null */
+  mapping: StatementMapping | null;
+  /** 渡した読み方（options.mapping）で読んだ */
+  mapped: boolean;
 };
+
+// ── 読み方（取り込みの画面で手で直し、口座・カードごとに覚えるもの）─────────────
+
+const column = z.number().int().min(0).max(99).nullable();
+
+/**
+ * 明細の CSV の読み方。header は見出しの行（normalizeHeader した列名）で、同じ見出しの行がある CSV にだけ使う。
+ * ほかは見出しの行での列の位置（0 始まり。null はその役割の列が無い）
+ */
+export const StatementMappingSchema = z
+  .object({
+    header: z.array(z.string().max(100)).min(1).max(100),
+    date: z.number().int().min(0).max(99),
+    description: z.array(z.number().int().min(0).max(99)).max(2),
+    withdrawal: column,
+    deposit: column,
+    usage: column,
+    signed: column,
+    kind: column,
+    balance: column,
+  })
+  .refine(
+    (m) => m.withdrawal !== null || m.deposit !== null || m.usage !== null || m.signed !== null,
+    "金額の列を選んでください",
+  )
+  .refine(
+    (m) =>
+      [m.date, ...m.description, m.withdrawal, m.deposit, m.usage, m.signed, m.kind, m.balance]
+        .filter((i): i is number => i !== null)
+        .every((i) => i < m.header.length),
+    "見出しに無い列を選んでいます",
+  );
+export type StatementMapping = z.infer<typeof StatementMappingSchema>;
+
+/** 見出しの行を比べる形（列名を正規化し、末尾の空の列を除く）。読み方の header はこの形 */
+export function headerKey(cells: string[]): string[] {
+  const norm = cells.map(normalizeHeader);
+  while (norm.length > 0 && norm[norm.length - 1] === "") norm.pop();
+  return norm;
+}
+
+const sameHeader = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
+
+/** 読み方を直す画面で選べる見出しの行（先頭 30 行のうち、値のある列が 2 つ以上の行） */
+export function headerCandidates(text: string): { index: number; cells: string[] }[] {
+  const lines = Papa.parse<string[]>(text, { skipEmptyLines: "greedy" }).data;
+  return lines
+    .slice(0, HEADER_SCAN_LINES)
+    .map((cells, index) => ({ index, cells }))
+    .filter(({ cells }) => cells.filter((c) => c.trim() !== "").length >= 2);
+}
+
+/** 見出しの行と列の役割から読み方を作る（読み方を直す画面で使う） */
+export function mappingFor(
+  headerCells: string[],
+  roles: Omit<StatementMapping, "header">,
+): StatementMapping {
+  return { header: headerKey(headerCells), ...roles };
+}
 
 // ── 文字コード ─────────────────────────────────────────────────────
 
@@ -353,18 +418,27 @@ function latestDateIn(lines: string[][]): Date | null {
  */
 export function convertStatement(
   text: string,
-  options: { today?: Date } = {},
+  options: { today?: Date; mapping?: StatementMapping | null } = {},
 ): StatementConversion | null {
   const lines = Papa.parse<string[]>(text, { skipEmptyLines: "greedy" }).data;
 
   let headerIndex = -1;
   let layout: Layout | null = null;
-  for (let i = 0; i < Math.min(lines.length, HEADER_SCAN_LINES); i++) {
-    layout = layoutOf(lines[i]);
-    if (layout) {
-      headerIndex = i;
-      break;
+  // 渡した読み方は、同じ見出しの行があるときだけ使う（無ければ自動で読む）
+  const mapping = options.mapping ?? null;
+  if (mapping) {
+    for (let i = 0; i < Math.min(lines.length, HEADER_SCAN_LINES); i++) {
+      if (sameHeader(headerKey(lines[i]), mapping.header)) {
+        headerIndex = i;
+        layout = layoutFromMapping(mapping, lines[i]);
+        break;
+      }
     }
+  }
+  const mapped = layout !== null;
+  for (let i = 0; !layout && i < Math.min(lines.length, HEADER_SCAN_LINES); i++) {
+    layout = layoutOf(lines[i]);
+    if (layout) headerIndex = i;
   }
 
   let headerless = false;
@@ -468,7 +542,51 @@ export function convertStatement(
           : []),
       ].filter((c) => c.names.length > 0);
 
-  return { style, headerless, columns, rows, skipped };
+  return {
+    style,
+    headerless,
+    columns,
+    rows,
+    skipped,
+    mapping: headerless ? null : mappingOf(layout, header),
+    mapped,
+  };
+}
+
+/** 読み方から列の役割を作る（取引の状態・通貨の列は、見出しの列名から決める） */
+function layoutFromMapping(m: StatementMapping, header: string[]): Layout {
+  const auto = layoutOf(header);
+  const norm = header.map(normalizeHeader);
+  const find = (set: Set<string>) => {
+    const i = norm.findIndex((h) => set.has(h));
+    return i < 0 ? null : i;
+  };
+  return {
+    date: m.date,
+    description: m.description,
+    withdrawal: m.withdrawal,
+    deposit: m.deposit,
+    usage: m.usage,
+    signed: m.signed,
+    kind: m.kind,
+    balance: m.balance,
+    status: auto?.status ?? find(STATUS_NAMES),
+    currency: auto?.currency ?? find(CURRENCY_NAMES),
+  };
+}
+
+/** 列の役割から読み方を作る */
+function mappingOf(l: Layout, header: string[]): StatementMapping {
+  return mappingFor(header, {
+    date: l.date,
+    description: l.description,
+    withdrawal: l.withdrawal,
+    deposit: l.deposit,
+    usage: l.usage,
+    signed: l.signed,
+    kind: l.kind,
+    balance: l.balance,
+  });
 }
 
 /** 取り消し・失敗の状態か */
