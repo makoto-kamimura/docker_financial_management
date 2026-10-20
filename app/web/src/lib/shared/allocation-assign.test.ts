@@ -49,6 +49,7 @@ describe("autoAssign（既定ルール）", () => {
       ガソリン代: "car",
       駐車場代: "car",
       自動車税: "car",
+      自動車ローン返済: "car",
       食費: "food",
       飲料費: "food",
       "日用品/消耗品": "daily",
