@@ -1,7 +1,7 @@
 "use client";
 
 // 銀行の明細の一覧（実績管理の履歴。出どころは銀行）。
-// 科目・チャージ先・毎月の入出金（固定入出金）・振替の解除・削除を行ごとに行う。
+// 科目・チャージ先（カード代金）・毎月の入出金（固定入出金）・振替の解除・削除を行ごとに行う。
 // 明細はサーバーで 30 件ずつ読み、状態・科目・事業利用で絞り込める（LedgerTable.tsx の useLedgerHistory）。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +19,11 @@ import {
   type LedgerStatus,
 } from "@/components/LedgerTable";
 import { BANK_HELP, BANK_TERMS } from "@/lib/shared/help-texts";
-import { isChargeableType, LINKED_ACCOUNT_TYPE_LABELS } from "@/lib/shared/linked-account-type";
+import {
+  isChargeableType,
+  LINKED_ACCOUNT_TYPE_LABELS,
+  SETTLEMENT_CARD_TYPE,
+} from "@/lib/shared/linked-account-type";
 import type { LinkedAccountType } from "@/lib/shared/linked-account-type";
 import {
   TRANSFER_CHANNEL_LABELS as CHANNEL_LABELS,
@@ -48,9 +52,12 @@ type Txn = {
   categoryAccount: { id: number; code: string; name: string } | null;
   /** 口座間振替で対になる明細の識別子。値があれば科目を付けず、実績に入らない */
   transferGroupId: string | null;
-  /** デビット・プリペイド・電子マネーへのチャージの場合のチャージ先。値があれば科目を付けず、実績に入らない */
+  /**
+   * デビット・プリペイド・電子マネーへのチャージの場合のチャージ先。クレジットカードならカード代金の
+   * 引き落とし先（lib/ledger/card-settlement.ts）。値があれば科目を付けず、実績に入らない
+   */
   chargeToAccountId: number | null;
-  chargeToAccount: { id: number; name: string } | null;
+  chargeToAccount: { id: number; name: string; type?: string } | null;
   /** チャージ先に入った明細と対にする識別子（紐付け済みかどうかの表示に使う） */
   chargeGroupId: string | null;
 };
@@ -201,12 +208,20 @@ export function BankTransactionsPanel({
   }
 
   // ── 明細をチャージ（銀行 → デビット / プリペイド / 電子マネー）に指定する ───────
-  // クレジットカードは後払いで残高を持たないためチャージ先に選べない
-  // （カードの引き落としは「固定入出金」のカード引き落としで登録する）。
+  // クレジットカードはチャージ先ではなく「カード代金の引き落とし」として選ぶ。中身はカードの利用明細で
+  // 数えるので、銀行側は実績に入れない（対になる明細は無いので、紐付けのモーダルは出さない）。
+  // 毎月の見込みに並べる引き落としは「固定入出金」のカード引き落としで登録する。
   const chargeTargets = useMemo(
     () => (cardAccounts ?? []).filter((c) => isChargeableType(c.type)),
     [cardAccounts],
   );
+  const settlementTargets = useMemo(
+    () => (cardAccounts ?? []).filter((c) => c.type === SETTLEMENT_CARD_TYPE),
+    [cardAccounts],
+  );
+  const isSettlement = (t: Txn) =>
+    (t.chargeToAccount?.type ?? cardAccounts?.find((c) => c.id === t.chargeToAccountId)?.type) ===
+    SETTLEMENT_CARD_TYPE;
   // 明細 id -> 選択中のチャージ先（「指定」を押すまでは送らない）
   const [txnChargeTarget, setTxnChargeTarget] = useState<Record<number, string>>({});
   // 「指定」を押したときに開く紐付けモーダル（チャージ先の履歴から対になる明細を選ぶ）
@@ -223,18 +238,24 @@ export function BankTransactionsPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chargeToAccountId, pairTxnId }),
     });
+    const json = await res.json().catch(() => ({}));
     if (res.ok) {
+      const settled = settlementTargets.some((c) => c.id === chargeToAccountId);
+      const siblings = json.updatedSiblingCount ?? 0;
       setMsg(
         chargeToAccountId === null
-          ? "チャージの指定を解除しました。科目を付けられるようになります。"
-          : pairTxnId !== null
-            ? "チャージ先の明細と紐付けました。両方とも収入・支出には計上されません。"
-            : "チャージ（資金移動）に指定しました。収入・支出には計上されません。",
+          ? "指定を解除しました。科目を付けられるようになります。"
+          : settled
+            ? "カード代金の引き落としに指定しました。中身はカードの利用明細で数えるので、収入・支出には計上されません。" +
+              (siblings > 0 ? `同じ摘要の未割り当ての明細 ${siblings} 件にも付けました。` : "")
+            : pairTxnId !== null
+              ? "チャージ先の明細と紐付けました。両方とも収入・支出には計上されません。"
+              : "チャージ（資金移動）に指定しました。収入・支出には計上されません。",
       );
     } else {
-      const err = await res.json().catch(() => ({}));
-      setMsg(`変更に失敗しました: ${typeof err.error === "string" ? err.error : "エラー"}`);
+      setMsg(`変更に失敗しました: ${typeof json.error === "string" ? json.error : "エラー"}`);
     }
+    invalidateActuals(qc);
     qc.invalidateQueries({ queryKey: ["bank-txns"] });
     // 紐付けた入金明細はカード側の明細なので、そちらも取り直す
     qc.invalidateQueries({ queryKey: ["card-txns"] });
@@ -457,9 +478,13 @@ export function BankTransactionsPanel({
                   </span>
                 ) : t.chargeToAccountId ? (
                   // チャージも自己資金の移動。実際の支出はチャージ先の利用明細で計上する
+                  // （カード代金も同じく、中身はカードの利用明細で数える）
                   <span className="inline-flex items-center gap-1">
-                    <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                      チャージ
+                    <span
+                      className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap"
+                      title={isSettlement(t) ? BANK_HELP.cardSettlementBadge : undefined}
+                    >
+                      {isSettlement(t) ? "カード代金" : "チャージ"}
                     </span>
                     {t.chargeToAccount && (
                       <span className="text-xs text-slate-500 whitespace-nowrap">
@@ -493,7 +518,10 @@ export function BankTransactionsPanel({
                     {t.categoryAccountId !== null ? "実績" : "未割り当て"}
                   </LedgerBadge>
                 )}
-                {t.chargeToAccountId && (
+                {t.chargeToAccountId && isSettlement(t) && (
+                  <LedgerBadge tone="slate">カード代金の引き落とし</LedgerBadge>
+                )}
+                {t.chargeToAccountId && !isSettlement(t) && (
                   <LedgerBadge tone={t.chargeGroupId ? "emerald" : "slate"}>
                     {t.chargeGroupId
                       ? "チャージ（履歴と紐付け済み）"
@@ -505,8 +533,20 @@ export function BankTransactionsPanel({
             ),
             more: (
               <>
-                <LedgerMoreSection title="チャージ先">
-                  {t.chargeToAccountId ? (
+                <LedgerMoreSection title="チャージ先・カード代金">
+                  {t.chargeToAccountId && isSettlement(t) ? (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-600 whitespace-nowrap">
+                        カード代金 → {t.chargeToAccount?.name ?? "指定済み"}
+                      </span>
+                      <button
+                        onClick={() => setTxnCharge(t.id, null)}
+                        className="text-xs text-slate-400 hover:text-red-600 text-left whitespace-nowrap"
+                      >
+                        解除
+                      </button>
+                    </div>
+                  ) : t.chargeToAccountId ? (
                     <div className="flex flex-col gap-1">
                       <span className="text-xs text-slate-600 whitespace-nowrap">
                         {t.chargeToAccount?.name ?? "指定済み"}
@@ -534,9 +574,9 @@ export function BankTransactionsPanel({
                   ) : t.amount >= 0 ? (
                     // チャージは口座からの出金。入金明細は対象にならない
                     <span className="text-xs text-slate-300">—</span>
-                  ) : chargeTargets.length === 0 ? (
+                  ) : chargeTargets.length === 0 && settlementTargets.length === 0 ? (
                     <span className="text-xs text-slate-300 whitespace-nowrap">
-                      チャージ先未登録
+                      カード・電子マネー未登録
                     </span>
                   ) : (
                     <div className="flex flex-col gap-1">
@@ -547,19 +587,37 @@ export function BankTransactionsPanel({
                         }
                         className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-32"
                       >
-                        <option value="">チャージ先を選ぶ</option>
-                        {chargeTargets.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}（
-                            {LINKED_ACCOUNT_TYPE_LABELS[c.type as LinkedAccountType] ?? c.type}）
-                          </option>
-                        ))}
+                        <option value="">チャージ先・カードを選ぶ</option>
+                        {chargeTargets.length > 0 && (
+                          <optgroup label="チャージ">
+                            {chargeTargets.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}（
+                                {LINKED_ACCOUNT_TYPE_LABELS[c.type as LinkedAccountType] ?? c.type}
+                                ）
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {settlementTargets.length > 0 && (
+                          <optgroup label="カード代金の引き落とし">
+                            {settlementTargets.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                       </select>
                       <button
                         onClick={() => {
-                          const target = chargeTargets.find(
-                            (c) => c.id === Number(txnChargeTarget[t.id]),
-                          );
+                          const id = Number(txnChargeTarget[t.id]);
+                          // カード代金は対になる明細が無いので、そのまま指定する
+                          if (settlementTargets.some((c) => c.id === id)) {
+                            void setTxnCharge(t.id, id);
+                            return;
+                          }
+                          const target = chargeTargets.find((c) => c.id === id);
                           if (target) setChargeLink({ txn: t, target });
                         }}
                         disabled={!txnChargeTarget[t.id]}
