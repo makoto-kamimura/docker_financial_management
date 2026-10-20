@@ -26,3 +26,9 @@ export const CHARGEABLE_TYPES: LinkedAccountType[] = ["DEBIT_CARD", "PREPAID_CAR
 export function isChargeableType(type: string): boolean {
   return (CHARGEABLE_TYPES as string[]).includes(type);
 }
+
+/**
+ * 銀行明細の「カード代金の引き落とし」の引き落とし先にできる種別（後払いで、銀行から代金を引き落とすもの）。
+ * チャージと同じ列（チャージ先）に入れ、この種別ならカード代金として扱う（lib/ledger/card-settlement.ts）
+ */
+export const SETTLEMENT_CARD_TYPE: LinkedAccountType = "CREDIT_CARD";

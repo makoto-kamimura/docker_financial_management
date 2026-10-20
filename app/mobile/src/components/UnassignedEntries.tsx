@@ -106,6 +106,7 @@ export function UnassignedEntries({
       return (
         `学習ルールで ${r.categorized} 件に科目を付け` +
         (reset ? `、${r.cleared} 件を未割り当てに戻し` : "") +
+        (r.settled > 0 ? `、${r.settled} 件をカード代金の引き落としにし` : "") +
         `、${r.offsetPairs} 組を振替・チャージにしました。` +
         (r.lockedSkipped > 0
           ? `（実績を確定済みの月の明細 ${r.lockedSkipped} 件はそのままです）`

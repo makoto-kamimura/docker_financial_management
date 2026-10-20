@@ -3,6 +3,7 @@ import { resolveReceiptFileUrl } from "@/lib/server/upload";
 import type { TenantDb, TenantDbClient } from "@/lib/server/tenant-db";
 import { classifyByRules, ruleSideOf } from "@/lib/ledger/banktxn-import";
 import { resolveTransferTarget } from "@/lib/ledger/card-transfer";
+import { loadSettlementLookup } from "@/lib/ledger/card-settlement";
 import type { AccountCategoryValue } from "@/lib/accounting/account-category";
 import { signedActualAmountFromSpend } from "@/lib/accounting/journal";
 import { resolvePeriod } from "@/lib/accounting/period";
@@ -52,7 +53,7 @@ export function entryActualAmount(category: string, flow: number): number {
 }
 
 type CategoryRef = { id: number; code: string; name: string };
-type CardRef = { id: number; name: string };
+type CardRef = { id: number; name: string; type?: string };
 
 type EntryWithRefs = FinancialRecord & {
   account?: CategoryRef | null;
@@ -178,7 +179,8 @@ export function toCashEntry(
 /** 一覧で添える科目とチャージ先 */
 export const ENTRY_REFS_INCLUDE = {
   account: { select: { id: true, code: true, name: true } },
-  chargeToCard: { select: { id: true, name: true } },
+  // 種別は、銀行明細のチャージ先がクレジットカード（カード代金の引き落とし）かを画面で見分けるため
+  chargeToCard: { select: { id: true, name: true, type: true } },
 } as const satisfies Prisma.FinancialRecordInclude;
 
 /** 現金の明細で添える科目と証憑（toCashEntry に渡す） */
@@ -422,6 +424,7 @@ export async function planExternalEntries(
 // 現金は口座が無く一意制約が効かないので、同じ externalId の現金の明細があれば先に除く。
 // 摘要が学習ルールに当たった明細には科目を付け、その行はそのまま実績になる。
 // カードは、取り込む先のカードのチャージのルール（card_transfer_rules）に当たった行をチャージにし、科目を付けない。
+// 銀行は、前にカード代金にした明細と同じ摘要の出金をカード代金の引き落とし（lib/ledger/card-settlement.ts）にし、科目を付けない。
 // 実績を確定済みの月の行は、実績を変えないよう登録しない（locked に数える）。
 // 事業利用は、学習ルールが決めていればルールのとおり。決めていなければ、取り込み先が事業利用の口座・カード
 // か、business（CSV の「事業利用として取り込む」）のとき事業利用にする（按分は科目の事業利用按分、無ければ 100%）。
@@ -436,7 +439,7 @@ export async function insertExternalEntries(
 ): Promise<InsertResult> {
   if (rows.length === 0) return { inserted: 0, locked: 0, offset: 0 };
 
-  const [classify, transferRules] = await Promise.all([
+  const [classify, transferRules, settlementOf] = await Promise.all([
     loadRuleClassifier(db),
     // チャージ判定は取り込む先のカードに紐付いたルールだけを見る
     // （同じ摘要が別のカードでは通常の利用を指すことがあるため）
@@ -446,6 +449,7 @@ export async function insertExternalEntries(
           select: { keyword: true, transferToAccountId: true },
         })
       : Promise.resolve([]),
+    target.kind === "BANK" ? loadSettlementLookup(db, target.accountId) : Promise.resolve(null),
   ]);
 
   const businessDefault = options.business || (await targetIsBusiness(db, target));
@@ -477,8 +481,12 @@ export async function insertExternalEntries(
   const { count } = await db.financialRecord.createMany({
     data: open.map((r) => {
       const chargeToCardId =
-        target.kind === "CARD" ? resolveTransferTarget(r.description, transferRules) : null;
-      // チャージ（資金移動）と判定した行は支出ではないので科目を付けない
+        target.kind === "CARD"
+          ? resolveTransferTarget(r.description, transferRules)
+          : target.kind === "BANK" && settlementOf
+            ? settlementOf(target.accountId, r.description, r.amount)
+            : null;
+      // チャージ（資金移動）・カード代金と判定した行は支出ではないので科目を付けない
       const hit = chargeToCardId === null ? classify(r.description, r.amount) : null;
       return entryCreateData(tenantId, target, periods.periodIdOf(r.date), {
         date: r.date,

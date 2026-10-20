@@ -29,6 +29,7 @@ import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { Notice } from "@/components/ui";
 import { DirectedAmount } from "@/components/DirectedAmount";
+import { SETTLEMENT_CARD_TYPE } from "@/lib/shared/linked-account-type";
 import { BUSINESS_USE_LABEL, isValidBusinessRatio } from "@/lib/shared/business-use";
 import { useActualsScope } from "@/lib/client/use-view-mode";
 import { withScope } from "@/lib/shared/business-use";
@@ -396,6 +397,8 @@ const CATEGORIZE_PATH: Record<UnassignedEntry["kind"], (id: number) => string> =
   BANK: (id) => `/api/bank-transactions/${id}/categorize`,
   CARD: (id) => `/api/card-transactions/${id}/categorize`,
 };
+// 科目の選択肢のうち、カード代金の引き落とし（値はこの接頭辞 + カードの id）
+const SETTLEMENT_VALUE = "settle:";
 const KIND_LABEL: Record<UnassignedEntry["kind"], string> = {
   CASH: "現金",
   BANK: "銀行",
@@ -439,6 +442,18 @@ function UnassignedCard({
   const categorizable = (accounts ?? []).filter((a) =>
     ["REVENUE", "COGS", "EXPENSE"].includes(a.category),
   );
+  // 銀行の出金はカード代金の引き落としにもできる（科目を付けると利用明細と二重に数えるため）
+  const { data: settlementCards } = useQuery({
+    queryKey: ["linked-accounts", "settlement"],
+    queryFn: async (): Promise<{ id: number; name: string; type: string }[]> =>
+      (
+        ((await (await fetch("/api/linked-accounts")).json()).data ?? []) as {
+          id: number;
+          name: string;
+          type: string;
+        }[]
+      ).filter((c) => c.type === SETTLEMENT_CARD_TYPE),
+  });
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ["ledger-unassigned"] });
@@ -468,6 +483,30 @@ function UnassignedCard({
         ok: true,
         text: `同じ摘要の未割り当ての明細 ${json.updatedSiblingCount} 件にも同じ科目を付けました。`,
       });
+    refresh();
+  }
+
+  // 銀行の出金をカード代金の引き落としにする（同じ口座・同じ摘要の未割り当ての出金にも付く）
+  async function settle(e: UnassignedEntry, cardId: number) {
+    setMsg(null);
+    const res = await fetch(`/api/bank-transactions/${e.id}/charge`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chargeToAccountId: cardId }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const text = typeof json.error === "string" ? json.error : "エラー";
+      setMsg({ ok: false, text: `変更に失敗しました: ${text}` });
+    } else {
+      const siblings = json.updatedSiblingCount ?? 0;
+      setMsg({
+        ok: true,
+        text:
+          "カード代金の引き落としにしました。中身はカードの利用明細で数えるので、収入・支出には入りません。" +
+          (siblings > 0 ? `同じ摘要の未割り当ての明細 ${siblings} 件にも付けました。` : ""),
+      });
+    }
     refresh();
   }
 
@@ -529,6 +568,7 @@ function UnassignedCard({
         const r = json.data as {
           categorized: number;
           cleared: number;
+          settled: number;
           offsetPairs: number;
           lockedSkipped: number;
         };
@@ -537,6 +577,7 @@ function UnassignedCard({
           text:
             `学習ルールで ${r.categorized} 件に科目を付け` +
             (reset ? `、${r.cleared} 件を未割り当てに戻し` : "") +
+            (r.settled > 0 ? `、${r.settled} 件をカード代金の引き落としにし` : "") +
             `、${r.offsetPairs} 組を振替・チャージにしました。` +
             (r.lockedSkipped > 0
               ? `（実績を確定済みの月の明細 ${r.lockedSkipped} 件はそのままです）`
@@ -677,10 +718,15 @@ function UnassignedCard({
                   <td className="px-3 py-2">
                     <select
                       value={e.categoryAccountId ?? ""}
-                      onChange={(ev) =>
-                        ev.target.value &&
-                        categorize(e, { categoryAccountId: Number(ev.target.value) })
-                      }
+                      onChange={(ev) => {
+                        const v = ev.target.value;
+                        if (!v) return;
+                        if (v.startsWith(SETTLEMENT_VALUE)) {
+                          void settle(e, Number(v.slice(SETTLEMENT_VALUE.length)));
+                        } else {
+                          void categorize(e, { categoryAccountId: Number(v) });
+                        }
+                      }}
                       aria-label={`${e.description} の科目`}
                       className="text-xs border border-slate-200 rounded px-1.5 py-1 bg-white min-w-40"
                     >
@@ -690,6 +736,15 @@ function UnassignedCard({
                           {a.code} {displayName(a, mode)}
                         </option>
                       ))}
+                      {e.kind === "BANK" && e.amount < 0 && (settlementCards ?? []).length > 0 && (
+                        <optgroup label="カード代金の引き落とし（実績に入れない）">
+                          {(settlementCards ?? []).map((c) => (
+                            <option key={c.id} value={`${SETTLEMENT_VALUE}${c.id}`}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </td>
                   <td className="px-3 py-2">

@@ -1755,6 +1755,8 @@ export type AutoProcessResult = {
   categorized: number;
   /** 未割り当てに戻した件数（reset のときだけ） */
   cleared: number;
+  /** カード代金の引き落としにした件数 */
+  settled: number;
   offsetPairs: number;
   lockedSkipped: number;
 };

@@ -347,7 +347,11 @@ describe("振替・チャージにすると実績から抜ける", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toMatchObject({ transferToAccountId: eMoneyId, amount: 3_000 });
-    expect(body.data.transferToAccount).toEqual({ id: eMoneyId, name: "テスト電子マネー" });
+    expect(body.data.transferToAccount).toEqual({
+      id: eMoneyId,
+      name: "テスト電子マネー",
+      type: "E_MONEY",
+    });
   });
 
   it("同じ日・同じ金額の銀行どうしの出金と入金は自動で振替になり、科目が外れる。解除すると別々の明細に戻る", async () => {

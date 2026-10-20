@@ -3,11 +3,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { badRequest, notFound } from "@/lib/server/api-error";
-import { BANK, CARD, ENTRY_REFS_INCLUDE, toBankTxn } from "@/lib/ledger/ledger-entries";
+import { BANK, CARD, ENTRY_REFS_INCLUDE, toBankTxn, UNPAIRED } from "@/lib/ledger/ledger-entries";
 import { validateChargePair } from "@/lib/ledger/charge-link";
-import { isChargeableType } from "@/lib/shared/linked-account-type";
+import { isChargeableType, SETTLEMENT_CARD_TYPE } from "@/lib/shared/linked-account-type";
+import { normalizeKeyword } from "@/lib/ledger/banktxn-import";
 import { invalidateCache } from "@/lib/server/redis";
-import { assertActualsPeriodsEditable } from "@/lib/budget/budget-lock";
+import { assertActualsPeriodsEditable, confirmedActualsPeriodIds } from "@/lib/budget/budget-lock";
 import { PAIRED_CLEAR } from "@/lib/ledger/business-use";
 import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 
@@ -19,6 +20,11 @@ import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 // （カード明細の transferToAccountId と同じ扱い）。口座残高には従来どおり反映される。
 //
 // pairTxnId を添えると、チャージ先に入った明細と対にする（共通の chargeGroupId を与える）。
+//
+// 指定先がクレジットカードなら「カード代金の引き落とし」（lib/ledger/card-settlement.ts）。中身はカードの
+// 利用明細で数えるので、同じく科目を外して実績に入れない。カードの CSV には代金の入金が出てこないことが
+// 多いので対の明細は持たない。同じ口座・同じ摘要の未割り当ての出金にも同じカードを付ける
+// （確定済みの月の明細は変えない）。
 const Schema = z.object({
   chargeToAccountId: z.number().int().positive().nullable(),
   pairTxnId: z.number().int().positive().nullish(),
@@ -35,6 +41,9 @@ export const PATCH = withApi({
       select: {
         id: true,
         periodId: true,
+        bankAccountId: true,
+        description: true,
+        flow: true,
         transferGroupId: true,
         chargeToCardId: true,
         chargeGroupId: true,
@@ -48,6 +57,7 @@ export const PATCH = withApi({
 
     let pairTxnId: number | null = null;
     let pairPeriodId: number | null = null;
+    let settlement = false;
     if (body.chargeToAccountId !== null) {
       if (txn.transferGroupId !== null) {
         throw badRequest("口座間振替として紐付け済みの明細はチャージにできません");
@@ -58,10 +68,17 @@ export const PATCH = withApi({
         select: { id: true, type: true },
       });
       if (!target) throw notFound("チャージ先のカードが見つかりません");
-      if (!isChargeableType(target.type)) {
+      settlement = target.type === SETTLEMENT_CARD_TYPE;
+      if (!settlement && !isChargeableType(target.type)) {
         throw badRequest(
-          "チャージ先にはデビットカード・プリペイドカード・電子マネーを選択してください",
+          "チャージ先にはデビットカード・プリペイドカード・電子マネー、カード代金にはクレジットカードを選択してください",
         );
+      }
+      if (settlement && body.pairTxnId) {
+        throw badRequest("カード代金の引き落としには、対になる明細を指定できません");
+      }
+      if (settlement && Number(txn.flow) >= 0) {
+        throw badRequest("カード代金の引き落としにできるのは出金の明細だけです");
       }
 
       if (body.pairTxnId) {
@@ -109,11 +126,42 @@ export const PATCH = withApi({
 
     const chargeGroupId = pairTxnId === null ? null : randomUUID();
 
+    // カード代金なら、同じ口座・同じ摘要の未割り当ての出金にも同じカードを付ける
+    let siblingIds: number[] = [];
+    if (settlement) {
+      const normalizedDesc = normalizeKeyword(txn.description ?? "");
+      const untagged = await db.financialRecord.findMany({
+        where: {
+          ...BANK,
+          bankAccountId: txn.bankAccountId,
+          accountId: null,
+          id: { not: id },
+          flow: { lt: 0 },
+          ...UNPAIRED,
+        },
+        select: { id: true, description: true, periodId: true },
+      });
+      const sameDesc = normalizedDesc
+        ? untagged.filter((s) => normalizeKeyword(s.description ?? "") === normalizedDesc)
+        : [];
+      const locked = await confirmedActualsPeriodIds(
+        db,
+        sameDesc.map((s) => s.periodId),
+      );
+      siblingIds = sameDesc.filter((s) => !locked.has(s.periodId)).map((s) => s.id);
+    }
+
     const updated = await db.$transaction(async (tx) => {
       if (previousPairIds.length > 0) {
         await tx.financialRecord.updateMany({
           where: { id: { in: previousPairIds } },
           data: { chargeGroupId: null },
+        });
+      }
+      if (siblingIds.length > 0) {
+        await tx.financialRecord.updateMany({
+          where: { id: { in: siblingIds } },
+          data: { chargeToCardId: body.chargeToAccountId, ...PAIRED_CLEAR },
         });
       }
       if (pairTxnId !== null) {
@@ -137,10 +185,18 @@ export const PATCH = withApi({
     await invalidateActualsCaches(user.tenantId);
     await audit("set_bank_charge", `bank_transaction:${id}`, {
       before: { chargeToAccountId: txn.chargeToCardId, chargeGroupId: txn.chargeGroupId },
-      after: { chargeToAccountId: body.chargeToAccountId, chargeGroupId, pairTxnId },
+      after: {
+        chargeToAccountId: body.chargeToAccountId,
+        chargeGroupId,
+        pairTxnId,
+        ...(siblingIds.length > 0 ? { siblingIds } : {}),
+      },
     });
     await invalidateCache(`assets:summary:${tenantId}:*`);
 
-    return NextResponse.json({ data: toBankTxn(updated) });
+    return NextResponse.json({
+      data: toBankTxn(updated),
+      updatedSiblingCount: siblingIds.length,
+    });
   },
 });
