@@ -486,10 +486,16 @@ export async function fetchReceiptScanStatus(): Promise<ReceiptScanStatus> {
 const SCAN_TIMEOUT_MS = 90_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
 
-// React Native の FormData は { uri, name, type } でファイルを送る
+// expo/fetch（Expo の標準 fetch）は React Native 流の { uri, name, type } を送れない
+// （Unsupported FormDataPart implementation）。bytes() を持つパートなら、name と type を
+// そのまま multipart の見出しにして送る。File をそのまま入れると名前が端末の一時ファイル名になる
 function photoForm(uri: string, name = "receipt.jpg"): FormData {
   const body = new FormData();
-  body.append("file", { uri, name, type: "image/jpeg" } as unknown as Blob);
+  body.append("file", {
+    name,
+    type: "image/jpeg",
+    bytes: () => new FsFile(uri).bytes(),
+  } as unknown as Blob);
   return body;
 }
 
