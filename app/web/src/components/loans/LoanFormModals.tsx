@@ -14,6 +14,7 @@ import { VariableRateHelp } from "@/components/HelpTip";
 import { LOANS_HELP } from "@/lib/shared/help-texts";
 import {
   assetCategoryForLoanType,
+  defaultLinkedAccountCode,
   type AccountRef,
   type AssetRef,
   type BankAccountRef,
@@ -133,7 +134,22 @@ export function LoanAddModal({
           <label className="block text-sm font-medium text-slate-600 mb-1">借入種別</label>
           <select
             value={newLoan.loanType}
-            onChange={(e) => setNewLoan((f) => ({ ...f, loanType: e.target.value }))}
+            onChange={(e) => {
+              const loanType = e.target.value;
+              setNewLoan((f) => {
+                // 連携先が空か前の種別の既定のままなら、新しい種別の既定に入れ替える（手で選んだ科目は残す）
+                const picked =
+                  f.linkedAccountCode !== "" &&
+                  f.linkedAccountCode !== defaultLinkedAccountCode(f.loanType);
+                const next = defaultLinkedAccountCode(loanType);
+                const linkedAccountCode = picked
+                  ? f.linkedAccountCode
+                  : accounts.some((a) => a.code === next)
+                    ? next
+                    : "";
+                return { ...f, loanType, linkedAccountCode };
+              });
+            }}
             className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
           >
             {LOAN_TYPES.map((t) => (
@@ -147,7 +163,7 @@ export function LoanAddModal({
         <>
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">
-              予算連携先科目（例: 家賃・借入返済）
+              予算連携先科目（住宅ローンは家賃、カーローンは自動車ローン返済）
             </label>
             <select
               value={newLoan.linkedAccountCode}
@@ -163,6 +179,7 @@ export function LoanAddModal({
                   </option>
                 ))}
             </select>
+            <p className="text-xs text-slate-400 mt-1">{LOANS_HELP.linkedAccount}</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">
@@ -490,7 +507,7 @@ export function LoanEditModal({
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-600 mb-1">
-            予算連携先科目（例: 家賃）
+            予算連携先科目（住宅ローンは家賃、カーローンは自動車ローン返済）
           </label>
           <select
             value={editForm.linkedAccountCode}
@@ -506,6 +523,7 @@ export function LoanEditModal({
                 </option>
               ))}
           </select>
+          <p className="text-xs text-slate-400 mt-1">{LOANS_HELP.linkedAccount}</p>
         </div>
         <div>
           <label className="flex items-center gap-1.5 text-sm font-medium text-slate-600 mb-1">

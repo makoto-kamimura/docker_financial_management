@@ -316,6 +316,12 @@ const EXPENSE_RULES: MappingRule[] = [
     isConvertible: true,
     notes: "事業関連の移動のみ算入可",
   },
+  {
+    homeCode: "H-3040",
+    corporateCode: "3400", // 借入金
+    isConvertible: true,
+    notes: "元金は借入金の返済、利息は支払利息に分ける。事業用車両の分のみ",
+  },
   // 娯楽・外食・レジャー
   {
     homeCode: "H-3008",
