@@ -3,13 +3,10 @@ import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } 
 import {
   fetchBudgetVariance,
   fetchKpi,
-  fetchOnboardingSteps,
-  hasSwitchedViewMode,
   type AnnualOutlook,
   type BudgetVariance,
   type KpiBudget,
   type KpiData,
-  type OnboardingSteps,
   type ViewMode,
 } from "../api";
 import { BudgetActualChart } from "../components/BudgetActualChart";
@@ -21,7 +18,6 @@ import { BankSummaryCard } from "../components/BankSummaryCard";
 import { Lead, TermList } from "../components/ui";
 import { DASHBOARD_HELP, kpiTermHelp, textFor } from "../shared/help-texts";
 import { KPI_LABELS } from "../shared/mode-labels";
-import { computeStepChecklist } from "../shared/step-checklist";
 import { useFiscalYear } from "../fiscal-year";
 import { yenShort } from "../format";
 
@@ -93,7 +89,6 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
   const [period, setPeriod] = useState<string | null>(null); // null はサーバー既定に従う
   // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
   const year = useFiscalYear();
-  const [steps, setSteps] = useState<OnboardingSteps | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -102,19 +97,13 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
   async function load() {
     setLoading(true);
     setError(null);
-    // KPI・ステップ進捗は独立に取得し、片方の失敗・未入力で画面全体を落とさない
-    const [kpiRes, stepRes] = await Promise.allSettled([
-      fetchKpi(period ?? undefined),
-      fetchOnboardingSteps(),
-    ]);
-
-    const k = kpiRes.status === "fulfilled" ? kpiRes.value : null;
+    // 取得の失敗は null にし、未入力（kpi が null）と分けて扱う
+    const k = await fetchKpi(period ?? undefined).catch(() => null);
     setKpi(k?.kpi ?? null);
     setBudget(k?.budget ?? null);
     setAnnual(k?.annual ?? null);
     setAnnualProfit(k?.annualProfit ?? null);
     setPeriods(k?.periods ?? []);
-    setSteps(stepRes.status === "fulfilled" ? stepRes.value : null);
 
     const center = k?.kpi?.period ?? null;
     setVariance(
@@ -125,7 +114,7 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
         : null,
     );
 
-    if (kpiRes.status === "rejected") {
+    if (!k) {
       setError("データの取得に失敗しました");
     }
     setLoading(false);
@@ -173,11 +162,6 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
     : undefined;
   // 利益カード（家計では貯蓄額）の補助表示は、利益率ではなく年間見込み
   const profitSub = ytdSub(annualProfit);
-  const stepItems = steps
-    ? computeStepChecklist({ ...steps, hasSwitchedMode: hasSwitchedViewMode() })
-    : [];
-  const stepDone = stepItems.filter((i) => i.done).length;
-  const showSteps = stepItems.length > 0 && stepDone < stepItems.length;
 
   return (
     <ScrollView
@@ -201,22 +185,6 @@ export function DashboardScreen({ viewMode, onOpenCycle }: Props) {
 
           {/* 予算と実績の確定の状況（いちばん上。KPI の対象月）。確定の操作は予算・実績の画面で行う */}
           <CycleStatusRow period={kpi.period} refreshKey={refreshKey} onOpen={onOpenCycle} />
-
-          {/* ステップ進捗（web 版ダッシュボードと同じ 6 ステップ。全達成後は非表示） */}
-          {showSteps && (
-            <View style={[s.card, s.cardGap]}>
-              <Text style={s.cardTitle}>
-                ステップ進捗（{stepDone} / {stepItems.length}）
-              </Text>
-              <Text style={s.cardNote}>{DASHBOARD_HELP.steps}</Text>
-              {stepItems.map((i) => (
-                <View key={i.step} style={[s.stepRow, i.done ? s.stepDone : s.stepTodo]}>
-                  <Text style={s.stepIcon}>{i.done ? "✅" : "⬜"}</Text>
-                  <Text style={[s.stepLabel, i.done && s.stepLabelDone]}>{i.label}</Text>
-                </View>
-              ))}
-            </View>
-          )}
 
           {!kpi || (periods.length > 0 && yearPeriods.length === 0) ? (
             <View style={s.noticeBox}>
@@ -435,30 +403,4 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#f1f5f9",
   },
-
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  cardGap: { marginBottom: 12 },
-  cardTitle: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6 },
-  cardNote: { fontSize: 11, color: "#64748b", lineHeight: 16, marginBottom: 10 },
-
-  stepRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    marginBottom: 6,
-  },
-  stepDone: { backgroundColor: "#f0fdf4" },
-  stepTodo: { backgroundColor: "#f8fafc" },
-  stepIcon: { fontSize: 12 },
-  stepLabel: { fontSize: 11, color: "#64748b", flex: 1 },
-  stepLabelDone: { color: "#15803d" },
 });
