@@ -32,11 +32,19 @@ export const GET = withApi({
 
     const chargeDate = new Date(query.date);
     if (Number.isNaN(chargeDate.getTime())) throw notFound("日付が不正です");
+    // 日付のずれの範囲で先に絞る（明細が多いカードでも、古い日付の候補が件数の上限で落ちないように）。
+    // 時刻の扱いの違いで日がずれないよう前後 1 日広く読み、正確な日数は rankChargeCandidates で絞る
+    const DAY = 86_400_000;
+    const dateRange = {
+      gte: new Date(chargeDate.getTime() - (query.maxDayGap + 1) * DAY),
+      lt: new Date(chargeDate.getTime() + (query.maxDayGap + 2) * DAY),
+    };
 
     const rows = await db.financialRecord.findMany({
       where: {
         ...CARD,
         cardAccountId: target.id,
+        date: dateRange,
         // 対にすると科目が外れて実績から抜けるので、実績を確定済みの月の明細は出さない
         period: { actualsConfirmation: { is: null } },
         chargeGroupId: null,
@@ -51,8 +59,7 @@ export const GET = withApi({
         account: { select: { id: true, code: true, name: true } },
       },
       orderBy: { date: "desc" },
-      // 期間で絞るのは rankChargeCandidates 側（日付のずれ）に任せるが、
-      // 明細が数千件ある口座でも重くならないよう直近から適度に打ち切る
+      // 日付の範囲で絞ってあるので、ふつうは当たらない保険の上限
       take: 500,
     });
 
