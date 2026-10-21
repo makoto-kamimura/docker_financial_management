@@ -4,6 +4,7 @@
  *   - 新しい順に limit 件ずつ返し、total は絞り込み後の全件数
  *   - 種別（現金・銀行・カード）と口座・カードで分かれる
  *   - 状態（未割り当て・実績）・科目・事業利用のみで絞り込める。未割り当ては振替の組を含めない
+ *   - 期間・摘要（全角・半角を問わない）・金額（入金・出金を問わず絶対値）で絞り込める。範囲が逆なら 400
  *   - ほかのテナントの明細は返さない
  *
  * 実行: `npm run test:integration`
@@ -104,6 +105,24 @@ beforeAll(async () => {
     where: { tenantId, description: "A の振替" },
     data: { transferGroupId: `tg_${SUFFIX}` },
   });
+  // カード: 全角の摘要の出金と、半角の摘要の入金（3 月）
+  const card = (
+    await prisma.linkedAccount.create({
+      data: { tenantId, name: "カード", type: "PREPAID_CARD", institution: "テスト" },
+    })
+  ).id;
+  for (const [day, desc, flow] of [
+    [10, "[信] ＪＡＬ　Ｐａｙ", -5_000],
+    [15, "JAL Pay 返金", 5_000],
+    [20, "スーパー", -5_000],
+    [25, "[信] ＪＡＬ　Ｐａｙ", -3_000],
+  ] as const) {
+    await createTestEntry(
+      tenantId,
+      { kind: "CARD", accountId: card },
+      { date: new Date(YEAR, 2, day), description: desc, flow },
+    );
+  }
   // ほかのテナントの現金
   await createTestEntry(
     otherTenantId,
@@ -119,6 +138,7 @@ afterAll(async () => {
     await prisma.financialRecord.deleteMany({ where });
     await prisma.period.deleteMany({ where });
     await prisma.bankAccount.deleteMany({ where });
+    await prisma.linkedAccount.deleteMany({ where });
     await prisma.account.deleteMany({ where });
     await prisma.user.deleteMany({ where });
     await prisma.tenant.delete({ where: { id: tid } });
@@ -165,6 +185,41 @@ describe("GET /api/ledger/history", () => {
       accountId: bankB,
       amount: -500,
     });
+  });
+
+  it("期間・摘要・金額で絞り込める", async () => {
+    // 期間は to の日を含む
+    expect((await get("kind=CASH&dateFrom=2037-01-05&dateTo=2037-01-10")).total).toBe(6);
+    expect((await get("kind=CASH&dateFrom=2037-02-01")).total).toBe(4);
+    // 「JAL」で全角の「ＪＡＬ」にも、半角の「JAL」にも当たる
+    expect(descriptions(await get("kind=CARD&q=jal"))).toEqual([
+      "[信] ＪＡＬ　Ｐａｙ",
+      "JAL Pay 返金",
+      "[信] ＪＡＬ　Ｐａｙ",
+    ]);
+    // 金額は入金・出金を問わず絶対値。期間・摘要と組み合わせられる
+    expect((await get("kind=CARD&amountMin=5000&amountMax=5000")).total).toBe(3);
+    expect(
+      descriptions(
+        await get("kind=CARD&q=JAL&amountMin=5000&dateFrom=2037-03-11&dateTo=2037-03-31"),
+      ),
+    ).toEqual(["JAL Pay 返金"]);
+    expect((await get("kind=CASH&amountMax=500")).total).toBe(5);
+  });
+
+  it("範囲が逆なら 400", async () => {
+    for (const qs of [
+      "kind=CASH&dateFrom=2037-02-01&dateTo=2037-01-01",
+      "kind=CASH&amountMin=10&amountMax=5",
+      "kind=CASH&dateFrom=2037/01/01",
+      "kind=CASH&dateFrom=2037-01-34",
+    ]) {
+      const res = await historyGet(
+        { method: "GET", nextUrl: new URL(`http://x/api/ledger/history?${qs}`) } as never,
+        emptyRouteContext(),
+      );
+      expect(res.status).toBe(400);
+    }
   });
 
   it("limit は 100 まで", async () => {

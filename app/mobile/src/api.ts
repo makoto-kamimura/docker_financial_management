@@ -1626,9 +1626,21 @@ export async function categorizeTransaction(
 }
 
 // ── 実績管理の「履歴」の明細（GET /ledger/history。web 版と同じ）──────────────
-// 新しい順に limit 件ずつ。状態（全件・未割り当て・実績）・科目・事業利用のみで絞り込み、total は絞り込み後の件数。
+// 新しい順に limit 件ずつ。状態（全件・未割り当て・実績）・科目・事業利用のみ・期間・摘要・金額で絞り込み、
+// total は絞り込み後の件数。
 // 行の形は種別ごとの一覧（fetchCashEntries / fetchBankTransactions / fetchCardTransactions）と同じ。
 export type LedgerHistoryStatus = "all" | "unassigned" | "actual";
+/**
+ * 期間（YYYY-MM-DD）・摘要（部分一致。全角・半角を問わない）・金額（入金・出金を問わず絶対値）の絞り込み。
+ * 空の項目は指定なし
+ */
+export type LedgerHistoryRange = {
+  dateFrom: string;
+  dateTo: string;
+  q: string;
+  amountMin: string;
+  amountMax: string;
+};
 export type LedgerHistoryQuery = {
   kind: "CASH" | "BANK" | "CARD";
   /** 銀行の口座かカード（null = その種別のすべて） */
@@ -1636,6 +1648,7 @@ export type LedgerHistoryQuery = {
   status: LedgerHistoryStatus;
   categoryAccountId: number | null;
   businessOnly: boolean;
+  range?: LedgerHistoryRange;
   offset: number;
   limit: number;
 };
@@ -1651,6 +1664,9 @@ export async function fetchLedgerHistory<T extends { amount: unknown }>(
     ...(q.accountId !== null && q.kind !== "CASH" ? [`accountId=${q.accountId}`] : []),
     ...(q.categoryAccountId !== null ? [`categoryAccountId=${q.categoryAccountId}`] : []),
     ...(q.businessOnly ? ["businessOnly=1"] : []),
+    ...Object.entries(q.range ?? {})
+      .filter(([, v]) => v.trim() !== "")
+      .map(([k, v]) => `${k}=${encodeURIComponent(v.trim())}`),
   ].join("&");
   const json = await request<{ data?: T[]; total?: number }>(
     `/ledger/history?${params}`,
