@@ -315,6 +315,113 @@ type LedgerFilterAccount = {
 };
 const FILTER_CATEGORIES: string[] = ["REVENUE", "COGS", "EXPENSE"];
 
+/** 履歴の期間・摘要・金額の絞り込み（入力欄の文字列のまま持つ。空は「指定なし」） */
+export type LedgerRange = {
+  dateFrom: string;
+  dateTo: string;
+  q: string;
+  amountMin: string;
+  amountMax: string;
+};
+export const EMPTY_LEDGER_RANGE: LedgerRange = {
+  dateFrom: "",
+  dateTo: "",
+  q: "",
+  amountMin: "",
+  amountMax: "",
+};
+const RANGE_KEYS = Object.keys(EMPTY_LEDGER_RANGE) as (keyof LedgerRange)[];
+const isEmptyRange = (r: LedgerRange) => RANGE_KEYS.every((k) => r[k].trim() === "");
+const sameRange = (a: LedgerRange, b: LedgerRange) => RANGE_KEYS.every((k) => a[k] === b[k]);
+
+/** 範囲が逆なら、その理由（API の 400 と同じ判定を画面でも先にする） */
+function rangeError(r: LedgerRange): string | null {
+  if (r.dateFrom && r.dateTo && r.dateFrom > r.dateTo) return "期間の始まりが終わりより後です";
+  if (r.amountMin.trim() && r.amountMax.trim() && Number(r.amountMin) > Number(r.amountMax)) {
+    return "金額の下限が上限より大きいです";
+  }
+  return null;
+}
+
+/**
+ * 表の上に置く期間・摘要・金額の絞り込み。期間は選んだらすぐ、摘要と金額は入れ終えたとき
+ * （Enter・フォーカスが外れたとき）に反映する。金額は入金・出金を問わず絶対値で比べる。
+ */
+export function LedgerRangeFilter({
+  value,
+  onChange,
+}: {
+  value: LedgerRange;
+  onChange: (next: LedgerRange) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  // 外から変わった（解除された）ら、入力中の値も合わせる
+  const [shown, setShown] = useState(value);
+  if (shown !== value) {
+    setShown(value);
+    setDraft(value);
+  }
+  const error = rangeError(draft);
+  const commit = (next: LedgerRange = draft) => {
+    if (!rangeError(next) && !sameRange(next, value)) onChange(next);
+  };
+  const field = (key: keyof LedgerRange, immediate = false) => ({
+    value: draft[key],
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = { ...draft, [key]: e.target.value };
+      setDraft(next);
+      // 期間と、摘要を消したとき（検索欄の × を含む）はすぐに反映する
+      if (immediate || e.target.value === "") commit(next);
+    },
+    onBlur: () => commit(),
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") commit();
+    },
+  });
+  const input = "text-xs border border-slate-200 rounded-lg px-2 h-8 bg-white";
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+      <input type="date" aria-label="期間の始まり" className={input} {...field("dateFrom", true)} />
+      <span>〜</span>
+      <input type="date" aria-label="期間の終わり" className={input} {...field("dateTo", true)} />
+      <input
+        type="search"
+        aria-label="摘要で絞り込む"
+        placeholder="摘要"
+        className={`${input} w-36`}
+        {...field("q")}
+      />
+      <input
+        type="number"
+        min={0}
+        aria-label="金額の下限"
+        placeholder="金額の下限"
+        className={`${input} w-28`}
+        {...field("amountMin")}
+      />
+      <span>〜</span>
+      <input
+        type="number"
+        min={0}
+        aria-label="金額の上限"
+        placeholder="上限"
+        className={`${input} w-24`}
+        {...field("amountMax")}
+      />
+      {!isEmptyRange(value) && (
+        <button
+          type="button"
+          onClick={() => onChange(EMPTY_LEDGER_RANGE)}
+          className="text-slate-500 hover:text-red-600 whitespace-nowrap"
+        >
+          絞り込みを解除
+        </button>
+      )}
+      {error && <span className="text-red-600">{error}</span>}
+    </div>
+  );
+}
+
 /** 履歴の状態の絞り込み（現金・銀行・カードで共通） */
 export type LedgerStatus = "all" | "unassigned" | "actual";
 export const LEDGER_STATUS_FILTERS: [LedgerStatus, string][] = [
@@ -328,7 +435,8 @@ export const LEDGER_PAGE_SIZE = 30;
 
 /**
  * 実績管理の「履歴」の明細を、サーバーでページ送り・絞り込みして読む（GET /api/ledger/history）。
- * 状態（全件・未割り当て・実績）・科目・事業利用のみ（個人事業主モード）で絞り、30 件ずつ新しい順に出す。
+ * 状態（全件・未割り当て・実績）・科目・事業利用のみ（個人事業主モード）・期間・摘要・金額で絞り、
+ * 30 件ずつ新しい順に出す。
  * 取得のキーは種別ごとの既存のキー（actuals / bank-txns / card-txns）で始め、明細を変えたときの
  * 取り直し（invalidateQueries）がそのまま効くようにする。
  * accountId: 銀行の口座・カード（null = その種別のすべて）。現金は使わない。
@@ -348,6 +456,7 @@ export function useLedgerHistory<T>({
   const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState<LedgerStatus>(initialStatus);
   const [categoryAccountId, setCategoryAccountId] = useState<number | null>(null);
+  const [range, setRange] = useState<LedgerRange>(EMPTY_LEDGER_RANGE);
   const businessFilter = useBusinessOnlyFilter();
   const scope = useActualsScope();
   // 口座や「事業利用のみ」を切り替えたら 1 ページ目に戻す
@@ -376,6 +485,9 @@ export function useLedgerHistory<T>({
     ...(accountId !== null && kind !== "CASH" ? { accountId: String(accountId) } : {}),
     ...(categoryAccountId !== null ? { categoryAccountId: String(categoryAccountId) } : {}),
     ...(businessFilter.businessOnly ? { businessOnly: "1" } : {}),
+    ...Object.fromEntries(
+      RANGE_KEYS.filter((k) => range[k].trim() !== "").map((k) => [k, range[k].trim()]),
+    ),
   });
   const { data, isLoading } = useQuery({
     queryKey: [...base, "history", params.toString()],
@@ -389,7 +501,11 @@ export function useLedgerHistory<T>({
     placeholderData: (prev) => prev,
   });
 
-  const filtered = status !== "all" || categoryAccountId !== null || businessFilter.businessOnly;
+  const filtered =
+    status !== "all" ||
+    categoryAccountId !== null ||
+    businessFilter.businessOnly ||
+    !isEmptyRange(range);
   const toolbar = (
     <div className="flex flex-wrap items-center gap-3">
       <LedgerFilter
@@ -410,6 +526,13 @@ export function useLedgerHistory<T>({
         }}
       />
       {businessFilter.toggle}
+      <LedgerRangeFilter
+        value={range}
+        onChange={(next) => {
+          setRange(next);
+          setOffset(0);
+        }}
+      />
     </div>
   );
   return {
