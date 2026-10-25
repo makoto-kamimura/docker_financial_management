@@ -2,7 +2,7 @@
  * 実績管理の「履歴」の明細（GET /api/ledger/history）の結合テスト（実 DB 使用）
  *
  *   - 新しい順に limit 件ずつ返し、total は絞り込み後の全件数
- *   - 種別（現金・銀行・カード）と口座・カードで分かれる
+ *   - 種別（現金・銀行・カード）と口座・カードで分かれる（省略するとその種別のすべて）
  *   - 状態（未割り当て・実績）・科目・事業利用のみで絞り込める。未割り当ては振替の組を含めない
  *   - 期間・摘要（全角・半角を問わない）・金額（入金・出金を問わず絶対値）で絞り込める。範囲が逆なら 400
  *   - ほかのテナントの明細は返さない
@@ -41,6 +41,8 @@ let food: { id: number; category: "EXPENSE" };
 let tel: { id: number; category: "EXPENSE" };
 let bankA: number;
 let bankB: number;
+let card: number;
+let cardB: number;
 
 beforeAll(async () => {
   for (const t of [
@@ -106,7 +108,7 @@ beforeAll(async () => {
     data: { transferGroupId: `tg_${SUFFIX}` },
   });
   // カード: 全角の摘要の出金と、半角の摘要の入金（3 月）
-  const card = (
+  card = (
     await prisma.linkedAccount.create({
       data: { tenantId, name: "カード", type: "PREPAID_CARD", institution: "テスト" },
     })
@@ -123,6 +125,26 @@ beforeAll(async () => {
       { date: new Date(YEAR, 2, day), description: desc, flow },
     );
   }
+  // 2 枚目のカード: 未割り当ての利用と、1 枚目へのチャージ（4 月）
+  cardB = (
+    await prisma.linkedAccount.create({
+      data: { tenantId, name: "カード B", type: "CREDIT_CARD", institution: "テスト" },
+    })
+  ).id;
+  for (const [day, desc, flow] of [
+    [5, "B の利用", -1_200],
+    [10, "B のチャージ", -800],
+  ] as const) {
+    await createTestEntry(
+      tenantId,
+      { kind: "CARD", accountId: cardB },
+      { date: new Date(YEAR, 3, day), description: desc, flow },
+    );
+  }
+  await prisma.financialRecord.updateMany({
+    where: { tenantId, description: "B のチャージ" },
+    data: { chargeToCardId: card },
+  });
   // ほかのテナントの現金
   await createTestEntry(
     otherTenantId,
@@ -185,6 +207,23 @@ describe("GET /api/ledger/history", () => {
       accountId: bankB,
       amount: -500,
     });
+  });
+
+  it("カードはカードごと（省略するとすべてのカード）。未割り当てにチャージは入らない", async () => {
+    expect(descriptions(await get(`kind=CARD&accountId=${cardB}`))).toEqual([
+      "B のチャージ",
+      "B の利用",
+    ]);
+    expect((await get("kind=CARD")).total).toBe(6);
+    // すべてのカードの未割り当て: 1 枚目の 4 件と 2 枚目の利用。行の accountId はそのカード
+    const unassigned = await get("kind=CARD&status=unassigned");
+    expect(unassigned.total).toBe(5);
+    expect(unassigned.data[0]).toMatchObject({
+      accountId: cardB,
+      description: "B の利用",
+      amount: 1_200,
+    });
+    expect(unassigned.data[1]).toMatchObject({ accountId: card });
   });
 
   it("期間・摘要・金額で絞り込める", async () => {

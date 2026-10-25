@@ -117,7 +117,8 @@ export function EntryScreen({
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
   const [source, setSource] = useState<Source>(initialSource ?? "manual");
-  // 銀行は null で「すべての銀行」。カードは 1 枚ずつ扱う（null なら最初のカード）
+  // 銀行は null で「すべての銀行」。カードは履歴だけ null で「すべてのカード・電子マネー」
+  // （カレンダーは 1 枚を選ぶので、null なら最初のカード）
   const [bankAccountId, setBankAccountId] = useState<number | null>(
     initialSource === "bank" ? (initialAccountId ?? null) : null,
   );
@@ -138,7 +139,8 @@ export function EntryScreen({
   useEffect(() => {
     if (sourceTab) loadSourceAccounts();
   }, [sourceTab, loadSourceAccounts]);
-  const selectedCard = cardAccounts.find((a) => a.id === cardAccountId) ?? cardAccounts[0] ?? null;
+  const historyCard = cardAccounts.find((a) => a.id === cardAccountId) ?? null;
+  const selectedCard = historyCard ?? cardAccounts[0] ?? null;
 
   // ── 明細一覧 ────────────────────────────────────────────────
   // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
@@ -277,11 +279,18 @@ export function EntryScreen({
                   カード・電子マネーが登録されていません（カード・電子マネー管理で登録します）
                 </Text>
               ) : (
-                <SelectField
+                <SelectField<number | "all">
                   label="カード・電子マネー"
-                  value={selectedCard?.id ?? null}
-                  options={cardAccounts.map((a) => ({ value: a.id, label: a.name }))}
-                  onChange={setCardAccountId}
+                  value={
+                    tab === "history" ? (historyCard?.id ?? "all") : (selectedCard?.id ?? null)
+                  }
+                  options={[
+                    ...(tab === "history"
+                      ? [{ value: "all" as const, label: "すべてのカード・電子マネー" }]
+                      : []),
+                    ...cardAccounts.map((a) => ({ value: a.id, label: a.name })),
+                  ]}
+                  onChange={(v) => setCardAccountId(v === "all" ? null : v)}
                 />
               ))}
           </View>
@@ -317,8 +326,8 @@ export function EntryScreen({
         )}
         {tab === "history" && source === "card" && selectedCard && (
           <CardTransactionsList
-            key={selectedCard.id}
-            account={selectedCard}
+            key={historyCard?.id ?? "all"}
+            account={historyCard}
             accounts={cardAccounts}
             categoryAccounts={accounts}
             viewMode={viewMode}

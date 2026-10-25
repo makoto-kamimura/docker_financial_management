@@ -1419,6 +1419,8 @@ export async function deleteLinkedAccount(id: number): Promise<void> {
 
 export type CardTransaction = {
   id: number;
+  /** 明細のカード（すべてのカードの履歴では行ごとに違う） */
+  accountId: number;
   date: string;
   description: string;
   /** +利用（支出） / -返金 */
@@ -1495,11 +1497,12 @@ export type CardRecurringPayment = {
   categoryAccountId: number | null;
 };
 
+/** accountId が null なら全カード分 */
 export async function fetchCardRecurringPayments(
-  accountId: number,
+  accountId: number | null,
 ): Promise<CardRecurringPayment[]> {
   const json = await request<{ data?: CardRecurringPayment[] }>(
-    `/card-recurring-payments?accountId=${accountId}`,
+    `/card-recurring-payments${accountId !== null ? `?accountId=${accountId}` : ""}`,
     "固定決済の取得に失敗しました",
   );
   return (json.data ?? []).map((r) => ({ ...r, amount: Number(r.amount) }));
@@ -1536,12 +1539,16 @@ export type CardTransferRule = {
   accountId: number;
   keyword: string;
   transferToAccountId: number;
+  account: { id: number; name: string };
   transferToAccount: { id: number; name: string };
 };
 
-export async function fetchCardTransferRules(accountId: number): Promise<CardTransferRule[]> {
+/** accountId が null なら全カード分 */
+export async function fetchCardTransferRules(
+  accountId: number | null,
+): Promise<CardTransferRule[]> {
   const json = await request<{ data?: CardTransferRule[] }>(
-    `/card-transfer-rules?accountId=${accountId}`,
+    `/card-transfer-rules${accountId !== null ? `?accountId=${accountId}` : ""}`,
     "ルールの取得に失敗しました",
   );
   return json.data ?? [];

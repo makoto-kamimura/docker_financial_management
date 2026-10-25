@@ -1,4 +1,5 @@
 // カード・電子マネー管理の「明細一覧」（web 版 /card-transactions の明細一覧タブと同じ機能）。
+// account が null なら、すべてのカード・電子マネーの明細を日付順にまとめ、カード名を添える。
 //   - 利用明細の手動登録（利用 / 返金）
 //   - 取込時に自動でチャージ扱いにするルールの確認・削除
 //   - 全件 / 未割り当て / 実績 の絞り込み
@@ -55,7 +56,8 @@ const isMovement = (t: CardTransaction) =>
   t.transferToAccountId !== null || t.chargeGroupId !== null;
 
 type Props = {
-  account: LinkedAccount;
+  /** 表示するカード。null はすべてのカード・電子マネー */
+  account: LinkedAccount | null;
   accounts: LinkedAccount[];
   categoryAccounts: Account[];
   viewMode: ViewMode;
@@ -70,11 +72,11 @@ export function CardTransactionsList({
   viewMode,
   onFlowChanged,
 }: Props) {
-  const isEMoney = account.type === "E_MONEY";
+  const accountId = account?.id ?? null;
   // 明細（30 件ずつ。状態・科目・事業利用で絞り込める）
   const history = useLedgerHistory<CardTransaction>({
     kind: "CARD",
-    accountId: account.id,
+    accountId,
     viewMode,
     accounts: categoryAccounts,
   });
@@ -87,6 +89,10 @@ export function CardTransactionsList({
     amount: "",
     type: "charge" as "charge" | "refund",
   });
+  // 手動登録するカード。すべてのカードを表示しているときは選ぶ（既定は最初のカード）
+  const [manualCardId, setManualCardId] = useState<number | null>(null);
+  const manualCard = account ?? accounts.find((a) => a.id === manualCardId) ?? accounts[0] ?? null;
+  const isEMoney = manualCard?.type === "E_MONEY";
   const [picking, setPicking] = useState<CardTransaction | null>(null);
   const [actions, setActions] = useState<CardTransaction | null>(null);
   const [chargeLink, setChargeLink] = useState<{
@@ -98,27 +104,32 @@ export function CardTransactionsList({
   const load = useCallback(async () => {
     try {
       const [r, rl] = await Promise.all([
-        fetchCardRecurringPayments(account.id),
-        fetchCardTransferRules(account.id),
+        fetchCardRecurringPayments(accountId),
+        fetchCardTransferRules(accountId),
       ]);
       setRecurring(r);
       setRules(rl);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "明細の取得に失敗しました");
     }
-  }, [account.id]);
+  }, [accountId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // チャージ先に選べるのは残高を持つ決済手段（デビット・プリペイド・電子マネー）で、自分自身は除く
-  const chargeTargets = accounts.filter((a) => a.id !== account.id && isChargeableType(a.type));
-  // 摘要が一致する固定決済があれば「登録済み」として扱う（銀行管理の明細一覧と同じ判定）
+  // チャージ先に選べるのは残高を持つ決済手段（デビット・プリペイド・電子マネー）で、
+  // 明細のカード自身は除く
+  const chargeTargetsFor = (t: CardTransaction) =>
+    accounts.filter((a) => a.id !== t.accountId && isChargeableType(a.type));
+  const accountName = (id: number) => accounts.find((a) => a.id === id)?.name ?? "";
+  // 同じカードに摘要が一致する固定決済があれば「登録済み」として扱う（銀行管理の明細一覧と同じ判定）
   const matchedRecurring = (t: CardTransaction) =>
     recurring.find(
       (r) =>
-        normalizeLabel(r.label) !== "" && normalizeLabel(r.label) === normalizeLabel(t.description),
+        r.accountId === t.accountId &&
+        normalizeLabel(r.label) !== "" &&
+        normalizeLabel(r.label) === normalizeLabel(t.description),
     ) ?? null;
 
   async function run(action: () => Promise<string | void>, flowChanged = false) {
@@ -136,8 +147,9 @@ export function CardTransactionsList({
     const raw = Number(manual.amount);
     if (!manual.description.trim() || !(raw > 0))
       return setMsg("摘要と金額（1 円以上）を入力してください。");
+    if (!manualCard) return;
     run(async () => {
-      await postCardTransaction(account.id, {
+      await postCardTransaction(manualCard.id, {
         date: manual.date,
         description: manual.description.trim(),
         // card_transactions は +利用（支出） / -返金
@@ -190,6 +202,14 @@ export function CardTransactionsList({
         >
           利用明細を手動登録
         </SectionTitle>
+        {account === null && (
+          <SelectField
+            label="カード・電子マネー"
+            value={manualCard?.id ?? null}
+            options={accounts.map((a) => ({ value: a.id, label: a.name }))}
+            onChange={setManualCardId}
+          />
+        )}
         <Pills
           scroll={false}
           options={[
@@ -233,6 +253,7 @@ export function CardTransactionsList({
           {rules.map((r) => (
             <View key={r.id} style={s.ruleRow}>
               <Text style={s.ruleText}>
+                {account === null && `${r.account.name}: `}
                 {r.keyword} → {r.transferToAccount.name}
               </Text>
               <TouchableOpacity
@@ -278,7 +299,7 @@ export function CardTransactionsList({
           <LedgerRow
             key={t.id}
             date={fmtDate(t.date)}
-            account={account.name}
+            account={accountName(t.accountId)}
             description={t.description}
             amount={yenAbs(t.amount)}
             // カードは利用＝正（支出）、返金＝負
@@ -365,7 +386,7 @@ export function CardTransactionsList({
         <CardTxnActionsSheet
           txn={actions}
           registered={matchedRecurring(actions)}
-          chargeTargets={chargeTargets}
+          chargeTargets={chargeTargetsFor(actions)}
           onClose={() => setActions(null)}
           onCharge={(target) => {
             setChargeLink({ txn: actions, target });
@@ -381,7 +402,7 @@ export function CardTransactionsList({
             const day = new Date(t.date).getDate();
             run(async () => {
               await postCardRecurringPayment({
-                accountId: account.id,
+                accountId: t.accountId,
                 label: t.description,
                 day,
                 amount: Math.abs(t.amount),
@@ -421,7 +442,7 @@ export function CardTransactionsList({
             confirm(
               "明細を削除",
               `「${t.description}」を削除します。よろしいですか？`,
-              () => run(() => deleteCardTransaction(account.id, t.id)),
+              () => run(() => deleteCardTransaction(t.accountId, t.id)),
               true,
             );
           }}

@@ -2,7 +2,8 @@
 
 // カード・電子マネーの明細パネル（明細一覧とカレンダー）。カード・電子マネー管理のタブから、
 // 実績管理の「履歴」「カレンダー」（出どころにカード・電子マネーを選んだとき）へ移設した。
-// 表示するカードは呼び出し側が選ぶ。科目付け（付けた明細がそのまま実績）・チャージ先・固定決済・削除と、日付を選んでの
+// 表示するカードは呼び出し側が選ぶ（一覧は null で「すべてのカード・電子マネー」。カレンダーは 1 枚）。
+// 科目付け（付けた明細がそのまま実績）・チャージ先・固定決済・削除と、日付を選んでの
 // 利用・返金の登録ができる（API は /api/linked-accounts/{id}/transactions ほか、移設前と同じ）。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,8 @@ type Txn = {
   businessUse?: boolean;
   businessRatio?: number | null;
   id: number;
+  /** 明細のカード（すべてのカードを表示しているときは行ごとに違う） */
+  accountId: number;
   date: string;
   description: string;
   amount: number;
@@ -76,6 +79,7 @@ type CardTransferRule = {
   accountId: number;
   keyword: string;
   transferToAccountId: number;
+  account: { id: number; name: string };
   transferToAccount: { id: number; name: string };
 };
 // ── 定数 ────────────────────────────────────────────────────────
@@ -104,7 +108,7 @@ type CardRecurring = {
 
 type Props = {
   view: "list" | "calendar";
-  /** 表示するカード・電子マネー（呼び出し側のセレクタで選ぶ） */
+  /** 表示するカード・電子マネー（呼び出し側のセレクタで選ぶ。一覧は null ですべて） */
   accountId: number | null;
   /** 一覧の最初の状態の絞り込み（取り込みの結果から「未割り当て」で開くとき） */
   initialStatus?: LedgerStatus;
@@ -156,21 +160,20 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
       (await (await fetch("/api/accounts")).json()).data ?? [],
   });
 
-  // このカードの固定決済（毎月の支払い項目）。明細一覧の「固定決済」列の登録済み判定に使う
+  // このカードの固定決済（毎月の支払い項目。すべてのカードなら全カード分）。
+  // 明細一覧の「固定決済」列の登録済み判定に使う
+  const byAccount = accountId !== null ? `?accountId=${accountId}` : "";
   const { data: recurringPayments } = useQuery({
-    queryKey: ["card-recurring", accountId],
-    enabled: accountId !== null,
+    queryKey: ["card-recurring", accountId ?? "all"],
     queryFn: async (): Promise<CardRecurring[]> =>
-      (await (await fetch(`/api/card-recurring-payments?accountId=${accountId}`)).json()).data ??
-      [],
+      (await (await fetch(`/api/card-recurring-payments${byAccount}`)).json()).data ?? [],
   });
   // チャージの自動判定ルール。表示中のカードに紐付いたものだけを見る
-  // （同じ摘要が別のカードでは通常の利用を指すことがあるため）
+  // （同じ摘要が別のカードでは通常の利用を指すことがあるため。すべてのカードならカード名を添えて全部出す）
   const { data: transferRules } = useQuery({
-    queryKey: ["card-transfer-rules", accountId],
-    enabled: accountId !== null,
+    queryKey: ["card-transfer-rules", accountId ?? "all"],
     queryFn: async (): Promise<CardTransferRule[]> =>
-      (await (await fetch(`/api/card-transfer-rules?accountId=${accountId}`)).json()).data ?? [],
+      (await (await fetch(`/api/card-transfer-rules${byAccount}`)).json()).data ?? [],
   });
 
   const categorizableAccounts = useMemo(
@@ -180,6 +183,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
   );
   const selectedAccount = (accounts ?? []).find((a) => a.id === accountId) ?? null;
   const isEMoney = selectedAccount?.type === "E_MONEY";
+  const accountNameById = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
 
   const byDay = useMemo(() => {
     const map = new Map<number, Txn[]>();
@@ -195,8 +199,8 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
 
   // ── ハンドラ ────────────────────────────────────────────────
 
-  async function deleteTxn(txnId: number) {
-    const res = await fetch(`/api/linked-accounts/${accountId}/transactions?txnId=${txnId}`, {
+  async function deleteTxn(t: Txn) {
+    const res = await fetch(`/api/linked-accounts/${t.accountId}/transactions?txnId=${t.id}`, {
       method: "DELETE",
     });
     if (!res.ok) {
@@ -211,28 +215,29 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
   // 銀行口座は指定しない。カード払いは利用時点で現金が動かず、実際の出金はカード全体の
   // 引き落とし 1 本にまとまるため、口座を紐付けると資金繰りに同じ支出が二重で乗る。
   const normalizeLabel = (s: string) => s.trim().toLowerCase();
-  // 摘要が一致する固定決済があれば「登録済み」として扱う（銀行管理の一覧と同じ判定）
+  // 同じカードに摘要が一致する固定決済があれば「登録済み」として扱う（銀行管理の一覧と同じ判定）
   const recurringByLabel = useMemo(() => {
     const m = new Map<string, CardRecurring>();
     for (const r of recurringPayments ?? []) {
       const label = normalizeLabel(r.label);
-      if (label && !m.has(label)) m.set(label, r);
+      const key = `${r.accountId}:${label}`;
+      if (label && !m.has(key)) m.set(key, r);
     }
     return m;
   }, [recurringPayments]);
-  const matchedRecurring = (t: Txn) => recurringByLabel.get(normalizeLabel(t.description)) ?? null;
+  const matchedRecurring = (t: Txn) =>
+    recurringByLabel.get(`${t.accountId}:${normalizeLabel(t.description)}`) ?? null;
   const differsFromTxn = (r: CardRecurring, t: Txn) =>
     r.day !== new Date(t.date).getDate() ||
     Math.round(Number(r.amount)) !== Math.round(Math.abs(t.amount));
 
   async function registerRecurringFromTxn(t: Txn) {
-    if (accountId === null) return;
     const day = new Date(t.date).getDate();
     const res = await fetch("/api/card-recurring-payments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        accountId,
+        accountId: t.accountId,
         label: t.description,
         day,
         amount: Math.abs(t.amount),
@@ -244,7 +249,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
       setMsg(
         `毎月${day}日の固定決済として登録しました。カード・電子マネー管理のフロー図にも表示されます。`,
       );
-      qc.invalidateQueries({ queryKey: ["card-recurring", accountId] });
+      qc.invalidateQueries({ queryKey: ["card-recurring"] });
       qc.invalidateQueries({ queryKey: ["card-flow"] });
     } else {
       const err = await res.json().catch(() => ({}));
@@ -268,7 +273,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
     });
     if (res.ok) {
       setMsg(`毎月${day}日・${yen(amount)}に書き換えました。`);
-      qc.invalidateQueries({ queryKey: ["card-recurring", accountId] });
+      qc.invalidateQueries({ queryKey: ["card-recurring"] });
       qc.invalidateQueries({ queryKey: ["card-flow"] });
     } else {
       const err = await res.json().catch(() => ({}));
@@ -282,7 +287,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
     const res = await fetch(`/api/card-recurring-payments/${r.id}`, { method: "DELETE" });
     if (res.ok) {
       setMsg("固定決済の登録を解除しました。");
-      qc.invalidateQueries({ queryKey: ["card-recurring", accountId] });
+      qc.invalidateQueries({ queryKey: ["card-recurring"] });
       qc.invalidateQueries({ queryKey: ["card-flow"] });
     } else setMsg("解除に失敗しました。");
   }
@@ -308,11 +313,12 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
   // ── 明細をチャージ（資金移動）に指定する ─────────────────────────
   // 明細 1 件ずつの指定。数百件まとめて指定したいときは摘要キーワードの一括指定を使う。
   // チャージ先に選べるのは残高を持つ決済手段（デビット・プリペイド・電子マネー）だけで、
-  // クレジットカードは後払いなので入金先にならない。
-  const chargeTargets = useMemo(
-    () => (accounts ?? []).filter((a) => a.id !== accountId && isChargeableType(a.type)),
-    [accounts, accountId],
+  // クレジットカードは後払いなので入金先にならない。明細のカード自身は除く。
+  const chargeableAccounts = useMemo(
+    () => (accounts ?? []).filter((a) => isChargeableType(a.type)),
+    [accounts],
   );
+  const chargeTargetsFor = (t: Txn) => chargeableAccounts.filter((a) => a.id !== t.accountId);
   // 明細 id -> 選択中のチャージ先（「指定」を押すまでは送らない）
   const [txnChargeTarget, setTxnChargeTarget] = useState<Record<number, string>>({});
   // 「指定」を押したときに開く紐付けモーダル（チャージ先の履歴から対になる明細を選ぶ）
@@ -357,7 +363,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
     const res = await fetch(`/api/card-transfer-rules?id=${ruleId}`, { method: "DELETE" });
     if (res.ok) {
       setMsg("ルールを削除しました。指定済みの明細はそのまま残ります。");
-      qc.invalidateQueries({ queryKey: ["card-transfer-rules", accountId] });
+      qc.invalidateQueries({ queryKey: ["card-transfer-rules"] });
     } else setMsg("ルールの削除に失敗しました。");
   }
 
@@ -438,6 +444,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                     className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1"
                   >
                     <span className="text-slate-600">
+                      {accountId === null && `${r.account.name}: `}
                       {r.keyword} → {r.transferToAccount.name}
                     </span>
                     <button
@@ -473,10 +480,11 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
               // 摘要が一致する固定決済があれば「登録済み」表示に切り替える
               const registered = matchedRecurring(t);
               const excluded = Boolean(t.transferToAccountId || t.chargeGroupId);
+              const chargeTargets = chargeTargetsFor(t);
               return {
                 key: t.id,
                 date: new Date(t.date).toLocaleDateString("ja-JP"),
-                account: selectedAccount?.name ?? "",
+                account: accountNameById(t.accountId),
                 description: (
                   <>
                     {t.description}
@@ -657,7 +665,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                       )}
                     </LedgerMoreSection>
                     <button
-                      onClick={() => deleteTxn(t.id)}
+                      onClick={() => deleteTxn(t)}
                       className="text-xs text-slate-400 hover:text-red-500 text-left"
                     >
                       この明細を削除
@@ -729,7 +737,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                               className="text-xs font-semibold"
                             />
                             <button
-                              onClick={() => deleteTxn(t.id)}
+                              onClick={() => deleteTxn(t)}
                               className="text-slate-300 hover:text-red-400 text-xs"
                               title="削除"
                             >
