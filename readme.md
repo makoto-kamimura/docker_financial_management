@@ -947,6 +947,7 @@ freee・マネーフォワード（OAuth 2.0）とオープンバンキングと
 | DB | PostgreSQL 16 + Prisma 6 |
 | キャッシュ・レート制限 | Redis 7 |
 | モバイル | Expo SDK 58・React Native 0.88 |
+| レシートの OCR | Python 3.12・OpenCV・PaddleOCR（PP-OCRv6 を RapidOCR / ONNX Runtime で実行） |
 | 実行環境 | Node.js 22 |
 | インフラ | Docker Compose |
 | CI/CD | GitHub Actions・GHCR |
@@ -987,6 +988,7 @@ flowchart LR
     db[("PostgreSQL<br/>データ・セッション")]
     redis[("Redis<br/>キャッシュ・レート制限")]
     cron["session-cleanup<br/>（毎日 2:00）"]
+    ocr["ocr<br/>レシートの OCR"]
     uploads[("uploads<br/>証憑ファイル")]
   end
 
@@ -995,6 +997,7 @@ flowchart LR
   web --> db
   web --> redis
   web --> uploads
+  web -->|"POST /v1/receipt"| ocr
   cron -->|"POST /api/admin/cleanup"| web
 ```
 
@@ -1014,7 +1017,8 @@ docker_financial_management/
 │   │   │   └── middleware.ts ページの保護と CSRF
 │   │   ├── prisma/           schema.prisma・migrations・seed
 │   │   ├── e2e/              Playwright
-│   │   └── scripts/          スクリーンショット・モバイルへの複製
+│   │   └── scripts/          スクリーンショット・モバイルへの複製・レシートの読み取りの評価
+│   ├── ocr/                  レシートの OCR サービス（Python。ocr_service/・tests/・scripts/ の評価用の合成レシート）
 │   └── mobile/               Expo
 │       └── src/
 │           ├── screens/      画面
@@ -1024,7 +1028,7 @@ docker_financial_management/
 ├── platform/
 │   ├── docker-compose.yml        開発環境
 │   ├── docker-compose.prod.yml   本番環境
-│   ├── docker/               web.Dockerfile・entrypoint.sh
+│   ├── docker/               web.Dockerfile・ocr.Dockerfile・entrypoint.sh
 │   ├── scripts/              backup.sh・restore.sh
 │   ├── README.md
 │   └── .env.example
@@ -1062,10 +1066,11 @@ docker_financial_management/
 | `db` | postgres:16-alpine。ポート 5432。データは `platform/db/`（git 管理外） | データ・セッション |
 | `redis` | redis:7-alpine。ポート 6379。データはボリューム `redis-data` | キャッシュ・レート制限 |
 | `session-cleanup` | alpine の crond | 毎日 2:00 に `POST /api/admin/cleanup` を呼び、期限切れのセッションと多要素認証のチャレンジを消す |
+| `ocr` | `platform/docker/ocr.Dockerfile` でビルド（PaddleOCR のモデルはビルド時に取り込む）。ポートは外に出さない。メモリの上限 1GB | レシートの読み取り（無料プラン）。web が `RECEIPT_OCR_URL`（`http://ocr:8000`）で呼ぶ（[20.14節](#2014-レシートの読み取り)） |
 
 **本番環境（`platform/docker-compose.prod.yml`）**
 
-開発環境と同じく `web`（GHCR のイメージ。`/api/health` のヘルスチェックつき）・`db`・`redis`・`session-cleanup` を起動し、証憑をボリューム（`uploads-data`）に置く（`UPLOAD_STORAGE=r2` なら Cloudflare R2。[20.10節](#2010-証憑のアップロード)）。redis のポートは外に出さない。値は配置先の `.env` から `--env-file` で読み、`APP_ORIGIN` と `CLEANUP_SERVICE_KEY` がないと起動を止める（項目は `platform/.env.example`、手順は [production-server-setup.md](docs/runbooks/production-server-setup.md)）。
+開発環境と同じく `web`（GHCR のイメージ。`/api/health` のヘルスチェックつき）・`db`・`redis`・`session-cleanup`・`ocr`（GHCR のイメージ `OCR_IMAGE`）を起動し、証憑をボリューム（`uploads-data`）に置く（`UPLOAD_STORAGE=r2` なら Cloudflare R2。[20.10節](#2010-証憑のアップロード)）。redis のポートは外に出さない。値は配置先の `.env` から `--env-file` で読み、`APP_ORIGIN` と `CLEANUP_SERVICE_KEY` がないと起動を止める（項目は `platform/.env.example`、手順は [production-server-setup.md](docs/runbooks/production-server-setup.md)）。
 
 **web のイメージと起動処理**
 
@@ -1279,11 +1284,29 @@ npm run typecheck && npm run format:check
 実績管理の取り込み（出どころは現金）と現金のカレンダーで、レシート・領収書を撮影するか画像を選ぶと、日付・店名・合計・支払方法を読み、登録のフォーム（`CashEntryForm`）に入れる。「撮影する」はタッチの端末だけに出す（`capture="environment"`）。読み取りでは何も登録せず、利用者が確かめてから登録する（`src/lib/ledger/receipt-scan/`）。
 
 - 写真はブラウザで長辺 1600px の JPEG に縮めてから送る（`src/lib/client/resize-image.ts`）。読み取りでは画像を残さず、登録したあとに、その明細の証憑として付ける（`POST /api/actuals/[id]/receipts`）。カレンダーの明細の行に 📎 が付き、証憑を開ける。
-- 有料プランは Claude（`RECEIPT_OCR_MODEL`、既定 `claude-opus-5-5`）の構造化出力で読む。無料プラン、または `ANTHROPIC_API_KEY` が無いときは、サーバーの中の Tesseract（日本語の学習データは `@tesseract.js-data/jpn` を同梱）で読み、`parse-receipt-text.ts` で「合計」などの手がかりから拾う。Tesseract は同時に 1 件だけ動かす。
+- 有料プランは Claude（`RECEIPT_OCR_MODEL`、既定 `claude-opus-5-5`）の構造化出力で読む。無料プラン、または `ANTHROPIC_API_KEY` が無いときは、サーバーの中の OCR で読む（外部には送らない。下の「無料プランの読み取り」）。
 - 回数はテナントごとに日本時間の 1 日 30 回まで（`receipt_scan_requests` を数える。失敗は数えない）。上限を超えると 429。テナントの行をロックしてから数えるので、同時に読んでも超えない。
 - 店名は学習ルールにかけ、当たれば科目の候補にする。登録のときに「次から同じ店名には、この科目を使う」を選ぶと、学習ルールに覚える（`POST /api/actuals` の `learn`）。
 - カード払い・電子マネーと読めたときは、明細から入る分と二重に計上しないよう注意を出す。
 - モバイルアプリでも同じ API で読み取る（`expo-image-picker` で撮影・選択し、`expo-image-manipulator` で縮める）。読み取りは通常の API より時間がかかるので、打ち切りまでの時間を延ばしている（`app/mobile/src/api.ts`）。
+
+**無料プランの読み取り**：OCR サービス（`app/ocr`、compose の `ocr`。web は `RECEIPT_OCR_URL` で呼ぶ）で読む（`src/lib/ledger/receipt-scan/local.ts`）。
+
+1. 写真からレシートを見つけ、上から見た形に直して切り抜く（`ocr_service/image.py`）。明るく色の薄い大きな塊を紙とみなし、見つからなければ輪郭の四角形を探す。どちらも無ければ写真のまま読む。
+2. 画質（ぼけ・暗さ・明るすぎ・影・小ささ）を判定し、紙の明るさで割って影・照明のムラを消す。
+3. PaddleOCR（PP-OCRv6 small を RapidOCR / ONNX Runtime で実行。モデルはイメージのビルド時に取り込む）で読み、文字の枠を行にまとめる（`ocr_service/paddle.py`）。行の傾きに沿ってまとめるので、離れて並ぶ品名と金額も同じ行になる。文字の枠の多くが縦長なら、写真が横向きとみなして 90 度回して読み直す。
+4. web は行の文字と文字の高さから拾う（`parse-receipt-text.ts` の `parseReceiptLines`）。店名は上のほうの大きい字の行（住所・電話・登録番号の行を除き、後ろの支店名は落とす）。合計は「合計」「お会計」「ご請求額」などの行で、いくつかあれば大きい字の行。現金払いで「お預り」と「お釣り」が読めれば、その差と合う行を選び、手がかりの行が無ければ差を使う。中国語の字体で読まれた字（对・费 など）は日本語の字に戻す。
+5. 1 枚ごとに子プロセスで読み、読み終わればメモリを返す（読み取り中は最大 450MB 前後、待機中は 30MB 前後）。同時に読むのは 1 枚だけで、前の読み取りを 60 秒まで待つ（待ちきれなければ「混み合っています」の 503）。
+6. OCR サービスに届かないときは、web の中の Tesseract（`@tesseract.js-data/jpn` を同梱。同時に 1 件だけ）で読む。どちらで読んだかは `receipt_scan_requests.model` に残す（`pp-ocr-v6-small` / `tesseract.js`）。
+
+合成のレシート写真 60 枚（感熱紙のレシートを机に置いて撮ったように加工したもの）での精度。合成なので実物の写真での値とは違う。測り方と設定は [receipt-ocr.md](docs/runbooks/receipt-ocr.md)。
+
+| 方式 | 日付 | 店名 | 合計 | 支払方法 | 4 項目すべて | 文字誤り率 | 1 枚 |
+|---|---|---|---|---|---|---|---|
+| Tesseract・以前の解析（以前の方式） | 60% | 13% | 25% | 88% | 0% | 24.4% | 約 2 秒 |
+| Tesseract（OCR サービスに届かないとき） | 60% | 13% | 62% | 93% | 3% | 24.4% | 約 2 秒 |
+| OCR サービス・以前の解析 | 88% | 98% | 75% | 95% | 60% | 1.9% | 約 4.4 秒 |
+| **OCR サービス（切り抜き＋PaddleOCR＋行の解析）** | **100%** | **98%** | **100%** | **100%** | **98%** | **1.9%** | **約 4.4 秒** |
 
 ### 20.15 事業利用と按分
 
@@ -1361,7 +1384,7 @@ npm run typecheck && npm run format:check
 | `financial_records` | accountId（空 = 未割り当て・振替・チャージ）, departmentId, periodId, amount, journalEntryId, kind, bankAccountId, cardAccountId, date, description, flow, balance, source, externalId, transferGroupId, chargeToCardId, chargeGroupId, businessUse, businessRatio | 実績と明細の表。kind を持つ行が現金・銀行・カードの明細（flow は +入金 / −出金、カードの利用は負）で、科目が付けば実績になる。kind の無い行は仕訳・減価償却・棚卸・売掛買掛・過去の直接入力の実績。`[bankAccountId, externalId]`・`[cardAccountId, externalId]` 一意。kind と口座、組と科目、事業利用と按分の決まりは CHECK 制約で守る |
 | `financial_record_histories` | recordId, userId, action, amount, changedAt | |
 | `forecasts` | accountId, periodId, method, scenario, amount | 保存した予測 |
-| `receipt_scan_requests` | tenantId, userId, engine（claude / tesseract）, status, model, inputTokens, outputTokens, createdAt | レシートの読み取りの記録。1 日の回数を数える（[20.14節](#2014-レシートの読み取り)） |
+| `receipt_scan_requests` | tenantId, userId, engine（claude / tesseract）, status, model（読んだモデル。無料プランは `pp-ocr-v6-small` か `tesseract.js`）, inputTokens, outputTokens, createdAt | レシートの読み取りの記録。1 日の回数を数える（[20.14節](#2014-レシートの読み取り)） |
 
 ### 21.3 予算
 
