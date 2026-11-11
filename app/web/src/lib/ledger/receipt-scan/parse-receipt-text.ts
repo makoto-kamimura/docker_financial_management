@@ -122,8 +122,8 @@ export function findReceiptDate(input: string | TextLine[]): string | null {
   // 令和8年10月13日 / R8.10.13（令和 n 年 = 2018 + n 年）
   m = text.match(/(?:令和|R) *(\d{1,2}) *[年/.-] *(\d{1,2}) *[月/.-] *(\d{1,2})/);
   if (m) return iso(2018 + Number(m[1]), Number(m[2]), Number(m[3]));
-  // 26/10/13（年が 2 桁）
-  m = text.match(/(?<!\d)(\d{2})[/.-](\d{1,2})[/.-](\d{1,2})(?!\d)/);
+  // 26/10/13（年が 2 桁）。日付と時刻のあいだの空白が読めず「26/10/1312:34」になることがある
+  m = text.match(/(?<!\d)(\d{2})[/.-](\d{1,2})[/.-](\d{1,2})(?=\d{1,2}:\d{2}|(?!\d))/);
   if (m) return iso(2000 + Number(m[1]), Number(m[2]), Number(m[3]));
   return null;
 }
