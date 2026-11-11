@@ -30,14 +30,13 @@ from ocr_service import paddle
 
 def run(path: str, *, ocr: bool = True, image_out: str | None = None,
         preset: str = paddle.DEFAULT_PRESET, threads: int = 2,
-        max_side: int = paddle.DEFAULT_MAX_SIDE, enhance: str = "none",
-        min_width: int = 0) -> dict:
+        max_side: int = paddle.DEFAULT_MAX_SIDE, enhance: str = "normalize") -> dict:
     with open(path, "rb") as f:
         img = image_mod.decode(f.read())
     if img is None:
         return {"error": "decode_failed"}
 
-    prepared, info = image_mod.prepare(img, enhance=enhance, min_width=min_width)
+    prepared, info = image_mod.prepare(img, enhance=enhance)
     lines: list[dict] = []
     rotation = 0
     if ocr:
@@ -68,13 +67,11 @@ def _main(argv: list[str]) -> None:
     ap.add_argument("--threads", type=int, default=int(os.environ.get("OCR_THREADS", "2")))
     ap.add_argument("--max-side", type=int,
                     default=int(os.environ.get("OCR_MAX_SIDE", str(paddle.DEFAULT_MAX_SIDE))))
-    ap.add_argument("--enhance", default=os.environ.get("OCR_ENHANCE", "none"),
+    ap.add_argument("--enhance", default=os.environ.get("OCR_ENHANCE", "normalize"),
                     choices=["none", "normalize"])
-    ap.add_argument("--min-width", type=int, default=int(os.environ.get("OCR_MIN_WIDTH", "0")))
     args = ap.parse_args(argv)
     out = run(args.image, ocr=not args.no_ocr, image_out=args.image_out, preset=args.preset,
-              threads=args.threads, max_side=args.max_side, enhance=args.enhance,
-              min_width=args.min_width)
+              threads=args.threads, max_side=args.max_side, enhance=args.enhance)
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
 
 

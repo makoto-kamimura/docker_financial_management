@@ -59,7 +59,7 @@ def test_finds_the_receipt_on_a_light_desk_by_its_edges():
 
 def test_quality_warnings():
     img, _ = _receipt_photo()
-    sharp, _ = image.prepare(img)
+    sharp, _ = image.prepare(img, enhance="none")  # 画質はムラを消す前の画像で測る
     sharp = cv2.resize(sharp, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)  # 幅 600px
     assert image.quality(sharp)["warnings"] == []
 
@@ -73,10 +73,16 @@ def test_quality_warnings():
     assert "low_resolution" in image.quality(small)["warnings"]
 
 
-def test_min_width_upscales_small_receipts():
+def test_normalize_evens_out_a_shadow_and_keeps_the_text_dark():
     img, _ = _receipt_photo()
-    out, _ = image.prepare(img, min_width=720)
-    assert min(out.shape[:2]) >= 700
+    shade = np.linspace(0.45, 1.0, img.shape[1], dtype=np.float32)[None, :, None]
+    shaded = (img * shade).astype(np.uint8)
+    out, _ = image.prepare(shaded)
+    flat, _ = image.prepare(shaded, enhance="none")
+    gray = cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)
+    paper = gray[gray > 150]
+    assert paper.std() < cv2.cvtColor(flat, cv2.COLOR_BGR2GRAY)[gray > 150].std()
+    assert gray.min() < 90  # 文字は黒いまま
 
 
 def test_decode_rejects_broken_bytes():

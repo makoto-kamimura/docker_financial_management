@@ -195,11 +195,12 @@ def quality(img: np.ndarray) -> dict:
     }
 
 
-def prepare(img: np.ndarray, enhance: str = "none", min_width: int = 0) -> tuple[np.ndarray, dict]:
+def prepare(img: np.ndarray, enhance: str = "normalize") -> tuple[np.ndarray, dict]:
     """レシートを切り抜いて、読み取りに渡す画像と、画質の判定を返す。
 
-    enhance: "none"（切り抜いただけ）/ "normalize"（影・照明のムラを消す）
-    min_width: 切り抜いたレシートの幅がこれより小さければ拡大する（0 なら拡大しない）
+    enhance: "normalize"（影・照明のムラを消す。既定）/ "none"（切り抜いただけ）。
+    合成のレシートの評価で、normalize は文字誤り率を 2.2% → 1.9%（遠くから撮った写真は 2.9% → 2.3%）に下げ、
+    時間は変わらなかった（docs/runbooks/receipt-ocr.md）。小さいレシートの拡大は効かなかったので、していない。
     """
     info: dict = {"cropped": False}
     try:
@@ -214,8 +215,4 @@ def prepare(img: np.ndarray, enhance: str = "none", min_width: int = 0) -> tuple
     info["quality"] = quality(img)
     if enhance == "normalize":
         img = normalize_illumination(img)
-    h, w = img.shape[:2]
-    if min_width and min(h, w) < min_width:
-        scale = min(min_width / min(h, w), 2.5)
-        img = cv2.resize(img, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_CUBIC)
     return img, info
