@@ -1,0 +1,6 @@
+# レシートの OCR サービス（platform/docker/ocr.Dockerfile）。版は紙の書類の OCR で動いている組み合わせにそろえる
+opencv-python-headless==4.10.0.84
+numpy==2.5.4
+# PaddleOCR（PP-OCR）を ONNX Runtime で動かす。モデルはビルド時に焼き込む
+rapidocr==3.10.0
+onnxruntime==1.31.0
