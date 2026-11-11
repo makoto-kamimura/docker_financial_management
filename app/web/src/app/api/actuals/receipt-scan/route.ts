@@ -21,7 +21,7 @@ export const POST = withApi({
     const upload = await readUploadedFile(req, { imagesOnly: true });
     const outcome = await scanReceipt(db, user, upload.buf, upload.mimeType as ClaudeImageType);
     await audit("receipt_scan", `receipt_scan_request:${outcome.requestId}`);
-    const { draft, engine, remaining, suggestedAccount } = outcome;
-    return NextResponse.json({ data: { draft, engine, remaining, suggestedAccount } });
+    const { draft, engine, remaining, suggestedAccount, warnings } = outcome;
+    return NextResponse.json({ data: { draft, engine, remaining, suggestedAccount, warnings } });
   },
 });

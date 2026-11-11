@@ -1,7 +1,7 @@
 // レシートの読み取り結果（下書き）。読み取ったあと、利用者が確かめてから実績として登録する。
 // Claude の構造化出力に渡すため、zod は SDK に合わせて v4 の API で書く。
 import * as z from "zod/v4";
-import type { QualityWarning } from "@/lib/ledger/receipt-scan/ocr-service";
+import type { ReceiptQualityWarning as QualityWarning } from "@/lib/shared/receipt-hints";
 
 export const PAYMENT_METHODS = ["cash", "card", "emoney", "unknown"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -44,6 +44,8 @@ export const ReceiptDraftSchema = z.object({
 export type ReceiptDraft = z.infer<typeof ReceiptDraftSchema>;
 
 export type ReceiptEngine = "claude" | "tesseract";
+
+export type { QualityWarning };
 
 export type ScanUsage = { model: string; inputTokens: number; outputTokens: number };
 

@@ -1052,7 +1052,7 @@ docker_financial_management/
 ### 18.5 Web とモバイルのロジック共有
 
 - 表示ラベル・モード別の用語・借入の償還計算・ステップ進捗などは、`app/web/src/lib/shared/` を正とし、`app/mobile/src/shared/` にそのまま複製する。`lib/shared/` のファイルは、同じフォルダの中のファイルだけを相対パスで import する。
-- 共有するファイルは `app/web/src/lib/shared/shared-with-mobile.ts` の一覧で管理する（今は 22 ファイル。予算配分の振り分け・金額の向きの言葉・資産の評価・予算と実績のグラフ・予算のセルの内訳・予算の月の流れ・対象月・借入の償還・表示名・科目×月の表・ヘルプ文・ラベル・モード別の用語・変動金利の予測・ステップ進捗・所得税と住民税の控除と概算・制度の説明など）。
+- 共有するファイルは `app/web/src/lib/shared/shared-with-mobile.ts` の一覧で管理する（今は 25 ファイル。予算配分の振り分け・金額の向きの言葉・資産の評価・予算と実績のグラフ・予算のセルの内訳・予算の月の流れ・対象月・借入の償還・表示名・科目×月の表・ヘルプ文・ラベル・モード別の用語・変動金利の予測・ステップ進捗・所得税と住民税の控除と概算・制度の説明・レシートの撮り直しの案内など）。
 - Web 側を直したら、`app/web` で `npm run sync:mobile` を実行して複製する。
 - 複製がずれていたり、共有するファイルが `@/` で始まる import を使っていたりすると、Web の単体テスト（`shared-with-mobile.test.ts`）が失敗する。
 
@@ -1288,6 +1288,7 @@ npm run typecheck && npm run format:check
 - 回数はテナントごとに日本時間の 1 日 30 回まで（`receipt_scan_requests` を数える。失敗は数えない）。上限を超えると 429。テナントの行をロックしてから数えるので、同時に読んでも超えない。
 - 店名は学習ルールにかけ、当たれば科目の候補にする。登録のときに「次から同じ店名には、この科目を使う」を選ぶと、学習ルールに覚える（`POST /api/actuals` の `learn`）。
 - カード払い・電子マネーと読めたときは、明細から入る分と二重に計上しないよう注意を出す。
+- 日付か合計を読めなかったときは、OCR サービスが返す画質の警告（`warnings`）から、写真の撮り方の案内を 1 つ出す（「写真が暗いようです。明るい場所で撮り直すと…」など。ぼけ → 暗さ → 影 → 映り込み → 小ささ の順）。読めていれば案内しない。文言と選び方は `src/lib/shared/receipt-hints.ts`（モバイルと共有）。
 - モバイルアプリでも同じ API で読み取る（`expo-image-picker` で撮影・選択し、`expo-image-manipulator` で縮める）。読み取りは通常の API より時間がかかるので、打ち切りまでの時間を延ばしている（`app/mobile/src/api.ts`）。
 
 **無料プランの読み取り**：OCR サービス（`app/ocr`、compose の `ocr`。web は `RECEIPT_OCR_URL` で呼ぶ）で読む（`src/lib/ledger/receipt-scan/local.ts`）。
@@ -1531,7 +1532,7 @@ npm run typecheck && npm run format:check
 | POST / PATCH / DELETE | `/financials`・`/financials/[id]`・`/financials/import` | 廃止（410。実績は明細から作る） |
 | GET / POST / DELETE | `/actuals` | V / E / E |
 | PATCH | `/actuals/[id]/categorize` | E |
-| GET / POST | `/actuals/receipt-scan`（GET は使うエンジンと今日の残りの回数、POST は画像を読み取った下書き） | V / E |
+| GET / POST | `/actuals/receipt-scan`（GET は使うエンジンと今日の残りの回数、POST は画像を読み取った下書きと画質の警告 `warnings`） | V / E |
 | POST | `/imports`（`?target=cash\|bank\|card&accountId=`） | E |
 | GET | `/ledger/unassigned`（`?includeAssigned=1` で割り当て済みも） | V |
 | GET | `/ledger/history`（`?kind=CASH\|BANK\|CARD&accountId=&status=&categoryAccountId=&businessOnly=&limit=&offset=`） | V |

@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { selfMedicationOf } from "@/lib/shared/self-medication";
+import { retakeHint } from "@/lib/shared/receipt-hints";
 import { BUSINESS_USE_LABEL, isValidBusinessRatio } from "@/lib/shared/business-use";
 import type { ViewMode } from "@/lib/shared/display-name";
 import type { PaymentMethod } from "@/lib/ledger/receipt-scan/types";
@@ -87,6 +88,8 @@ export function CashEntryForm({
 
   const mainAccounts = form.direction === "income" ? incomeAccounts : expenseAccounts;
   const warning = draft ? (PAYMENT_WARNINGS[draft.paymentMethod] ?? null) : null;
+  // 日付・合計を読めなかったとき、写真の撮り方の案内（暗い・ぼやけているなど）
+  const hint = draft ? retakeHint(receipt?.result.warnings, draft) : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -139,6 +142,7 @@ export function CashEntryForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
       {warning && <p className="text-[10px] text-amber-700">{warning}</p>}
+      {hint && <p className="text-[10px] text-amber-700">{hint}</p>}
       <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs">
         {(["expense", "income"] as const).map((d) => (
           <button

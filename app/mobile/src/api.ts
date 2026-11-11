@@ -465,6 +465,8 @@ export type ReceiptScanResult = {
   };
   engine: ReceiptEngine;
   remaining: number;
+  /** 画質の警告（読めなかった項目があれば撮り直しを案内する。古いサーバーの応答には無い） */
+  warnings?: string[];
   suggestedAccount: {
     code: string;
     name: string;
