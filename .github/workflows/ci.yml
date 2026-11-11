@@ -30,6 +30,23 @@ jobs:
       - run: npm run test
       - run: npm run build
 
+  ocr:
+    name: ocr (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/ocr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/ocr/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      # PaddleOCR のモデルは使わない（読み取りの結果は偽の OCR で確かめる）
+      - run: python -m pytest -q
+
   migrate-check:
     name: prisma migrate (validate against PostgreSQL)
     runs-on: ubuntu-latest

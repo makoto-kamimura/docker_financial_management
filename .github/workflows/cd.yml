@@ -14,6 +14,7 @@ on:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}/web
+  OCR_IMAGE_NAME: ghcr.io/${{ github.repository }}/ocr
 
 jobs:
   build-and-push:
@@ -51,6 +52,26 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      # レシートの OCR サービス（app/ocr）
+      - name: Compute tags (ocr)
+        id: meta-ocr
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.OCR_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build and push (ocr)
+        uses: docker/build-push-action@v6
+        with:
+          context: app/ocr
+          file: platform/docker/ocr.Dockerfile
+          push: true
+          tags: ${{ steps.meta-ocr.outputs.tags }}
+          labels: ${{ steps.meta-ocr.outputs.labels }}
+
   deploy:
     name: deploy (SSH + Docker Compose)
     needs: build-and-push
@@ -72,6 +93,7 @@ jobs:
             TAG="main"
           fi
           echo "ref=ghcr.io/${GITHUB_REPOSITORY}/web:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "ocr=ghcr.io/${GITHUB_REPOSITORY}/ocr:${TAG}" >> "$GITHUB_OUTPUT"
 
       # 本番用 compose ファイルをサーバーへ配置
       - name: Copy compose file to server
@@ -89,12 +111,13 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           WEB_IMAGE: ${{ steps.img.outputs.ref }}
+          OCR_IMAGE: ${{ steps.img.outputs.ocr }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || '22' }}
-          envs: WEB_IMAGE
+          envs: WEB_IMAGE,OCR_IMAGE
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
@@ -102,7 +125,7 @@ jobs:
             if [ -n "${{ secrets.GHCR_PAT }}" ]; then
               echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
             fi
-            export WEB_IMAGE
+            export WEB_IMAGE OCR_IMAGE
             # .env は DEPLOY_PATH に置く。-f だけだと compose は platform/ の .env を探すので、明示する
             COMPOSE="docker compose --env-file .env -f platform/docker-compose.prod.yml"
 

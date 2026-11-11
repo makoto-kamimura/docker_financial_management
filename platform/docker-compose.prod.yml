@@ -43,6 +43,8 @@ services:
       # レシートの読み取り（有料プラン）。キーが無ければ、サーバーの中の OCR で読む
       ANTHROPIC_API_KEY:
       RECEIPT_OCR_MODEL:
+      # レシートの読み取り（無料プラン）に使う OCR サービス。止まっていれば web の中の Tesseract で読む
+      RECEIPT_OCR_URL: ${RECEIPT_OCR_URL:-http://ocr:8000}
     volumes:
       # 証憑（領収書などの添付ファイル）。コンテナを入れ替えても消えないようにする
       - uploads-data:/app/uploads
@@ -62,6 +64,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # レシートの OCR サービス（app/ocr。レシートを切り抜いて PaddleOCR で読む）。ポートは外に出さない
+  ocr:
+    image: ${OCR_IMAGE:-ghcr.io/your-org/financial-management/ocr:latest}
+    restart: always
+    # 読み取り中は 1 枚あたり 500MB 前後使う（読み終われば返す）。上限を超えたら、この読み取りだけが失敗する
+    mem_limit: 1g
 
   db:
     image: postgres:16-alpine
