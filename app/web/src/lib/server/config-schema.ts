@@ -31,5 +31,7 @@ export const Env = z.object({
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   RECEIPT_OCR_MODEL: z.string().min(1).optional(),
   ANTHROPIC_BASE_URL: z.string().url().optional(), // テストで Claude の代わりのサーバーに向けるときだけ
+  // レシートの OCR サービス（app/ocr）。無料プランの読み取りに使う。無ければ web の中の Tesseract で読む
+  RECEIPT_OCR_URL: z.string().url().optional(),
 });
 export type Env = z.infer<typeof Env>;

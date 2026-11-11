@@ -1,14 +1,15 @@
 /**
  * レシートの読み取り（POST /api/actuals/receipt-scan）の結合テスト（実 DB 使用）
  *
- * - 無料プランはサーバーの中の OCR（Tesseract）、有料プランは Claude で読む
+ * - 無料プランはサーバーの中の OCR、有料プランは Claude で読む
+ * - 無料プランの OCR は OCR サービス（PaddleOCR）。サービスに届かなければ Tesseract で読む
  * - 有料プランでも API キーが無ければ Tesseract で読む
  * - 店名が学習ルールに当たれば、科目の候補を返す
  * - テナントごとに 1 日 30 回まで。失敗した回は数えない
  * - 画像だけを受け付け、viewer は読み取れない
  * - POST /api/actuals の learn で、店名と科目を学習ルールに覚える
  *
- * Tesseract はモックに差し替え、Claude の API はこのファイルで立てる偽のサーバーで代用する。
+ * Tesseract はモックに差し替え、Claude の API と OCR サービスはこのファイルで立てる偽のサーバーで代用する。
  * 実行: `npm run test:integration`（DB 起動が前提）
  */
 import http from "node:http";
@@ -44,7 +45,10 @@ const { tesseractDraft, scanWithTesseract } = vi.hoisted(() => {
     selfMedicationTotal: null,
     paymentMethod: "cash" as const,
   };
-  return { tesseractDraft, scanWithTesseract: vi.fn(async () => ({ draft: tesseractDraft })) };
+  return {
+    tesseractDraft,
+    scanWithTesseract: vi.fn(async () => ({ draft: tesseractDraft, model: "tesseract.js" })),
+  };
 });
 vi.mock("@/lib/ledger/receipt-scan/tesseract", () => ({ scanWithTesseract }));
 
@@ -98,6 +102,48 @@ function useClaude() {
   process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`;
 }
 
+// ── 偽の OCR サービス ───────────────────────────────────────────
+const ocrRequests: { url: string; bytes: number }[] = [];
+const ocrServer = http.createServer((req, res) => {
+  const chunks: Buffer[] = [];
+  req.on("data", (c) => chunks.push(c));
+  req.on("end", () => {
+    ocrRequests.push({ url: req.url ?? "", bytes: Buffer.concat(chunks).length });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        width: 600,
+        height: 1400,
+        cropped: true,
+        rotation: 0,
+        quality: { warnings: ["too_dark"] },
+        lines: [
+          { text: "コンビニマート", x0: 80, y0: 20, x1: 520, y1: 80, height: 56, score: 0.97 },
+          { text: "東京駅前店", x0: 200, y0: 90, x1: 400, y1: 118, height: 26, score: 0.98 },
+          {
+            text: "2026年10月14日(水) 08:15",
+            x0: 20,
+            y0: 140,
+            x1: 360,
+            y1: 166,
+            height: 26,
+            score: 0.99,
+          },
+          { text: "合計 ¥980", x0: 20, y0: 400, x1: 580, y1: 452, height: 52, score: 0.99 },
+          { text: "お預り ¥1,000", x0: 20, y0: 460, x1: 580, y1: 486, height: 26, score: 0.99 },
+          { text: "お釣り ¥20", x0: 20, y0: 492, x1: 580, y1: 518, height: 26, score: 0.99 },
+        ],
+        text: "",
+        model: "pp-ocr-v6-small",
+      }),
+    );
+  });
+});
+function useOcrService() {
+  const { port } = ocrServer.address() as AddressInfo;
+  process.env.RECEIPT_OCR_URL = `http://127.0.0.1:${port}`;
+}
+
 // ── リクエスト ─────────────────────────────────────────────────
 function scanReq(file: File) {
   const fd = new FormData();
@@ -142,6 +188,7 @@ let foodCode: string;
 
 beforeAll(async () => {
   await new Promise<void>((resolve) => claudeServer.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => ocrServer.listen(0, "127.0.0.1", resolve));
   for (const t of ["tenants", "users", "accounts"]) {
     await prisma.$executeRawUnsafe(
       `SELECT setval(pg_get_serial_sequence('${t}', 'id'), COALESCE((SELECT MAX(id) FROM ${t}), 1))`,
@@ -174,6 +221,7 @@ beforeEach(async () => {
   actingUser = editor;
   claudeReply = okReply();
   claudeRequests.length = 0;
+  ocrRequests.length = 0;
   scanWithTesseract.mockClear();
   await prisma.receiptScanRequest.deleteMany({ where: { tenantId } });
 });
@@ -181,6 +229,7 @@ beforeEach(async () => {
 afterEach(async () => {
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.ANTHROPIC_BASE_URL;
+  delete process.env.RECEIPT_OCR_URL;
   await prisma.subscription.deleteMany({ where: { tenantId } });
 });
 
@@ -196,6 +245,7 @@ afterAll(async () => {
   await prisma.tenant.delete({ where: { id: tenantId } });
   await prisma.$disconnect();
   claudeServer.close();
+  ocrServer.close();
 });
 
 const premium = () =>
@@ -219,7 +269,38 @@ describe("無料プラン", () => {
     expect(scanWithTesseract).toHaveBeenCalledTimes(1);
     expect(claudeRequests).toHaveLength(0);
     const rows = await prisma.receiptScanRequest.findMany({ where: { tenantId } });
-    expect(rows).toMatchObject([{ engine: "tesseract", status: "SUCCEEDED", userId: editor.id }]);
+    expect(rows).toMatchObject([
+      { engine: "tesseract", status: "SUCCEEDED", userId: editor.id, model: "tesseract.js" },
+    ]);
+  });
+
+  it("OCR サービスがあれば、それで読み（行の文字の高さも使う）、使ったモデルを記録する", async () => {
+    useOcrService();
+    const { status: code, json } = await scan();
+    expect(code).toBe(200);
+    expect(json.data).toMatchObject({
+      engine: "tesseract",
+      draft: {
+        date: "2026-10-14",
+        merchant: "コンビニマート",
+        total: 980,
+        paymentMethod: "cash",
+      },
+      suggestedAccount: { code: foodCode },
+    });
+    expect(scanWithTesseract).not.toHaveBeenCalled();
+    expect(ocrRequests).toEqual([{ url: "/v1/receipt?ocr=1&image=0", bytes: JPEG.length }]);
+    const row = await prisma.receiptScanRequest.findFirstOrThrow({ where: { tenantId } });
+    expect(row).toMatchObject({ status: "SUCCEEDED", model: "pp-ocr-v6-small" });
+  });
+
+  it("OCR サービスに届かなければ、Tesseract で読む", async () => {
+    process.env.RECEIPT_OCR_URL = "http://127.0.0.1:9"; // 何も動いていないポート
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { status: code, json } = await scan();
+    expect(code).toBe(200);
+    expect(json.data.draft).toEqual(tesseractDraft);
+    expect(scanWithTesseract).toHaveBeenCalledTimes(1);
   });
 });
 
