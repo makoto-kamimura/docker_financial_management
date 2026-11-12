@@ -197,6 +197,74 @@ describe("parseReceiptLines", () => {
   });
 });
 
+describe("医療の領収書", () => {
+  const clinic = [
+    { text: "領 収 証", height: 64 },
+    { text: "患者番号 00123456 氏名 山田 太郎 様", height: 30 },
+    { text: "生年月日 昭和55年4月1日", height: 26 },
+    { text: "受診日 令和8年11月10日 负担割合 3割", height: 30 },
+    { text: "初・再診料 医学管理等 在宅医療 検查 精神科専門療法", height: 26 },
+    { text: "291点 225点", height: 30 },
+    { text: "保険 合計点数 負担額 保険外負担", height: 26 },
+    { text: "696点 2,090円 0円", height: 30 },
+    { text: "今回領収額 2,090円", height: 44 },
+    { text: "次回予約 令和8年11月24日 10:30 発行日 令和8年11月10日", height: 26 },
+    { text: "医療法人社団 青葉会 みどりクリニック みど", height: 44 },
+    { text: "東京都みどり区青葉1-2-3", height: 26 },
+    { text: "TEL 03-1234-5678", height: 26 },
+  ];
+
+  it("下のほうの医療機関名・領収額・受診日を拾う（法人名・印の字・点数は除く）", () => {
+    expect(parseReceiptLines(clinic)).toMatchObject({
+      date: "2026-11-10",
+      merchant: "みどりクリニック",
+      total: 2090,
+      paymentMethod: "unknown",
+    });
+  });
+
+  it("生年月日・次回の予約の日付は使わない", () => {
+    expect(
+      findReceiptDate(["生年月日 2001年4月1日", "次回予約 2026/11/24", "2026/11/10"].join("\n")),
+    ).toBe("2026-11-10");
+  });
+
+  it("点数は金額ではない", () => {
+    expect(findReceiptTotal(["合計 696点"].join("\n"))).toBeNull();
+  });
+
+  it("金額が見出しの上の行に読まれても拾う", () => {
+    expect(findReceiptTotal(["保険 合計点数 負担額", "970円", "領収金額"].join("\n"))).toBe(970);
+  });
+
+  it("空白が読めずに続いた法人名と印の字も落とす", () => {
+    const lines = [
+      { text: "調剤日 2026/11/10" },
+      { text: "調剤技術料 薬学管理料 薬剤料" },
+      { text: "医療法人若葉会わかば歯科クリニックわか" },
+    ];
+    expect(findMerchant(lines)).toBe("わかば歯科クリニック");
+  });
+
+  it("薬局の支店名を落とし、「朝日」「保険薬局」のような名前は残す", () => {
+    expect(findMerchant(["調剤日 2026/11/10", "あおば薬局 中央店"].join("\n"))).toBe("あおば薬局");
+    expect(findMerchant(["受診日 2026/11/10", "朝日クリニック"].join("\n"))).toBe("朝日クリニック");
+    expect(findMerchant(["患者番号 123", "なのはな保険薬局"].join("\n"))).toBe("なのはな保険薬局");
+  });
+
+  it("医療の手がかりが無いレシートは、今までどおり上のほうの店名", () => {
+    expect(findMerchant(["ドラッグひまわり", "駅前店", "合計 ¥1,280"].join("\n"))).toBe(
+      "ドラッグひまわり",
+    );
+  });
+
+  it("金額で終わる行は店名にしない（「100円ショップ」は店名）", () => {
+    expect(findMerchant(["お支払額 180円", "100円ショップ ミナモ"].join("\n"))).toBe(
+      "100円ショップ ミナモ",
+    );
+  });
+});
+
 describe("findSelfMedication", () => {
   it("注記のあるレシートで、印の付いた品目と対象額を拾う", () => {
     const raw = [
