@@ -19,6 +19,7 @@ import {
 import {
   ReceiptScanError,
   type ReceiptDraft,
+  type QualityWarning,
   type ReceiptEngine,
   type ScanResult,
 } from "@/lib/ledger/receipt-scan/types";
@@ -69,6 +70,8 @@ export type ScanOutcome = {
     /** ルールが決めている事業利用（決めていなければ null） */
     business: { businessUse: boolean; businessRatio: number | null } | null;
   } | null;
+  /** 画質の警告（無料プランを OCR サービスで読んだときだけ。読めなかった項目があれば撮り直しを案内する） */
+  warnings: QualityWarning[];
   requestId: number;
 };
 
@@ -132,6 +135,7 @@ export async function scanReceipt(
     engine,
     remaining: Math.max(0, limit - used - 1),
     suggestedAccount: await suggestAccount(db, result.draft.merchant),
+    warnings: result.warnings ?? [],
     requestId: request.id,
   };
 }

@@ -13,6 +13,7 @@ import {
   type ReceiptScanResult,
   type ReceiptScanStatus,
 } from "../api";
+import { retakeHint } from "../shared/receipt-hints";
 import { Button, Notice } from "./ui";
 
 const MAX_EDGE = 1600;
@@ -47,6 +48,8 @@ export function ReceiptScanButton({ onScanned }: Props) {
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
+  // 日付・合計を読めなかったとき、写真の撮り方の案内（暗い・ぼやけているなど）
+  const [hint, setHint] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -64,6 +67,7 @@ export function ReceiptScanButton({ onScanned }: Props) {
     setError("");
     setDone(false);
     setWarning(null);
+    setHint(null);
     const options: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], quality: 1 };
     let result: ImagePicker.ImagePickerResult;
     if (source === "camera") {
@@ -83,6 +87,7 @@ export function ReceiptScanButton({ onScanned }: Props) {
       const uri = await shrink(result.assets[0]);
       const scanned = await scanReceipt(uri);
       setWarning(PAYMENT_WARNINGS[scanned.draft.paymentMethod] ?? null);
+      setHint(retakeHint(scanned.warnings, scanned.draft));
       setDone(true);
       onScanned(scanned, uri);
     } catch (e) {
@@ -132,6 +137,7 @@ export function ReceiptScanButton({ onScanned }: Props) {
         </Notice>
       ) : null}
       {warning ? <Notice tone="warn">{warning}</Notice> : null}
+      {hint ? <Notice tone="warn">{hint}</Notice> : null}
       {error ? <Notice tone="error">{error}</Notice> : null}
     </View>
   );
