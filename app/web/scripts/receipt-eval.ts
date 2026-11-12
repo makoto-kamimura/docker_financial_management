@@ -102,9 +102,10 @@ async function main() {
 
   const rows: Record<string, unknown>[] = [];
   for (const engine of engines) {
-    const hits: Record<Field | "all", number> = {
+    const hits: Record<Field | "all" | "merchantExact", number> = {
       date: 0,
       merchant: 0,
+      merchantExact: 0,
       total: 0,
       paymentMethod: 0,
       selfMedicationTotal: 0,
@@ -131,6 +132,8 @@ async function main() {
         FIELDS.map((f) => [f, correct(f, truth, result.draft)]),
       ) as Record<Field, boolean>;
       for (const f of FIELDS) if (ok[f]) hits[f]++;
+      // 店名は「正解を含む」で数えるが、余計な字（支店名・印の字）が付いていないかも見る
+      if (norm(result.draft.merchant) === norm(truth.merchant)) hits.merchantExact++;
       if (ok.date && ok.merchant && ok.total && ok.paymentMethod) hits.all++;
       const c = truth.text ? cer(truth.text, result.text) : null;
       if (c !== null) {
@@ -157,7 +160,7 @@ async function main() {
     const n = samples.length;
     const pct = (k: number) => `${((100 * k) / n).toFixed(0)}%`.padStart(5);
     console.log(
-      `${engine.padEnd(10)} n=${n} 日付${pct(hits.date)} 店名${pct(hits.merchant)} 合計${pct(hits.total)}` +
+      `${engine.padEnd(10)} n=${n} 日付${pct(hits.date)} 店名${pct(hits.merchant)}（完全一致${pct(hits.merchantExact)}） 合計${pct(hits.total)}` +
         ` 支払${pct(hits.paymentMethod)} セルフメディ${pct(hits.selfMedicationTotal)} 4項目すべて${pct(hits.all)}` +
         ` CER ${cerN ? ((100 * cerSum) / cerN).toFixed(1) : "-"}% 1枚 ${(ms / n / 1000).toFixed(1)}秒`,
     );

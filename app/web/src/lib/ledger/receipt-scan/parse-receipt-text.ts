@@ -268,20 +268,45 @@ function findFacility(lines: TextLine[]): string | null {
   if (found.length === 0) return null;
   // 大きい字の行（高さが分からなければ、下のほうの行）
   const best = found.reduce((a, b) => ((b.height ?? 0) >= (a.height ?? 0) ? b : a));
-  return merchantName(dropStampAfterSuffix(best.text));
+  return facilityName(best.text);
 }
 
-/** 「〜クリニック」の後ろに空白なしで続いた、名前の字ばかりの短い切れ端（印の字）を落とす */
-function dropStampAfterSuffix(text: string): string {
-  const matches = [...text.matchAll(new RegExp(FACILITY.source, "g"))];
+const CORPORATE_TYPE =
+  /^(?:(?:社会)?医療法人(?:社団|財団)?|(?:一般|公益)(?:社団|財団)法人|(?:株式|有限|合同)会社)/;
+
+/**
+ * 医療機関名の行から、医療機関の名前だけを取り出す。印（判子）が名前に重なり、空白も読めないことが多いので、
+ * - 前の法人名を落とす（空白があれば次の区切りまで。無ければ「〜会」まで、または同じ名前が二度続くところまで）
+ * - 最後の手がかり（「〜クリニック」「〜薬局」など）の後ろの、支店名（「中央店」）と 4 文字以内の切れ端（印の字）を落とす
+ * 名前が手がかりの語だけになってしまうとき（「クリニックみどり」）は、後ろを落とさない。
+ */
+export function facilityName(line: string): string {
+  let name = line.replace(/\s+/g, " ").trim();
+  const type = name.match(CORPORATE_TYPE);
+  if (type) {
+    let rest = name.slice(type[0].length).trimStart();
+    const spaced = rest.match(/^(\S+)\s+(.+)$/);
+    if (spaced && FACILITY.test(spaced[2])) {
+      rest = spaced[2];
+    } else {
+      const twice = rest.match(/^(\S{2,10}?)(?=\1)/); // 「株式会社なのはななのはな調剤薬局」
+      const kai = rest.match(/^\S+?会(?=\S)/); // 「医療法人若葉会わかば歯科」
+      if (twice) rest = rest.slice(twice[1].length);
+      else if (kai && FACILITY.test(rest.slice(kai[0].length))) rest = rest.slice(kai[0].length);
+    }
+    if (FACILITY.test(rest)) name = rest.trim();
+  }
+  const matches = [...name.matchAll(new RegExp(FACILITY.source, "g"))];
   const last = matches[matches.length - 1];
-  if (!last || last.index === undefined) return text;
-  const end = last.index + last[0].length;
-  const tail = text.slice(end);
-  const head = text.slice(0, end);
-  return tail.length >= 1 && tail.length <= 3 && [...tail].every((c) => head.includes(c))
-    ? head
-    : text;
+  if (last?.index !== undefined && last.index > 0) {
+    const end = last.index + last[0].length;
+    const tail = name
+      .slice(end)
+      .replace(/^\s*\S{1,6}?(?:支店|店)/, "")
+      .trim();
+    if (tail === "" || tail.replace(/\s/g, "").length <= 4) name = name.slice(0, end);
+  }
+  return merchantName(name);
 }
 
 /**
