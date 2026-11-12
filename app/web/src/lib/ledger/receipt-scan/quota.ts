@@ -1,5 +1,7 @@
 // レシートの読み取りのエンジンの選び方と、1 日の回数の上限。
-// 有料プランは Claude（高精度）、無料プランはサーバーの中の Tesseract（簡易）で読む。
+// 有料プランは Claude（高精度）、無料プランはサーバーの中の OCR（簡易）で読む。
+// 無料プランのエンジンの値は "tesseract" のまま（アプリが値を見て表示を変えるため）。実際は OCR サービスの
+// PaddleOCR で読み、サービスが無いときだけ Tesseract で読む（local.ts）。
 // 回数はテナントごとに日本時間の 1 日で数え、失敗した回は数えない。
 import { Env } from "@/lib/server/config-schema";
 import type { TenantDbClient } from "@/lib/server/tenant-db";
@@ -13,6 +15,7 @@ const ScanEnv = Env.pick({
   ANTHROPIC_API_KEY: true,
   RECEIPT_OCR_MODEL: true,
   ANTHROPIC_BASE_URL: true,
+  RECEIPT_OCR_URL: true,
 });
 export type ScanSettings = ReturnType<typeof ScanEnv.parse>;
 

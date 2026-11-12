@@ -1574,7 +1574,7 @@ model ReceiptScanRequest {
   userId       Int
   engine       String // claude（有料プラン）/ tesseract（無料プラン）
   status       ReceiptScanStatus @default(PENDING)
-  model        String? // claude のときのモデル
+  model        String? // 読んだモデル（claude のモデル名、無料プランは pp-ocr-v6-small / tesseract.js）
   inputTokens  Int?
   outputTokens Int?
   createdAt    DateTime          @default(now())

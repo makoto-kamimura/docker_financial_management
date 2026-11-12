@@ -6,7 +6,7 @@ import { getTenantPlan } from "@/lib/billing/plan";
 import { billingEnabled } from "@/lib/billing/stripe";
 import { loadRuleClassifier } from "@/lib/ledger/ledger-entries";
 import { scanWithClaude, type ClaudeImageType } from "@/lib/ledger/receipt-scan/claude";
-import { scanWithTesseract } from "@/lib/ledger/receipt-scan/tesseract";
+import { scanLocally } from "@/lib/ledger/receipt-scan/local";
 import {
   DAILY_LIMIT,
   claudeAvailable,
@@ -106,7 +106,7 @@ export async function scanReceipt(
             model: model!,
             baseURL: settings.ANTHROPIC_BASE_URL,
           })
-        : await scanWithTesseract(image);
+        : await scanLocally(image, settings.RECEIPT_OCR_URL);
   } catch (e) {
     await db.receiptScanRequest.update({ where: { id: request.id }, data: { status: "FAILED" } });
     if (e instanceof ReceiptScanError)
@@ -118,6 +118,7 @@ export async function scanReceipt(
     where: { id: request.id },
     data: {
       status: "SUCCEEDED",
+      ...(result.model && { model: result.model }),
       ...(result.usage && {
         model: result.usage.model,
         inputTokens: result.usage.inputTokens,

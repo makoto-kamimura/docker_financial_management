@@ -1,6 +1,7 @@
 // レシートの読み取り結果（下書き）。読み取ったあと、利用者が確かめてから実績として登録する。
 // Claude の構造化出力に渡すため、zod は SDK に合わせて v4 の API で書く。
 import * as z from "zod/v4";
+import type { QualityWarning } from "@/lib/ledger/receipt-scan/ocr-service";
 
 export const PAYMENT_METHODS = ["cash", "card", "emoney", "unknown"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
@@ -46,7 +47,15 @@ export type ReceiptEngine = "claude" | "tesseract";
 
 export type ScanUsage = { model: string; inputTokens: number; outputTokens: number };
 
-export type ScanResult = { draft: ReceiptDraft; usage?: ScanUsage };
+export type ScanResult = {
+  draft: ReceiptDraft;
+  /** Claude のトークン数（有料プラン） */
+  usage?: ScanUsage;
+  /** 読んだモデル（無料プラン。記録用） */
+  model?: string;
+  /** 画質の警告（OCR サービスで読んだときだけ。読み取れなかった項目があるときの撮り直しの案内に使う） */
+  warnings?: QualityWarning[];
+};
 
 /** 読み取れなかった（利用者に見せる文言を持つ）。回数には数えない */
 export class ReceiptScanError extends Error {

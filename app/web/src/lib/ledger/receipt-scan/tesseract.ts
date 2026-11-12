@@ -1,5 +1,5 @@
-// レシートの読み取り（無料プラン）。サーバーの中の Tesseract（wasm）で文字を読み、
-// parse-receipt-text.ts で日付・店名・合計を拾う。外部には送らない。
+// レシートの読み取り（無料プランで、OCR サービスが無いとき）。web の中の Tesseract（wasm）で文字を読み、
+// parse-receipt-text.ts で日付・店名・合計を拾う。外部には送らない。ふだんは OCR サービスで読む（local.ts）。
 import path from "node:path";
 import { createWorker, OEM } from "tesseract.js";
 import { parseReceiptText } from "@/lib/ledger/receipt-scan/parse-receipt-text";
@@ -13,10 +13,15 @@ const TIMEOUT_MS = 60_000;
 let queue: Promise<unknown> = Promise.resolve();
 
 export async function scanWithTesseract(image: Buffer): Promise<ScanResult> {
+  const text = await recognizeWithTesseract(image);
+  return { draft: normalizeDraft(parseReceiptText(text)), model: "tesseract.js" };
+}
+
+/** 画像の文字を読む（同時に 1 件だけ。精度の評価 scripts/receipt-eval.ts でも使う） */
+export function recognizeWithTesseract(image: Buffer): Promise<string> {
   const run = queue.then(() => recognize(image));
   queue = run.catch(() => undefined);
-  const text = await run;
-  return { draft: normalizeDraft(parseReceiptText(text)) };
+  return run;
 }
 
 async function recognize(image: Buffer): Promise<string> {
