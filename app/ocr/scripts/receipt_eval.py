@@ -2,7 +2,8 @@
 
     python scripts/receipt_eval.py synth --out /work/samples --n 40 --fonts A.ttf B.ttf
 
-感熱紙のレシート（店名・日付・品目・小計・税・合計・支払方法・セルフメディケーションの印）を描き、
+感熱紙のレシート（店名・日付・品目・小計・税・合計・支払方法・セルフメディケーションの印）か、
+`--kind medical` で病院・薬局の領収書（点数の表・領収金額・下のほうの医療機関名と印）を描き、
 机に置いたレシートをスマホで撮ったように加工する（傾き・台形のゆがみ・紙のうねり・影・周辺減光・
 感熱紙のかすれ・ぼけ・ノイズ・JPEG）。易しい 12MP と難しい 7MP を交互に作る。
 
@@ -322,20 +323,164 @@ def photo(page: Image.Image, rng: random.Random, hard: bool,
     return buf.tobytes()
 
 
+# ---------------------------------------------------------------- 医療の領収書（病院・診療所・歯科・薬局）
+
+# (法人名, 医療機関名, 種類)。正解の店名は医療機関名（法人名は付いていてもよい）
+CLINICS = [
+    ("医療法人社団 青葉会", "みどりクリニック", "clinic"),
+    ("", "さくら内科医院", "clinic"),
+    ("", "ひかり整形外科", "clinic"),
+    ("医療法人 若葉会", "わかば歯科クリニック", "clinic"),
+    ("", "市立みなと病院", "hospital"),
+    ("", "こもれび皮膚科", "clinic"),
+    ("", "あすなろ眼科", "clinic"),
+    ("", "あおば薬局", "pharmacy"),
+    ("株式会社なのはな", "なのはな調剤薬局", "pharmacy"),
+]
+MEDICAL_ITEMS = ["初・再診料", "医学管理等", "在宅医療", "検査", "画像診断", "投薬", "注射",
+                 "リハビリテーション", "精神科専門療法", "処置", "手術", "麻酔", "放射線治療",
+                 "病理診断", "入院料等"]
+PHARMACY_ITEMS = ["調剤技術料", "薬学管理料", "薬剤料", "特定保険医療材料料"]
+PATIENTS = ["山田 太郎", "佐藤 花子", "鈴木 一郎", "高橋 陽子", "田中 健"]
+PAID_LABELS = ["領収金額", "領収額", "今回領収額", "お支払額"]
+# 用紙の色（白が多い。医療の領収書は色の付いた用紙に印刷されることがある）と、枠の線の色（RGB）
+PAPERS = [((250, 250, 248), (90, 90, 90)), ((252, 238, 242), (200, 120, 150)),
+          ((238, 248, 238), (110, 170, 120)), ((238, 244, 252), (110, 140, 200)),
+          ((252, 250, 232), (170, 150, 80))]
+
+
+def _wareki(d: dt.date, style: int) -> str:
+    if style == 0:
+        return f"令和{d.year - 2018}年{d.month}月{d.day}日"
+    if style == 1:
+        return f"令和 {d.year - 2018}年 {d.month:2d}月 {d.day:2d}日"
+    if style == 2:
+        return f"{d.year}年{d.month}月{d.day}日"
+    return f"{d.year}/{d.month:02d}/{d.day:02d}"
+
+
+def render_medical(rng: random.Random, font_path: str) -> tuple[Image.Image, dict]:
+    """医療の領収書（厚生労働省の標準様式に近い、点数の表のある領収証）を描く。"""
+    corp, name, kind = rng.choice(CLINICS)
+    pharmacy = kind == "pharmacy"
+    branch = rng.choice(["", "", " 中央店", " 駅前店"]) if pharmacy else ""
+    landscape = not pharmacy and rng.random() < 0.6
+    W, H = (2100, 1480) if landscape else (1480, 2100)  # A5 を 10px/mm で
+    paper, line = rng.choice(PAPERS) if rng.random() < 0.5 else PAPERS[0]
+    page = Image.new("RGB", (W, H), paper)
+    d = ImageDraw.Draw(page)
+    ink = (30, 30, 35)
+    f = {k: _font(font_path, v) for k, v in {"title": 64, "big": 44, "body": 30, "small": 26}.items()}
+    texts: list[str] = []
+
+    def text(x, y, s, size="body", anchor="la", fill=ink):
+        d.text((x, y), s, font=f[size], fill=fill, anchor=anchor)
+        texts.append(s)
+
+    def cell(x, y, w, h, label=None, value=None):
+        d.rectangle([x, y, x + w, y + h], outline=line, width=3)
+        if label:
+            d.text((x + w / 2, y + h * 0.3), label, font=f["small"], fill=ink, anchor="mm")
+            texts.append(label)
+        if value:
+            d.text((x + w - 14, y + h * 0.75), value, font=f["body"], fill=ink, anchor="rm")
+            texts.append(value)
+
+    day = dt.date(2025, 1, 1) + dt.timedelta(days=rng.randint(0, 680))
+    style = rng.choice([0, 0, 1, 2, 3])
+    m = 70
+    text(W / 2, 50, "領 収 証", "title", "ma")
+    y = 150
+    text(m, y, f"患者番号 {rng.randint(10000, 99999999):08d}", "small")
+    text(W / 2 - 80 if landscape else m, y + (0 if landscape else 50),
+         f"氏名 {rng.choice(PATIENTS)} 様", "body")
+    y += 60 if landscape else 110
+    if rng.random() < 0.4:  # 生年月日（昭和・平成。読み取りの日付と取り違えないこと）
+        text(m, y, f"生年月日 {rng.choice(['昭和', '平成'])}{rng.randint(30, 63)}年{rng.randint(1, 12)}月{rng.randint(1, 28)}日", "small")
+        y += 46
+    text(m, y, f"{'調剤日' if pharmacy else '受診日'} {_wareki(day, style)}", "body")
+    text(W - m, y, f"負担割合 {rng.choice(['3割', '2割', '1割'])}", "body", "ra")
+    y += 70
+
+    items = PHARMACY_ITEMS if pharmacy else MEDICAL_ITEMS[: 9 if landscape else 6]
+    cols = len(items) if pharmacy else (len(items) if landscape else 3)
+    cw = (W - 2 * m) / cols
+    ch = 110
+    points = 0
+    for i, label in enumerate(items):
+        r, c = divmod(i, cols)
+        pts = rng.choice([0, 0, rng.randint(12, 400)]) if i else rng.randint(70, 300)
+        points += pts
+        cell(m + c * cw, y + r * ch, cw, ch, label, f"{pts}点" if pts else None)
+    y += ch * (math.ceil(len(items) / cols)) + 40
+
+    burden = round(points * 10 * rng.choice([0.3, 0.3, 0.2, 0.1]), -1)
+    extra = rng.choice([0, 0, 0, 1100, 550])  # 保険外（文書料・容器代など）
+    paid = int(burden + extra)
+    sw = (W - 2 * m) / 4
+    cell(m, y, sw, ch, "保険", None)
+    cell(m + sw, y, sw, ch, "合計" if pharmacy else "合計点数", f"{points}点")
+    cell(m + 2 * sw, y, sw, ch, "負担額", f"{int(burden):,}円")
+    cell(m + 3 * sw, y, sw, ch, "保険外負担", f"{extra:,}円")
+    y += ch + 20
+    paid_label = rng.choice(PAID_LABELS)
+    d.rectangle([W - m - 2 * sw, y, W - m, y + ch], outline=line, width=5)
+    text(W - m - 2 * sw + 24, y + ch / 2, paid_label, "big", "lm")
+    text(W - m - 24, y + ch / 2, f"{paid:,}円", "big", "rm")
+    y += ch + 40
+    if rng.random() < 0.4:  # 次回の予約（領収の日付ではない）
+        later = day + dt.timedelta(days=rng.randint(7, 60))
+        text(m, y, f"次回予約 {_wareki(later, style)} 10:30", "small")
+    text(W - m, y, f"発行日 {_wareki(day, style)}", "small", "ra")
+    y += 70
+
+    # 医療機関名・住所・電話（下のほう）と、赤い印
+    facility = (f"{corp} " if corp else "") + name + branch
+    fx = W - m - (900 if landscape else 1000)
+    text(fx, y, facility, "big")
+    text(fx, y + 60, f"東京都みどり区青葉{rng.randint(1, 9)}-{rng.randint(1, 30)}-{rng.randint(1, 20)}", "small")
+    text(fx, y + 100, f"TEL 03-{rng.randint(1000, 9999)}-{rng.randint(1000, 9999)}", "small")
+    sx, sy, r = W - m - 90, y + 40, 70
+    stamp = Image.new("RGBA", page.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(stamp)
+    sd.rectangle([sx - r, sy - r, sx + r, sy + r], outline=(210, 40, 40, 170), width=6)
+    sd.text((sx, sy), name[:2] + "\n" + name[2:4], font=f["body"], fill=(210, 40, 40, 170),
+            anchor="mm", align="center")
+    page = Image.alpha_composite(page.convert("RGBA"), stamp).convert("RGB")
+
+    truth = {
+        "date": day.strftime("%Y-%m-%d"),
+        "merchant": name,
+        "total": paid,
+        "paymentMethod": "unknown",
+        "selfMedicationTotal": None,
+        "text": "\n".join(texts),
+    }
+    return page, truth
+
+
 def synth(out: Path, n: int, seed: int, fonts: list[str],
-          fill_range: tuple[float, float] | None = None) -> None:
+          fill_range: tuple[float, float] | None = None, kind: str = "receipt") -> None:
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
     for k in range(n):
         hard = k % 2 == 1
         font = fonts[k % len(fonts)]
-        r = make_receipt(rng)
-        narrow = rng.random() < 0.4
-        ink = rng.randint(60, 110) if hard and rng.random() < 0.6 else rng.randint(20, 45)
-        page = render(r["rows"], font, narrow, ink)
-        name = f"{k:02d}_{'hard' if hard else 'easy'}_{'58' if narrow else '80'}_{Path(font).stem}"
+        if kind == "medical":
+            page, truth = render_medical(rng, font)
+            # 横長の用紙は、4 枚に 1 枚を縦に置いて撮る（枠に合わせて回す人がいる）
+            if page.width > page.height and rng.random() < 0.25:
+                page = page.rotate(90, expand=True)
+            name = f"{k:02d}_{'hard' if hard else 'easy'}_med_{Path(font).stem}"
+        else:
+            r = make_receipt(rng)
+            narrow = rng.random() < 0.4
+            ink = rng.randint(60, 110) if hard and rng.random() < 0.6 else rng.randint(20, 45)
+            page = render(r["rows"], font, narrow, ink)
+            truth = r["truth"]
+            name = f"{k:02d}_{'hard' if hard else 'easy'}_{'58' if narrow else '80'}_{Path(font).stem}"
         (out / f"{name}.jpg").write_bytes(photo(page, rng, hard, fill_range))
-        (out / f"{name}.json").write_text(json.dumps(r["truth"], ensure_ascii=False, indent=1),
+        (out / f"{name}.json").write_text(json.dumps(truth, ensure_ascii=False, indent=1),
                                           encoding="utf-8")
         print("made", name)
 
@@ -350,8 +495,11 @@ def main() -> None:
     s.add_argument("--fonts", nargs="+", required=True, help="日本語のフォント（.ttf / .otf）")
     s.add_argument("--fill", nargs=2, type=float, metavar=("MIN", "MAX"),
                    help="写真の高さに対するレシートの高さ（例: 0.4 0.55 で遠くから撮った写真）")
+    s.add_argument("--kind", choices=["receipt", "medical"], default="receipt",
+                   help="receipt: 感熱紙のレシート / medical: 病院・薬局の領収書（点数の表のある様式）")
     args = ap.parse_args()
-    synth(Path(args.out), args.n, args.seed, args.fonts, tuple(args.fill) if args.fill else None)
+    synth(Path(args.out), args.n, args.seed, args.fonts, tuple(args.fill) if args.fill else None,
+          args.kind)
 
 
 if __name__ == "__main__":

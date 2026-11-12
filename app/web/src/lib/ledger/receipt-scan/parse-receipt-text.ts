@@ -76,6 +76,18 @@ const CJK_VARIANTS: Record<string, string> = {
   號: "号",
   讀: "読",
   劑: "剤",
+  负: "負",
+  查: "査",
+  專: "専",
+  檢: "検",
+  醫: "医",
+  齒: "歯",
+  數: "数",
+  內: "内",
+  總: "総",
+  險: "険",
+  處: "処",
+  縣: "県",
 };
 const CJK_VARIANT_RE = new RegExp(`[${Object.keys(CJK_VARIANTS).join("")}]`, "g");
 
@@ -111,11 +123,21 @@ function toLines(input: string | TextLine[]): TextLine[] {
 const pad = (n: number) => String(n).padStart(2, "0");
 const iso = (y: number, m: number, d: number) => `${y}-${pad(m)}-${pad(d)}`;
 
-/** レシートの日付（YYYY-MM-DD）。見つからなければ null（実在しない日付は呼び出し側で落とす） */
+// 領収した日ではない日付の行（医療の領収書の生年月日・次回の予約、クーポンの有効期限など）
+const NOT_RECEIPT_DATE = /(?:生年月日|誕生|次回|予約|有効期限|期限|まで有効)/;
+
+/**
+ * レシートの日付（YYYY-MM-DD）。見つからなければ null（実在しない日付は呼び出し側で落とす）。
+ * 生年月日・次回の予約・有効期限の行の日付は使わない（ほかに日付が無いときだけ使う）
+ */
 export function findReceiptDate(input: string | TextLine[]): string | null {
-  const text = toLines(input)
-    .map((l) => l.text)
-    .join("\n");
+  const lines = toLines(input).map((l) => l.text);
+  return (
+    dateIn(lines.filter((l) => !NOT_RECEIPT_DATE.test(l)).join("\n")) ?? dateIn(lines.join("\n"))
+  );
+}
+
+function dateIn(text: string): string | null {
   // 2026年10月13日 / 2026/10/13 / 2026-10-13 / 2026.10.13
   let m = text.match(/(20\d{2}) *[年/.-] *(\d{1,2}) *[月/.-] *(\d{1,2})/);
   if (m) return iso(Number(m[1]), Number(m[2]), Number(m[3]));
@@ -129,15 +151,17 @@ export function findReceiptDate(input: string | TextLine[]): string | null {
 }
 
 // 合計の行の手がかり。小計・お預り・お釣り・税の内訳・残高の行は合計ではない
+// 医療の領収書は「領収金額」「今回領収額」「お支払額」（「合計」の行は点数のことが多い）
 const TOTAL_KEYWORDS =
-  /(?:総?合計(?:金額)?|お?会計|お買上げ?(?:計|金額|合計)?|お買い上げ(?:計|金額)?|ご?請求(?:額|金額)|お?支払い?(?:金額|合計)|ご利用(?:金額|額)|領収金額|税込合計)/;
+  /(?:総?合計(?:金額)?|お?会計|お買上げ?(?:計|金額|合計)?|お買い上げ(?:計|金額)?|ご?請求(?:額|金額)|お?支払い?(?:金額|額|合計)|ご利用(?:金額|額)|(?:今回)?領収(?:金)?額|税込合計)/;
 const NOT_TOTAL = /(?:小計|預|釣|対象|消費税|内税|外税|税額|税率|点数|ポイント|残高|値引|割引)/;
 // 支払いの行（電子マネー・カードの金額は、支払った合計と同じことが多い）
 const PAID_LINE =
   /(?:クレジット|カード|電子マネー|交通系|IC支払|Suica|PASMO|ICOCA|nanaco|WAON|Edy|QUICPay|PayPay|d払い|au ?PAY|楽天ペイ|メルペイ|iD|コード決済|支払)/i;
 
 function lastAmount(line: string): number | null {
-  const nums = line.match(/\d{1,3}(?:,\d{3})+|\d+/g);
+  // 「696点」のような点数（医療の領収書）は金額ではない
+  const nums = line.replace(/[\d,]+\s*点/g, " ").match(/\d{1,3}(?:,\d{3})+|\d+/g);
   if (!nums) return null;
   const n = Number(nums[nums.length - 1].replace(/,/g, ""));
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -159,7 +183,7 @@ function cashTotal(lines: TextLine[]): number | null {
 }
 
 /**
- * 支払った合計。「合計」などの行の金額（金額が次の行にあることもある）。
+ * 支払った合計。「合計」などの行の金額（金額が次の行・前の行にあることもある）。
  * 手がかりの行がいくつかあれば、大きい字の行（分からなければ上の行）を選ぶ。
  * 現金払いで「お預り」と「お釣り」が読めていれば、その差と合う行を選び、手がかりの行が無ければ差を使う。
  */
@@ -171,10 +195,13 @@ export function findReceiptTotal(input: string | TextLine[]): number | null {
     if (!TOTAL_KEYWORDS.test(line) || NOT_TOTAL.test(line)) continue;
     let amount = lastAmount(line.replace(TOTAL_KEYWORDS, " "));
     let height = lines[i].height ?? 0;
-    const next = lines[i + 1];
-    if (amount === null && next && !NOT_TOTAL.test(next.text) && AMOUNT_ONLY.test(next.text)) {
-      amount = lastAmount(next.text);
-      height = Math.max(height, next.height ?? 0);
+    // 金額が次の行（表や枠の中では、傾きで前の行）に分かれて読まれることがある
+    for (const near of [lines[i + 1], lines[i - 1]]) {
+      if (amount !== null || !near || NOT_TOTAL.test(near.text) || !AMOUNT_ONLY.test(near.text)) {
+        continue;
+      }
+      amount = lastAmount(near.text);
+      height = Math.max(height, near.height ?? 0);
     }
     if (amount !== null) candidates.push({ amount, height });
   }
@@ -197,25 +224,78 @@ export function findReceiptTotal(input: string | TextLine[]): number | null {
 }
 
 const NOT_MERCHANT =
-  /(?:領収|レシート|電話|TEL|FAX|〒|登録番号|\d{2,4}-\d{2,4}-\d{3,4}|\d{4}[年/.-]|様|毎度|ありがとう|いらっしゃい|ご来店|営業時間|責No|レジ|担当)/i;
+  /(?:領収|レシート|電話|TEL|FAX|〒|登録番号|\d{2,4}-\d{2,4}-\d{3,4}|\d{4}[年/.-]|(?:令和|平成|昭和)\s*\d|様|毎度|ありがとう|いらっしゃい|ご来店|営業時間|責No|レジ|担当|患者|番号|氏名|割合|(?:¥\s*[\d,]+|[\d,]+\s*円)\s*$)/i;
 // 住所（県名で始まる・番地がある）。店名の候補にしない
 const ADDRESS = /^(?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)|\d+[-‐−ー]\d+/;
 // 店名の行の終わりの支店名（「スーパーマルヤマ 中央店」の「中央店」）。家計簿の摘要と学習ルールでは店名だけを使う
 // 「書店」「本店」のような 1 文字＋店は店名の一部のことが多いので、2 文字以上＋店だけを支店名とみなす
 const BRANCH_SUFFIX = /\s+\S{2,8}(?:店|支店|営業所)$/;
 
+// 名前の前の法人名（「医療法人社団 青葉会 みどりクリニック」の「医療法人社団 青葉会」）
+// 空白が読めずに続いたときは、「〜会」までを法人名とみなす（「医療法人若葉会わかば歯科クリニック」）
+const CORPORATE_PREFIX =
+  /^(?:(?:社会)?医療法人(?:社団|財団)?|(?:一般|公益)(?:社団|財団)法人|(?:株式|有限|合同)会社)(?:\s*\S*\s+|\S+?会(?=\S))/;
+
 function merchantName(line: string): string {
-  const name = line.replace(/\s+/g, " ").trim();
-  const trimmed = name.replace(BRANCH_SUFFIX, "");
+  let name = line.replace(/\s+/g, " ").trim();
+  // 後ろの短い切れ端が名前の字ばかりなら、名前に重なった印（判子）の字なので落とす（「あすなろ眼科 あす」）
+  const tail = name.match(/\s(\S{1,3})$/);
+  if (tail && [...tail[1]].every((c) => name.slice(0, -tail[0].length).includes(c))) {
+    name = name.slice(0, -tail[0].length);
+  }
+  const trimmed = name.replace(CORPORATE_PREFIX, "").replace(BRANCH_SUFFIX, "");
   return trimmed.replace(/[\d\s¥,.:/()\-*#]/g, "").length >= 2 ? trimmed : name;
+}
+
+// 医療の領収書（病院・診療所・歯科・薬局）の手がかりと、医療機関名の行の手がかり。
+// 医療の領収書は、医療機関名を下のほう（発行日の近く）に印字することが多い
+const MEDICAL_RECEIPT = /(?:患者|保険|点数|負担割合|調剤|受診日|診療日|初・?再診料|処方)/;
+const FACILITY =
+  /(?:病院|医院|クリニック|診療所|歯科|薬局|調剤|整形外科|内科|外科|皮膚科|眼科|耳鼻咽喉科|小児科|婦人科|泌尿器科|心療内科|メディカル|ファーマシー|整骨院|接骨院|鍼灸)/;
+// 表の見出し（「精神科専門療法」「調剤技術料」「調剤日」など）は医療機関名ではない。
+// 「朝日クリニック」「〇〇保険薬局」のような名前を落とさないよう、「日」「保険」だけでは除かない
+const NOT_FACILITY =
+  /(?:(?<!医)療法|料|管理|点|割合|患者|負担|(?:受診|調剤|診療|発行|領収|処方)日|様)/;
+
+function findFacility(lines: TextLine[]): string | null {
+  const found = lines.filter(
+    ({ text }) =>
+      FACILITY.test(text) &&
+      !NOT_FACILITY.test(text) &&
+      !NOT_MERCHANT.test(text) &&
+      !ADDRESS.test(text),
+  );
+  if (found.length === 0) return null;
+  // 大きい字の行（高さが分からなければ、下のほうの行）
+  const best = found.reduce((a, b) => ((b.height ?? 0) >= (a.height ?? 0) ? b : a));
+  return merchantName(dropStampAfterSuffix(best.text));
+}
+
+/** 「〜クリニック」の後ろに空白なしで続いた、名前の字ばかりの短い切れ端（印の字）を落とす */
+function dropStampAfterSuffix(text: string): string {
+  const matches = [...text.matchAll(new RegExp(FACILITY.source, "g"))];
+  const last = matches[matches.length - 1];
+  if (!last || last.index === undefined) return text;
+  const end = last.index + last[0].length;
+  const tail = text.slice(end);
+  const head = text.slice(0, end);
+  return tail.length >= 1 && tail.length <= 3 && [...tail].every((c) => head.includes(c))
+    ? head
+    : text;
 }
 
 /**
  * 店名。上のほう（最初の 8 行）の、店名らしい行。文字の高さが分かれば、まわりより大きい字の行を選ぶ
  * （ロゴの下の店名は大きく印字される）。大きい行が無ければ、店名らしい最初の行。
+ * 医療の領収書なら、どこにあっても医療機関名（「〜クリニック」「〜薬局」など）の行を選ぶ。
  */
 export function findMerchant(input: string | TextLine[]): string | null {
-  const top = toLines(input).slice(0, 8);
+  const all = toLines(input);
+  if (all.some(({ text }) => MEDICAL_RECEIPT.test(text))) {
+    const facility = findFacility(all);
+    if (facility) return facility;
+  }
+  const top = all.slice(0, 8);
   const plausible = top.filter(({ text }) => {
     const letters = text.replace(/[\d\s¥,.:/()\-*#]/g, "");
     return letters.length >= 2 && !NOT_MERCHANT.test(text) && !ADDRESS.test(text);
