@@ -27,6 +27,14 @@
           "microphonePermission": false
         }
       ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "レシートや書類を撮影して、実績の入力と控除の書類に使います。",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
       "expo-asset",
       "expo-font",
       "expo-secure-store",
