@@ -22,6 +22,7 @@ import {
   type TaxDocumentId,
   type TaxDocumentPlace,
 } from "../shared/tax-documents";
+import { CameraCapture, type CapturedPhoto } from "./CameraCapture";
 import { shrink } from "./ReceiptScanButton";
 import { Button, Card, COLORS, Notice, SectionTitle } from "./ui";
 
@@ -97,27 +98,29 @@ function TaxDocumentUpload({ docId }: { docId: TaxDocumentId }) {
   const { year, documents, files: all, reload } = useDocs();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // 撮影は書類の枠（A4）を重ねた撮影の画面で行う
+  const [cameraOpen, setCameraOpen] = useState(false);
   const files = all.filter((f) => f.docId === docId);
   if (!showDocument(docId, documents, files)) return null;
 
   async function pick(source: "camera" | "library") {
     setError("");
-    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], quality: 1 };
-    let result: ImagePicker.ImagePickerResult;
     if (source === "camera") {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) {
-        setError("カメラを使う許可がありません。端末の設定で許可してください");
-        return;
-      }
-      result = await ImagePicker.launchCameraAsync(options);
-    } else {
-      result = await ImagePicker.launchImageLibraryAsync(options);
+      setCameraOpen(true);
+      return;
     }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 1,
+    });
     if (result.canceled || !result.assets[0]) return;
+    await save(result.assets[0]);
+  }
+
+  async function save(photo: CapturedPhoto) {
     setBusy(true);
     try {
-      await uploadTaxDocument(year, docId, await shrink(result.assets[0]));
+      await uploadTaxDocument(year, docId, await shrink(photo));
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "写真の保存に失敗しました");
@@ -179,6 +182,15 @@ function TaxDocumentUpload({ docId }: { docId: TaxDocumentId }) {
       </View>
       {files.length > 0 ? <Text style={s.muted}>写真を長押しすると削除できます。</Text> : null}
       {error ? <Notice tone="error">{error}</Notice> : null}
+      <CameraCapture
+        visible={cameraOpen}
+        shape="document"
+        onCaptured={(photo) => {
+          setCameraOpen(false);
+          void save(photo);
+        }}
+        onClose={() => setCameraOpen(false)}
+      />
     </View>
   );
 }

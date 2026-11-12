@@ -1,4 +1,5 @@
 // 実績管理のカレンダー（現金）の「レシートを撮影して入力」（web 版 ReceiptScanButton と同じ流れ）。
+// 撮影は枠を重ねた撮影の画面（CameraCapture。レシート / 書類・領収書の枠を切り替えられる）で行う。
 // 撮った写真を長辺 1600px の JPEG に縮めて読み取り、下書きと写真を親のフォームに渡す。
 // 有料プランは高精度、無料プランは簡易の読み取り。有料プランの申し込みは web だけで行う
 // （アプリには申し込みの画面もリンクも置かない）。
@@ -14,6 +15,7 @@ import {
   type ReceiptScanStatus,
 } from "../api";
 import { retakeHint } from "../shared/receipt-hints";
+import { CameraCapture, type CapturedPhoto, type GuideShape } from "./CameraCapture";
 import { Button, Notice } from "./ui";
 
 const MAX_EDGE = 1600;
@@ -29,11 +31,14 @@ const PAYMENT_WARNINGS: Partial<Record<ReceiptScanResult["draft"]["paymentMethod
     "電子マネーや QR コード決済のレシートのようです。電子マネーの明細から入る分と二重に計上しないよう注意してください。",
 };
 
-/** 写真を長辺 MAX_EDGE の JPEG にする（送る量と読み取りの課金を抑える）。証明書の撮影でも使う */
-export async function shrink(asset: ImagePicker.ImagePickerAsset): Promise<string> {
+/** 写真を長辺 maxEdge の JPEG にする（送る量と読み取りの課金を抑える）。証明書の撮影でも使う */
+export async function shrink(
+  asset: { uri: string; width: number; height: number },
+  maxEdge = MAX_EDGE,
+): Promise<string> {
   const ctx = ImageManipulator.manipulate(asset.uri);
-  if (Math.max(asset.width, asset.height) > MAX_EDGE) {
-    ctx.resize(asset.width >= asset.height ? { width: MAX_EDGE } : { height: MAX_EDGE });
+  if (Math.max(asset.width, asset.height) > maxEdge) {
+    ctx.resize(asset.width >= asset.height ? { width: maxEdge } : { height: maxEdge });
   }
   const image = await ctx.renderAsync();
   const saved = await image.saveAsync({ compress: 0.85, format: SaveFormat.JPEG });
@@ -50,6 +55,9 @@ export function ReceiptScanButton({ onScanned }: Props) {
   const [warning, setWarning] = useState<string | null>(null);
   // 日付・合計を読めなかったとき、写真の撮り方の案内（暗い・ぼやけているなど）
   const [hint, setHint] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  // 撮影の枠（前に選んだ枠を覚えておく）
+  const [shape, setShape] = useState<GuideShape>("receipt");
 
   const loadStatus = useCallback(async () => {
     try {
@@ -68,23 +76,22 @@ export function ReceiptScanButton({ onScanned }: Props) {
     setDone(false);
     setWarning(null);
     setHint(null);
-    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], quality: 1 };
-    let result: ImagePicker.ImagePickerResult;
     if (source === "camera") {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) {
-        setError("カメラを使う許可がありません。端末の設定で許可してください");
-        return;
-      }
-      result = await ImagePicker.launchCameraAsync(options);
-    } else {
-      result = await ImagePicker.launchImageLibraryAsync(options);
+      setCameraOpen(true);
+      return;
     }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 1,
+    });
     if (result.canceled || !result.assets[0]) return;
+    await read(result.assets[0]);
+  }
 
+  async function read(photo: CapturedPhoto) {
     setScanning(true);
     try {
-      const uri = await shrink(result.assets[0]);
+      const uri = await shrink(photo);
       const scanned = await scanReceipt(uri);
       setWarning(PAYMENT_WARNINGS[scanned.draft.paymentMethod] ?? null);
       setHint(retakeHint(scanned.warnings, scanned.draft));
@@ -139,6 +146,17 @@ export function ReceiptScanButton({ onScanned }: Props) {
       {warning ? <Notice tone="warn">{warning}</Notice> : null}
       {hint ? <Notice tone="warn">{hint}</Notice> : null}
       {error ? <Notice tone="error">{error}</Notice> : null}
+      <CameraCapture
+        visible={cameraOpen}
+        shape={shape}
+        shapes={["receipt", "document"]}
+        onShapeChange={setShape}
+        onCaptured={(photo) => {
+          setCameraOpen(false);
+          void read(photo);
+        }}
+        onClose={() => setCameraOpen(false)}
+      />
     </View>
   );
 }

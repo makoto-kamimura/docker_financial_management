@@ -975,6 +975,7 @@ freee・マネーフォワード（OAuth 2.0）とオープンバンキングと
 | フレームワーク | Expo（React Native、画面の切り替えは自前の状態管理） |
 | グラフ | react-native-svg |
 | トークンの保存 | expo-secure-store |
+| 撮影 | expo-camera（枠を重ねた撮影の画面）・expo-image-picker（写真の選択）・expo-image-manipulator（縮める） |
 
 ### 18.3 システム構成
 
@@ -1289,7 +1290,7 @@ npm run typecheck && npm run format:check
 - 店名は学習ルールにかけ、当たれば科目の候補にする。登録のときに「次から同じ店名には、この科目を使う」を選ぶと、学習ルールに覚える（`POST /api/actuals` の `learn`）。
 - カード払い・電子マネーと読めたときは、明細から入る分と二重に計上しないよう注意を出す。
 - 日付か合計を読めなかったときは、OCR サービスが返す画質の警告（`warnings`）から、写真の撮り方の案内を 1 つ出す（「写真が暗いようです。明るい場所で撮り直すと…」など。ぼけ → 暗さ → 影 → 映り込み → 小ささ の順）。読めていれば案内しない。文言と選び方は `src/lib/shared/receipt-hints.ts`（モバイルと共有）。
-- モバイルアプリでも同じ API で読み取る（`expo-image-picker` で撮影・選択し、`expo-image-manipulator` で縮める）。読み取りは通常の API より時間がかかるので、打ち切りまでの時間を延ばしている（`app/mobile/src/api.ts`）。
+- モバイルアプリでも同じ API で読み取る（撮影は `expo-camera` の撮影の画面 `CameraCapture`、写真の選択は `expo-image-picker`、縮めるのは `expo-image-manipulator`）。撮影の画面では、カメラの上にレシート・書類を合わせる枠を重ねる（枠の外を暗くし、四隅に L 字）。枠は「レシート」（縦長）と「書類・領収書」（A4。病院・薬局の領収書など）を切り替えられ、控除の書類の撮影は書類の枠だけ。撮った写真は切り取らない（サーバーが紙を見つけて切り抜く）。読み取りは通常の API より時間がかかるので、打ち切りまでの時間を延ばしている（`app/mobile/src/api.ts`）。
 
 **無料プランの読み取り**：OCR サービス（`app/ocr`、compose の `ocr`。web は `RECEIPT_OCR_URL` で呼ぶ）で読む（`src/lib/ledger/receipt-scan/local.ts`）。
 
