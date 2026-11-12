@@ -264,6 +264,7 @@ describe("無料プラン", () => {
       engine: "tesseract",
       remaining: 29,
       draft: tesseractDraft,
+      warnings: [],
       suggestedAccount: { code: foodCode, name: "食費", category: "EXPENSE" },
     });
     expect(scanWithTesseract).toHaveBeenCalledTimes(1);
@@ -287,6 +288,8 @@ describe("無料プラン", () => {
         paymentMethod: "cash",
       },
       suggestedAccount: { code: foodCode },
+      // 読めているので画面は撮り直しを案内しないが、警告はそのまま返す
+      warnings: ["too_dark"],
     });
     expect(scanWithTesseract).not.toHaveBeenCalled();
     expect(ocrRequests).toEqual([{ url: "/v1/receipt?ocr=1&image=0", bytes: JPEG.length }]);

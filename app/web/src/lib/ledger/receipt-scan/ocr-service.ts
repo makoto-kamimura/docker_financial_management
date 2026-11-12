@@ -2,6 +2,7 @@
 // レシートを写真から切り抜いて（台形補正）PaddleOCR で読み、行ごとの文字と位置・画質を返す。
 // 外部には送らない。サービスに届かないときは OcrServiceUnavailable（呼び出し側が Tesseract で読み直す）。
 import { ReceiptScanError } from "@/lib/ledger/receipt-scan/types";
+import type { ReceiptQualityWarning } from "@/lib/shared/receipt-hints";
 
 /** 読み取った 1 行。位置は読み取りに使った画像（切り抜き・回転のあと）の画素 */
 export type OcrLine = {
@@ -16,13 +17,8 @@ export type OcrLine = {
   score: number;
 };
 
-/** 画質の警告（撮り直しの案内に使う） */
-export type QualityWarning =
-  | "low_resolution"
-  | "blurry"
-  | "too_dark"
-  | "too_bright"
-  | "uneven_lighting";
+/** 画質の警告（撮り直しの案内に使う。lib/shared/receipt-hints.ts） */
+export type QualityWarning = ReceiptQualityWarning;
 
 export type OcrReading = {
   width: number;
