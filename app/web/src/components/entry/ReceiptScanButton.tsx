@@ -1,67 +1,36 @@
 "use client";
 
-// 現金の明細の入力で使う、レシート・領収書の読み取り。撮った写真・選んだ画像を読み取り、下書きを返す。
-// 有料プランは高精度（Claude）、無料プランは簡易（サーバーの中の OCR）で読む。登録は CashEntryForm で行い、
-// 登録した明細には、ここで縮めた写真を証憑として付ける（ScannedReceipt の photo）。
-//   - useReceiptScan … 読み取りと、今日の残り回数
+// 現金の明細の入力で使う、レシート・領収書の撮影。撮った写真・選んだ画像は、すぐ仮の明細として保存し
+// （receipt-drafts.ts）、読み取りはサーバーがあとで進める。読み取りが終わったら、仮の一覧から確かめて登録する。
+// 有料プランは高精度（Claude）、無料プランは簡易（サーバーの中の OCR）で読む。
+//   - useReceiptScan … 読み取りの種類と、今日の残り回数
 //   - ReceiptPickButtons … 「撮影する」（スマホなどのカメラ）と「画像を選ぶ」
 //   - ScanQuotaNote … 読み取りの種類・残り回数・プランの案内
-//   - ReceiptScanButton … カレンダーの「実績を追加」に置く、1 枚ずつの読み取り
+//   - ReceiptScanButton … カレンダーの「実績を追加」に置く、仮で保存するボタン
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Camera, ImageIcon } from "lucide-react";
-import { resizeImageToJpeg } from "@/lib/client/resize-image";
 import type { ReceiptEngine } from "@/lib/ledger/receipt-scan/types";
-import type { ReceiptScanStatus, ScanOutcome } from "@/lib/ledger/receipt-scan/scan";
-
-export type ReceiptScanResult = Omit<ScanOutcome, "requestId">;
-
-/** 読み取ったレシート（下書きと、証憑として付ける縮めた写真） */
-export type ScannedReceipt = { result: ReceiptScanResult; photo: File };
+import type { ReceiptScanStatus } from "@/lib/ledger/receipt-scan/scan";
+import { saveDraft, useInvalidateDrafts } from "@/components/entry/receipt-drafts";
 
 const ENGINE_LABELS: Record<ReceiptEngine, string> = {
   claude: "高精度の読み取り（有料プラン）",
   tesseract: "簡易の読み取り（精度は低め）",
 };
 
-const STATUS_KEY = ["receipt-scan-status"];
-
-/** 読み取りと、今日の残り回数（読めなければ status は null）。scan は読み取れなければ、画面に出す文言の Error を投げる */
+/** 読み取りの種類と、今日の残り回数（読めなければ status は null） */
 export function useReceiptScan() {
-  const qc = useQueryClient();
   const { data: status, isLoading } = useQuery({
-    queryKey: STATUS_KEY,
+    queryKey: ["receipt-scan-status"],
     queryFn: async (): Promise<ReceiptScanStatus | null> => {
       const res = await fetch("/api/actuals/receipt-scan");
       return res.ok ? (await res.json()).data : null;
     },
   });
-
-  async function scan(file: File): Promise<ScannedReceipt> {
-    try {
-      const photo = await resizeImageToJpeg(file);
-      const body = new FormData();
-      body.append("file", photo);
-      let res: Response;
-      try {
-        res = await fetch("/api/actuals/receipt-scan", { method: "POST", body });
-      } catch {
-        throw new Error("読み取りに失敗しました。通信状態を確かめてください");
-      }
-      const json = (await res.json().catch(() => ({}))) as {
-        data?: ReceiptScanResult;
-        error?: string;
-      };
-      if (!res.ok || !json.data) throw new Error(json.error ?? "読み取りに失敗しました");
-      return { result: json.data, photo };
-    } finally {
-      void qc.invalidateQueries({ queryKey: STATUS_KEY });
-    }
-  }
-
-  return { status: status ?? null, loading: isLoading, scan };
+  return { status: status ?? null, loading: isLoading };
 }
 
 /** タッチで操作する端末か（カメラで撮る「撮影する」を出す） */
@@ -153,26 +122,29 @@ export function ScanQuotaNote({ status }: { status: ReceiptScanStatus }) {
   );
 }
 
-/** カレンダーの「実績を追加」に置く、1 枚ずつの読み取り。読み取った下書きを親のフォームに渡す */
-export function ReceiptScanButton({ onScanned }: { onScanned: (r: ScannedReceipt) => void }) {
-  const { status, scan } = useReceiptScan();
-  const [scanning, setScanning] = useState(false);
+/**
+ * カレンダーの「実績を追加」に置く、撮ったレシートを仮で保存するボタン。選んでいる日で仮を作り、
+ * 読み取りはあとで進める（終わると、カレンダーの仮の明細に店名と金額が入る）
+ */
+export function ReceiptScanButton({ date }: { date: string }) {
+  const { status } = useReceiptScan();
+  const invalidate = useInvalidateDrafts();
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState<string | null>(null);
-
-  // 前の写真の表示用 URL を解放する
-  useEffect(() => () => void (preview && URL.revokeObjectURL(preview)), [preview]);
+  const [saved, setSaved] = useState(false);
 
   async function handleFile(file: File) {
     setError("");
-    setScanning(true);
-    setPreview(URL.createObjectURL(file));
+    setSaved(false);
+    setSaving(true);
     try {
-      onScanned(await scan(file));
+      await saveDraft(file, date);
+      setSaved(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "読み取りに失敗しました");
+      setError(e instanceof Error ? e.message : "保存に失敗しました");
     } finally {
-      setScanning(false);
+      setSaving(false);
+      invalidate();
     }
   }
 
@@ -181,22 +153,15 @@ export function ReceiptScanButton({ onScanned }: { onScanned: (r: ScannedReceipt
   return (
     <div className="flex flex-col gap-1.5 mb-3">
       <ReceiptPickButtons
-        disabled={scanning || status.reason !== null}
+        disabled={saving || status.reason !== null}
         onFiles={([file]) => handleFile(file)}
       />
-      {scanning && <p className="text-[10px] text-slate-500">読み取り中…</p>}
+      {saving && <p className="text-[10px] text-slate-500">保存中…</p>}
       <ScanQuotaNote status={status} />
-      {preview && (
-        // eslint-disable-next-line @next/next/no-img-element -- 撮ったばかりの写真（blob:）を出すだけ
-        <img
-          src={preview}
-          alt="読み取ったレシート"
-          className="max-h-32 w-auto self-start rounded border border-slate-200"
-        />
-      )}
-      {!scanning && preview && !error && (
+      {saved && !error && (
         <p className="text-[10px] text-emerald-700">
-          読み取った内容をフォームに入れました。確かめてから登録してください。
+          仮の明細として保存しました。読み取りが終わると、上の「仮の明細」に店名と金額が入ります。
+          確かめてから登録してください（続けて撮れます）。
         </p>
       )}
       {error && <p className="text-xs text-red-600">{error}</p>}

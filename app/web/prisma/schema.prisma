@@ -720,6 +720,10 @@ model Receipt {
   journalEntryId       Int?
   financialRecord      FinancialRecord? @relation(fields: [financialRecordId], references: [id], onDelete: Cascade)
   financialRecordId    Int?
+  // 仮の明細の写真（登録すると financialRecordId に付け替え、この列は null にする）。
+  // 証憑は仕訳・現金の明細・仮の明細のどれか一つに付く（CHECK 制約 receipts_one_owner）
+  receiptDraft         ReceiptDraft?    @relation(fields: [receiptDraftId], references: [id], onDelete: Cascade)
+  receiptDraftId       Int?
   fileName             String // アップロード時の元ファイル名（表示用）
   fileUrl              String // 配信 URL（/api/uploads/<savedName>）
   savedName            String? // uploads/ 配下の実ファイル名（配信時の所有確認・Content-Type 決定に使用）
@@ -735,6 +739,7 @@ model Receipt {
   @@unique([savedName])
   @@index([journalEntryId])
   @@index([financialRecordId])
+  @@index([receiptDraftId])
   @@map("receipts")
 }
 
@@ -1587,4 +1592,37 @@ enum ReceiptScanStatus {
   PENDING // 読み取り中
   SUCCEEDED
   FAILED
+}
+
+// 仮の明細（レシート・領収書を撮ってすぐ保存し、読み取りはあとで進める現金の明細の下書き。
+// lib/ledger/receipt-drafts.ts）。集計（予算と実績・残高・仕訳）には入らない。利用者が確かめて
+// 登録すると現金の明細（financial_records）になり、写真は証憑に付け替えて、この行は消える。
+// 実績の確定は、その月の仮が残っていると受け付けない
+model ReceiptDraft {
+  id               Int                @id @default(autoincrement())
+  tenantId         Int
+  userId           Int // 撮った人
+  date             DateTime           @db.Date // 撮ったときに選んでいた日
+  status           ReceiptDraftStatus @default(READING)
+  // 読み取った下書き（lib/ledger/receipt-scan/types.ts の ReceiptDraft）と、科目の候補・画質の警告
+  draft            Json?
+  suggestedAccount Json?
+  warnings         Json?
+  // レシートに印字された日付（読み取れたとき）。実績の確定で、その月の仮を探すのに使う
+  readDate         DateTime?          @db.Date
+  // 読み取れなかった理由（利用者に見せる文言）
+  error            String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  receipts         Receipt[]
+
+  @@index([tenantId, date])
+  @@index([tenantId, readDate])
+  @@map("receipt_drafts")
+}
+
+enum ReceiptDraftStatus {
+  READING // 読み取り中
+  READ // 読み取った（利用者の確認待ち）
+  FAILED // 読み取れなかった（手で入力するか、読み取り直す）
 }

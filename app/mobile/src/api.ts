@@ -427,6 +427,10 @@ export async function postActual(data: {
   /** 事業利用（個人事業主モードで付ける）。按分を null にすると科目の事業利用按分の割合（無ければ 100%） */
   businessUse?: boolean;
   businessRatio?: number | null;
+  /** 仮の明細（撮ったレシート）から登録するとき。仮の写真は証憑に付け替わり、仮は消える */
+  draftId?: number;
+  /** 仮から登録するときの、セルフメディケーション税制の対象の額と品目（証憑に残す） */
+  selfMedication?: SelfMedicationDraft;
 }): Promise<CashEntry> {
   const json = await request<{ data: CashEntry }>(
     "/actuals",
@@ -499,6 +503,57 @@ function photoForm(uri: string, name = "receipt.jpg"): FormData {
     bytes: () => new FsFile(uri).bytes(),
   } as unknown as Blob);
   return body;
+}
+
+// ── 仮の明細（GET/POST /actuals/drafts・DELETE /actuals/drafts/[id]・POST /actuals/drafts/[id]/read）──
+// 撮ったらすぐ仮で保存し、読み取りはサーバーがあとで進める。仮は集計に入らない。
+// 確かめて登録する（postActual の draftId）と現金の明細になる。web 版と同じ API。
+export type ReceiptDraftView = {
+  id: number;
+  /** 撮ったときに選んでいた日（YYYY-MM-DD） */
+  date: string;
+  status: "READING" | "READ" | "FAILED";
+  /** 読み取った結果（READ のときだけ） */
+  result: Pick<ReceiptScanResult, "draft" | "suggestedAccount" | "warnings"> | null;
+  /** 読み取れなかった理由（FAILED のときだけ） */
+  error: string | null;
+  /** /api から始まる写真の URL（表示は authedImage で） */
+  photo: { id: number; fileName: string; fileUrl: string } | null;
+  createdAt: string;
+};
+
+/** 撮ったレシートの写真（JPEG）を、選んでいた日で仮の明細として保存する（読み取りは待たない） */
+export async function createReceiptDraft(uri: string, date: string): Promise<ReceiptDraftView> {
+  const body = photoForm(uri);
+  body.append("date", date);
+  const json = await request<{ data: ReceiptDraftView }>(
+    "/actuals/drafts",
+    "保存に失敗しました",
+    { method: "POST", body },
+    UPLOAD_TIMEOUT_MS,
+  );
+  return json.data;
+}
+
+/** 仮の一覧（年月を渡すと、撮ったときに選んでいた日がその月のもの） */
+export async function fetchReceiptDrafts(
+  year?: number,
+  month?: number,
+): Promise<ReceiptDraftView[]> {
+  const q = year !== undefined && month !== undefined ? `?year=${year}&month=${month}` : "";
+  const json = await request<{ data: ReceiptDraftView[] }>(
+    `/actuals/drafts${q}`,
+    "仮の明細を取得できませんでした",
+  );
+  return json.data;
+}
+
+export async function deleteReceiptDraft(id: number): Promise<void> {
+  await request(`/actuals/drafts/${id}`, "削除に失敗しました", { method: "DELETE" });
+}
+
+export async function rereadReceiptDraft(id: number): Promise<void> {
+  await request(`/actuals/drafts/${id}/read`, "読み取り直せませんでした", { method: "POST" });
 }
 
 /** 撮ったレシートの写真（JPEG）を読み取る。登録はしない */
@@ -837,6 +892,8 @@ export type CycleStatus = {
     lagging: { kind: ActualsSource["kind"]; id: number }[];
     /** 科目が付いていない明細の件数 */
     unassigned: number;
+    /** 仮の明細（撮ったレシートで、まだ確かめていないもの）の件数。古いサーバーの応答には無い */
+    drafts?: number;
     /** 確定時点の記録（口座・カードごとの最終日と「当月末まで変動なし」の印）。未確定・古い確定は null */
     confirmedCoverage: CoverageSnapshot | null;
   };

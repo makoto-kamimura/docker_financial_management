@@ -6,7 +6,7 @@ import { contentTypeForExtension } from "@/lib/server/upload";
 import { uploadStorage } from "@/lib/server/storage";
 
 // GET /api/uploads/[filename] … 証憑ファイルの配信。
-// Receipt レコード経由で「自テナントの仕訳か現金の明細に紐づく証憑か」を確認してから配信する
+// Receipt レコード経由で「自テナントの仕訳・現金の明細・仮の明細に紐づく証憑か」を確認してから配信する
 // （他テナントのファイル名を知っていても 404 になり、存在の有無ごと秘匿する）。
 export const GET = withApi({
   role: "viewer",
@@ -20,6 +20,7 @@ export const GET = withApi({
         OR: [
           { journalEntry: { tenantId: user.tenantId } },
           { financialRecord: { tenantId: user.tenantId } },
+          { receiptDraft: { tenantId: user.tenantId } },
         ],
       },
     });

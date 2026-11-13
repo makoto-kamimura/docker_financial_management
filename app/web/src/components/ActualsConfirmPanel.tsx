@@ -248,7 +248,9 @@ function ActualsCard({
         ? `明細が月末（${formatYmd(actuals.monthEnd)}）までそろうか、届いていないものに「当月末まで変動なし」を付けると確定できます。`
         : actuals.unassigned > 0
           ? `未割り当ての明細（${actuals.unassigned} 件）に科目を付けると確定できます。`
-          : null;
+          : actuals.drafts > 0
+            ? `仮の明細（撮ったレシート ${actuals.drafts} 件）を確かめて登録するか削除すると確定できます。`
+            : null;
 
   return (
     <div className="card p-0 overflow-hidden">
@@ -359,6 +361,14 @@ function ActualsCard({
         )}
         {!locked && blockedReason && (
           <span className="text-xs text-amber-700">{blockedReason}</span>
+        )}
+        {!locked && actuals.drafts > 0 && (
+          <Link
+            href={"/entry?tab=csv&source=manual" as never}
+            className="text-xs font-medium text-indigo-600 hover:underline"
+          >
+            仮の明細を開く
+          </Link>
         )}
       </div>
     </div>

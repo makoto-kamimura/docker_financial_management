@@ -62,6 +62,8 @@ export async function loadCycleStatus(
         sources: coverage.sources,
         lagging: coverage.lagging,
         unassigned: coverage.unassigned,
+        /** 仮の明細（撮ったレシートで、まだ確かめていないもの）の件数。残っていると確定できない */
+        drafts: coverage.drafts,
         /** 確定時点の記録（口座・カードごとの最終日と「当月末まで変動なし」の印） */
         confirmedCoverage:
           (period?.actualsConfirmation?.coverage as CoverageSnapshot | null | undefined) ?? null,

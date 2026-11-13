@@ -510,10 +510,10 @@ KPI の下に、次の順で置く。
 
 ①②③ の状況は `src/lib/budget/cycle-status.ts` で出し、`GET /api/cycle-status` と `GET /api/budgets/variance` が同じ形で返す。
 
-1. **実績の入力状況**：銀行口座（`bank_accounts`）とカード・電子マネー（`linked_accounts`）ごとに、取り込んだ明細の最終日（取引日の最大値）を出す。明細のあるソースの最終日のうち一番古い日が月末日以降なら「入力済み」とする（最終日の当日も入力済みに含める）。明細が 1 件も無いソースは判定から外す（使っていないカードで止まらないようにするため）。その月の未割り当て（科目が付いていない）の明細の件数も出す。計算は `src/lib/ledger/actuals-coverage.ts`。
+1. **実績の入力状況**：銀行口座（`bank_accounts`）とカード・電子マネー（`linked_accounts`）ごとに、取り込んだ明細の最終日（取引日の最大値）を出す。明細のあるソースの最終日のうち一番古い日が月末日以降なら「入力済み」とする（最終日の当日も入力済みに含める）。明細が 1 件も無いソースは判定から外す（使っていないカードで止まらないようにするため）。その月の未割り当て（科目が付いていない）の明細の件数と、仮の明細（撮ったレシートで、まだ確かめていないもの。[20.14節](#2014-レシートの読み取り)）の件数も出す。計算は `src/lib/ledger/actuals-coverage.ts`。
    - **当月末まで変動なし**：月末まで届いていないソースは、行ごとのボタンで「当月末まで変動なし」の印を付けられる（最終日のあと月末まで取引が無いと申告する）。届いていないソースすべてに印を付ければ、入力済みと同じく確定できる。
 2. **未割り当ての明細**：その月の科目が付いていない明細（現金・銀行・カード。振替・チャージの組は除く）を確定のタブに並べ、行ごとに科目と事業利用・按分を選べる（`GET /api/ledger/unassigned`。選ぶと学習し、同じ摘要の未割り当ての明細にも付く。「割り当て済みも表示」で `?includeAssigned=1` になり、科目を付けた明細も見直せる）。ある月のある科目の明細をまとめて事業利用にすることもできる（`PATCH /api/ledger/business`。[20.15節](#2015-事業利用と按分)）。残っている間は確定できない（409）。「まとめて自動処理」（`POST /api/ledger/auto-process`。`src/lib/ledger/ledger-auto-process.ts`）は、全期間の未割り当ての明細に学習ルール（[9.4節](#94-学習ルール)）で科目を付け、自動相殺（[20.4節](#204-振替とチャージ)）をかける。「科目を付け直す」（`?reset=1`）は、科目の付いた明細も対象にし、ルールに当たればその科目に付け直し、当たらなければ未割り当てに戻す（手で選んだ科目も外れる）。どちらも振替・チャージの組と確定済みの月の明細は変えない。
-3. **実績の確定**：「入力済み」になり（または届いていないソースすべてに変動なしの印を付け）、未割り当ての明細が無くなったら、ユーザーがボタンで確定する（自動では確定しない）。確定時点の明細の状況（ソースごとの最終日と変動なしの印）を `actuals_confirmations.coverage` に記録し、確定済みの月はその記録を表示する。確定した月の実績（`financial_records`）は、明細の登録・削除・科目の変更・振替やチャージの紐付け・仕訳（P/L 科目を含むもの）・売掛金／買掛金の登録・減価償却・棚卸の確定を受け付けない（409）。CSV と自動取得の取り込みでは、確定した月の行を飛ばす（件数を返す）。解除は admin だけができ、実績の値は変えない。確定と解除は監査ログに残す（`actuals_confirm` / `actuals_unconfirm`）。
+3. **実績の確定**：「入力済み」になり（または届いていないソースすべてに変動なしの印を付け）、未割り当ての明細と仮の明細（撮ったときに選んでいた日かレシートの日付がその月のもの）が無くなったら、ユーザーがボタンで確定する（自動では確定しない）。仮が残っていると 409 で、確定のタブに件数と、取り込みのタブ（仮の一覧）へのリンクを出す。確定時点の明細の状況（ソースごとの最終日と変動なしの印）を `actuals_confirmations.coverage` に記録し、確定済みの月はその記録を表示する。確定した月の実績（`financial_records`）は、明細の登録・削除・科目の変更・振替やチャージの紐付け・仕訳（P/L 科目を含むもの）・売掛金／買掛金の登録・減価償却・棚卸の確定を受け付けない（409）。CSV と自動取得の取り込みでは、確定した月の行を飛ばす（件数を返す）。解除は admin だけができ、実績の値は変えない。確定と解除は監査ログに残す（`actuals_confirm` / `actuals_unconfirm`）。
 4. **予実対比**（予実差確認）：選んだ月の収入・費用（`REVENUE` / `COGS` / `EXPENSE`）の科目ごとに、予算（自動反映を含む）・実績・差（実績−予算）を出す。費用は実績が予算より少なければ「余り」、多ければ「超過」とする。
 5. **差額の扱い**（予算の確定）：予算の月の前月の差について、科目ごとに次から選ぶ。計算は `src/lib/shared/budget-cycle.ts`。
 
@@ -1282,15 +1282,20 @@ npm run typecheck && npm run format:check
 
 ### 20.14 レシートの読み取り
 
-実績管理の取り込み（出どころは現金）と現金のカレンダーで、レシート・領収書を撮影するか画像を選ぶと、日付・店名・合計・支払方法を読み、登録のフォーム（`CashEntryForm`）に入れる。「撮影する」はタッチの端末だけに出す（`capture="environment"`）。読み取りでは何も登録せず、利用者が確かめてから登録する（`src/lib/ledger/receipt-scan/`）。
+実績管理の取り込み（出どころは現金）と現金のカレンダーで、レシート・領収書を撮影するか画像を選ぶと、すぐ**仮の明細**として保存し、日付・店名・合計・支払方法の読み取りはサーバーがあとで進める。読み取りには数秒〜十数秒かかるので、待たずに続けて撮れる。「撮影する」はタッチの端末だけに出す（`capture="environment"`）。利用者が仮を確かめてから登録する（`src/lib/ledger/receipt-scan/`・`src/lib/ledger/receipt-drafts.ts`）。
 
-- 写真はブラウザで長辺 1600px の JPEG に縮めてから送る（`src/lib/client/resize-image.ts`）。読み取りでは画像を残さず、登録したあとに、その明細の証憑として付ける（`POST /api/actuals/[id]/receipts`）。カレンダーの明細の行に 📎 が付き、証憑を開ける。
+- **仮の明細**（`receipt_drafts`）：撮ったときに選んでいた日（取り込みのタブは今日）と写真で作り、読み取り中（`READING`）→ 読み取った（`READ`。店名・合計・科目の候補・画質の警告を持つ）か読み取れなかった（`FAILED`。理由を持つ）になる。読み取りは応答のあとに 1 枚ずつ進める（`src/lib/server/background.ts` の `runInBackground`。Next.js の `after()`）。読み取り中のまま 3 分たったものは止まったとみなし、読み取れなかったものと同じに扱う（web が途中で再起動したときなど）。
+- 仮は**集計に入らない**（予算と実績・残高・仕訳のどれにも数えない）。カレンダーの日の欄に「仮 n」、選んだ日に仮の一覧（「仮」の印・写真・読み取りの状況・読み取った店名と金額）を出し、月の合計の横に「仮 n 件（集計外）」と出す。取り込みのタブには、すべての仮を並べる。読み取り中のものがあるあいだは数秒ごとに取り直す。
+- 「確かめて登録」で、読み取った内容を登録のフォーム（`CashEntryForm`）に入れる（レシートの日付が読めていれば、その日で登録する）。読み取れなかった仮は「もう一度読み取る」か「手で入力して登録」。登録すると（`POST /api/actuals` の `draftId`）、明細を作り、仮の写真をその明細の証憑に付け替え（セルフメディケーション税制の対象の額と品目も証憑に残す）、仮を消す。ここまでを 1 つのトランザクションで行い、ほかの人が先に登録・削除していたら 409。
+- 実績の確定は、その月の仮が残っていると受け付けない（[8.5節](#85-予算と実績の確定)の 3.）。
+- 写真はブラウザで長辺 1600px の JPEG に縮めてから送る（`src/lib/client/resize-image.ts`）。仮の写真は、仮の持つ証憑（`receipts.receiptDraftId`）として置き場所に保存し、自テナントだけが `/api/uploads` から取れる。登録すると明細の証憑になる。カレンダーの明細の行に 📎 が付き、証憑を開ける。
+- 撮ってその場で読み取る `POST /api/actuals/receipt-scan` も残している（古い版のアプリが使う）。
 - 有料プランは Claude（`RECEIPT_OCR_MODEL`、既定 `claude-opus-5-5`）の構造化出力で読む。無料プラン、または `ANTHROPIC_API_KEY` が無いときは、サーバーの中の OCR で読む（外部には送らない。下の「無料プランの読み取り」）。
 - 回数はテナントごとに日本時間の 1 日 30 回まで（`receipt_scan_requests` を数える。失敗は数えない）。上限を超えると 429。テナントの行をロックしてから数えるので、同時に読んでも超えない。
 - 店名は学習ルールにかけ、当たれば科目の候補にする。登録のときに「次から同じ店名には、この科目を使う」を選ぶと、学習ルールに覚える（`POST /api/actuals` の `learn`）。
 - カード払い・電子マネーと読めたときは、明細から入る分と二重に計上しないよう注意を出す。
 - 日付か合計を読めなかったときは、OCR サービスが返す画質の警告（`warnings`）から、写真の撮り方の案内を 1 つ出す（「写真が暗いようです。明るい場所で撮り直すと…」など。ぼけ → 暗さ → 影 → 映り込み → 小ささ の順）。読めていれば案内しない。文言と選び方は `src/lib/shared/receipt-hints.ts`（モバイルと共有）。
-- モバイルアプリでも同じ API で読み取る（撮影は `expo-camera` の撮影の画面 `CameraCapture`、写真の選択は `expo-image-picker`、縮めるのは `expo-image-manipulator`）。撮影の画面では、カメラの上にレシート・書類を合わせる枠を重ねる（枠の外を暗くし、四隅に L 字）。枠は「レシート」（縦長）と「書類・領収書」（A4。病院・薬局の領収書など）を切り替えられ、控除の書類の撮影は書類の枠だけ。撮った写真は切り取らない（サーバーが紙を見つけて切り抜く）。読み取りは通常の API より時間がかかるので、打ち切りまでの時間を延ばしている（`app/mobile/src/api.ts`）。
+- モバイルアプリでも同じ API で仮を作って読み取る（実績のカレンダーに仮の一覧を出し、確定の画面にも仮の件数を出す。撮影は `expo-camera` の撮影の画面 `CameraCapture`、写真の選択は `expo-image-picker`、縮めるのは `expo-image-manipulator`）。撮影の画面では、カメラの上にレシート・書類を合わせる枠を重ねる（枠の外を暗くし、四隅に L 字）。枠は「レシート」（縦長）と「書類・領収書」（A4。病院・薬局の領収書など）を切り替えられ、控除の書類の撮影は書類の枠だけ。撮った写真は切り取らない（サーバーが紙を見つけて切り抜く）。読み取りは通常の API より時間がかかるので、打ち切りまでの時間を延ばしている（`app/mobile/src/api.ts`）。
 
 **無料プランの読み取り**：OCR サービス（`app/ocr`、compose の `ocr`。web は `RECEIPT_OCR_URL` で呼ぶ）で読む（`src/lib/ledger/receipt-scan/local.ts`）。
 
@@ -1387,6 +1392,7 @@ npm run typecheck && npm run format:check
 | `financial_records` | accountId（空 = 未割り当て・振替・チャージ）, departmentId, periodId, amount, journalEntryId, kind, bankAccountId, cardAccountId, date, description, flow, balance, source, externalId, transferGroupId, chargeToCardId, chargeGroupId, businessUse, businessRatio | 実績と明細の表。kind を持つ行が現金・銀行・カードの明細（flow は +入金 / −出金、カードの利用は負）で、科目が付けば実績になる。kind の無い行は仕訳・減価償却・棚卸・売掛買掛・過去の直接入力の実績。`[bankAccountId, externalId]`・`[cardAccountId, externalId]` 一意。kind と口座、組と科目、事業利用と按分の決まりは CHECK 制約で守る |
 | `financial_record_histories` | recordId, userId, action, amount, changedAt | |
 | `forecasts` | accountId, periodId, method, scenario, amount | 保存した予測 |
+| `receipt_drafts` | tenantId, userId, date（撮ったときに選んでいた日）, status（READING / READ / FAILED）, draft・suggestedAccount・warnings（読み取った結果）, readDate（レシートの日付）, error, createdAt, updatedAt | 仮の明細（撮ったレシート）。集計に入らない。登録すると現金の明細になって消える。写真は `receipts.receiptDraftId` の証憑（[20.14節](#2014-レシートの読み取り)） |
 | `receipt_scan_requests` | tenantId, userId, engine（claude / tesseract）, status, model（読んだモデル。無料プランは `pp-ocr-v6-small` か `tesseract.js`）, inputTokens, outputTokens, createdAt | レシートの読み取りの記録。1 日の回数を数える（[20.14節](#2014-レシートの読み取り)） |
 
 ### 21.3 予算
@@ -1431,7 +1437,7 @@ npm run typecheck && npm run format:check
 | `journal_entries` | transactionDate, description, paymentMethod, taxCategory, approvalStatus | |
 | `journal_details` | journalEntryId, side, accountId, amount, taxRate, taxCreditEligible, note | |
 | `journal_approvals` | journalEntryId, action, actorId, comment | |
-| `receipts` | journalEntryId, financialRecordId, fileName, fileUrl, savedName, mimeType, fileSize | 証憑。仕訳か現金の明細のどちらか一方に付く（CHECK 制約） |
+| `receipts` | journalEntryId, financialRecordId, receiptDraftId, fileName, fileUrl, savedName, mimeType, fileSize | 証憑。仕訳・現金の明細・仮の明細のどれか一つに付く（CHECK 制約）。仮の明細のものは、登録すると現金の明細に付け替える |
 | `journal_templates` / `journal_template_lines` | name / side, accountId, amount, sortOrder | |
 | `inventories` / `inventory_items` | inventoryDate, status, valuationMethod, totalAmount / itemName, itemType, quantity, unitPrice | |
 | `fixed_assets` / `depreciations` | acquiredOn, acquisitionCost, usefulLife, method, bookValue / fiscalYear, amount | 償却は `[fixedAssetId, fiscalYear]` 一意 |
@@ -1535,6 +1541,9 @@ npm run typecheck && npm run format:check
 | GET / POST / DELETE | `/actuals` | V / E / E |
 | PATCH | `/actuals/[id]/categorize` | E |
 | GET / POST | `/actuals/receipt-scan`（GET は使うエンジンと今日の残りの回数、POST は画像を読み取った下書きと画質の警告 `warnings`） | V / E |
+| GET / POST | `/actuals/drafts`（仮の明細。GET は `?year=&month=` で絞れる。POST は写真の `file` と `date` で仮を作り、読み取りはあとで進める） | V / E |
+| GET / DELETE | `/actuals/drafts/[id]` | V / E |
+| POST | `/actuals/drafts/[id]/read`（読み取れなかった仮を読み取り直す） | E |
 | POST | `/imports`（`?target=cash\|bank\|card&accountId=`） | E |
 | GET | `/ledger/unassigned`（`?includeAssigned=1` で割り当て済みも） | V |
 | GET | `/ledger/history`（`?kind=CASH\|BANK\|CARD&accountId=&status=&categoryAccountId=&businessOnly=&limit=&offset=`） | V |

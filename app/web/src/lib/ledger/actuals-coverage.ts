@@ -174,16 +174,36 @@ export async function countUnassignedEntries(
   });
 }
 
-/** 対象月の実績の入力状況（ソース一覧・判定・未割り当ての件数） */
+// @db.Date の列は UTC の 0 時で比べる
+const utcMonthStart = (year: number, month: number) => new Date(Date.UTC(year, month - 1, 1));
+
+/**
+ * 対象月に残っている仮の明細（lib/ledger/receipt-drafts.ts）の件数。撮ったときに選んでいた日か、
+ * レシートの日付がその月のもの。実績の確定は、これが 0 になるまで受け付けない
+ */
+export function countReceiptDraftsInMonth(
+  db: Pick<TenantDbClient, "receiptDraft">,
+  year: number,
+  month: number,
+): Promise<number> {
+  const range = { gte: utcMonthStart(year, month), lt: utcMonthStart(year, month + 1) };
+  return db.receiptDraft.count({ where: { OR: [{ date: range }, { readDate: range }] } });
+}
+
+/**
+ * 対象月の実績の入力状況（ソース一覧・判定・未割り当ての件数・仮の明細の件数）。
+ * 仮の明細（レシートを撮ってまだ確かめていないもの）が残っている月は確定しない
+ */
 export async function loadActualsCoverage(
-  db: Pick<TenantDbClient, "bankAccount" | "linkedAccount" | "financialRecord">,
+  db: Pick<TenantDbClient, "bankAccount" | "linkedAccount" | "financialRecord" | "receiptDraft">,
   tenantId: number,
   year: number,
   month: number,
 ) {
-  const [sources, unassigned] = await Promise.all([
+  const [sources, unassigned, drafts] = await Promise.all([
     loadActualsSources(db, tenantId),
     countUnassignedEntries(db, tenantId, year, month),
+    countReceiptDraftsInMonth(db, year, month),
   ]);
-  return { sources, unassigned, ...judgeActualsCoverage(sources, year, month) };
+  return { sources, unassigned, drafts, ...judgeActualsCoverage(sources, year, month) };
 }

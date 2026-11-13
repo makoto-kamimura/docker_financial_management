@@ -24,7 +24,8 @@ const ym = (year: number, month: number) => `${year}-${String(month).padStart(2,
 // POST /api/actuals/confirm … 月の実績を確定する（editor 以上）
 //   月ごとの流れ「① 予算確定 → ② 実績確定 → ③ 翌月の予算確定」の ②。
 //   その月の予算が（家庭か事業のどちらかで）確定済みで、銀行・カード・電子マネーの明細が月末日までそろって
-//   「実績入力済み」になっていること、未割り当て（科目が付いていない）の明細が残っていないことが条件
+//   「実績入力済み」になっていること、未割り当て（科目が付いていない）の明細と、仮の明細（撮ったレシートで
+//   まだ確かめていないもの。lib/ledger/receipt-drafts.ts）が残っていないことが条件
 //   （lib/ledger/actuals-coverage.ts）。
 //   月末まで届いていない口座・カードは、noChange（当月末まで変動なし）で指定すれば、そろったものとして扱う。
 //   確定時点の明細の状況（最終日と変動なしの印）は actuals_confirmations.coverage に記録する。
@@ -68,6 +69,12 @@ export const POST = withApi({
     if (coverage.unassigned > 0) {
       throw conflict(
         `${label}の明細のうち ${coverage.unassigned} 件にまだ科目が付いていません。未割り当ての明細に科目を付けてから確定してください`,
+      );
+    }
+    // 仮の明細（撮ったレシートで、まだ確かめていないもの）が残っていると、その分の実績が欠けるので確定しない
+    if (coverage.drafts > 0) {
+      throw conflict(
+        `${label}の仮の明細（撮ったレシート）が ${coverage.drafts} 件残っています。確かめて登録するか削除してから確定してください`,
       );
     }
     const snapshot = buildCoverageSnapshot(coverage.sources, coverage, noChange);

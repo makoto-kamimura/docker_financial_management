@@ -43,6 +43,8 @@ export type CycleStatus = {
     lagging: { kind: ActualsSource["kind"]; id: number }[];
     /** 科目が付いていない明細の件数 */
     unassigned: number;
+    /** 仮の明細（撮ったレシートで、まだ確かめていないもの）の件数。残っていると確定できない */
+    drafts: number;
     /** 確定時点の記録。確定していない月と、記録を始める前に確定した月は null */
     confirmedCoverage: CoverageSnapshot | null;
   };

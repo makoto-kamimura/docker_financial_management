@@ -1,8 +1,9 @@
 "use client";
 
 // 現金の明細を 1 件登録するフォーム（実績管理のカレンダーと取り込みで使う）。支払元・入金先は現金に固定する。
-// 読み取ったレシート（receipt）を渡すと、店名・合計・科目の候補・事業利用・セルフメディケーションを入れておき、
-// 登録した明細にレシートの写真を証憑として付ける。別のレシートにするときは、親が key を変えて作り直す。
+// 仮の明細（receipt。撮ったレシート）を渡すと、読み取った店名・合計・科目の候補・事業利用・セルフメディケーションを
+// 入れておき、登録すると仮の写真を明細の証憑に付け替えて仮を消す（POST /api/actuals の draftId）。
+// 読み取れなかった仮は、空の欄から手で入力して登録する。別のレシートにするときは、親が key を変えて作り直す。
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
@@ -11,7 +12,7 @@ import { retakeHint } from "@/lib/shared/receipt-hints";
 import { BUSINESS_USE_LABEL, isValidBusinessRatio } from "@/lib/shared/business-use";
 import type { ViewMode } from "@/lib/shared/display-name";
 import type { PaymentMethod } from "@/lib/ledger/receipt-scan/types";
-import type { ScannedReceipt } from "@/components/entry/ReceiptScanButton";
+import { invalidateDrafts, type DraftReceipt } from "@/components/entry/receipt-drafts";
 import { EXPENSE_CATS, INCOME_CATS, type Account, type CashEntry } from "@/components/entry/types";
 
 const BLANK_FORM = {
@@ -44,18 +45,18 @@ export function CashEntryForm({
   date: string;
   /** 渡すと日付の欄を出す（取り込み。カレンダーは選んだ日で登録する） */
   onDateChange?: (date: string) => void;
-  /** 読み取ったレシート */
-  receipt?: ScannedReceipt | null;
-  /** 登録できたとき。photoSaved は証憑の写真を保存できたか（レシートが無ければ true） */
-  onSaved?: (entry: CashEntry, photoSaved: boolean) => void;
-  /** 渡すと「この 1 枚を飛ばす」を出す（取り込みで、複数枚を順に登録するとき） */
+  /** 仮の明細（撮ったレシート）から登録するとき */
+  receipt?: DraftReceipt | null;
+  /** 登録できたとき */
+  onSaved?: (entry: CashEntry) => void;
+  /** 渡すと「あとで確かめる」を出す（取り込みで、仮のまま閉じるとき） */
   onSkip?: () => void;
 }) {
   const queryClient = useQueryClient();
   const incomeAccounts = (accounts ?? []).filter((a) => INCOME_CATS.includes(a.category));
   const expenseAccounts = (accounts ?? []).filter((a) => EXPENSE_CATS.includes(a.category));
-  const suggested = receipt?.result.suggestedAccount ?? null;
-  const draft = receipt?.result.draft ?? null;
+  const suggested = receipt?.result?.suggestedAccount ?? null;
+  const draft = receipt?.result?.draft ?? null;
 
   const [form, setForm] = useState(() =>
     draft
@@ -89,7 +90,7 @@ export function CashEntryForm({
   const mainAccounts = form.direction === "income" ? incomeAccounts : expenseAccounts;
   const warning = draft ? (PAYMENT_WARNINGS[draft.paymentMethod] ?? null) : null;
   // 日付・合計を読めなかったとき、写真の撮り方の案内（暗い・ぼやけているなど）
-  const hint = draft ? retakeHint(receipt?.result.warnings, draft) : null;
+  const hint = draft ? retakeHint(receipt?.result?.warnings, draft) : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -111,6 +112,14 @@ export function CashEntryForm({
         direction: form.direction,
         learn: receipt !== null && learn,
         ...(businessMode ? { businessUse: business, businessRatio: business ? r : null } : {}),
+        ...(receipt
+          ? {
+              draftId: receipt.draftId,
+              ...(selfMed?.on && /^\d+$/.test(selfMed.amount)
+                ? { selfMedication: { amount: Number(selfMed.amount), items: selfMed.items } }
+                : {}),
+            }
+          : {}),
       }),
     });
     if (!res.ok) {
@@ -120,23 +129,12 @@ export function CashEntryForm({
       return;
     }
     const { data } = (await res.json()) as { data: CashEntry };
-    let photoSaved = true;
-    if (receipt) {
-      const body = new FormData();
-      body.append("file", receipt.photo);
-      if (selfMed?.on && /^\d+$/.test(selfMed.amount)) {
-        body.append("selfMedicationAmount", selfMed.amount);
-        body.append("selfMedicationItems", JSON.stringify(selfMed.items));
-      }
-      const up = await fetch(`/api/actuals/${data.id}/receipts`, { method: "POST", body });
-      photoSaved = up.ok;
-      if (!up.ok) setError("実績は登録しましたが、レシートの写真を保存できませんでした");
-    }
     setForm(BLANK_FORM);
     setSelfMed(null);
     setSaving(false);
     invalidateActuals(queryClient);
-    onSaved?.(data, photoSaved);
+    if (receipt) invalidateDrafts(queryClient);
+    onSaved?.(data);
   }
 
   return (
@@ -295,7 +293,7 @@ export function CashEntryForm({
             disabled={saving}
             className="btn-secondary text-xs flex-1"
           >
-            この 1 枚を飛ばす
+            あとで確かめる
           </button>
         )}
         <button type="submit" disabled={saving} className="btn-primary text-xs flex-1">
