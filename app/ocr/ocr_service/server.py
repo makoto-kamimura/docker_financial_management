@@ -100,9 +100,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             result = read_receipt(data, ocr=ocr, want_image=want_image)
         except Busy:
+            print(f"[ocr] busy: waited {QUEUE_WAIT:.0f}s for the previous read", flush=True)
             self._json(503, {"error": "busy"})
             return
         except subprocess.TimeoutExpired:
+            print(f"[ocr] read timed out after {TIMEOUT:.0f}s", flush=True)
             self._json(504, {"error": "timeout"})
             return
         except subprocess.CalledProcessError as e:
