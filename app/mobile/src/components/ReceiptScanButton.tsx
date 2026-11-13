@@ -25,6 +25,14 @@ const ENGINE_LABELS: Record<ReceiptEngine, string> = {
   tesseract: "簡易の読み取り（精度は低め）",
 };
 
+const WEEKDAYS = "日月火水木金土";
+
+/** YYYY-MM-DD を「11月13日（木）」にする（撮影の画面に、仮の明細の保存先として出す） */
+export function dayLabel(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return `${m}月${d}日（${WEEKDAYS[new Date(y, m - 1, d).getDay()]}）`;
+}
+
 /** 読み取った支払方法の注意（仮の明細をフォームに入れたときに出す） */
 export const PAYMENT_WARNINGS: Partial<
   Record<ReceiptScanResult["draft"]["paymentMethod"], string>
@@ -149,6 +157,8 @@ export function ReceiptScanButton({ date, onSaved }: Props) {
         shape={shape}
         shapes={["receipt", "document"]}
         onShapeChange={setShape}
+        caption={`${dayLabel(date)}の仮の明細に保存`}
+        note="レシートの日付が読めたら、登録のときはその日になります"
         onCaptured={(photo) => {
           setCameraOpen(false);
           void read(photo);

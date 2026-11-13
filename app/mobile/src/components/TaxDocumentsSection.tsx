@@ -185,6 +185,7 @@ function TaxDocumentUpload({ docId }: { docId: TaxDocumentId }) {
       <CameraCapture
         visible={cameraOpen}
         shape="document"
+        caption={`${TAX_DOCUMENTS[docId].label}（${year}年分）`}
         onCaptured={(photo) => {
           setCameraOpen(false);
           void save(photo);

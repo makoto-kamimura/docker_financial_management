@@ -43,11 +43,17 @@ export function CameraCapture({
   shape,
   shapes = [shape],
   onShapeChange,
+  caption,
+  note,
   onCaptured,
   onClose,
 }: {
   visible: boolean;
   shape: GuideShape;
+  /** シャッターの上に出す、撮った写真の行き先（例: 「11月13日（木）の仮の明細に保存」） */
+  caption?: string;
+  /** caption の下に小さく出す補足 */
+  note?: string;
   /** 切り替えられる枠（1 つなら切り替えを出さない） */
   shapes?: GuideShape[];
   onShapeChange?: (shape: GuideShape) => void;
@@ -157,6 +163,12 @@ export function CameraCapture({
         </View>
 
         <View style={[s.bottom, { paddingBottom: insets.bottom + 16 }]}>
+          {caption ? (
+            <View style={s.captionWrap}>
+              <Text style={s.caption}>{caption}</Text>
+              {note ? <Text style={s.captionNote}>{note}</Text> : null}
+            </View>
+          ) : null}
           {error ? <Text style={s.error}>{error}</Text> : null}
           <TouchableOpacity
             style={[s.shutter, (!ready || shooting) && { opacity: 0.5 }]}
@@ -239,6 +251,9 @@ const s = StyleSheet.create({
   },
   permBtnText: { color: "#1e293b", fontWeight: "700" },
   bottom: { alignItems: "center", paddingTop: 16, gap: 10 },
+  captionWrap: { alignItems: "center", paddingHorizontal: 16, gap: 2 },
+  caption: { color: "#fff", fontSize: 15, fontWeight: "700", textAlign: "center" },
+  captionNote: { color: "rgba(255,255,255,0.7)", fontSize: 11, textAlign: "center" },
   error: { color: "#fca5a5", fontSize: 13 },
   shutter: {
     width: 74,
