@@ -1,6 +1,8 @@
 "use client";
 
 // 実績管理の「カレンダー」タブ（出どころが現金）。日を選んで現金の明細を登録・削除する。
+// レシートを撮ると、選んでいる日に仮の明細として保存し（読み取りはあとで進む）、日の欄に「仮」の数を出す。
+// 仮は集計に入らない。「確かめて登録」で登録のフォームに読み取った内容を入れる。
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import { Paperclip } from "lucide-react";
@@ -10,7 +12,14 @@ import { setFiscalYear, useFiscalYear } from "@/lib/client/use-fiscal-year";
 import { displayName, type ViewMode } from "@/lib/shared/display-name";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import { yen } from "@/lib/common/format";
-import { ReceiptScanButton, type ScannedReceipt } from "@/components/entry/ReceiptScanButton";
+import { ReceiptScanButton } from "@/components/entry/ReceiptScanButton";
+import { ReceiptDraftList } from "@/components/entry/ReceiptDraftList";
+import {
+  toDraftReceipt,
+  useReceiptDrafts,
+  type DraftReceipt,
+  type ReceiptDraftView,
+} from "@/components/entry/receipt-drafts";
 import { CashEntryForm } from "@/components/entry/CashEntryForm";
 import { BusinessTag } from "@/components/LedgerTable";
 import { businessPortion } from "@/lib/shared/business-use";
@@ -32,8 +41,8 @@ export function CashCalendarTab({
   const setViewYear = (f: (y: number) => number) => setFiscalYear(f(viewYear));
   const [viewMonth, setViewMonth] = useState(now.getMonth() + 1);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
-  // 読み取ったレシート。フォームはレシートを読み取るたび・レシートから登録するたびに作り直す（formKey）
-  const [receipt, setReceipt] = useState<ScannedReceipt | null>(null);
+  // フォームに入れている仮の明細。フォームは仮を開くたび・登録するたびに作り直す（formKey）
+  const [receipt, setReceipt] = useState<DraftReceipt | null>(null);
   const [formKey, setFormKey] = useState(0);
   const [calError, setCalError] = useState("");
   // 個人事業主モードは事業利用の明細だけを、事業の分の額で出す
@@ -66,6 +75,19 @@ export function CashCalendarTab({
 
   const selectedEntries = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
 
+  // 仮の明細（撮ったときに選んでいた日で並べる。集計には入れない）
+  const { data: drafts = [] } = useReceiptDrafts({ year: viewYear, month: viewMonth });
+  const draftsByDay = useMemo(() => {
+    const m = new Map<number, ReceiptDraftView[]>();
+    for (const d of drafts) {
+      const day = Number(d.date.slice(8, 10));
+      if (!m.has(day)) m.set(day, []);
+      m.get(day)!.push(d);
+    }
+    return m;
+  }, [drafts]);
+  const selectedDrafts = selectedDay ? (draftsByDay.get(selectedDay) ?? []) : [];
+
   // 表示中の月に入力された実績の合計（カレンダー上部に表示する）
   const monthTotals = useMemo(() => {
     let income = 0;
@@ -94,18 +116,21 @@ export function CashCalendarTab({
     setSelectedDay(null);
   }
 
-  // レシートの読み取り結果をフォームに入れる。日付が読めたら、その日を選ぶ
-  function applyReceipt(scanned: ScannedReceipt) {
-    const { date } = scanned.result.draft;
-    if (date) {
-      const [y, m, d] = date.split("-").map(Number);
-      setFiscalYear(y);
-      setViewMonth(m);
-      setSelectedDay(d);
-    }
-    setReceipt(scanned);
+  // 仮の明細をフォームに入れる。レシートの日付が読めていれば、その日を選ぶ（登録する日になる）
+  function openDraft(draft: ReceiptDraftView) {
+    const date = draft.result?.draft.date ?? draft.date;
+    const [y, m, d] = date.split("-").map(Number);
+    setFiscalYear(y);
+    setViewMonth(m);
+    setSelectedDay(d);
+    setReceipt(toDraftReceipt(draft));
     setFormKey((k) => k + 1);
     setCalError("");
+  }
+
+  function closeDraft() {
+    setReceipt(null);
+    setFormKey((k) => k + 1);
   }
 
   async function handleCalDelete(id: number) {
@@ -116,6 +141,8 @@ export function CashCalendarTab({
     }
     invalidateActuals(queryClient);
   }
+
+  const selectedYmd = `${viewYear}-${String(viewMonth).padStart(2, "0")}-${String(selectedDay ?? 1).padStart(2, "0")}`;
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 items-start">
@@ -131,7 +158,7 @@ export function CashCalendarTab({
               { label: "支出合計", value: monthTotals.expense, tone: "out" },
               { label: "差引", value: monthTotals.net, tone: "net" },
             ]}
-            note={`${monthTotals.count} 件の実績`}
+            note={`${monthTotals.count} 件の実績${drafts.length > 0 ? `・仮 ${drafts.length} 件（集計外）` : ""}`}
           />
         }
         loading={calLoading}
@@ -139,12 +166,20 @@ export function CashCalendarTab({
         onSelectDay={setSelectedDay}
         renderDay={(day) => {
           const dayEntries = byDay.get(day) ?? [];
+          const dayDrafts = draftsByDay.get(day)?.length ?? 0;
           return (
-            <DayAmounts
-              income={dayEntries.reduce((s, e) => s + entryAmount(e).income, 0)}
-              expense={dayEntries.reduce((s, e) => s + entryAmount(e).expense, 0)}
-              kind="cash"
-            />
+            <>
+              <DayAmounts
+                income={dayEntries.reduce((s, e) => s + entryAmount(e).income, 0)}
+                expense={dayEntries.reduce((s, e) => s + entryAmount(e).expense, 0)}
+                kind="cash"
+              />
+              {dayDrafts > 0 && (
+                <span className="block text-[9px] font-semibold text-amber-600">
+                  仮 {dayDrafts}
+                </span>
+              )}
+            </>
           );
         }}
       />
@@ -176,6 +211,20 @@ export function CashCalendarTab({
                   );
                 })()}
             </div>
+
+            {selectedDrafts.length > 0 && (
+              <div className="card py-2.5 px-3">
+                <h3 className="text-xs font-semibold text-amber-700 mb-2">
+                  仮の明細（{selectedDrafts.length} 件）
+                </h3>
+                <ReceiptDraftList
+                  drafts={selectedDrafts}
+                  openId={receipt?.draftId ?? null}
+                  onOpen={openDraft}
+                  showDate={false}
+                />
+              </div>
+            )}
 
             {selectedEntries.length > 0 && (
               <div className="card p-0 overflow-hidden">
@@ -233,19 +282,20 @@ export function CashCalendarTab({
             )}
 
             <div className="card">
-              <h3 className="text-xs font-semibold text-slate-600 mb-3">実績を追加</h3>
-              <ReceiptScanButton onScanned={applyReceipt} />
+              <h3 className="text-xs font-semibold text-slate-600 mb-3">
+                {receipt ? "仮の明細を確かめて登録" : "実績を追加"}
+              </h3>
+              {!receipt && <ReceiptScanButton date={selectedYmd} />}
               <CashEntryForm
                 key={formKey}
                 accounts={accounts}
                 mode={mode}
-                date={`${viewYear}-${String(viewMonth).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`}
+                date={selectedYmd}
                 receipt={receipt}
                 onSaved={() => {
-                  if (!receipt) return;
-                  setReceipt(null);
-                  setFormKey((k) => k + 1);
+                  if (receipt) closeDraft();
                 }}
+                onSkip={receipt ? closeDraft : undefined}
               />
               {calError && <p className="text-xs text-red-600 mt-2">{calError}</p>}
             </div>
