@@ -46,6 +46,7 @@ export async function migrateUploadsToR2(opts: {
       mimeType: true,
       journalEntry: { select: { tenantId: true } },
       financialRecord: { select: { tenantId: true } },
+      receiptDraft: { select: { tenantId: true } },
     },
     orderBy: { id: "asc" },
   });
@@ -59,7 +60,8 @@ export async function migrateUploadsToR2(opts: {
   };
   for (const r of receipts) {
     const savedName = r.savedName!;
-    const tenantId = r.journalEntry?.tenantId ?? r.financialRecord?.tenantId;
+    const tenantId =
+      r.journalEntry?.tenantId ?? r.financialRecord?.tenantId ?? r.receiptDraft?.tenantId;
     const buf = tenantId === undefined ? null : await opts.local.get(tenantId, savedName);
     if (tenantId === undefined || !buf) {
       report.missing.push(savedName);

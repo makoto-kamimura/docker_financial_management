@@ -195,6 +195,7 @@ afterAll(async () => {
   await prisma.budget.deleteMany({ where });
   await prisma.financialRecordHistory.deleteMany({ where: { record: { tenantId } } });
   await prisma.financialRecord.deleteMany({ where });
+  await prisma.receiptDraft.deleteMany({ where });
   await prisma.linkedAccount.deleteMany({ where });
   await prisma.bankAccount.deleteMany({ where });
   await prisma.journalDetail.deleteMany({ where: { journalEntry: { tenantId } } });
@@ -276,6 +277,37 @@ describe("実績の確定", () => {
       data: { accountId: food.id, amount: 1_500 },
     });
     expect((await variance(5)).actuals.unassigned).toBe(0);
+  });
+
+  it("② 仮の明細（撮ったレシート）が残っていると、実績を確定できない（409）。登録か削除で進める", async () => {
+    actingUser = editor;
+    // 撮ったときに選んでいた日が 5 月のものと、レシートの日付が 5 月のもの（選んでいた日は 6 月）
+    const drafts = await Promise.all([
+      prisma.receiptDraft.create({
+        data: {
+          tenantId,
+          userId: editor.id,
+          date: new Date(Date.UTC(YEAR, 4, 10)),
+          status: "READING",
+        },
+      }),
+      prisma.receiptDraft.create({
+        data: {
+          tenantId,
+          userId: editor.id,
+          date: new Date(Date.UTC(YEAR, 5, 1)),
+          readDate: new Date(Date.UTC(YEAR, 4, 31)),
+          status: "READ",
+        },
+      }),
+    ]);
+    expect((await variance(5)).actuals.drafts).toBe(2);
+    const res = await confirmActuals(5, [{ kind: "card", id: cardId }]);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("仮の明細");
+
+    await prisma.receiptDraft.deleteMany({ where: { id: { in: drafts.map((d) => d.id) } } });
+    expect((await variance(5)).actuals.drafts).toBe(0);
   });
 
   it("② 当月末まで変動なし: 届いていないソースすべてに付ければ確定でき、確定時点の状況を記録する", async () => {

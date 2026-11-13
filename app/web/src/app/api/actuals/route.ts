@@ -9,6 +9,8 @@ import { CASH, CASH_INCLUDE, createEntry, toCashEntry } from "@/lib/ledger/ledge
 import { learnCategoryRule } from "@/lib/ledger/ledger-categorize";
 import { BusinessInput, entryBusiness } from "@/lib/ledger/business-use";
 import { invalidateActualsCaches } from "@/lib/server/closing-cache";
+import { attachDraftToEntry } from "@/lib/ledger/receipt-drafts";
+import { SelfMedicationItemsSchema } from "@/lib/tax/documents";
 
 // 現金の明細（実績の表 financial_records の kind = CASH の行）。実績管理の「現金」のカレンダーと履歴で使う。
 // 科目を付けて登録するので、登録した時点で実績になる（科目は履歴から変えられる: ./[id]/categorize）。
@@ -21,6 +23,15 @@ const ActualSchema = BusinessInput.extend({
   direction: z.enum(["income", "expense"]),
   // true なら、摘要と科目の組を学習ルールに覚えさせる（次から同じ店名の明細に同じ科目が付く）
   learn: z.boolean().optional(),
+  // 仮の明細（./drafts）から登録するとき。仮の写真を証憑に付け替え、仮は消す
+  draftId: z.number().int().positive().optional(),
+  // 仮から登録するときの、セルフメディケーション税制の対象の額と品目（証憑に残す）
+  selfMedication: z
+    .object({
+      amount: z.number().int().min(0).max(100_000_000),
+      items: SelfMedicationItemsSchema.default([]),
+    })
+    .optional(),
 });
 
 // GET /api/actuals?year=2026&month=6 … その月の現金の明細（カレンダー）
@@ -53,7 +64,8 @@ export const GET = withApi({
   },
 });
 
-// POST /api/actuals … 現金の明細の登録（科目つき。登録した時点で実績になる）
+// POST /api/actuals … 現金の明細の登録（科目つき。登録した時点で実績になる）。
+//   draftId を渡すと、仮の明細から登録する（写真は証憑に付け替え、仮は消す。ほかの人が先に登録していたら 409）
 export const POST = withApi({
   role: "editor",
   schema: ActualSchema,
@@ -63,26 +75,36 @@ export const POST = withApi({
     if (!account) throw badRequest(`勘定科目 "${body.accountCode}" が見つかりません`);
 
     const business = await entryBusiness(db, body, account);
-    const row = await createEntry(
-      db,
-      tenantId,
-      { kind: "CASH" },
-      {
-        date: new Date(body.date),
-        description: body.description,
-        flow: body.direction === "income" ? body.amount : -body.amount,
-        source: "MANUAL",
-        category: account,
-        business,
-      },
-    );
+    const row = await db.$transaction(async (tx) => {
+      const created = await createEntry(
+        tx,
+        tenantId,
+        { kind: "CASH" },
+        {
+          date: new Date(body.date),
+          description: body.description,
+          flow: body.direction === "income" ? body.amount : -body.amount,
+          source: "MANUAL",
+          category: account,
+          business,
+        },
+      );
+      if (body.draftId) {
+        await attachDraftToEntry(tx, body.draftId, created.id, body.selfMedication ?? null);
+      }
+      return created;
+    });
     if (body.learn) {
       // 事業利用は指定したときだけ覚える（指定しなければ、覚えた事業利用を消さない）
       const learned = body.businessUse === undefined ? undefined : business;
       await learnCategoryRule(db, tenantId, body.description, account.id, learned, row.flow);
     }
     await invalidateActualsCaches(user.tenantId);
-    await audit("create_cash_entry", `financial_record:${row.id}`);
+    await audit(
+      "create_cash_entry",
+      `financial_record:${row.id}`,
+      body.draftId ? { after: { fromDraft: body.draftId } } : undefined,
+    );
     const created = await db.financialRecord.findUniqueOrThrow({
       where: { id: row.id },
       include: CASH_INCLUDE,
