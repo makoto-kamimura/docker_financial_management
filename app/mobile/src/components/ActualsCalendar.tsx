@@ -2,22 +2,26 @@
 // 現金の明細を GET/POST/DELETE /actuals で扱う。月の収入・支出合計と日別の増減を表示し、
 // 選んだ日に「収入 / 支出・摘要・科目・金額」で登録できる（出どころの「現金」）。
 // 科目を付けて登録するので、登録した時点で実績になる。
-// レシートを撮影すると読み取った内容がフォームに入り、登録した明細に写真が証憑として付く。
+// レシートを撮影すると、選んでいる日に仮の明細として保存し（読み取りはサーバーがあとで進める）、
+// 日の欄に「仮」の数を出す。仮は集計に入らない。「確かめて登録」で読み取った内容がフォームに入り、
+// 登録すると写真が明細の証憑になって仮は消える。
 // 個人事業主モードは事業利用の明細だけを事業の分の額で出し、登録は事業利用で始める
 // （按分を空けると科目の事業利用按分の割合。web 版と同じ）。
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import {
-  attachActualReceipt,
   deleteActual,
   fetchActuals,
+  fetchReceiptDrafts,
   postActual,
   type Account,
   type CashEntry,
-  type ReceiptScanResult,
+  type ReceiptDraftView,
   type ViewMode,
 } from "../api";
-import { ReceiptScanButton } from "./ReceiptScanButton";
+import { PAYMENT_WARNINGS, ReceiptScanButton } from "./ReceiptScanButton";
+import { ReceiptDraftRows } from "./ReceiptDraftRows";
+import { retakeHint } from "../shared/receipt-hints";
 import { displayName } from "../shared/display-name";
 import { digitsOnly, isoDate, yen } from "../format";
 import { AccountPickerModal } from "./CategoryPickerModal";
@@ -63,8 +67,9 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [picking, setPicking] = useState(false);
-  // 読み取ったレシートの写真。登録した明細に証憑として付ける
-  const [receiptUri, setReceiptUri] = useState<string | null>(null);
+  // フォームに入れている仮の明細（登録すると写真が明細の証憑になり、仮は消える）
+  const [openDraft, setOpenDraft] = useState<ReceiptDraftView | null>(null);
+  const [drafts, setDrafts] = useState<ReceiptDraftView[]>([]);
   const [learn, setLearn] = useState(true);
   // セルフメディケーション税制の対象の市販薬を含むレシート。証憑に対象の額と品目を残す（控除・確定申告で使う）
   const [selfMed, setSelfMed] = useState<{
@@ -87,6 +92,36 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 仮の明細（撮ったときに選んでいた日で並べる）。読み取り中のものがあるあいだは数秒ごとに取り直す
+  const loadDrafts = useCallback(async () => {
+    try {
+      setDrafts(await fetchReceiptDrafts(year, month));
+    } catch {
+      setDrafts([]);
+    }
+  }, [year, month]);
+  useEffect(() => {
+    loadDrafts();
+  }, [loadDrafts]);
+  const reading = drafts.some((d) => d.status === "READING");
+  const poll = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (!reading) return;
+    poll.current = setInterval(loadDrafts, 3000);
+    return () => {
+      if (poll.current) clearInterval(poll.current);
+    };
+  }, [reading, loadDrafts]);
+
+  const draftsByDay = useMemo(() => {
+    const m = new Map<number, ReceiptDraftView[]>();
+    for (const d of drafts) {
+      const day = Number(d.date.slice(8, 10));
+      m.set(day, [...(m.get(day) ?? []), d]);
+    }
+    return m;
+  }, [drafts]);
 
   // 個人事業主モードは事業利用の明細だけを、事業の分の額で出す
   const entries = useMemo(
@@ -127,6 +162,10 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
   }
 
   const selectedEntries = selectedDay ? (byDay.get(selectedDay) ?? []) : [];
+  const selectedDrafts = selectedDay ? (draftsByDay.get(selectedDay) ?? []) : [];
+  const readDraft = openDraft?.result?.draft ?? null;
+  const paymentWarning = readDraft ? (PAYMENT_WARNINGS[readDraft.paymentMethod] ?? null) : null;
+  const hint = readDraft ? retakeHint(openDraft?.result?.warnings, readDraft) : null;
 
   const mainCats = form.direction === "income" ? INCOME_CATS : EXPENSE_CATS;
   const accountLabel = (code: string) => {
@@ -156,37 +195,32 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
     setSaving(true);
     setError("");
     try {
-      const created = await postActual({
+      await postActual({
         date: isoDate(year, month, selectedDay),
         description: form.description.trim(),
         accountCode: form.accountCode,
         amount: Number(form.amount),
         direction: form.direction,
-        learn: receiptUri !== null && learn,
+        learn: openDraft !== null && learn,
         ...(businessMode
           ? {
               businessUse: business.businessUse,
               businessRatio: business.businessUse ? business.businessRatio : null,
             }
           : {}),
+        ...(openDraft
+          ? {
+              draftId: openDraft.id,
+              ...(selfMed?.on && /^\d+$/.test(selfMed.amount)
+                ? { selfMedication: { amount: Number(selfMed.amount), items: selfMed.items } }
+                : {}),
+            }
+          : {}),
       });
-      if (receiptUri) {
-        try {
-          await attachActualReceipt(
-            created.id,
-            receiptUri,
-            selfMed?.on && /^\d+$/.test(selfMed.amount)
-              ? { amount: Number(selfMed.amount), items: selfMed.items }
-              : null,
-          );
-        } catch {
-          setError("実績は登録しましたが、レシートの写真を保存できませんでした");
-        }
-      }
       setForm(BLANK_FORM);
-      setReceiptUri(null);
+      setOpenDraft(null);
       setSelfMed(null);
-      await load();
+      await Promise.all([load(), loadDrafts()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "登録に失敗しました");
     } finally {
@@ -194,29 +228,41 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
     }
   }
 
-  // レシートの読み取り結果をフォームに入れる。日付が読めたら、その日を選ぶ
-  function applyReceipt({ draft, suggestedAccount }: ReceiptScanResult, photoUri: string) {
+  // 仮の明細をフォームに入れる。レシートの日付が読めていれば、その日を選ぶ（登録する日になる）。
+  // 読み取れなかった仮は空の欄から手で入力する
+  function openDraftForm(d: ReceiptDraftView) {
+    const draft = d.result?.draft ?? null;
+    const suggestedAccount = d.result?.suggestedAccount ?? null;
     // 学習ルールが事業利用を決めていれば、その事業利用にする
     if (suggestedAccount?.business) setBusiness(suggestedAccount.business);
-    if (draft.date) {
-      const [y, m, d] = draft.date.split("-").map(Number);
-      setYear(y);
-      setMonth(m);
-      setSelectedDay(d);
-    }
+    const [y, m, day] = (draft?.date ?? d.date).split("-").map(Number);
+    setYear(y);
+    setMonth(m);
+    setSelectedDay(day);
     const expense = suggestedAccount && EXPENSE_CATS.includes(suggestedAccount.category);
-    setForm({
-      direction: "expense",
-      description: draft.merchant ?? "",
-      amount: draft.total ? String(draft.total) : "",
-      accountCode:
-        expense && accounts.some((a) => a.code === suggestedAccount.code)
-          ? suggestedAccount.code
-          : "",
-    });
-    setReceiptUri(photoUri);
-    const sm = selfMedicationOf(draft);
+    setForm(
+      draft
+        ? {
+            direction: "expense",
+            description: draft.merchant ?? "",
+            amount: draft.total ? String(draft.total) : "",
+            accountCode:
+              expense && accounts.some((a) => a.code === suggestedAccount.code)
+                ? suggestedAccount.code
+                : "",
+          }
+        : BLANK_FORM,
+    );
+    setOpenDraft(d);
+    const sm = draft ? selfMedicationOf(draft) : null;
     setSelfMed({ on: sm !== null, amount: sm ? String(sm.amount) : "", items: sm?.items ?? [] });
+    setError("");
+  }
+
+  function closeDraftForm() {
+    setOpenDraft(null);
+    setForm(BLANK_FORM);
+    setSelfMed(null);
     setError("");
   }
 
@@ -251,7 +297,7 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
               { label: "支出合計", value: monthTotals.expense, tone: "out" },
               { label: "差引", value: monthTotals.net, tone: "net" },
             ]}
-            note={`${monthTotals.count} 件の実績`}
+            note={`${monthTotals.count} 件の実績${drafts.length > 0 ? `・仮 ${drafts.length} 件（集計外）` : ""}`}
           />
         }
         loading={loading}
@@ -259,12 +305,16 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
         onSelectDay={setSelectedDay}
         renderDay={(day) => {
           const dayEntries = byDay.get(day) ?? [];
+          const dayDrafts = draftsByDay.get(day)?.length ?? 0;
           return (
-            <DayAmounts
-              income={dayEntries.reduce((sum, e) => sum + entryAmount(e).income, 0)}
-              expense={dayEntries.reduce((sum, e) => sum + entryAmount(e).expense, 0)}
-              kind="cash"
-            />
+            <View>
+              <DayAmounts
+                income={dayEntries.reduce((sum, e) => sum + entryAmount(e).income, 0)}
+                expense={dayEntries.reduce((sum, e) => sum + entryAmount(e).expense, 0)}
+                kind="cash"
+              />
+              {dayDrafts > 0 ? <Text style={s.dayDraft}>仮 {dayDrafts}</Text> : null}
+            </View>
           );
         }}
       />
@@ -277,7 +327,16 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
             <Text style={s.dayTitle}>
               {year}年{month}月{selectedDay}日
             </Text>
-            <Text style={s.count}>{selectedEntries.length} 件の実績</Text>
+            <Text style={s.count}>
+              {selectedEntries.length} 件の実績
+              {selectedDrafts.length > 0 ? `・仮の明細 ${selectedDrafts.length} 件` : ""}
+            </Text>
+            <ReceiptDraftRows
+              drafts={selectedDrafts}
+              openId={openDraft?.id ?? null}
+              onOpen={openDraftForm}
+              onChanged={loadDrafts}
+            />
             {selectedEntries.map((e) => {
               const { income, expense } = entryAmount(e);
               const isIncome = income > 0;
@@ -305,8 +364,15 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
           </Card>
 
           <Card>
-            <Text style={s.formTitle}>実績を追加</Text>
-            <ReceiptScanButton onScanned={applyReceipt} />
+            <Text style={s.formTitle}>{openDraft ? "仮の明細を確かめて登録" : "実績を追加"}</Text>
+            {openDraft ? (
+              <>
+                {paymentWarning ? <Notice tone="warn">{paymentWarning}</Notice> : null}
+                {hint ? <Notice tone="warn">{hint}</Notice> : null}
+              </>
+            ) : (
+              <ReceiptScanButton date={isoDate(year, month, selectedDay)} onSaved={loadDrafts} />
+            )}
             <Pills
               scroll={false}
               options={[
@@ -354,13 +420,13 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
                 />
               </Field>
             )}
-            {receiptUri && form.description.trim() ? (
+            {openDraft && form.description.trim() ? (
               <View style={s.learnRow}>
                 <Switch value={learn} onValueChange={setLearn} />
                 <Text style={s.learnText}>次から同じ店名には、この科目を使う</Text>
               </View>
             ) : null}
-            {receiptUri && selfMed ? (
+            {openDraft && selfMed ? (
               <>
                 <View style={s.learnRow}>
                   <Switch
@@ -390,6 +456,14 @@ export function ActualsCalendar({ accounts, viewMode }: Props) {
             ) : null}
             {error ? <Notice tone="error">{error}</Notice> : null}
             <Button label={saving ? "登録中..." : "登録"} onPress={submit} loading={saving} />
+            {openDraft ? (
+              <Button
+                label="あとで確かめる"
+                variant="secondary"
+                onPress={closeDraftForm}
+                disabled={saving}
+              />
+            ) : null}
           </Card>
         </>
       )}
@@ -429,6 +503,7 @@ const s = StyleSheet.create({
   entryAccounts: { fontSize: 10, color: "#94a3b8", marginTop: 2 },
   remove: { fontSize: 13, color: "#cbd5e1", paddingHorizontal: 4 },
   formTitle: { fontSize: 13, fontWeight: "700", color: "#475569", marginBottom: 8 },
+  dayDraft: { fontSize: 9, fontWeight: "700", color: "#d97706", textAlign: "center" },
   picker: {
     borderWidth: 1,
     borderColor: "#e2e8f0",

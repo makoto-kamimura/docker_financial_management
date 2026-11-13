@@ -249,7 +249,9 @@ function ActualsBlock({
         ? `明細が月末（${formatYmd(actuals.monthEnd)}）までそろうか、届いていないものに「当月末まで変動なし」を付けると確定できます。`
         : actuals.unassigned > 0
           ? `未割り当ての明細（${actuals.unassigned} 件）に科目を付けると確定できます。`
-          : null;
+          : (actuals.drafts ?? 0) > 0
+            ? `仮の明細（撮ったレシート ${actuals.drafts} 件）を、実績のカレンダーで確かめて登録するか削除すると確定できます。`
+            : null;
 
   return (
     <View style={s.actualsBox}>
