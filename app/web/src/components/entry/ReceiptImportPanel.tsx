@@ -16,6 +16,7 @@ import {
   useReceiptScan,
 } from "@/components/entry/ReceiptScanButton";
 import {
+  dayLabel,
   saveDraft,
   toDraftReceipt,
   useInvalidateDrafts,
@@ -121,6 +122,10 @@ export function ReceiptImportPanel({
                 />
               )
             )}
+            <p className="text-[11px] text-slate-600">
+              撮った写真は <span className="font-semibold">今日（{dayLabel(today())}）</span>{" "}
+              の仮の明細に保存します（レシートの日付が読めたら、登録のときはその日になります）
+            </p>
             <ScanQuotaNote status={status} />
           </>
         ) : loading ? (

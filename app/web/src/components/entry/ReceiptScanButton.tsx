@@ -14,7 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Camera, ImageIcon } from "lucide-react";
 import type { ReceiptEngine } from "@/lib/ledger/receipt-scan/types";
 import type { ReceiptScanStatus } from "@/lib/ledger/receipt-scan/scan";
-import { saveDraft, useInvalidateDrafts } from "@/components/entry/receipt-drafts";
+import { dayLabel, saveDraft, useInvalidateDrafts } from "@/components/entry/receipt-drafts";
 
 const ENGINE_LABELS: Record<ReceiptEngine, string> = {
   claude: "高精度の読み取り（有料プラン）",
@@ -152,6 +152,12 @@ export function ReceiptScanButton({ date }: { date: string }) {
 
   return (
     <div className="flex flex-col gap-1.5 mb-3">
+      <p className="text-[11px] text-slate-600">
+        撮った写真は <span className="font-semibold">{dayLabel(date)}</span> の仮の明細に保存します
+        <span className="text-slate-400">
+          （レシートの日付が読めたら、登録のときはその日になります）
+        </span>
+      </p>
       <ReceiptPickButtons
         disabled={saving || status.reason !== null}
         onFiles={([file]) => handleFile(file)}

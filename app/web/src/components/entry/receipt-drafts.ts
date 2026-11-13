@@ -16,6 +16,14 @@ export const toDraftReceipt = (d: ReceiptDraftView): DraftReceipt => ({
   result: d.result,
 });
 
+const WEEKDAYS = "日月火水木金土";
+
+/** YYYY-MM-DD を「11月13日（木）」にする（撮った写真を保存する仮の明細の日付として出す） */
+export function dayLabel(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return `${m}月${d}日（${WEEKDAYS[new Date(y, m - 1, d).getDay()]}）`;
+}
+
 const DRAFTS_KEY = ["receipt-drafts"];
 const POLL_MS = 3000;
 
