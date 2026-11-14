@@ -2,11 +2,12 @@
 
 // カード・電子マネーの明細パネル（明細一覧とカレンダー）。カード・電子マネー管理のタブから、
 // 実績管理の「履歴」「カレンダー」（出どころにカード・電子マネーを選んだとき）へ移設した。
-// 表示するカードは呼び出し側が選ぶ（一覧は null で「すべてのカード・電子マネー」。カレンダーは 1 枚）。
+// 表示するカードは呼び出し側が選ぶ（null で「すべてのカード・電子マネー」。カレンダーでは、
+// すべてのカードのときは登録フォームでカードを選ぶ）。
 // 科目付け（付けた明細がそのまま実績）・チャージ先・固定決済・削除と、日付を選んでの
 // 利用・返金の登録ができる（API は /api/linked-accounts/{id}/transactions ほか、移設前と同じ）。
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DayAmounts, MonthCalendar } from "@/components/MonthCalendar";
 import { DirectedAmount } from "@/components/DirectedAmount";
 import { invalidateActuals } from "@/lib/client/invalidate-actuals";
@@ -91,6 +92,8 @@ const BLANK_CAL_FORM = {
   amount: "",
   type: "charge" as "charge" | "refund",
   category: "",
+  /** すべてのカードの表示で登録するときのカード（文字列で保持して未選択も許す） */
+  accountId: "",
 };
 
 // 電子マネー・プリペイドはカード番号が無く、明細も「チャージ残高からの支払い」なので文言を切り替える
@@ -108,7 +111,7 @@ type CardRecurring = {
 
 type Props = {
   view: "list" | "calendar";
-  /** 表示するカード・電子マネー（呼び出し側のセレクタで選ぶ。一覧は null ですべて） */
+  /** 表示するカード・電子マネー（呼び出し側のセレクタで選ぶ。null はすべて） */
   accountId: number | null;
   /** 一覧の最初の状態の絞り込み（取り込みの結果から「未割り当て」で開くとき） */
   initialStatus?: LedgerStatus;
@@ -146,13 +149,25 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
     },
   });
 
-  // カレンダーは月ごとに日へまとめるため、カードの明細をまとめて読む
-  const { data: txns } = useQuery({
-    queryKey: ["card-txns", accountId],
-    enabled: accountId !== null && view === "calendar",
-    queryFn: async (): Promise<Txn[]> =>
-      (await (await fetch(`/api/linked-accounts/${accountId}/transactions`)).json()).data ?? [],
+  // カレンダーは月ごとに日へまとめるため、カードの明細をまとめて読む。
+  // カードごとに取り（キーは 1 枚のときと同じ）、すべてのカードのときは合わせて並べる
+  const calendarIds =
+    view !== "calendar" ? [] : accountId !== null ? [accountId] : (accounts ?? []).map((a) => a.id);
+  const txnQueries = useQueries({
+    queries: calendarIds.map((id) => ({
+      queryKey: ["card-txns", id],
+      queryFn: async (): Promise<Txn[]> =>
+        (await (await fetch(`/api/linked-accounts/${id}/transactions`)).json()).data ?? [],
+    })),
   });
+  const txnsLoaded =
+    (accountId !== null || accounts !== undefined) && txnQueries.every((q) => q.data);
+  const txns = useMemo(
+    () => (txnsLoaded ? txnQueries.flatMap((q) => q.data ?? []) : undefined),
+    // 各カードの取得結果が変わったときだけまとめ直す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [txnsLoaded, txnQueries.map((q) => q.dataUpdatedAt).join(",")],
+  );
 
   const { data: categoryAccounts } = useQuery({
     queryKey: ["accounts"],
@@ -181,8 +196,10 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
       (categoryAccounts ?? []).filter((a) => ["REVENUE", "COGS", "EXPENSE"].includes(a.category)),
     [categoryAccounts],
   );
-  const selectedAccount = (accounts ?? []).find((a) => a.id === accountId) ?? null;
-  const isEMoney = selectedAccount?.type === "E_MONEY";
+  // カレンダーで登録するカード（すべてのカードのときはフォームで選んだカード）
+  const calAccountId = accountId ?? (calForm.accountId ? Number(calForm.accountId) : null);
+  const calAccount = (accounts ?? []).find((a) => a.id === calAccountId) ?? null;
+  const isEMoney = calAccount?.type === "E_MONEY";
   const accountNameById = (id: number) => accounts?.find((a) => a.id === id)?.name ?? "";
 
   const byDay = useMemo(() => {
@@ -389,12 +406,12 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
 
   async function submitCalManual(e: { preventDefault(): void }) {
     e.preventDefault();
-    if (accountId === null || !selectedDay) return;
+    if (calAccountId === null || !selectedDay) return;
     setCalSaving(true);
     const rawAmt = Number(calForm.amount);
     const amount = calForm.type === "charge" ? Math.abs(rawAmt) : -Math.abs(rawAmt);
     const dateStr = `${viewYear}-${String(viewMonth).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`;
-    const res = await fetch(`/api/linked-accounts/${accountId}/transactions`, {
+    const res = await fetch(`/api/linked-accounts/${calAccountId}/transactions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -405,8 +422,9 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
       }),
     });
     if (res.ok) {
-      setCalForm(BLANK_CAL_FORM);
-      qc.invalidateQueries({ queryKey: ["card-txns", accountId] });
+      // 続けて同じカードに登録できるよう、選んだカードは残す
+      setCalForm({ ...BLANK_CAL_FORM, accountId: calForm.accountId });
+      qc.invalidateQueries({ queryKey: ["card-txns", calAccountId] });
       invalidateActuals(qc);
     } else {
       const err = await res.json().catch(() => ({}));
@@ -724,9 +742,13 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                             <p className="text-xs font-medium text-slate-800 truncate">
                               {t.description}
                             </p>
-                            {t.categoryAccount && (
-                              <p className="text-[10px] text-slate-400 mt-0.5">
-                                {t.categoryAccount.code} {t.categoryAccount.name}
+                            {/* すべてのカードを表示しているときは、明細のカード名を添える */}
+                            {(accountId === null || t.categoryAccount) && (
+                              <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                                {accountId === null && accountNameById(t.accountId)}
+                                {accountId === null && t.categoryAccount && " ・ "}
+                                {t.categoryAccount &&
+                                  `${t.categoryAccount.code} ${t.categoryAccount.name}`}
                               </p>
                             )}
                           </div>
@@ -771,6 +793,25 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                         </button>
                       ))}
                     </div>
+                    {/* すべてのカードを表示しているときは、登録するカードを選ぶ */}
+                    {accountId === null && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-slate-500">カード・電子マネー</label>
+                        <select
+                          required
+                          value={calForm.accountId}
+                          onChange={(e) => setCalForm((f) => ({ ...f, accountId: e.target.value }))}
+                          className="input-field text-xs"
+                        >
+                          <option value="">選択してください</option>
+                          {accounts?.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}（{ACCOUNT_TYPE_LABEL[a.type]}）
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] text-slate-500">摘要（利用先）</label>
                       <input
@@ -802,7 +843,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                     />
                     <button
                       type="submit"
-                      disabled={calSaving || accountId === null}
+                      disabled={calSaving || calAccountId === null}
                       className="btn-primary text-xs mt-1"
                     >
                       {calSaving ? "登録中..." : "登録"}
