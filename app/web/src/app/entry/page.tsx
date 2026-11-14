@@ -85,8 +85,8 @@ function EntryContent() {
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
   const [source, setSource] = useState<Source>(initial.source);
-  // 銀行は null で「すべての銀行」。カードは履歴だけ null で「すべてのカード・電子マネー」
-  // （カレンダー・取り込みは 1 枚を選ぶので、null なら最初のカード）
+  // 銀行は null で「すべての銀行」、カードは null で「すべてのカード・電子マネー」
+  // （取り込みは 1 枚を選ぶので、カードが null なら最初のカード）
   const [bankAccountId, setBankAccountId] = useState<number | null>(
     initial.source === "bank" ? initial.account : null,
   );
@@ -109,9 +109,10 @@ function EntryContent() {
     queryFn: async (): Promise<SourceAccount[]> =>
       (await (await fetch(withScope("/api/linked-accounts", scope!))).json()).data ?? [],
   });
-  const historyCardId = cardAccounts?.find((a) => a.id === cardAccountId)?.id ?? null;
-  const cardId = historyCardId ?? cardAccounts?.[0]?.id ?? null;
-  const shownCardId = tab === "history" ? historyCardId : cardId;
+  // カレンダー・履歴で選んだカード（null はすべて）と、取り込み先のカード
+  const viewCardId = cardAccounts?.find((a) => a.id === cardAccountId)?.id ?? null;
+  const cardId = viewCardId ?? cardAccounts?.[0]?.id ?? null;
+  const shownCardId = tab === "csv" ? cardId : viewCardId;
   // 取り込みは口座を 1 つ選ぶ（「すべての銀行」は無い）。口座が 1 つだけなら、それを選んでおく
   const importBankId = bankAccountId ?? (bankAccounts?.length === 1 ? bankAccounts[0].id : null);
   const shownBankId = tab === "csv" ? importBankId : bankAccountId;
@@ -189,7 +190,7 @@ function EntryContent() {
                 value={shownCardId ?? ""}
                 onChange={(e) => setCardAccountId(e.target.value ? Number(e.target.value) : null)}
               >
-                {tab === "history" && <option value="">すべてのカード・電子マネー</option>}
+                {tab !== "csv" && <option value="">すべてのカード・電子マネー</option>}
                 {cardAccounts?.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
@@ -205,17 +206,13 @@ function EntryContent() {
         <BankTransactionsCalendar accountId={bankAccountId} />
       )}
       {tab === "calendar" && source === "card" && cardId !== null && (
-        <CardTransactionsPanel view="calendar" accountId={cardId} />
+        <CardTransactionsPanel view="calendar" accountId={viewCardId} />
       )}
       {tab === "history" && source === "bank" && (
         <BankTransactionsPanel accountId={bankAccountId} initialStatus={historyStatus} />
       )}
       {tab === "history" && source === "card" && cardId !== null && (
-        <CardTransactionsPanel
-          view="list"
-          accountId={historyCardId}
-          initialStatus={historyStatus}
-        />
+        <CardTransactionsPanel view="list" accountId={viewCardId} initialStatus={historyStatus} />
       )}
 
       {/* ── 実績の確定タブ（② その月の実績。明細の最終日がそろったら確定する）── */}

@@ -1,5 +1,6 @@
 // カード・電子マネーのカレンダー（日ごとの利用・返金の合計と、その日の明細・支払いの追加）。
 // カード・電子マネー管理から、実績の画面の「カレンダー」（出どころにカード・電子マネーを選んだとき）へ移した。
+// account が null なら、すべてのカード・電子マネーの明細をまとめ、登録するカードはフォームで選ぶ。
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
@@ -11,7 +12,7 @@ import {
   type LinkedAccount,
   type ViewMode,
 } from "../../api";
-import { Button, Card, EmptyText, Field, Input, Notice, Pills } from "../ui";
+import { Button, Card, EmptyText, Field, Input, Notice, Pills, SelectField } from "../ui";
 import { categoryPayload, EntryCategoryField } from "../EntryCategoryField";
 import { displayName } from "../../shared/display-name";
 import { digitsOnly, isoDate, yenAbs } from "../../format";
@@ -20,15 +21,23 @@ import { flowLabel } from "../../shared/amount-direction";
 
 export function CardCalendar({
   account,
+  accounts,
   viewMode,
   categoryAccounts,
 }: {
-  account: LinkedAccount;
+  /** 表示するカード。null はすべてのカード・電子マネー */
+  account: LinkedAccount | null;
+  /** 選べるカード・電子マネーの一覧（すべてを表示するときの取得先と、登録するカードの選択肢） */
+  accounts: LinkedAccount[];
   viewMode: ViewMode;
   categoryAccounts: Account[];
 }) {
   const now = new Date();
-  const isEMoney = account.type === "E_MONEY";
+  // 登録するカード。すべてのカードを表示しているときは選ぶ（既定は最初のカード）
+  const [formCardId, setFormCardId] = useState<number | null>(null);
+  const formCard = account ?? accounts.find((a) => a.id === formCardId) ?? accounts[0] ?? null;
+  const isEMoney = formCard?.type === "E_MONEY";
+  const cardName = (id: number) => accounts.find((a) => a.id === id)?.name ?? "";
   const [txns, setTxns] = useState<CardTransaction[] | null>(null);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -44,12 +53,13 @@ export function CardCalendar({
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    const ids = account !== null ? [account.id] : accounts.map((a) => a.id);
     try {
-      setTxns(await fetchCardTransactions(account.id));
+      setTxns((await Promise.all(ids.map((id) => fetchCardTransactions(id)))).flat());
     } catch {
       setTxns([]);
     }
-  }, [account.id]);
+  }, [account, accounts]);
 
   useEffect(() => {
     load();
@@ -75,12 +85,12 @@ export function CardCalendar({
   }
 
   async function submit() {
-    if (!selectedDay) return;
+    if (!selectedDay || !formCard) return;
     const raw = Number(form.amount);
     if (!form.description.trim() || !(raw > 0)) return setMsg("摘要と金額を入力してください");
     setSaving(true);
     try {
-      await postCardTransaction(account.id, {
+      await postCardTransaction(formCard.id, {
         date: isoDate(year, month, selectedDay),
         description: form.description.trim(),
         amount: form.type === "charge" ? Math.abs(raw) : -Math.abs(raw),
@@ -103,7 +113,7 @@ export function CardCalendar({
         text: "削除",
         style: "destructive",
         onPress: async () => {
-          await deleteCardTransaction(account.id, t.id).catch(() => setMsg("削除に失敗しました"));
+          await deleteCardTransaction(t.accountId, t.id).catch(() => setMsg("削除に失敗しました"));
           await load();
         },
       },
@@ -153,7 +163,14 @@ export function CardCalendar({
                   <Text style={s.entryDesc} numberOfLines={1}>
                     {t.description}
                   </Text>
-                  {categoryName(t) && <Text style={s.muted}>{categoryName(t)}</Text>}
+                  {/* すべてのカードを表示しているときは、明細のカード名を添える */}
+                  {(account === null || categoryName(t)) && (
+                    <Text style={s.muted} numberOfLines={1}>
+                      {[account === null ? cardName(t.accountId) : null, categoryName(t)]
+                        .filter(Boolean)
+                        .join(" ・ ")}
+                    </Text>
+                  )}
                 </View>
                 <Text style={t.amount > 0 ? s.charge : s.refund}>
                   {flowLabel("card", t.amount)} {yenAbs(t.amount)}
@@ -175,6 +192,14 @@ export function CardCalendar({
               value={form.type}
               onChange={(type) => setForm((f) => ({ ...f, type }))}
             />
+            {account === null && (
+              <SelectField
+                label="カード・電子マネー"
+                value={formCard?.id ?? null}
+                options={accounts.map((a) => ({ value: a.id, label: a.name }))}
+                onChange={setFormCardId}
+              />
+            )}
             <Field label="摘要（利用先）">
               <Input
                 value={form.description}

@@ -117,8 +117,7 @@ export function EntryScreen({
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
   const [source, setSource] = useState<Source>(initialSource ?? "manual");
-  // 銀行は null で「すべての銀行」。カードは履歴だけ null で「すべてのカード・電子マネー」
-  // （カレンダーは 1 枚を選ぶので、null なら最初のカード）
+  // 銀行は null で「すべての銀行」、カードは null で「すべてのカード・電子マネー」
   const [bankAccountId, setBankAccountId] = useState<number | null>(
     initialSource === "bank" ? (initialAccountId ?? null) : null,
   );
@@ -139,8 +138,7 @@ export function EntryScreen({
   useEffect(() => {
     if (sourceTab) loadSourceAccounts();
   }, [sourceTab, loadSourceAccounts]);
-  const historyCard = cardAccounts.find((a) => a.id === cardAccountId) ?? null;
-  const selectedCard = historyCard ?? cardAccounts[0] ?? null;
+  const selectedCard = cardAccounts.find((a) => a.id === cardAccountId) ?? null;
 
   // ── 明細一覧 ────────────────────────────────────────────────
   // 対象年度は画面上部のサブヘッダーで選ぶ（全画面で共通）
@@ -281,13 +279,9 @@ export function EntryScreen({
               ) : (
                 <SelectField<number | "all">
                   label="カード・電子マネー"
-                  value={
-                    tab === "history" ? (historyCard?.id ?? "all") : (selectedCard?.id ?? null)
-                  }
+                  value={selectedCard?.id ?? "all"}
                   options={[
-                    ...(tab === "history"
-                      ? [{ value: "all" as const, label: "すべてのカード・電子マネー" }]
-                      : []),
+                    { value: "all" as const, label: "すべてのカード・電子マネー" },
                     ...cardAccounts.map((a) => ({ value: a.id, label: a.name })),
                   ]}
                   onChange={(v) => setCardAccountId(v === "all" ? null : v)}
@@ -306,10 +300,11 @@ export function EntryScreen({
             viewMode={viewMode}
           />
         )}
-        {tab === "calendar" && source === "card" && selectedCard && (
+        {tab === "calendar" && source === "card" && cardAccounts.length > 0 && (
           <CardCalendar
-            key={selectedCard.id}
+            key={selectedCard?.id ?? "all"}
             account={selectedCard}
+            accounts={cardAccounts}
             viewMode={viewMode}
             categoryAccounts={accounts}
           />
@@ -324,10 +319,10 @@ export function EntryScreen({
             onBalanceChanged={loadSourceAccounts}
           />
         )}
-        {tab === "history" && source === "card" && selectedCard && (
+        {tab === "history" && source === "card" && cardAccounts.length > 0 && (
           <CardTransactionsList
-            key={historyCard?.id ?? "all"}
-            account={historyCard}
+            key={selectedCard?.id ?? "all"}
+            account={selectedCard}
             accounts={cardAccounts}
             categoryAccounts={accounts}
             viewMode={viewMode}
