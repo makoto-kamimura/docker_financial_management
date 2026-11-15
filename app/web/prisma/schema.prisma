@@ -75,6 +75,7 @@ model Account {
   txnCategoryRules      TxnCategoryRule[]
   bankAccounts          BankAccount[]
   cardRecurringPayments CardRecurringPayment[]
+  shopOrderItems        ShopOrderItem[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -318,8 +319,10 @@ model FinancialRecord {
   businessUse     Boolean        @default(false)
   businessRatio   Decimal?       @db.Decimal(5, 2)
 
-  history  FinancialRecordHistory[]
-  receipts Receipt[] // 証憑（レシートの写真など。現金の明細だけ）
+  history    FinancialRecordHistory[]
+  receipts   Receipt[] // 証憑（レシートの写真など。現金の明細だけ）
+  // 明細分け（通販の注文）を紐付けた明細のとき、その請求（ShopCharge.entryId の逆側）
+  shopCharge ShopCharge?
 
   @@unique([bankAccountId, externalId])
   @@unique([cardAccountId, externalId])
@@ -1625,4 +1628,88 @@ enum ReceiptDraftStatus {
   READING // 読み取り中
   READ // 読み取った（利用者の確認待ち）
   FAILED // 読み取れなかった（手で入力するか、読み取り直す）
+}
+
+// 明細分け（明細管理で登録する、Amazon・ヨドバシ・楽天などの通販の注文の取り込み先）。
+// 注文の CSV を取り込み（ShopCharge・ShopOrderItem）、カード・銀行の明細に紐付けて、商品ごとに科目を付ける。
+// type は既定の CSV の読み方・紐付ける明細の摘要のキーワード・注文履歴のページを決める
+// （lib/shared/shop-account-type.ts）。キーワードを登録すれば既定より優先する
+model ShopAccount {
+  id              Int      @id @default(autoincrement())
+  tenantId        Int
+  name            String // 表示名（例: Amazon）
+  type            String // AMAZON / YODOBASHI / RAKUTEN / OTHER
+  // 紐付ける明細の摘要のキーワード（部分一致）と、当たっても外すキーワード。空なら type の既定
+  matchKeywords   String[] @default([])
+  excludeKeywords String[] @default([])
+  // 支払いに使うカード・電子マネーと銀行口座。選べば自動の紐付けの相手をそれらの明細に絞る（空ならすべて）
+  paymentCardIds  Int[]    @default([])
+  paymentBankIds  Int[]    @default([])
+  // 注文履歴のページの URL（空なら type の既定）
+  statementUrl    String?
+  // 注文の CSV の読み方（取り込みの画面で直して覚えたもの）
+  csvMapping      Json?
+  // 事業利用（個人事業主モードで出す）
+  businessUse     Boolean  @default(false)
+  note            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  charges ShopCharge[]
+
+  @@index([tenantId])
+  @@map("shop_accounts")
+}
+
+// 明細分けの請求（カード・銀行の明細 1 行に当たる、注文の支払いのまとまり）。
+// Amazon は発送ごとに請求されるので、注文番号と発送日でまとめる。entryId は紐付けた明細
+model ShopCharge {
+  id            Int              @id @default(autoincrement())
+  tenantId      Int
+  shopAccountId Int
+  shopAccount   ShopAccount      @relation(fields: [shopAccountId], references: [id], onDelete: Restrict)
+  orderNo       String
+  date          DateTime         @db.Date // 請求日（無ければ発送日・注文日）
+  amount        Decimal          @db.Decimal(18, 2) // 請求額
+  sellerName    String? // 店名（楽天市場の出店者など）
+  // 取り込みの重複を防ぐ鍵（注文番号・発送日などから作る）
+  externalKey   String
+  entryId       Int?             @unique
+  entry         FinancialRecord? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  linkedBy      ShopLinkSource?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  items ShopOrderItem[]
+
+  @@unique([shopAccountId, externalKey])
+  @@index([tenantId, date])
+  @@map("shop_charges")
+}
+
+enum ShopLinkSource {
+  AUTO // 取り込みのときに自動で紐付けた
+  MANUAL // 履歴で手で紐付けた
+}
+
+// 明細分けの請求の商品（送料・割引も 1 行として持つ）。科目は商品名の学習ルールか、履歴で付ける
+model ShopOrderItem {
+  id                Int        @id @default(autoincrement())
+  tenantId          Int
+  chargeId          Int
+  charge            ShopCharge @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  name              String
+  quantity          Int        @default(1)
+  amount            Decimal    @db.Decimal(18, 2) // 税・送料・割引を含めた金額（割引は負）
+  categoryAccountId Int?
+  categoryAccount   Account?   @relation(fields: [categoryAccountId], references: [id], onDelete: Restrict)
+  businessUse       Boolean    @default(false)
+  businessRatio     Decimal?   @db.Decimal(5, 2)
+  sortOrder         Int        @default(0)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  @@index([chargeId])
+  @@index([tenantId, categoryAccountId])
+  @@map("shop_order_items")
 }

@@ -179,7 +179,7 @@ flowchart LR
 | 会計帳簿 | 仕訳帳・仕訳テンプレート・総勘定元帳・売掛金管理・買掛金管理・インボイス発行 | | ○ | ○ |
 | 資産・経費管理 | 棚卸管理・固定資産 | | ○ | ○ |
 | | 事業利用按分 | | ○ | |
-| | 資産管理・借入金管理・銀行管理・カード・電子マネー管理 | ○ | ○ | ○ |
+| | 資産管理・借入金管理・銀行管理・カード・電子マネー管理・明細管理 | ○ | ○ | ○ |
 | | 外部サービス連携 | | ○ | ○ |
 | 決算・申告 | 決算処理 | | ○ | ○ |
 | | 控除・確定申告 | ○ | ○ | |
@@ -269,6 +269,7 @@ flowchart LR
 | `/bank-accounts` | 銀行管理 | 残高の推移・銀行口座（タブなし）。明細と取り込みは実績管理で扱う（旧 `?tab=csv` は実績管理の取り込みへ移る） |
 | `/bank-transactions` | — | 銀行管理（`/bank-accounts`）へ転送する（以前の URL） |
 | `/card-transactions` | カード・電子マネー管理 | 利用額の推移・カード・電子マネーの一覧（タブなし）。明細と取り込みは実績管理で扱う |
+| `/shop-accounts` | 明細管理 | 明細分け（Amazon・ヨドバシ・楽天などの通販の注文の取り込み先）の一覧と登録（タブなし。[11.6節](#116-明細管理通販の明細分け)） |
 | `/assets` | 資産管理 | 実物資産の評価額の推移（合計と資産ごと）、実物資産（内訳つきで登録できる） |
 | `/loans` | 借入金管理 | 借入残高の推移（合計とローンごとの残高・金利）、借入の追加・編集、金利変更、返済の登録 |
 | `/journals` | 仕訳帳 | 仕訳の入力、証憑の添付、承認。個人事業主モードは実績から作った仕訳の閲覧と印刷（[20.16節](#2016-実績から作る仕訳)） |
@@ -308,6 +309,7 @@ flowchart LR
 | 実績 | 一覧 / カレンダー / 実績の確定 / 履歴 / 設定（学習ルール）（カレンダー・履歴は出どころと口座を選ぶ。履歴は 3 つとも共通の行）。現金のカレンダーでは、レシートを撮影するか写真を選んで読み取れる（[20.14節](#2014-レシートの読み取り)） | 取り込みのタブなし。有料プランの申し込みの画面とリンクは置かない（申し込みは Web だけ。App Store の規約のため）。仕訳と連動する実績は仕訳帳から直す。実績の確定は web と同じ |
 | 銀行管理 | 残高の推移・銀行口座（差額の入力つき） | CSV の取り込みなし。明細は実績の画面で扱う |
 | カード・電子マネー管理 | サマリ（利用額の推移・一覧。カードの登録・編集） | CSV の取り込みなし。明細（チャージ先・固定決済の登録を含む）は実績の画面で扱う |
+| 明細管理 | 明細分けの一覧・登録・編集・削除 | 注文の CSV の取り込みなし（web だけ） |
 | 資産管理 | 実物資産の評価額の推移、実物資産 | 同じ（総資産サマリはホームに出す） |
 | 借入金管理 | 借入残高の推移、金利変更、返済 | 同じ |
 | 仕訳帳・インボイス発行・決算処理（個人・法人） | 閲覧のみ。個人事業主モードの仕訳帳は、実績から作った仕訳（[20.16節](#2016-実績から作る仕訳)） | 変更は Web で行う |
@@ -714,6 +716,27 @@ KPI の下に、次の順で置く。
 
 カードの利用分を口座から引き落とす動きは、実績管理の履歴（出どころは銀行）で、引き落としの明細の「その他」→「毎月の入出金」からカード引き落としの資金移動ルールとして登録する。これが残高の推移の見込みに入る。
 
+### 11.6 明細管理（通販の明細分け）
+
+Amazon などの通販のカード明細 1 行には、いろいろな商品が混ざる。1 行に科目を 1 つしか付けられないと、科目ごとの実績が正しく出ない。そこで、通販の注文を「明細分け」として別に取り込み、カード・銀行の明細に紐付けて、商品ごとに科目を付ける。
+
+- **登録**: メニューの「明細管理」（`/shop-accounts`）で、カード・電子マネーと同じ要領で明細分けを登録する（`shop_accounts`）。登録する項目は次のとおり。
+  - 名前と種類（Amazon / ヨドバシ.com / 楽天市場 / その他）
+  - 紐付ける明細の摘要のキーワードと、除外のキーワード
+  - 支払いに使うカード・口座
+  - 注文履歴のページの URL・事業利用・メモ
+- **種類の既定**（`src/lib/shared/shop-account-type.ts`。モバイルと共有）: 種類は、キーワードと注文履歴のページの既定を決める。
+  - Amazon: AMAZON・アマゾン。除外は PRIME・プライム（会費）
+  - ヨドバシ.com: YODOBASHI・ヨドバシ
+  - 楽天市場: RAKUTEN・ラクテン・楽天。除外は MOBILE・モバイル・銀行・証券・でんき・ガス
+  - 摘要は、全角・半角と大文字・小文字をそろえて比べる（半角カナの「ﾗｸﾃﾝ」も当たる）。登録したキーワードは既定より優先する。
+- **一覧**: 明細分けごとに次を出す。
+  - 種類・キーワード・支払いに使うカード／口座
+  - 取り込んだ請求の件数・まだ明細に紐付いていない請求の件数・科目の無い商品の件数・最後に取り込んだ日
+  - 注文履歴のページへのリンク
+  - 取り込んだ注文がある明細分けは削除できない。
+- **データ**: 取り込んだ注文は、請求（`shop_charges`。カード・銀行の明細 1 行に当たる支払いのまとまり）と、商品（`shop_order_items`）で持つ。
+
 ## 12. 資産と借入金
 
 ### 12.1 総資産サマリ
@@ -1054,7 +1077,7 @@ docker_financial_management/
 ### 18.5 Web とモバイルのロジック共有
 
 - 表示ラベル・モード別の用語・借入の償還計算・ステップ進捗などは、`app/web/src/lib/shared/` を正とし、`app/mobile/src/shared/` にそのまま複製する。`lib/shared/` のファイルは、同じフォルダの中のファイルだけを相対パスで import する。
-- 共有するファイルは `app/web/src/lib/shared/shared-with-mobile.ts` の一覧で管理する（今は 25 ファイル。予算配分の振り分け・金額の向きの言葉・資産の評価・予算と実績のグラフ・予算のセルの内訳・予算の月の流れ・対象月・借入の償還・表示名・科目×月の表・ヘルプ文・ラベル・モード別の用語・変動金利の予測・ステップ進捗・所得税と住民税の控除と概算・制度の説明・レシートの撮り直しの案内など）。
+- 共有するファイルは `app/web/src/lib/shared/shared-with-mobile.ts` の一覧で管理する（今は 26 ファイル。予算配分の振り分け・金額の向きの言葉・資産の評価・予算と実績のグラフ・予算のセルの内訳・予算の月の流れ・対象月・借入の償還・表示名・科目×月の表・ヘルプ文・ラベル・モード別の用語・変動金利の予測・ステップ進捗・所得税と住民税の控除と概算・制度の説明・レシートの撮り直しの案内・明細分けの種類と摘要の照らし合わせなど）。
 - Web 側を直したら、`app/web` で `npm run sync:mobile` を実行して複製する。
 - 複製がずれていたり、共有するファイルが `@/` で始まる import を使っていたりすると、Web の単体テスト（`shared-with-mobile.test.ts`）が失敗する。
 
@@ -1416,6 +1439,9 @@ npm run typecheck && npm run format:check
 | `transfers` | fromAccountId, toAccountId, linkedAccountId, amount, kind, channel, label, day | 資金移動ルール |
 | `txn_category_rules` | keyword, categoryAccountId, priority, businessUse, businessRatio | 科目付けの学習ルール（事業利用も持てる。null は決めない） |
 | `linked_accounts` | name, type（CREDIT_CARD / DEBIT_CARD / PREPAID_CARD / E_MONEY）, institution, lastFour, accountId | カード・電子マネー |
+| `shop_accounts` | name, type（AMAZON / YODOBASHI / RAKUTEN / OTHER）, matchKeywords, excludeKeywords, paymentCardIds, paymentBankIds, statementUrl, csvMapping, businessUse | 明細分け（通販の注文の取り込み先。[11.6節](#116-明細管理通販の明細分け)） |
+| `shop_charges` | shopAccountId, orderNo, date, amount, sellerName, externalKey, entryId, linkedBy（AUTO / MANUAL） | 明細分けの請求。entryId は紐付けたカード・銀行の明細（一意）。externalKey で取り込みの重複を防ぐ |
+| `shop_order_items` | chargeId, name, quantity, amount, categoryAccountId, businessUse, businessRatio, sortOrder | 請求の商品（送料・割引も 1 行）。請求を消すと一緒に消える |
 | `card_transfer_rules` | accountId, keyword, transferToAccountId | チャージの自動判定 |
 | `card_recurring_payments` | accountId, label, amount, day, categoryAccountId, note | カード払いの固定決済 |
 
@@ -1597,6 +1623,8 @@ npm run typecheck && npm run format:check
 | GET / POST / DELETE | `/linked-accounts/[id]/transactions` | V / E / E |
 | GET | `/linked-accounts/flow` `/linked-accounts/usage-trend` | V |
 | PATCH | `/card-transactions/[id]/categorize` `/card-transactions/[id]/transfer` | E |
+| GET / POST | `/shop-accounts` | V / E |
+| PATCH / DELETE | `/shop-accounts/[id]` | E |
 | GET / DELETE | `/card-transfer-rules` | V / E |
 | GET / POST | `/card-recurring-payments` | V / E |
 | PATCH / DELETE | `/card-recurring-payments/[id]` | E |
@@ -1749,6 +1777,7 @@ CI はほかに、整形・lint・型・ビルドと、PostgreSQL へのマイ�
 | — | 言語の切り替え（日本語 / English）はなくし、画面は日本語だけにする | 切り替えてもログアウトの表記しか変わらず、英語の画面が実質なかったため |
 | — | 個人事業主モードの仕訳帳・総勘定元帳・試算表は、実績から表示のたびに作る（保存しない） | 仕訳を手で入れずに複式簿記の帳簿をそろえるため。保存すると、実績を直すたびに仕訳を作り直す必要があるため |
 | — | 個人事業の予算は家庭と別に持ち（予算の各テーブルに scope）、予算の確定も別々にする。実績の確定は共通 | 事業と家計で予算の立て方（売上に対する割合と手取りに対する割合）が違い、混ぜると予実差が読めないため。実績は同じ明細を按分して両方に数えるので、確定は 1 回で済む |
+| — | 通販の注文は、明細管理で登録する明細分け（`shop_accounts`）に取り込み、カード・銀行の明細に紐付けて商品ごとに科目を付ける。明細を手で内訳に分ける画面は作らない | 注文の CSV を取り込めば、商品名と金額を手で入れ直さずに済むため。明細分けごとに摘要のキーワードと CSV の読み方を持たせ、通販を後から足せるようにするため |
 
 ## 25. 未決事項
 

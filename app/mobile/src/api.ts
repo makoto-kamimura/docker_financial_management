@@ -1507,6 +1507,59 @@ export async function deleteLinkedAccount(id: number): Promise<void> {
   await request(`/linked-accounts/${id}`, "削除に失敗しました", { method: "DELETE" });
 }
 
+// ── 明細管理（通販の明細分け）──────────────────────────────────────────
+// web 版 /shop-accounts と同じ ShopAccount（種類は shared/shop-account-type.ts）
+export type ShopAccount = {
+  id: number;
+  name: string;
+  type: "AMAZON" | "YODOBASHI" | "RAKUTEN" | "OTHER";
+  matchKeywords: string[];
+  excludeKeywords: string[];
+  paymentCardIds: number[];
+  paymentBankIds: number[];
+  statementUrl: string | null;
+  businessUse: boolean;
+  note: string | null;
+  /** 取り込んだ請求・カード／銀行の明細に紐付いていない請求・科目の付いていない商品の件数 */
+  chargeCount: number;
+  unlinkedCount: number;
+  uncategorizedCount: number;
+  lastImportedAt: string | null;
+};
+
+export async function fetchShopAccounts(): Promise<ShopAccount[]> {
+  const json = await request<{ data?: ShopAccount[] }>(
+    scoped("/shop-accounts"),
+    "明細分けの取得に失敗しました",
+  );
+  return json.data ?? [];
+}
+
+export type ShopAccountInput = {
+  name: string;
+  type: ShopAccount["type"];
+  matchKeywords: string[];
+  excludeKeywords: string[];
+  paymentCardIds: number[];
+  paymentBankIds: number[];
+  businessUse: boolean;
+  /** 空文字は「既定に戻す・消す」（編集のときだけ送る） */
+  statementUrl?: string;
+  note?: string;
+};
+
+export async function postShopAccount(data: ShopAccountInput): Promise<void> {
+  await request("/shop-accounts", "保存に失敗しました", jsonInit("POST", data));
+}
+
+export async function patchShopAccount(id: number, data: ShopAccountInput): Promise<void> {
+  await request(`/shop-accounts/${id}`, "保存に失敗しました", jsonInit("PATCH", data));
+}
+
+export async function deleteShopAccount(id: number): Promise<void> {
+  await request(`/shop-accounts/${id}`, "削除に失敗しました", { method: "DELETE" });
+}
+
 export type CardTransaction = {
   id: number;
   /** 明細のカード（すべてのカードの履歴では行ごとに違う） */
