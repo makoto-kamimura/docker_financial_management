@@ -35,11 +35,16 @@ export const BANK = { kind: "BANK" } as const satisfies Prisma.FinancialRecordWh
 export const CARD = { kind: "CARD" } as const satisfies Prisma.FinancialRecordWhereInput;
 /** 現金の明細の絞り込み */
 export const CASH = { kind: "CASH" } as const satisfies Prisma.FinancialRecordWhereInput;
-/** 振替・チャージの組になっていない明細（実績の対象・科目を付けられる明細） */
+/**
+ * 振替・チャージの組になっておらず、明細分け（通販の注文）にも紐付いていない明細（科目を付けられる明細）。
+ * 明細分けに紐付いた明細は、商品ごとの行（内訳）が実績になるので、明細そのものには科目を付けない
+ * （lib/ledger/shop-link.ts）
+ */
 export const UNPAIRED = {
   transferGroupId: null,
   chargeToCardId: null,
   chargeGroupId: null,
+  shopCharge: { is: null },
 } as const satisfies Prisma.FinancialRecordWhereInput;
 
 /** カード明細の金額を「+利用（支出） / −返金・入金」に直す（明細の flow は +入金 / −出金） */
@@ -55,10 +60,39 @@ export function entryActualAmount(category: string, flow: number): number {
 type CategoryRef = { id: number; code: string; name: string };
 type CardRef = { id: number; name: string; type?: string };
 
+type ShopChargeRef = {
+  id: number;
+  orderNo: string;
+  shopAccount: { name: string };
+  items: { categoryAccountId: number | null }[];
+};
+
 type EntryWithRefs = FinancialRecord & {
   account?: CategoryRef | null;
   chargeToCard?: CardRef | null;
+  shopCharge?: ShopChargeRef | null;
 };
+
+/** 明細に紐付いた明細分け（通販の注文）の要約。紐付いた明細は商品ごとの行が実績になる */
+export type ShopChargeSummary = {
+  id: number;
+  orderNo: string;
+  shopName: string;
+  itemCount: number;
+  /** 科目の付いていない商品の件数 */
+  uncategorizedCount: number;
+};
+
+function shopChargeSummary(c: ShopChargeRef | null): ShopChargeSummary | null {
+  if (!c) return null;
+  return {
+    id: c.id,
+    orderNo: c.orderNo,
+    shopName: c.shopAccount.name,
+    itemCount: c.items.length,
+    uncategorizedCount: c.items.filter((i) => i.categoryAccountId === null).length,
+  };
+}
 
 export type BankTxnDto = {
   id: number;
@@ -76,6 +110,7 @@ export type BankTxnDto = {
   createdAt: Date;
   categoryAccount?: CategoryRef | null;
   chargeToAccount?: CardRef | null;
+  shopCharge?: ShopChargeSummary | null;
 } & BusinessSetting;
 
 export type CardTxnDto = {
@@ -93,6 +128,7 @@ export type CardTxnDto = {
   createdAt: Date;
   categoryAccount?: CategoryRef | null;
   transferToAccount?: CardRef | null;
+  shopCharge?: ShopChargeSummary | null;
 } & BusinessSetting;
 
 /** 銀行明細を API の応答の形（以前の bank_transactions と同じ項目名）にする */
@@ -114,6 +150,7 @@ export function toBankTxn(e: EntryWithRefs): BankTxnDto {
     ...businessFields(e),
     ...(e.account !== undefined ? { categoryAccount: e.account } : {}),
     ...(e.chargeToCard !== undefined ? { chargeToAccount: e.chargeToCard } : {}),
+    ...(e.shopCharge !== undefined ? { shopCharge: shopChargeSummary(e.shopCharge) } : {}),
   };
 }
 
@@ -134,6 +171,7 @@ export function toCardTxn(e: EntryWithRefs): CardTxnDto {
     ...businessFields(e),
     ...(e.account !== undefined ? { categoryAccount: e.account } : {}),
     ...(e.chargeToCard !== undefined ? { transferToAccount: e.chargeToCard } : {}),
+    ...(e.shopCharge !== undefined ? { shopCharge: shopChargeSummary(e.shopCharge) } : {}),
   };
 }
 
@@ -181,6 +219,15 @@ export const ENTRY_REFS_INCLUDE = {
   account: { select: { id: true, code: true, name: true } },
   // 種別は、銀行明細のチャージ先がクレジットカード（カード代金の引き落とし）かを画面で見分けるため
   chargeToCard: { select: { id: true, name: true, type: true } },
+  // 明細分け（通販の注文）に紐付いた明細なら、その注文の要約（科目の欄に出す）
+  shopCharge: {
+    select: {
+      id: true,
+      orderNo: true,
+      shopAccount: { select: { name: true } },
+      items: { select: { categoryAccountId: true } },
+    },
+  },
 } as const satisfies Prisma.FinancialRecordInclude;
 
 /** 現金の明細で添える科目と証憑（toCashEntry に渡す） */

@@ -5,6 +5,7 @@ import { assertActualsPeriodsEditable, confirmedActualsPeriodIds } from "@/lib/b
 import { normalizeKeyword, ruleSideOf } from "@/lib/ledger/banktxn-import";
 import { entryActualAmount, UNPAIRED } from "@/lib/ledger/ledger-entries";
 import type { TenantDb, TenantDbClient } from "@/lib/server/tenant-db";
+import { assertNotShopLinked } from "@/lib/ledger/shop-link";
 import {
   BusinessInput,
   businessFields,
@@ -57,6 +58,7 @@ export async function categorizeEntry(
   if (txn.chargeToCardId || txn.chargeGroupId) {
     throw badRequest("チャージ（資金移動）の明細は科目を付けられません");
   }
+  await assertNotShopLinked(db, [txn.id], "科目を付けられません");
   await assertActualsPeriodsEditable(db, [txn.periodId]);
 
   let category: { id: number; category: string } | null = null;

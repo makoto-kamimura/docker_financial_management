@@ -136,6 +136,7 @@ describe("POST /api/imports", () => {
       skipped: 0,
       locked: 0,
       offset: 0,
+      shopLinked: 0,
       unassigned: 0,
     });
     const cardRes = await importPost(

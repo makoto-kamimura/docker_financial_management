@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import type { TenantDbClient } from "@/lib/server/tenant-db";
 import {
   LINKED_ACCOUNT_TYPE_LABELS,
@@ -154,9 +155,19 @@ export async function loadActualsSources(
 }
 
 /**
- * 対象月の明細のうち、科目が付いていない（未割り当ての）ものの件数。
- * 口座間振替・チャージは科目を付けない明細なので数えない。
+ * 対象月の未割り当て（科目が付いていない）の行の条件。明細と、明細分けの商品ごとの行（内訳）の両方。
+ * 口座間振替・チャージは科目を付けない明細なので数えない。明細分けに紐付いた明細そのものも数えない
+ * （内訳の行が実績になるため。UNPAIRED）
  */
+export function unassignedInMonthWhere(year: number, month: number) {
+  return {
+    accountId: null,
+    date: { gte: new Date(year, month - 1, 1), lt: new Date(year, month, 1) },
+    OR: [{ kind: { not: null }, ...UNPAIRED }, { splitOfId: { not: null } }],
+  } satisfies Prisma.FinancialRecordWhereInput;
+}
+
+/** 対象月の未割り当ての件数（明細と、明細分けの商品ごとの行） */
 export async function countUnassignedEntries(
   db: Pick<TenantDbClient, "financialRecord">,
   tenantId: number,
@@ -164,13 +175,7 @@ export async function countUnassignedEntries(
   month: number,
 ): Promise<number> {
   return db.financialRecord.count({
-    where: {
-      tenantId,
-      kind: { not: null },
-      accountId: null,
-      date: { gte: new Date(year, month - 1, 1), lt: new Date(year, month, 1) },
-      ...UNPAIRED,
-    },
+    where: { tenantId, ...unassignedInMonthWhere(year, month) },
   });
 }
 

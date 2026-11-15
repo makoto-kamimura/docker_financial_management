@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
+import { assertNotShopLinked } from "@/lib/ledger/shop-link";
 import { badRequest, notFound } from "@/lib/server/api-error";
 import { BANK, CARD, ENTRY_REFS_INCLUDE, toBankTxn, UNPAIRED } from "@/lib/ledger/ledger-entries";
 import { validateChargePair } from "@/lib/ledger/charge-link";
@@ -59,6 +60,7 @@ export const PATCH = withApi({
     let pairPeriodId: number | null = null;
     let settlement = false;
     if (body.chargeToAccountId !== null) {
+      await assertNotShopLinked(db, [id], "チャージにできません");
       if (txn.transferGroupId !== null) {
         throw badRequest("口座間振替として紐付け済みの明細はチャージにできません");
       }
@@ -82,6 +84,7 @@ export const PATCH = withApi({
       }
 
       if (body.pairTxnId) {
+        await assertNotShopLinked(db, [body.pairTxnId], "チャージにできません");
         const pair = await db.financialRecord.findFirst({
           where: { id: body.pairTxnId, ...CARD },
           select: {

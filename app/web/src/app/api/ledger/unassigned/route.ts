@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
 import { UNPAIRED } from "@/lib/ledger/ledger-entries";
+import { unassignedInMonthWhere } from "@/lib/ledger/actuals-coverage";
 import { businessFields } from "@/lib/ledger/business-use";
 import { businessPortion } from "@/lib/shared/business-use";
 
@@ -11,7 +12,9 @@ const LIMIT = 500;
 // 実績管理の「実績の確定」タブで、行ごとに科目・事業利用・按分を付けるために使う。
 // includeAssigned=1 なら、科目の付いた明細も返す（付けた科目・事業利用を見直すため）。
 // 振替・チャージの組は含めない（科目を付けない明細のため）。
-// 未割り当てが残っている月は実績を確定できない（POST /api/actuals/confirm）。unassignedCount はその件数。
+// 未割り当てが残っている月は実績を確定できない（POST /api/actuals/confirm）。unassignedCount はその件数で、
+// 明細分け（通販の注文）の科目の無い商品も含む。shopItemCount はそのうちの商品の件数（一覧の行には出さない。
+// 商品の科目は明細分けの履歴で付ける）。明細分けに紐付いた明細そのものは一覧に出さない（UNPAIRED）。
 export const GET = withApi({
   role: "viewer",
   querySchema: z.object({
@@ -31,7 +34,7 @@ export const GET = withApi({
         lt: new Date(query.year, query.month, 1),
       },
     } as const;
-    const [rows, unassignedCount] = await Promise.all([
+    const [rows, unassignedCount, shopItemCount] = await Promise.all([
       db.financialRecord.findMany({
         where: { ...inMonth, ...(query.includeAssigned ? {} : { accountId: null }) },
         select: {
@@ -51,7 +54,10 @@ export const GET = withApi({
         orderBy: [{ date: "asc" }, { id: "asc" }],
         take: LIMIT + 1,
       }),
-      db.financialRecord.count({ where: { ...inMonth, accountId: null } }),
+      db.financialRecord.count({ where: unassignedInMonthWhere(query.year, query.month) }),
+      db.financialRecord.count({
+        where: { ...unassignedInMonthWhere(query.year, query.month), splitOfId: { not: null } },
+      }),
     ]);
     const truncated = rows.length > LIMIT;
     return NextResponse.json({
@@ -76,6 +82,7 @@ export const GET = withApi({
         };
       }),
       unassignedCount,
+      shopItemCount,
       truncated,
     });
   },

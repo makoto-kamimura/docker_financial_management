@@ -736,6 +736,25 @@ Amazon などの通販のカード明細 1 行には、いろいろな商品が�
   - 注文履歴のページへのリンク
   - 取り込んだ注文がある明細分けは削除できない。
 - **データ**: 取り込んだ注文は、請求（`shop_charges`。カード・銀行の明細 1 行に当たる支払いのまとまり）と、商品（`shop_order_items`）で持つ。
+- **自動の紐付け**（`src/lib/ledger/shop-link-core.ts`・`shop-link.ts`）: まだ紐付いていない請求を、次の明細に自動で紐付ける。注文の取り込みと、カード・銀行の明細の取り込みのあとに走る（`POST /api/imports` の結果の `shopLinked`）。`POST /api/shop-orders/auto-link` でも走らせられる。
+  - 銀行・カードの出金で、金額が請求額とぴったり同じ
+  - 日付が請求日の 3 日前から 10 日後まで
+  - 摘要が明細分けのキーワードに当たり、除外に当たらない。支払いに使うカード・口座を選んでいれば、その明細
+  - 振替・チャージの組でなく、ほかの請求の紐付け先でなく、実績を確定済みの月でない
+  - 請求と明細が互いに 1 つに決まるときだけ組む。互いに区別の付かない明細（同じ日・同じ金額・同じカード）に、同じ候補の請求が同じ数だけあるときは、id の順に組む（[20.4節](#204-振替とチャージ)の自動相殺と同じ考え方）。
+- **手での紐付け**: 金額の合わない請求（ポイント・ギフト券の併用など）は、候補（`GET /api/shop-orders/[id]/candidates`）から選んで紐付ける（`POST /api/shop-orders/[id]/link`）。
+  - 候補は、請求日の前後 14 日の出金の明細を、金額の差が小さい順 → 摘要がキーワードに当たるもの → 日付の差が小さい順に並べる。キーワードに当たらない明細も出す（楽天市場の出店者の名前など、摘要が揺れるため）。
+  - 金額の差は、商品の金額の割合で割り振る。端数は、金額の絶対値がいちばん大きい商品に寄せる。
+  - `DELETE /api/shop-orders/[id]/link` で外す。
+- **実績への載せ方（内訳の行）**: 紐付けた明細は、科目を外して amount を 0 にする（実績に入らない）。代わりに、商品ごとの行を実績の表に作る（`financial_records` の kind の無い行。`splitOfId` が明細を指す）。
+  - 内訳の行の日付は明細と同じ、摘要は商品名、flow は割り振った額。科目・事業利用は商品のもの。
+  - 明細の一覧・残高には出ない。予実差・KPI・決算などの集計は、科目のある行を数えるので、そのまま商品ごとの実績になる。
+  - 内訳の行は、商品から毎回作り直す（正は商品の側）。科目の無い商品の行は「未割り当て」として数え、実績の確定を止める（`GET /api/ledger/unassigned` の `shopItemCount`）。
+  - 個人事業主モードでは、内訳の行も明細と同じく、事業利用の印の付いた分だけを按分した額で数える。自動仕訳では、商品ごとの行に分け、お金の出どころは明細のカード・口座にする。
+  - 科目×月の表の内訳では、「明細の摘要（商品名）」とカード名で出す。
+  - 紐付いた明細そのものには、科目を付けられず、振替・チャージの組にもできない（400）。明細を消すと内訳の行も消え、請求は未紐付けに戻る。
+  - 実績を確定済みの月の明細には、紐付けない・外さない・商品の科目を変えない（409）。
+- **商品の科目**: `PATCH /api/shop-orders/items/[id]` で科目・事業利用を変える。`learn` なら、商品名（正規化して先頭 60 文字）と科目を商品名の学習ルール（`shop_item_rules`）に覚える。学習ルールは、明細の摘要のルールとは別に持つ（商品名のキーワードが店名の摘要に当たらないように）。
 
 ## 12. 資産と借入金
 
@@ -1413,7 +1432,7 @@ npm run typecheck && npm run format:check
 | `accounts` | code, name（家計の科目名）, soleName, corporateName, category, parentId | `[tenantId, code]` 一意 |
 | `departments` | name, manager, parentId | |
 | `periods` | fiscalYear, quarter, month | `[tenantId, fiscalYear, month]` 一意 |
-| `financial_records` | accountId（空 = 未割り当て・振替・チャージ）, departmentId, periodId, amount, journalEntryId, kind, bankAccountId, cardAccountId, date, description, flow, balance, source, externalId, transferGroupId, chargeToCardId, chargeGroupId, businessUse, businessRatio | 実績と明細の表。kind を持つ行が現金・銀行・カードの明細（flow は +入金 / −出金、カードの利用は負）で、科目が付けば実績になる。kind の無い行は仕訳・減価償却・棚卸・売掛買掛・過去の直接入力の実績。`[bankAccountId, externalId]`・`[cardAccountId, externalId]` 一意。kind と口座、組と科目、事業利用と按分の決まりは CHECK 制約で守る |
+| `financial_records` | accountId（空 = 未割り当て・振替・チャージ）, departmentId, periodId, amount, journalEntryId, kind, bankAccountId, cardAccountId, date, description, flow, balance, source, externalId, transferGroupId, chargeToCardId, chargeGroupId, businessUse, businessRatio, splitOfId | 実績と明細の表。kind を持つ行が現金・銀行・カードの明細（flow は +入金 / −出金、カードの利用は負）で、科目が付けば実績になる。kind の無い行は仕訳・減価償却・棚卸・売掛買掛・過去の直接入力の実績と、明細分けの商品ごとの行（splitOfId が紐付けた明細を指す。科目が空なら未割り当て。[11.6節](#116-明細管理通販の明細分け)）。`[bankAccountId, externalId]`・`[cardAccountId, externalId]` 一意。kind と口座、組と科目、事業利用と按分の決まりは CHECK 制約で守る |
 | `financial_record_histories` | recordId, userId, action, amount, changedAt | |
 | `forecasts` | accountId, periodId, method, scenario, amount | 保存した予測 |
 | `receipt_drafts` | tenantId, userId, date（撮ったときに選んでいた日）, status（READING / READ / FAILED）, draft・suggestedAccount・warnings（読み取った結果）, readDate（レシートの日付）, error, createdAt, updatedAt | 仮の明細（撮ったレシート）。集計に入らない。登録すると現金の明細になって消える。写真は `receipts.receiptDraftId` の証憑（[20.14節](#2014-レシートの読み取り)） |
@@ -1442,6 +1461,7 @@ npm run typecheck && npm run format:check
 | `shop_accounts` | name, type（AMAZON / YODOBASHI / RAKUTEN / OTHER）, matchKeywords, excludeKeywords, paymentCardIds, paymentBankIds, statementUrl, csvMapping, businessUse | 明細分け（通販の注文の取り込み先。[11.6節](#116-明細管理通販の明細分け)） |
 | `shop_charges` | shopAccountId, orderNo, date, amount, sellerName, externalKey, entryId, linkedBy（AUTO / MANUAL） | 明細分けの請求。entryId は紐付けたカード・銀行の明細（一意）。externalKey で取り込みの重複を防ぐ |
 | `shop_order_items` | chargeId, name, quantity, amount, categoryAccountId, businessUse, businessRatio, sortOrder | 請求の商品（送料・割引も 1 行）。請求を消すと一緒に消える |
+| `shop_item_rules` | keyword, categoryAccountId, priority, businessUse, businessRatio | 商品名の学習ルール（`[tenantId, keyword]` 一意）。科目を消すと一緒に消える |
 | `card_transfer_rules` | accountId, keyword, transferToAccountId | チャージの自動判定 |
 | `card_recurring_payments` | accountId, label, amount, day, categoryAccountId, note | カード払いの固定決済 |
 
@@ -1625,6 +1645,11 @@ npm run typecheck && npm run format:check
 | PATCH | `/card-transactions/[id]/categorize` `/card-transactions/[id]/transfer` | E |
 | GET / POST | `/shop-accounts` | V / E |
 | PATCH / DELETE | `/shop-accounts/[id]` | E |
+| GET | `/shop-orders` `/shop-orders/[id]/candidates` | V |
+| POST | `/shop-orders/auto-link` | E |
+| POST / DELETE | `/shop-orders/[id]/link` | E |
+| DELETE | `/shop-orders/[id]` | E |
+| PATCH | `/shop-orders/items/[id]` | E |
 | GET / DELETE | `/card-transfer-rules` | V / E |
 | GET / POST | `/card-recurring-payments` | V / E |
 | PATCH / DELETE | `/card-recurring-payments/[id]` | E |

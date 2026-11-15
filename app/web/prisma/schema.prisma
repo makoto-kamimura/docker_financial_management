@@ -76,6 +76,7 @@ model Account {
   bankAccounts          BankAccount[]
   cardRecurringPayments CardRecurringPayment[]
   shopOrderItems        ShopOrderItem[]
+  shopItemRules         ShopItemRule[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -323,6 +324,11 @@ model FinancialRecord {
   receipts   Receipt[] // 証憑（レシートの写真など。現金の明細だけ）
   // 明細分け（通販の注文）を紐付けた明細のとき、その請求（ShopCharge.entryId の逆側）
   shopCharge ShopCharge?
+  // 明細分けの商品ごとの行（内訳）のとき、紐付けた明細（親）。内訳の行は kind を持たず（明細の一覧・残高に出ない）、
+  // 科目・金額・事業利用は商品のもの。親は科目を外し amount 0 にする（lib/ledger/shop-link.ts の syncChargeEntries）
+  splitOfId  Int?
+  splitOf    FinancialRecord?         @relation("EntrySplit", fields: [splitOfId], references: [id], onDelete: Cascade)
+  splits     FinancialRecord[]        @relation("EntrySplit")
 
   @@unique([bankAccountId, externalId])
   @@unique([cardAccountId, externalId])
@@ -334,6 +340,7 @@ model FinancialRecord {
   @@index([transferGroupId])
   @@index([chargeToCardId])
   @@index([chargeGroupId])
+  @@index([splitOfId])
   @@map("financial_records")
 }
 
@@ -1712,4 +1719,23 @@ model ShopOrderItem {
   @@index([chargeId])
   @@index([tenantId, categoryAccountId])
   @@map("shop_order_items")
+}
+
+// 明細分けの商品名の学習ルール（商品の科目を付けたときに覚え、注文の取り込みで当てる）。
+// 明細の摘要のルール（TxnCategoryRule）とは別に持つ（商品名のキーワードが店名の摘要に当たらないように）
+model ShopItemRule {
+  id                Int      @id @default(autoincrement())
+  tenantId          Int
+  keyword           String // 商品名の部分一致キーワード（normalizeKeyword で比べる）
+  categoryAccountId Int
+  categoryAccount   Account  @relation(fields: [categoryAccountId], references: [id])
+  priority          Int      @default(0) // 手で付けた科目は 100
+  businessUse       Boolean?
+  businessRatio     Decimal? @db.Decimal(5, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([tenantId, keyword])
+  @@index([tenantId])
+  @@map("shop_item_rules")
 }

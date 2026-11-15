@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withApi } from "@/lib/server/api-handler";
+import { assertNotShopLinked } from "@/lib/ledger/shop-link";
 import { badRequest, notFound } from "@/lib/server/api-error";
 import { CARD, ENTRY_REFS_INCLUDE, toCardTxn } from "@/lib/ledger/ledger-entries";
 import { validateCardTransferTarget } from "@/lib/ledger/card-transfer";
@@ -57,6 +58,7 @@ export const PATCH = withApi({
     let pairTxnId: number | null = null;
     let pairPeriodId: number | null = null;
     if (body.transferToAccountId !== null) {
+      await assertNotShopLinked(db, [id], "チャージにできません");
       const error = validateCardTransferTarget(txn, body.transferToAccountId);
       if (error) throw badRequest(error);
 
@@ -74,6 +76,7 @@ export const PATCH = withApi({
 
       if (body.pairTxnId) {
         if (body.pairTxnId === id) throw badRequest("同じ明細どうしは紐付けできません");
+        await assertNotShopLinked(db, [body.pairTxnId], "チャージにできません");
         const pair = await db.financialRecord.findFirst({
           where: { id: body.pairTxnId, ...CARD },
           select: {
