@@ -9,14 +9,15 @@
 //   - C にも B にも実績が無い（はじめての予算の確定）ときは、予算案の代わりに配分提案
 //     （components/AllocationSuggestSection.tsx）を出し、収入の金額から配分の目安で B の予算を入れられる
 //   - C の予算が未確定（サイクルの初回）で実績があるときは、B の前の 3 か月の実績の平均を予算案にする
-//     （GET /api/budgets/estimate）。保存はせず、開くたびと「確定」を押したときに計算し直す
+//     （GET /api/budgets/estimate）。保存はせず、開くたびと「確定」を押したときに計算し直す。
+//     一度でも実績のある科目は行に出し（前の 3 か月に無ければ 0 円）、表に無い科目は「科目を追加」で足せる
 //   - C の実績の確定（②）は実績管理の「実績の確定」タブ、C の予算と実績を見比べるのは「予実差確認」タブ
 //   年は左のメニュー、月は上のボタンで選ぶ（lib/client/use-cycle-month.ts）。
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Lock, RotateCcw } from "lucide-react";
+import { Lock, Plus, RotateCcw, X } from "lucide-react";
 import { LoadingSpinner } from "@/components/StateViews";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
 import { actualsConfirmHref, CycleSteps, type CycleStatus } from "@/components/CycleSteps";
@@ -95,6 +96,8 @@ export function BudgetConfirmPanel({
   const [transferTargetId, setTransferTargetId] = useState<number | null>(null);
   // 予算案を手で直した金額（流用など）。科目 ID → 入力中の文字列
   const [overrides, setOverrides] = useState<Map<number, string>>(new Map());
+  // 推測の予算案に手で足した科目（表に無い科目。初期値 0 円）
+  const [addedIds, setAddedIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -173,6 +176,7 @@ export function BudgetConfirmPanel({
       ),
     );
     setOverrides(new Map());
+    setAddedIds([]);
   }, [data, household]);
 
   const accountById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);
@@ -285,8 +289,45 @@ export function BudgetConfirmPanel({
     }
   }
 
+  // 推測の予算案の行: 計算した行と、手で足した科目（実績も予算も無いので 0 円から）
+  type EstimateRow = EstimateResponse["rows"][number] & { added?: boolean };
+  const estimateRows = useMemo((): EstimateRow[] => {
+    if (!estimate) return [];
+    const shown = new Set(estimate.rows.map((r) => r.accountId));
+    const added = addedIds
+      .filter((id) => !shown.has(id))
+      .flatMap((id) => {
+        const a = accountById.get(id);
+        if (!a) return [];
+        return [
+          {
+            accountId: a.id,
+            accountCode: a.code,
+            name: a.name,
+            category: a.category as BudgetCycleCategory,
+            soleName: a.soleName,
+            corporateName: a.corporateName,
+            months: estimate.months.map(() => 0),
+            average: 0,
+            budget: null,
+            added: true,
+          },
+        ];
+      });
+    return [...estimate.rows, ...added];
+  }, [estimate, addedIds, accountById]);
+  // 「科目を追加」の候補: 予算の対象（収入・費用）の科目のうち、まだ表に無いもの
+  const addCandidates = useMemo(() => {
+    const shown = new Set(estimateRows.map((r) => r.accountId));
+    return (accounts ?? []).filter(
+      (a) =>
+        (a.category === "REVENUE" || a.category === "COGS" || a.category === "EXPENSE") &&
+        !shown.has(a.id),
+    );
+  }, [accounts, estimateRows]);
+
   // 推測の予算案の合計（手で直した金額を含む）
-  const estimateTotals = (estimate?.rows ?? []).reduce(
+  const estimateTotals = estimateRows.reduce(
     (acc, r) => {
       const amount = finalAmount(r.accountId, r.average);
       if (r.category === "REVENUE") acc.revenue += amount;
@@ -326,8 +367,12 @@ export function BudgetConfirmPanel({
         });
         return;
       }
-      // 0 円の科目は、予算が入っているときだけ送る（0 円の予算を新しく作らない）
-      const items = fresh.rows
+      // 0 円の科目は、予算が入っているときだけ送る（0 円の予算を新しく作らない）。手で足した科目も送る
+      const freshIds = new Set(fresh.rows.map((r) => r.accountId));
+      const items = [
+        ...fresh.rows,
+        ...estimateRows.filter((r) => r.added && !freshIds.has(r.accountId)),
+      ]
         .map((r) => ({
           accountId: r.accountId,
           amount: finalAmount(r.accountId, r.average),
@@ -447,16 +492,17 @@ export function BudgetConfirmPanel({
               月の予算がまだ確定していないため、前の月の予実差からは予算案を作れません。代わりに、
               {estimate ? estimate.months.map((m) => `${m.month}月`).join("・") : "前の 3 か月"}
               の実績を科目ごとに平均した金額を予算案にしています（実績の無い月は 0
-              円として数えます）。この案は保存されず、開くたびと「確定」を押したときに、その時点の実績で計算し直します。金額は直接書き換えられます。ローン返済などの自動反映は、ここには含めず表示のときに上乗せされます。
+              円として数えます）。一度でも実績のある科目は、この 3 か月に実績が無くても 0
+              円で出します。表に無い科目は「科目を追加」で足せます。この案は保存されず、開くたびと「確定」を押したときに、その時点の実績で計算し直します。金額は直接書き換えられます。ローン返済などの自動反映は、ここには含めず表示のときに上乗せされます。
             </SectionLead>
           </div>
           {estimateQuery.isLoading && <LoadingSpinner />}
-          {estimate && estimate.rows.length === 0 && (
+          {estimate && estimateRows.length === 0 && (
             <p className="px-4 pb-4 text-sm text-slate-400">
-              前の 3 か月に実績がありません。予算の表で金額を入れてから確定してください。
+              実績のある科目がありません。「科目を追加」で科目を足して金額を入れてください。
             </p>
           )}
-          {estimate && estimate.rows.length > 0 && (
+          {estimate && estimateRows.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -475,7 +521,7 @@ export function BudgetConfirmPanel({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {estimate.rows.map((r) => {
+                  {estimateRows.map((r) => {
                     const override = overrides.get(r.accountId);
                     const edited = override !== undefined;
                     return (
@@ -485,6 +531,27 @@ export function BudgetConfirmPanel({
                             {r.accountCode}
                           </span>
                           {displayName(r, mode)}
+                          {r.added && (
+                            <button
+                              type="button"
+                              aria-label={`${displayName(r, mode)}を表から外す`}
+                              title="表から外す"
+                              onClick={() => {
+                                setAddedIds((ids) => ids.filter((id) => id !== r.accountId));
+                                setOverrides((m) => {
+                                  const n = new Map(m);
+                                  n.delete(r.accountId);
+                                  return n;
+                                });
+                              }}
+                              className="ml-1.5 align-middle text-slate-400 hover:text-red-600"
+                            >
+                              <X className="w-3.5 h-3.5 inline" aria-hidden="true" />
+                            </button>
+                          )}
+                          {r.added && (
+                            <div className="text-[10px] text-slate-500">追加した科目</div>
+                          )}
                           {r.budget !== null && r.budget !== r.average && (
                             <div className="text-[10px] text-slate-500">
                               いま入っている予算 {yen(r.budget)}
@@ -494,10 +561,12 @@ export function BudgetConfirmPanel({
                         </td>
                         {r.months.map((v, i) => (
                           <td key={i} className="px-3 py-2 text-right tabular-nums text-slate-500">
-                            {yen(v)}
+                            {r.added ? "—" : yen(v)}
                           </td>
                         ))}
-                        <td className="px-3 py-2 text-right tabular-nums">{yen(r.average)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.added ? "—" : yen(r.average)}
+                        </td>
                         <td className="px-3 py-2 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <input
@@ -554,10 +623,38 @@ export function BudgetConfirmPanel({
               </table>
             </div>
           )}
+          {estimate && (
+            <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-slate-100">
+              <Plus className="w-4 h-4 text-slate-500" aria-hidden="true" />
+              <label htmlFor="estimate-add" className="text-xs font-medium text-slate-600">
+                科目を追加
+              </label>
+              <select
+                id="estimate-add"
+                value=""
+                disabled={addCandidates.length === 0}
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  if (id) setAddedIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+                }}
+                className="text-xs border border-slate-300 rounded-md px-2 py-1.5 bg-white max-w-64 disabled:opacity-50"
+              >
+                <option value="">科目を選ぶ</option>
+                {addCandidates.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} {displayName(a, mode)}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11px] text-slate-400">
+                実績の無い科目を足すと 0 円で入ります。金額を入れてから確定してください。
+              </span>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-slate-100">
             <button
               type="button"
-              disabled={busy || !estimate || estimate.rows.length === 0 || invalidOverride}
+              disabled={busy || !estimate || estimateRows.length === 0 || invalidOverride}
               onClick={confirmEstimate}
               className="btn-primary"
             >

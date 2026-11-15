@@ -14,7 +14,9 @@ import { budgetScopeOf } from "@/lib/budget/budget-scope";
 //   予算の月の前の 3 か月の実績を科目ごとに並べ、平均を予算案として返す（lib/shared/budget-cycle.ts）。
 //   前月の予算が未確定（サイクルの初回）で、前月の予実差から予算案を作れない月に、予算の確定タブが使う。
 //   保存はしない。画面を開くたび・確定を押すたびに、その時点の実績で計算し直す。
-//   その月に登録済みの予算（budget）も返す。平均が 0 でも予算が入っている科目は、行として残す。
+//   行に出す科目は、一度でも実績のある科目（期間を問わない）と、その月に予算が入っている科目。
+//   前の 3 か月に実績が無い科目は平均 0 円。その月に登録済みの予算（budget）も返す。
+//   表に無い科目は、画面の「科目を追加」で足す（初期値 0 円）。
 //   scope=business は事業の分の実績と事業の予算。
 export const GET = withApi({
   role: "viewer",
@@ -46,7 +48,7 @@ export const GET = withApi({
     );
 
     const categoryFilter = { category: { in: [...BUDGET_CYCLE_CATEGORIES] } };
-    const [records, budgets] = await Promise.all([
+    const [records, budgets, everRecorded] = await Promise.all([
       periods.length === 0
         ? []
         : db.financialRecord.findMany({
@@ -64,6 +66,12 @@ export const GET = withApi({
             select: { accountId: true, amount: true },
           })
         : [],
+      // 一度でも実績のある科目（前の 3 か月に実績が無くても行に出す）
+      db.financialRecord.findMany({
+        where: { tenantId, ...actualWhere(query.scope), account: categoryFilter },
+        select: { accountId: true },
+        distinct: ["accountId"],
+      }),
     ]);
 
     const estimates = estimateFromActuals(
@@ -80,7 +88,8 @@ export const GET = withApi({
     const estimateMap = new Map(estimates.map((e) => [e.accountId, e]));
     const accountIds = [
       ...new Set([
-        ...estimates.filter((e) => e.months.some((v) => v !== 0)).map((e) => e.accountId),
+        ...estimates.map((e) => e.accountId),
+        ...everRecorded.flatMap((r) => (r.accountId === null ? [] : [r.accountId])),
         ...budgetMap.keys(),
       ]),
     ];

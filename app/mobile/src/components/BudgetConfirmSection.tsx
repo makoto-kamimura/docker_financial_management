@@ -4,7 +4,8 @@
 //     「確定」で B の予算を確定する（POST /budgets/confirm。計算は shared/budget-cycle.ts）。C から見た ③
 //   - はじめて使うときなどは、B の予算をいま入っている金額のまま確定できる（B から見た ①）
 //   - C の予算が未確定（サイクルの初回）で実績があるときは、B の前の 3 か月の実績の平均を予算案にする
-//     （GET /budgets/estimate）。保存はせず、開くたびと「確定」を押したときに計算し直す
+//     （GET /budgets/estimate）。保存はせず、開くたびと「確定」を押したときに計算し直す。
+//     一度でも実績のある科目は行に出し（前の 3 か月に無ければ 0 円）、表に無い科目は「科目を追加」で足せる
 //   - C の実績の確定（②）は実績の画面、C の予算と実績を見比べるのは「予実差確認」タブ（BudgetVarianceSection.tsx）
 // 年は画面上部の対象年度、月は月ボタンで選ぶ（use-cycle-month.ts）。
 // 画面幅が狭いので、科目ごとに「C 月の差・扱い・予算案」を 1 ブロックにまとめる。
@@ -52,6 +53,10 @@ const TREATMENTS: { value: VarianceTreatment; label: string }[] = [
 
 // 回し先の候補は費用の科目（家計の貯蓄・投資も費用として扱う）
 const TRANSFER_CATEGORIES = ["EXPENSE", "COGS"] as const;
+// 推測の予算案に足せる科目（予算の対象の収入・費用）
+const BUDGET_CATEGORIES = ["REVENUE", "COGS", "EXPENSE"] as const;
+
+type EstimateRow = BudgetEstimate["rows"][number] & { added?: boolean };
 
 type Props = {
   viewMode: ViewMode;
@@ -97,6 +102,9 @@ export function BudgetConfirmSection({
   // 実績から推測した予算案（サイクルの初回だけ）
   const [estimate, setEstimate] = useState<BudgetEstimate | null>(null);
   const [estimateError, setEstimateError] = useState<string | null>(null);
+  // 推測の予算案に手で足した科目（表に無い科目。初期値 0 円）
+  const [addedIds, setAddedIds] = useState<number[]>([]);
+  const [addPickerOpen, setAddPickerOpen] = useState(false);
 
   useEffect(() => {
     fetchAccounts()
@@ -144,6 +152,7 @@ export function BudgetConfirmSection({
       ),
     );
     setOverrides(new Map());
+    setAddedIds([]);
   }, [data, household]);
 
   // サイクルの初回（比べる月の予算が未確定）で、比べる月か予算の月に実績がある。
@@ -266,7 +275,39 @@ export function BudgetConfirmSection({
   }
 
   // 推測の予算案の合計（手で直した金額を含む）
-  const estimateTotals = (estimate?.rows ?? []).reduce(
+  // 推測の予算案の行: 計算した行と、手で足した科目（実績も予算も無いので 0 円から）
+  const estimateRows = useMemo((): EstimateRow[] => {
+    if (!estimate) return [];
+    const shown = new Set(estimate.rows.map((r) => r.accountId));
+    const added = addedIds
+      .filter((id) => !shown.has(id))
+      .flatMap((id) => {
+        const a = accountById.get(id);
+        if (!a) return [];
+        return [
+          {
+            accountId: a.id,
+            accountCode: a.code,
+            name: a.name,
+            category: a.category,
+            soleName: a.soleName ?? null,
+            corporateName: a.corporateName ?? null,
+            months: estimate.months.map(() => 0),
+            average: 0,
+            budget: null,
+            added: true,
+          },
+        ];
+      });
+    return [...estimate.rows, ...added];
+  }, [estimate, addedIds, accountById]);
+  // 「科目を追加」の候補: まだ表に無い科目
+  const addCandidates = useMemo(() => {
+    const shown = new Set(estimateRows.map((r) => r.accountId));
+    return accounts.filter((a) => !shown.has(a.id));
+  }, [accounts, estimateRows]);
+
+  const estimateTotals = estimateRows.reduce(
     (acc, r) => {
       const amount = finalAmount(r.accountId, r.average);
       if (r.category === "REVENUE") acc.revenue += amount;
@@ -304,8 +345,12 @@ export function BudgetConfirmSection({
                 );
                 return;
               }
-              // 0 円の科目は、予算が入っているときだけ送る（0 円の予算を新しく作らない）
-              const items = fresh.rows
+              // 0 円の科目は、予算が入っているときだけ送る（0 円の予算を新しく作らない）。手で足した科目も送る
+              const freshIds = new Set(fresh.rows.map((r) => r.accountId));
+              const items = [
+                ...fresh.rows,
+                ...estimateRows.filter((r) => r.added && !freshIds.has(r.accountId)),
+              ]
                 .map((r) => ({
                   accountId: r.accountId,
                   amount: finalAmount(r.accountId, r.average),
@@ -476,18 +521,19 @@ export function BudgetConfirmSection({
             月の予算がまだ確定していないため、前の月の予実差からは予算案を作れません。代わりに、
             {estimate ? estimate.months.map((m) => `${m.month}月`).join("・") : "前の 3 か月"}
             の実績を科目ごとに平均した金額を予算案にしています（実績の無い月は 0
-            円として数えます）。この案は保存されず、開くたびと「確定」を押したときに、その時点の実績で計算し直します。金額は直接書き換えられます。
+            円として数えます）。一度でも実績のある科目は、この 3 か月に実績が無くても 0
+            円で出します。表に無い科目は「科目を追加」で足せます。この案は保存されず、開くたびと「確定」を押したときに、その時点の実績で計算し直します。金額は直接書き換えられます。
           </Text>
           {estimateError && <Notice tone="error">{estimateError}</Notice>}
           {!estimate && !estimateError && (
             <ActivityIndicator color={COLORS.primary} style={s.spinner} />
           )}
-          {estimate && estimate.rows.length === 0 && (
+          {estimate && estimateRows.length === 0 && (
             <Text style={s.empty}>
-              前の 3 か月に実績がありません。予算の一覧で金額を入れてから確定してください。
+              実績のある科目がありません。「科目を追加」で科目を足して金額を入れてください。
             </Text>
           )}
-          {estimate?.rows.map((r) => {
+          {estimateRows.map((r) => {
             const override = overrides.get(r.accountId);
             const edited = override !== undefined;
             return (
@@ -496,12 +542,31 @@ export function BudgetConfirmSection({
                   <Text style={s.rowCode}>{r.accountCode} </Text>
                   {displayName(r, viewMode)}
                 </Text>
-                <Text style={s.planCalc}>
-                  {estimate.months
-                    .map((m, i) => `${m.month}月 ${yen(r.months[i] ?? 0)}`)
-                    .join("・")}
-                  　平均 {yen(r.average)}
-                </Text>
+                {r.added ? (
+                  <View style={s.addedHead}>
+                    <Text style={s.planNote}>追加した科目</Text>
+                    <TouchableOpacity
+                      hitSlop={6}
+                      onPress={() => {
+                        setAddedIds((ids) => ids.filter((id) => id !== r.accountId));
+                        setOverrides((m) => {
+                          const n = new Map(m);
+                          n.delete(r.accountId);
+                          return n;
+                        });
+                      }}
+                    >
+                      <Text style={s.removeText}>表から外す</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <Text style={s.planCalc}>
+                    {(estimate?.months ?? [])
+                      .map((m, i) => `${m.month}月 ${yen(r.months[i] ?? 0)}`)
+                      .join("・")}
+                    　平均 {yen(r.average)}
+                  </Text>
+                )}
                 {r.budget !== null && r.budget !== r.average && (
                   <Text style={s.planNote}>
                     いま入っている予算 {yen(r.budget)}（確定するとこの案の金額に置き換わります）
@@ -535,8 +600,23 @@ export function BudgetConfirmSection({
               </View>
             );
           })}
+          {estimate && (
+            <>
+              <Button
+                label="＋ 科目を追加"
+                variant="secondary"
+                small
+                disabled={addCandidates.length === 0}
+                onPress={() => setAddPickerOpen(true)}
+                style={s.sideBtn}
+              />
+              <Text style={s.hint}>
+                実績の無い科目を足すと 0 円で入ります。金額を入れてから確定してください。
+              </Text>
+            </>
+          )}
           <View style={s.footer}>
-            {estimate && estimate.rows.length > 0 && (
+            {estimateRows.length > 0 && (
               <Text style={s.totals}>
                 {month}月の予算案：{household ? "収入" : "売上・収入"} {yen(estimateTotals.revenue)}
                 ・{household ? "支出" : "費用"} {yen(estimateTotals.expense)}・差引{" "}
@@ -556,7 +636,7 @@ export function BudgetConfirmSection({
             <Button
               label={`この予算で${label}を確定`}
               loading={busy}
-              disabled={!estimate || estimate.rows.length === 0}
+              disabled={!estimate || estimateRows.length === 0}
               onPress={confirmEstimate}
             />
           </View>
@@ -732,6 +812,19 @@ export function BudgetConfirmSection({
         onSelect={(a) => changeTransferTarget(a?.id ?? null)}
         onClose={() => setPickerOpen(false)}
       />
+      <AccountPickerModal
+        visible={addPickerOpen}
+        accounts={addCandidates}
+        categories={BUDGET_CATEGORIES}
+        title="予算案に科目を追加"
+        clearLabel={null}
+        currentId={null}
+        onSelect={(a) => {
+          setAddPickerOpen(false);
+          if (a) setAddedIds((ids) => (ids.includes(a.id) ? ids : [...ids, a.id]));
+        }}
+        onClose={() => setAddPickerOpen(false)}
+      />
     </View>
   );
 }
@@ -790,6 +883,8 @@ const s = StyleSheet.create({
   amountEdited: { borderColor: "#fbbf24", backgroundColor: "#fffbeb" },
   amountLocked: { backgroundColor: COLORS.bg, color: COLORS.sub },
   resetText: { fontSize: 11, color: COLORS.primary },
+  addedHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  removeText: { fontSize: 11, color: COLORS.danger },
 
   footer: { borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 10, gap: 8 },
   totals: { fontSize: 12, color: "#475569" },

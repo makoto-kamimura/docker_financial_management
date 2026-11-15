@@ -4,7 +4,7 @@
  *   - 予算の月の前の 3 か月の実績を科目ごとに並べ、平均を返す（実績の無い月は 0 円）
  *   - 科目の無い明細・予算の対象でない科目（資産など）・3 か月より前の実績は数えない
  *   - scope=business は事業の分（按分した額）
- *   - 予算が入っている科目は、平均が 0 でも行に残す
+ *   - 一度でも実績のある科目と、予算が入っている科目は、前の 3 か月に実績が無くても行に出す（平均 0 円）
  *   - 前月の予算が未確定（初回）なら、この案でそのまま確定できる
  *
  * 実行: `npm run test:integration`
@@ -47,6 +47,8 @@ let salary: Acct;
 let phone: Acct;
 let rent: Acct;
 let gift: Acct;
+let books: Acct;
+let unused: Acct;
 let cash: Acct;
 
 beforeAll(async () => {
@@ -76,6 +78,8 @@ beforeAll(async () => {
   phone = await mk("B1", "通信費", "EXPENSE");
   rent = await mk("B2", "家賃", "EXPENSE");
   gift = await mk("B3", "贈答費", "EXPENSE");
+  books = await mk("B4", "書籍費", "EXPENSE");
+  unused = await mk("B5", "使っていない科目", "EXPENSE");
   cash = await mk("C1", "現金", "ASSET");
 
   const entry = (month: number, flow: number, category: Acct | null, businessRatio?: number) =>
@@ -87,9 +91,7 @@ beforeAll(async () => {
         description: "テスト",
         flow,
         category: category as never,
-        ...(businessRatio !== undefined
-          ? { business: { businessUse: true, businessRatio } }
-          : {}),
+        ...(businessRatio !== undefined ? { business: { businessUse: true, businessRatio } } : {}),
       },
     );
   // 予算の月は 11 月。前の 3 か月は 8〜10 月
@@ -103,6 +105,7 @@ beforeAll(async () => {
   await entry(10, -9_999, null); // 科目なし（数えない）
   await entry(10, -7_000, cash); // 予算の対象でない科目（数えない）
   await entry(7, -50_000, rent); // 3 か月より前（数えない）
+  await entry(2, -1_500, books); // 前の 3 か月には無いが、一度は実績がある
 
   // 11 月に予算が入っている科目（実績は無い）
   const nov = await prisma.period.create({
@@ -149,8 +152,11 @@ describe("GET /api/budgets/estimate", () => {
     expect(byId.get(phone.id)).toMatchObject({ months: [0, 4_000, 5_000], average: 3_000 });
     // 予算だけある科目は平均 0 で残す
     expect(byId.get(gift.id)).toMatchObject({ months: [0, 0, 0], average: 0, budget: 2_000 });
+    // 一度でも実績のある科目は、前の 3 か月に無くても平均 0 円で出す
+    expect(byId.get(books.id)).toMatchObject({ months: [0, 0, 0], average: 0, budget: null });
+    expect(byId.has(unused.id)).toBe(false); // 実績も予算も無い科目は出さない（画面で追加する）
     expect(byId.has(cash.id)).toBe(false);
-    expect(data.rows).toHaveLength(4);
+    expect(data.rows).toHaveLength(5);
   });
 
   it("scope=business は事業の分（按分した額）で平均する", async () => {
