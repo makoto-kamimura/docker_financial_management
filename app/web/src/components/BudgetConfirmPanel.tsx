@@ -8,6 +8,8 @@
 //   - はじめて使うときなどは、B の予算をいま入っている金額のまま確定できる（B から見た ①）
 //   - C にも B にも実績が無い（はじめての予算の確定）ときは、予算案の代わりに配分提案
 //     （components/AllocationSuggestSection.tsx）を出し、収入の金額から配分の目安で B の予算を入れられる
+//   - C の予算が未確定（サイクルの初回）で実績があるときは、B の前の 3 か月の実績の平均を予算案にする
+//     （GET /api/budgets/estimate）。保存はせず、開くたびと「確定」を押したときに計算し直す
 //   - C の実績の確定（②）は実績管理の「実績の確定」タブ、C の予算と実績を見比べるのは「予実差確認」タブ
 //   年は左のメニュー、月は上のボタンで選ぶ（lib/client/use-cycle-month.ts）。
 
@@ -31,6 +33,7 @@ import {
   prevYearMonth,
   type VarianceTreatment,
 } from "@/lib/shared/budget-cycle";
+import type { BudgetCycleCategory } from "@/lib/shared/budget-cycle";
 import { cycleKey } from "@/lib/shared/cycle-month";
 import { useCycleMonth } from "@/lib/client/use-cycle-month";
 import { Notice } from "@/components/ui";
@@ -45,6 +48,24 @@ type AccountRef = {
   category: string;
   soleName?: string | null;
   corporateName?: string | null;
+};
+
+// 実績から推測した予算案（GET /api/budgets/estimate）
+type EstimateResponse = {
+  year: number;
+  month: number;
+  months: { year: number; month: number }[];
+  rows: {
+    accountId: number;
+    accountCode: string;
+    name: string;
+    category: BudgetCycleCategory;
+    soleName?: string | null;
+    corporateName?: string | null;
+    months: number[];
+    average: number;
+    budget: number | null;
+  }[];
 };
 
 const TREATMENT_LABEL: Record<VarianceTreatment, string> = {
@@ -111,6 +132,29 @@ export function BudgetConfirmPanel({
       ).data,
     enabled: month !== null && scope !== null,
   });
+
+  // サイクルの初回（比べる月の予算が未確定）で、比べる月か予算の月に実績がある。
+  // 前月の予実差から予算案を作れないので、前の 3 か月の実績の平均を予算案にする
+  const estimateMode =
+    !!data &&
+    !!own &&
+    !data.confirmedAt &&
+    !own.confirmedAt &&
+    (data.actuals.recorded || own.actuals.recorded);
+  const estimateQuery = useQuery({
+    queryKey: ["budget-estimate", year, month, scope],
+    queryFn: async (): Promise<EstimateResponse> =>
+      (
+        await (
+          await fetch(withScope(`/api/budgets/estimate?year=${year}&month=${month}`, scope!))
+        ).json()
+      ).data,
+    enabled: estimateMode && month !== null && scope !== null,
+    // 保存しない計算なので、開くたびに最新の実績で計算し直す
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  const estimate = estimateMode ? estimateQuery.data : undefined;
 
   // 月・モードが変わったら、差額の扱いを既定に戻す
   useEffect(() => {
@@ -206,6 +250,7 @@ export function BudgetConfirmPanel({
     qc.invalidateQueries({ queryKey: ["cycle-status"] });
     qc.invalidateQueries({ queryKey: ["budgets"] });
     qc.invalidateQueries({ queryKey: ["budget-history"] });
+    qc.invalidateQueries({ queryKey: ["budget-estimate"] });
   }
 
   async function confirm(withPlan: boolean) {
@@ -223,6 +268,73 @@ export function BudgetConfirmPanel({
       const items = withPlan
         ? plan.map((i) => ({ accountId: i.accountId, amount: finalAmount(i.accountId, i.amount) }))
         : [];
+      const res = await fetch(withScope("/api/budgets/confirm", scope!), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, month, items }),
+      });
+      if (res.ok) {
+        setMessage({ ok: true, text: `${label}の予算を確定しました。` });
+        refresh();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setMessage({ ok: false, text: `エラー: ${err.error ?? "確定に失敗しました"}` });
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 推測の予算案の合計（手で直した金額を含む）
+  const estimateTotals = (estimate?.rows ?? []).reduce(
+    (acc, r) => {
+      const amount = finalAmount(r.accountId, r.average);
+      if (r.category === "REVENUE") acc.revenue += amount;
+      else acc.expense += amount;
+      return acc;
+    },
+    { revenue: 0, expense: 0 },
+  );
+
+  // 推測の予算案で確定する。押した時点の実績で計算し直し、表の金額と変わっていたら確定せずに知らせる
+  async function confirmEstimate() {
+    if (month === null || !estimate) return;
+    const label = `${year}年${month}月`;
+    if (
+      !window.confirm(
+        `${label}の予算を、この案（前の 3 か月の実績の平均）で確定します。確定すると、${label}の予算は変更できなくなります。よろしいですか？`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const fresh = (await estimateQuery.refetch()).data;
+      if (!fresh) {
+        setMessage({ ok: false, text: "エラー: 予算案を計算し直せませんでした" });
+        return;
+      }
+      const shown = new Map(estimate.rows.map((r) => [r.accountId, r.average]));
+      const changed =
+        fresh.rows.length !== estimate.rows.length ||
+        fresh.rows.some((r) => !overrides.has(r.accountId) && shown.get(r.accountId) !== r.average);
+      if (changed) {
+        setMessage({
+          ok: false,
+          text: "実績が変わったため、予算案を計算し直しました。金額を確かめてから、もう一度確定してください。",
+        });
+        return;
+      }
+      // 0 円の科目は、予算が入っているときだけ送る（0 円の予算を新しく作らない）
+      const items = fresh.rows
+        .map((r) => ({
+          accountId: r.accountId,
+          amount: finalAmount(r.accountId, r.average),
+          registered: r.budget !== null,
+        }))
+        .filter((i) => i.amount > 0 || i.registered)
+        .map(({ accountId, amount }) => ({ accountId, amount }));
       const res = await fetch(withScope("/api/budgets/confirm", scope!), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -326,7 +438,139 @@ export function BudgetConfirmPanel({
         </>
       )}
 
-      {data && prev && !initial && (
+      {estimateMode && month !== null && (
+        <div className="card p-0 overflow-hidden">
+          <div className="px-4 pt-4">
+            <h3 className="section-title mb-1">{label}の予算案（実績からの推測）</h3>
+            <SectionLead>
+              {prev?.month}
+              月の予算がまだ確定していないため、前の月の予実差からは予算案を作れません。代わりに、
+              {estimate ? estimate.months.map((m) => `${m.month}月`).join("・") : "前の 3 か月"}
+              の実績を科目ごとに平均した金額を予算案にしています（実績の無い月は 0
+              円として数えます）。この案は保存されず、開くたびと「確定」を押したときに、その時点の実績で計算し直します。金額は直接書き換えられます。ローン返済などの自動反映は、ここには含めず表示のときに上乗せされます。
+            </SectionLead>
+          </div>
+          {estimateQuery.isLoading && <LoadingSpinner />}
+          {estimate && estimate.rows.length === 0 && (
+            <p className="px-4 pb-4 text-sm text-slate-400">
+              前の 3 か月に実績がありません。予算の表で金額を入れてから確定してください。
+            </p>
+          )}
+          {estimate && estimate.rows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-y border-slate-200 text-xs text-slate-600">
+                    <th className="px-4 py-2 text-left font-semibold min-w-44">勘定科目</th>
+                    {estimate.months.map((m) => (
+                      <th
+                        key={`${m.year}-${m.month}`}
+                        className="px-3 py-2 text-right font-semibold"
+                      >
+                        {m.month}月の実績
+                      </th>
+                    ))}
+                    <th className="px-3 py-2 text-right font-semibold">平均</th>
+                    <th className="px-3 py-2 text-right font-semibold">予算案</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {estimate.rows.map((r) => {
+                    const override = overrides.get(r.accountId);
+                    const edited = override !== undefined;
+                    return (
+                      <tr key={r.accountId}>
+                        <td className="px-4 py-2">
+                          <span className="text-xs font-mono text-slate-400 mr-1.5">
+                            {r.accountCode}
+                          </span>
+                          {displayName(r, mode)}
+                          {r.budget !== null && r.budget !== r.average && (
+                            <div className="text-[10px] text-slate-500">
+                              いま入っている予算 {yen(r.budget)}
+                              （確定するとこの案の金額に置き換わります）
+                            </div>
+                          )}
+                        </td>
+                        {r.months.map((v, i) => (
+                          <td key={i} className="px-3 py-2 text-right tabular-nums text-slate-500">
+                            {yen(v)}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2 text-right tabular-nums">{yen(r.average)}</td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <input
+                              type="number"
+                              min={0}
+                              aria-label={`${displayName(r, mode)}の${label}の予算`}
+                              value={override ?? String(r.average)}
+                              onChange={(e) =>
+                                setOverrides((m) => new Map(m).set(r.accountId, e.target.value))
+                              }
+                              className={`w-28 text-right text-xs border rounded px-1.5 py-1 tabular-nums ${edited ? "border-amber-400 bg-amber-50" : "border-slate-300"}`}
+                            />
+                            {edited && (
+                              <button
+                                type="button"
+                                aria-label="計算した金額に戻す"
+                                title="計算した金額に戻す"
+                                onClick={() =>
+                                  setOverrides((m) => {
+                                    const n = new Map(m);
+                                    n.delete(r.accountId);
+                                    return n;
+                                  })
+                                }
+                                className="text-slate-400 hover:text-indigo-600"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-slate-200 bg-slate-50 text-xs">
+                    <td
+                      colSpan={estimate.months.length + 2}
+                      className="px-4 py-2 text-right text-slate-600"
+                    >
+                      {household ? "収入" : "売上・収入"} {yen(estimateTotals.revenue)}・
+                      {household ? "支出" : "費用"} {yen(estimateTotals.expense)}・差引
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-right font-semibold tabular-nums ${estimateTotals.revenue - estimateTotals.expense < 0 ? "text-red-600" : "text-slate-800"}`}
+                    >
+                      {netWord(estimateTotals.revenue - estimateTotals.expense)}
+                      {netWord(estimateTotals.revenue - estimateTotals.expense) && " "}
+                      {yenAbs(estimateTotals.revenue - estimateTotals.expense)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-slate-100">
+            <button
+              type="button"
+              disabled={busy || !estimate || estimate.rows.length === 0 || invalidOverride}
+              onClick={confirmEstimate}
+              className="btn-primary"
+            >
+              この予算で{label}を確定
+            </button>
+            {invalidOverride && (
+              <span className="text-xs text-red-600">金額は 0 以上の数で入れてください。</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {data && prev && !initial && !estimateMode && (
         <div className="card p-0 overflow-hidden">
           <div className="px-4 pt-4">
             <h3 className="section-title mb-1 flex items-center gap-1.5">

@@ -3,6 +3,8 @@
 //   - 比べる月 C は B の前月。C の予算と実績の差（GET /budgets/variance）について扱いを選ぶと B の予算案ができ、
 //     「確定」で B の予算を確定する（POST /budgets/confirm。計算は shared/budget-cycle.ts）。C から見た ③
 //   - はじめて使うときなどは、B の予算をいま入っている金額のまま確定できる（B から見た ①）
+//   - C の予算が未確定（サイクルの初回）で実績があるときは、B の前の 3 か月の実績の平均を予算案にする
+//     （GET /budgets/estimate）。保存はせず、開くたびと「確定」を押したときに計算し直す
 //   - C の実績の確定（②）は実績の画面、C の予算と実績を見比べるのは「予実差確認」タブ（BudgetVarianceSection.tsx）
 // 年は画面上部の対象年度、月は月ボタンで選ぶ（use-cycle-month.ts）。
 // 画面幅が狭いので、科目ごとに「C 月の差・扱い・予算案」を 1 ブロックにまとめる。
@@ -11,10 +13,12 @@ import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } fr
 import {
   confirmBudget,
   fetchAccounts,
+  fetchBudgetEstimate,
   fetchBudgetVariance,
   fetchCycleStatus,
   unconfirmBudget,
   type Account,
+  type BudgetEstimate,
   type BudgetVariance,
   type CycleStatus,
   type ViewMode,
@@ -90,6 +94,9 @@ export function BudgetConfirmSection({
   const [overrides, setOverrides] = useState<Map<number, string>>(new Map());
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 実績から推測した予算案（サイクルの初回だけ）
+  const [estimate, setEstimate] = useState<BudgetEstimate | null>(null);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAccounts()
@@ -138,6 +145,37 @@ export function BudgetConfirmSection({
     );
     setOverrides(new Map());
   }, [data, household]);
+
+  // サイクルの初回（比べる月の予算が未確定）で、比べる月か予算の月に実績がある。
+  // 前月の予実差から予算案を作れないので、前の 3 か月の実績の平均を予算案にする
+  const estimateMode =
+    !!data &&
+    !!own &&
+    !data.confirmedAt &&
+    !own.confirmedAt &&
+    (data.actuals.recorded || own.actuals.recorded);
+
+  // 保存しない計算なので、開くたびに最新の実績で計算し直す
+  useEffect(() => {
+    if (!estimateMode || month === null) {
+      setEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    setEstimateError(null);
+    fetchBudgetEstimate(year, month)
+      .then((e) => {
+        if (!cancelled) setEstimate(e);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setEstimate(null);
+        setEstimateError(e instanceof Error ? e.message : "予算案の計算に失敗しました");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [estimateMode, year, month, refreshKey, reloadKey]);
 
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
   const nameOf = (id: number) => {
@@ -216,6 +254,69 @@ export function BudgetConfirmSection({
               await confirmBudget({ year, month, items });
               Alert.alert("確定しました", `${label}の予算を確定しました。`);
               setReloadKey((k) => k + 1);
+            } catch (e) {
+              Alert.alert("確定エラー", e instanceof Error ? e.message : "確定に失敗しました");
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  // 推測の予算案の合計（手で直した金額を含む）
+  const estimateTotals = (estimate?.rows ?? []).reduce(
+    (acc, r) => {
+      const amount = finalAmount(r.accountId, r.average);
+      if (r.category === "REVENUE") acc.revenue += amount;
+      else acc.expense += amount;
+      return acc;
+    },
+    { revenue: 0, expense: 0 },
+  );
+
+  // 推測の予算案で確定する。押した時点の実績で計算し直し、表の金額と変わっていたら確定せずに知らせる
+  function confirmEstimate() {
+    if (month === null || !estimate) return;
+    Alert.alert(
+      "予算の確定",
+      `${label}の予算を、この案（前の 3 か月の実績の平均）で確定します。確定すると、${label}の予算は変更できなくなります。よろしいですか？`,
+      [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "確定",
+          onPress: async () => {
+            setBusy(true);
+            try {
+              const fresh = await fetchBudgetEstimate(year, month);
+              const shown = new Map(estimate.rows.map((r) => [r.accountId, r.average]));
+              const changed =
+                fresh.rows.length !== estimate.rows.length ||
+                fresh.rows.some(
+                  (r) => !overrides.has(r.accountId) && shown.get(r.accountId) !== r.average,
+                );
+              if (changed) {
+                setEstimate(fresh);
+                Alert.alert(
+                  "計算し直しました",
+                  "実績が変わったため、予算案を計算し直しました。金額を確かめてから、もう一度確定してください。",
+                );
+                return;
+              }
+              // 0 円の科目は、予算が入っているときだけ送る（0 円の予算を新しく作らない）
+              const items = fresh.rows
+                .map((r) => ({
+                  accountId: r.accountId,
+                  amount: finalAmount(r.accountId, r.average),
+                  registered: r.budget !== null,
+                }))
+                .filter((i) => i.amount > 0 || i.registered)
+                .map(({ accountId, amount }) => ({ accountId, amount }));
+              await confirmBudget({ year, month, items });
+              Alert.alert("確定しました", `${label}の予算を確定しました。`);
+              setReloadKey((k) => k + 1);
+              onBudgetsChanged?.();
             } catch (e) {
               Alert.alert("確定エラー", e instanceof Error ? e.message : "確定に失敗しました");
             } finally {
@@ -368,7 +469,101 @@ export function BudgetConfirmSection({
         </>
       )}
 
-      {!loading && data && prev && !initial && (
+      {!loading && estimateMode && month !== null && (
+        <>
+          <Text style={s.note}>
+            {prev?.month}
+            月の予算がまだ確定していないため、前の月の予実差からは予算案を作れません。代わりに、
+            {estimate ? estimate.months.map((m) => `${m.month}月`).join("・") : "前の 3 か月"}
+            の実績を科目ごとに平均した金額を予算案にしています（実績の無い月は 0
+            円として数えます）。この案は保存されず、開くたびと「確定」を押したときに、その時点の実績で計算し直します。金額は直接書き換えられます。
+          </Text>
+          {estimateError && <Notice tone="error">{estimateError}</Notice>}
+          {!estimate && !estimateError && (
+            <ActivityIndicator color={COLORS.primary} style={s.spinner} />
+          )}
+          {estimate && estimate.rows.length === 0 && (
+            <Text style={s.empty}>
+              前の 3 か月に実績がありません。予算の一覧で金額を入れてから確定してください。
+            </Text>
+          )}
+          {estimate?.rows.map((r) => {
+            const override = overrides.get(r.accountId);
+            const edited = override !== undefined;
+            return (
+              <View key={r.accountId} style={s.row}>
+                <Text style={s.rowName}>
+                  <Text style={s.rowCode}>{r.accountCode} </Text>
+                  {displayName(r, viewMode)}
+                </Text>
+                <Text style={s.planCalc}>
+                  {estimate.months
+                    .map((m, i) => `${m.month}月 ${yen(r.months[i] ?? 0)}`)
+                    .join("・")}
+                  　平均 {yen(r.average)}
+                </Text>
+                {r.budget !== null && r.budget !== r.average && (
+                  <Text style={s.planNote}>
+                    いま入っている予算 {yen(r.budget)}（確定するとこの案の金額に置き換わります）
+                  </Text>
+                )}
+                <View style={s.amountRow}>
+                  <Input
+                    value={override ?? String(r.average)}
+                    onChangeText={(v) =>
+                      setOverrides((m) => new Map(m).set(r.accountId, digitsOnly(v)))
+                    }
+                    keyboardType="number-pad"
+                    accessibilityLabel={`${displayName(r, viewMode)}の${label}の予算`}
+                    style={[s.amountInput, edited && s.amountEdited]}
+                  />
+                  {edited && (
+                    <TouchableOpacity
+                      hitSlop={6}
+                      onPress={() =>
+                        setOverrides((m) => {
+                          const n = new Map(m);
+                          n.delete(r.accountId);
+                          return n;
+                        })
+                      }
+                    >
+                      <Text style={s.resetText}>計算した金額に戻す</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            );
+          })}
+          <View style={s.footer}>
+            {estimate && estimate.rows.length > 0 && (
+              <Text style={s.totals}>
+                {month}月の予算案：{household ? "収入" : "売上・収入"} {yen(estimateTotals.revenue)}
+                ・{household ? "支出" : "費用"} {yen(estimateTotals.expense)}・差引{" "}
+                <Text
+                  style={{
+                    color:
+                      estimateTotals.revenue - estimateTotals.expense < 0
+                        ? COLORS.danger
+                        : COLORS.text,
+                    fontWeight: "600",
+                  }}
+                >
+                  {yenNet(estimateTotals.revenue - estimateTotals.expense)}
+                </Text>
+              </Text>
+            )}
+            <Button
+              label={`この予算で${label}を確定`}
+              loading={busy}
+              disabled={!estimate || estimate.rows.length === 0}
+              onPress={confirmEstimate}
+            />
+          </View>
+        </>
+      )}
+
+      {!loading && data && prev && !initial && !estimateMode && (
         <>
           {locked ? (
             <Notice tone="info">
