@@ -944,6 +944,37 @@ export async function fetchBudgetVariance(year: number, month: number): Promise<
   return json.data;
 }
 
+/** 実績から推測した予算案（GET /budgets/estimate）。予算の月の前の 3 か月の実績と平均 */
+export type BudgetEstimate = {
+  year: number;
+  month: number;
+  /** 平均に使った月（古い順） */
+  months: { year: number; month: number }[];
+  rows: {
+    accountId: number;
+    accountCode: string;
+    name: string;
+    category: string;
+    soleName: string | null;
+    corporateName: string | null;
+    /** months の順の各月の実績 */
+    months: number[];
+    /** 平均（円に丸め、0 未満にはしない） */
+    average: number;
+    /** その月に入っている予算（無ければ null） */
+    budget: number | null;
+  }[];
+};
+
+// 前月の予算が未確定（サイクルの初回）の月の予算案。保存しない計算なので、開くたびに取り直す
+export async function fetchBudgetEstimate(year: number, month: number): Promise<BudgetEstimate> {
+  const json = await request<{ data: BudgetEstimate }>(
+    scoped(`/budgets/estimate?year=${year}&month=${month}`),
+    "予算案の計算に失敗しました",
+  );
+  return json.data;
+}
+
 // 指定した月の予算を確定する。items が空なら、いま入っている予算のまま確定する
 export async function confirmBudget(data: {
   year: number;

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   computeVariance,
   defaultTreatment,
+  estimateFromActuals,
   isTreatmentAllowed,
   nextYearMonth,
   planNextBudget,
+  precedingMonths,
   summarizeVariance,
   type VarianceInput,
   type VarianceTreatment,
@@ -222,5 +224,67 @@ describe("nextYearMonth", () => {
   it("12 月の次は翌年 1 月", () => {
     expect(nextYearMonth(2026, 12)).toEqual({ year: 2027, month: 1 });
     expect(nextYearMonth(2026, 4)).toEqual({ year: 2026, month: 5 });
+  });
+});
+
+describe("precedingMonths", () => {
+  it("予算の月の前の 3 か月を古い順に返す", () => {
+    expect(precedingMonths(2026, 11, 3)).toEqual([
+      { year: 2026, month: 8 },
+      { year: 2026, month: 9 },
+      { year: 2026, month: 10 },
+    ]);
+  });
+
+  it("年をまたぐ", () => {
+    expect(precedingMonths(2027, 2, 3)).toEqual([
+      { year: 2026, month: 11 },
+      { year: 2026, month: 12 },
+      { year: 2027, month: 1 },
+    ]);
+  });
+});
+
+describe("estimateFromActuals", () => {
+  it("科目ごとに月の実績を並べ、実績の無い月は 0 として平均する", () => {
+    const rows = estimateFromActuals(
+      [
+        { accountId: 1, monthIndex: 0, amount: 100_000 },
+        { accountId: 1, monthIndex: 2, amount: 50_000 },
+        { accountId: 1, monthIndex: 2, amount: 3_000 },
+        { accountId: 2, monthIndex: 1, amount: 1_000 },
+      ],
+      3,
+    );
+    const byId = new Map(rows.map((r) => [r.accountId, r]));
+    expect(byId.get(1)).toEqual({ accountId: 1, months: [100_000, 0, 53_000], average: 51_000 });
+    // 1000 / 3 = 333.33… → 333
+    expect(byId.get(2)?.average).toBe(333);
+  });
+
+  it("円に丸め、合計がマイナス（返金が多い）なら 0 にする", () => {
+    const rows = estimateFromActuals(
+      [
+        { accountId: 1, monthIndex: 0, amount: 2 },
+        { accountId: 2, monthIndex: 0, amount: 5_000 },
+        { accountId: 2, monthIndex: 1, amount: -8_000 },
+      ],
+      3,
+    );
+    const byId = new Map(rows.map((r) => [r.accountId, r]));
+    expect(byId.get(1)?.average).toBe(1); // 0.67 → 1
+    expect(byId.get(2)).toMatchObject({ months: [5_000, -8_000, 0], average: 0 });
+  });
+
+  it("範囲外の月は数えない", () => {
+    expect(
+      estimateFromActuals(
+        [
+          { accountId: 1, monthIndex: 3, amount: 9_000 },
+          { accountId: 1, monthIndex: -1, amount: 9_000 },
+        ],
+        3,
+      ),
+    ).toEqual([]);
   });
 });

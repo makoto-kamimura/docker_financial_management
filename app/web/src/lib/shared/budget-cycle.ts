@@ -205,3 +205,58 @@ export function nextYearMonth(year: number, month: number): { year: number; mont
 export function prevYearMonth(year: number, month: number): { year: number; month: number } {
   return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
 }
+
+// ── 実績からの推測（サイクルの初回） ──────────────────────────────
+// 前月の予算が未確定（サイクルがまだ回っていない）月は、前月の予実差から予算案を作れない。
+// 代わりに、予算の月の前の数か月の実績を科目ごとに平均して予算案にする。
+// 画面（予算の確定タブ）を開くたびに、その時点の実績で計算し直す（GET /api/budgets/estimate）。
+
+/** 推測に使う月数（予算の月の前の 3 か月） */
+export const ESTIMATE_MONTHS = 3;
+
+/** 予算の月の前の count か月（古い順） */
+export function precedingMonths(
+  year: number,
+  month: number,
+  count: number,
+): { year: number; month: number }[] {
+  const months: { year: number; month: number }[] = [];
+  let cur = { year, month };
+  for (let i = 0; i < count; i++) {
+    cur = prevYearMonth(cur.year, cur.month);
+    months.unshift(cur);
+  }
+  return months;
+}
+
+export type EstimateRow = {
+  accountId: number;
+  /** precedingMonths の順に並べた各月の実績 */
+  months: number[];
+  /** 各月の実績の平均（実績の無い月は 0 として数える）。円に丸め、0 未満にはしない */
+  average: number;
+};
+
+/**
+ * 科目ごとに、各月の実績を並べて平均する。monthIndex は precedingMonths の添え字（範囲外は無視）。
+ * 実績が 0 の科目（返金で打ち消し合った科目を含む）も行として返す。
+ */
+export function estimateFromActuals(
+  actuals: { accountId: number; monthIndex: number; amount: number }[],
+  monthCount: number,
+): EstimateRow[] {
+  const byAccount = new Map<number, number[]>();
+  for (const a of actuals) {
+    if (a.monthIndex < 0 || a.monthIndex >= monthCount) continue;
+    let months = byAccount.get(a.accountId);
+    if (!months) {
+      months = Array.from({ length: monthCount }, () => 0);
+      byAccount.set(a.accountId, months);
+    }
+    months[a.monthIndex] += a.amount;
+  }
+  return [...byAccount.entries()].map(([accountId, months]) => {
+    const sum = months.reduce((s, v) => s + v, 0);
+    return { accountId, months, average: Math.max(0, Math.round(sum / monthCount)) };
+  });
+}
