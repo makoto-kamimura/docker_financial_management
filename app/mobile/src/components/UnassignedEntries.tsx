@@ -53,6 +53,8 @@ export function UnassignedEntries({
 }) {
   const [entries, setEntries] = useState<UnassignedEntry[] | null>(null);
   const [unassignedCount, setUnassignedCount] = useState(0);
+  // 未割り当てのうち、明細分け（通販の注文）の科目の無い商品の件数（一覧には出さない）
+  const [shopItemCount, setShopItemCount] = useState(0);
   const [truncated, setTruncated] = useState(false);
   const [showAssigned, setShowAssigned] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -70,6 +72,7 @@ export function UnassignedEntries({
       const res = await fetchUnassignedEntries(year, month, showAssigned);
       setEntries(res.data);
       setUnassignedCount(res.unassignedCount);
+      setShopItemCount(res.shopItemCount);
       setTruncated(res.truncated);
     } catch {
       setEntries([]);
@@ -157,6 +160,12 @@ export function UnassignedEntries({
         {showAssigned ? "明細" : "未割り当ての明細"}（{month}月・未割り当て {unassignedCount} 件）
       </Text>
       <Text style={s.note}>{ENTRY_HELP.unassigned}</Text>
+      {shopItemCount > 0 && (
+        <Notice tone="warn">
+          明細分け（通販の注文）の商品で、科目の付いていないものが {shopItemCount}{" "}
+          件あります（未割り当ての件数に入っています）。履歴の出どころ「明細分け」で科目を付けます。
+        </Notice>
+      )}
       <Text style={s.note}>{ENTRY_HELP.businessUse}</Text>
       <View style={s.switchRow}>
         <Switch

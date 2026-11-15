@@ -19,11 +19,13 @@ import {
   fetchBankAccounts,
   fetchFinancialMatrix,
   fetchLinkedAccounts,
+  fetchShopAccounts,
   type Account,
   type BankAccount,
   type CashEntry,
   type FinancialRecordRow,
   type LinkedAccount,
+  type ShopAccount,
   type RecordSource,
   type ViewMode,
 } from "../api";
@@ -32,6 +34,7 @@ import { BankTransactionsCalendar } from "../components/bank/BankTransactionsCal
 import { BankTransactionsList } from "../components/bank/BankTransactionsList";
 import { CardCalendar } from "../components/card/CardCalendar";
 import { CardTransactionsList } from "../components/card/CardTransactionsList";
+import { ShopOrdersList } from "../components/ShopOrdersList";
 import { CategoryPickerModal } from "../components/CategoryPickerModal";
 import { LedgerBadge, LedgerRow } from "../components/LedgerRow";
 import {
@@ -69,11 +72,16 @@ const TABS = [
 
 // カレンダー・履歴で見る出どころ（web 版と同じ）。現金＝実績（現金での支出・収入）、銀行＝入出金の明細、
 // カード・電子マネー＝利用・返金の明細（銀行・カードの画面の一覧とカレンダーをここへまとめた）
-type Source = "manual" | "bank" | "card";
+// 履歴だけは、明細分け（明細管理で登録した通販の注文）も出どころに選べる
+type Source = "manual" | "bank" | "card" | "shop";
 const SOURCES: { value: Source; label: string }[] = [
   { value: "manual", label: "現金" },
   { value: "bank", label: "銀行" },
   { value: "card", label: "カード・電子マネー" },
+];
+const HISTORY_SOURCES: { value: Source; label: string }[] = [
+  ...SOURCES,
+  { value: "shop", label: "明細分け" },
 ];
 
 // セル内訳に出す「どこから入った実績か」（web 版と同じ文言）
@@ -95,8 +103,8 @@ type Props = {
   initialMonth?: string;
   /** 予算の画面の「予算の確定」へ移る */
   onOpenBudget?: (month: string) => void;
-  /** 開いたときの出どころと口座（銀行・カードの「明細を見る」から開くとき） */
-  initialSource?: "bank" | "card";
+  /** 開いたときの出どころと口座（銀行・カードの「明細を見る」、明細管理の「注文を見る」から開くとき） */
+  initialSource?: "bank" | "card" | "shop";
   initialAccountId?: number;
 };
 
@@ -124,6 +132,10 @@ export function EntryScreen({
   const [cardAccountId, setCardAccountId] = useState<number | null>(
     initialSource === "card" ? (initialAccountId ?? null) : null,
   );
+  const [shopAccountId, setShopAccountId] = useState<number | null>(
+    initialSource === "shop" ? (initialAccountId ?? null) : null,
+  );
+  const [shopAccounts, setShopAccounts] = useState<ShopAccount[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [cardAccounts, setCardAccounts] = useState<LinkedAccount[]>([]);
   const sourceTab = tab === "calendar" || tab === "history";
@@ -131,6 +143,7 @@ export function EntryScreen({
     try {
       if (source === "bank") setBankAccounts(await fetchBankAccounts());
       if (source === "card") setCardAccounts(await fetchLinkedAccounts());
+      if (source === "shop") setShopAccounts(await fetchShopAccounts());
     } catch {
       // 取得に失敗したときは選択肢が空のまま（各部品の中で案内する）
     }
@@ -239,7 +252,15 @@ export function EntryScreen({
 
   return (
     <View style={s.root}>
-      <TabBar tabs={TABS} value={tab} onChange={setTab} />
+      <TabBar
+        tabs={TABS}
+        value={tab}
+        onChange={(t) => {
+          setTab(t);
+          // 明細分けは履歴だけの出どころ
+          if (t !== "history" && source === "shop") setSource("manual");
+        }}
+      />
 
       <ScrollView
         style={s.scroll}
@@ -259,7 +280,28 @@ export function EntryScreen({
         {/* 出どころの選択（カレンダー・履歴）。種別を選び、銀行・カードのときは口座も選ぶ */}
         {sourceTab && (
           <View style={s.sourceBox}>
-            <Pills scroll={false} options={SOURCES} value={source} onChange={setSource} />
+            <Pills
+              scroll={false}
+              options={tab === "history" ? HISTORY_SOURCES : SOURCES}
+              value={source}
+              onChange={setSource}
+            />
+            {source === "shop" &&
+              (shopAccounts.length === 0 ? (
+                <Text style={s.sourceNote}>
+                  明細分けが登録されていません（「その他」→「明細管理」で登録します）
+                </Text>
+              ) : (
+                <SelectField<number | "all">
+                  label="明細分け"
+                  value={shopAccountId ?? "all"}
+                  options={[
+                    { value: "all" as const, label: "すべての明細分け" },
+                    ...shopAccounts.map((a) => ({ value: a.id, label: a.name })),
+                  ]}
+                  onChange={(v) => setShopAccountId(v === "all" ? null : v)}
+                />
+              ))}
             {source === "bank" && (
               <SelectField<number | "all">
                 label="銀行"
@@ -327,6 +369,15 @@ export function EntryScreen({
             categoryAccounts={accounts}
             viewMode={viewMode}
             onFlowChanged={loadSourceAccounts}
+          />
+        )}
+
+        {/* 明細分けの履歴: 注文と商品の科目・明細への紐付け */}
+        {tab === "history" && source === "shop" && (
+          <ShopOrdersList
+            shopAccountId={shopAccountId}
+            categoryAccounts={accounts}
+            viewMode={viewMode}
           />
         )}
 

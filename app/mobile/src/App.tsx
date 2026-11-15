@@ -93,7 +93,7 @@ function AppContent() {
   } | null>(null);
   // 銀行・カードの「明細を見る」から、実績の画面の履歴を出どころと口座を指定して開く
   const [ledgerJump, setLedgerJump] = useState<{
-    source: "bank" | "card";
+    source: "bank" | "card" | "shop";
     accountId: number;
     n: number;
   } | null>(null);
@@ -121,7 +121,7 @@ function AppContent() {
     setActiveTab(screen);
   }
 
-  function openHistory(source: "bank" | "card", accountId: number) {
+  function openHistory(source: "bank" | "card" | "shop", accountId: number) {
     setCycleJump(null);
     setLedgerJump({ source, accountId, n: Date.now() });
     setActiveTab("entry");
@@ -267,7 +267,7 @@ function AppContent() {
           />
         )}
         {activeTab === "more" && moreRoute === "shop-accounts" && (
-          <ShopAccountsScreen viewMode={viewMode} />
+          <ShopAccountsScreen viewMode={viewMode} onOpenHistory={(id) => openHistory("shop", id)} />
         )}
         {activeTab === "more" && moreRoute === "loans" && <LoansScreen viewMode={viewMode} />}
         {activeTab === "more" && moreRoute === "settings" && <SettingsScreen />}

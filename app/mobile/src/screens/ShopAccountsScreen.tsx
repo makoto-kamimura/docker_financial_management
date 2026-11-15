@@ -79,7 +79,14 @@ const fmtDate = (iso: string) => {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
 };
 
-export function ShopAccountsScreen({ viewMode }: { viewMode: ViewMode }) {
+export function ShopAccountsScreen({
+  viewMode,
+  onOpenHistory,
+}: {
+  viewMode: ViewMode;
+  /** 「注文を見る」から、実績の画面の履歴（出どころ: 明細分け）でこの明細分けの注文を開く */
+  onOpenHistory: (shopAccountId: number) => void;
+}) {
   const [shops, setShops] = useState<ShopAccount[]>([]);
   const [cards, setCards] = useState<PaymentSource[]>([]);
   const [banks, setBanks] = useState<PaymentSource[]>([]);
@@ -230,6 +237,9 @@ export function ShopAccountsScreen({ viewMode }: { viewMode: ViewMode }) {
                   </Text>
                   {a.note ? <Text style={s.muted}>{a.note}</Text> : null}
                   <View style={s.actions}>
+                    <TouchableOpacity onPress={() => onOpenHistory(a.id)}>
+                      <Text style={s.link}>注文を見る</Text>
+                    </TouchableOpacity>
                     {url && (
                       <TouchableOpacity onPress={() => Linking.openURL(url)}>
                         <Text style={s.link}>注文履歴を開く</Text>
