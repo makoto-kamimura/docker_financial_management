@@ -49,6 +49,7 @@ export const GET = withApi({
         period: { actualsConfirmation: { is: null } },
         chargeGroupId: null,
         chargeToCardId: null,
+        shopCharge: { is: null },
       },
       select: {
         id: true,

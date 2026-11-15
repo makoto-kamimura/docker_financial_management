@@ -17,6 +17,7 @@ import {
   UNPAIRED,
 } from "@/lib/ledger/ledger-entries";
 import { checkStatementBalances } from "@/lib/ledger/balance-check";
+import { autoLinkShopCharges } from "@/lib/ledger/shop-link";
 import { bankBalanceOf, toNumber } from "@/lib/ledger/bank-balance";
 import { MAX_CSV_BYTES, MAX_IMPORT_ROWS } from "@/lib/server/import";
 import { parseLedgerRows } from "@/lib/ledger/ledger-import";
@@ -29,6 +30,8 @@ import { invalidateActualsCaches } from "@/lib/server/closing-cache";
 //   各社の CSV は画面でこの形にそろえて送る）。誤りが 1 行でもあれば何も取り込まない。
 //   同じ明細は重複として飛ばし、実績を確定済みの月の行も飛ばす。学習ルールで科目が付いた行は、
 //   そのまま実績になる。取り込んだ日付の明細に自動相殺をかける。
+//   取り込んだあと、明細分け（通販の注文）のまだ紐付いていない請求を、金額と日付の合う明細に自動で紐付ける
+//   （lib/ledger/shop-link.ts。shopLinked はその件数）。
 //   結果の skipped は重複で飛ばした件数、locked は確定済みの月のため飛ばした件数、offset は振替・チャージの組にした数、
 //   unassigned はこの CSV の明細のうち、科目も振替・チャージの組も付いていない件数（履歴で科目を付ける）。
 //   現金（target=cash。レシートの読み取りに替えた）と、科目×月への直接の取り込み（target=actual）は 410。
@@ -104,6 +107,7 @@ export const POST = withApi({
       "CSV",
       { business: query.business },
     );
+    const shopLinked = inserted > 0 ? await autoLinkShopCharges(db) : 0;
     // 学習ルールに当たらず、自動相殺でも組にならなかった明細（取り込み済みだった行も含む）
     const unassigned = await db.financialRecord.count({
       where: {
@@ -125,6 +129,7 @@ export const POST = withApi({
           skipped: rows.length - inserted - locked,
           locked,
           offset,
+          shopLinked,
           unassigned,
         },
         errors: [],

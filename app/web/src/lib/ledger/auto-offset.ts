@@ -181,6 +181,8 @@ export async function applyAutoOffset(
       kind: { in: ["BANK", "CARD"] },
       transferGroupId: null,
       chargeGroupId: null,
+      // 明細分けの注文に紐付いた明細（通販の支払い）は組にしない
+      shopCharge: { is: null },
       ...(range ? { date: range } : {}),
       OR: [
         { chargeToCardId: null },

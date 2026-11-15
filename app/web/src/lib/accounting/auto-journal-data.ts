@@ -2,6 +2,8 @@
 //
 // 年度は暦年（個人事業主の会計期間。実績の行の期間 fiscalYear と同じ）。決算書（scope=business）と同じ行を読むため、
 // 実績の行は期間の年で選ぶ。事業用の口座・電子マネー等は、事業利用でない明細と振替・チャージの組も読む。
+// 明細分け（通販の注文）に紐付いた明細は、商品ごとの行（内訳）に分けて読む（科目・金額・事業利用は内訳のもの、
+// お金の出どころは明細の口座・カード）。
 import type { TenantDbClient } from "@/lib/server/tenant-db";
 import { toYmd, monthEndYmd } from "@/lib/ledger/actuals-coverage";
 import {
@@ -68,13 +70,13 @@ export async function loadAutoBook(
   const inYear = { period: { fiscalYear: year } };
   const [entryRows, recordRows, journalRows, openingBank, openingCard, ownCandidates] =
     await Promise.all([
-      // 明細: 事業利用のもの、または事業用の口座・電子マネー等のもの
+      // 明細: 事業利用のもの（内訳に事業利用があるものを含む）、または事業用の口座・電子マネー等のもの
       db.financialRecord.findMany({
         where: {
           tenantId,
           ...inYear,
           kind: { not: null },
-          OR: [{ businessUse: true }, ...onBookSource],
+          OR: [{ businessUse: true }, { splits: { some: { businessUse: true } } }, ...onBookSource],
         },
         select: {
           id: true,
@@ -90,12 +92,24 @@ export async function loadAutoBook(
           transferGroupId: true,
           chargeGroupId: true,
           account: { select: ACCOUNT_SELECT },
+          splits: {
+            select: {
+              id: true,
+              description: true,
+              amount: true,
+              flow: true,
+              businessUse: true,
+              businessRatio: true,
+              account: { select: ACCOUNT_SELECT },
+            },
+            orderBy: { id: "asc" },
+          },
         },
         orderBy: { id: "asc" },
       }),
-      // 明細でない実績の行
+      // 明細でない実績の行（明細分けの内訳の行は、明細と一緒に読む）
       db.financialRecord.findMany({
-        where: { tenantId, ...inYear, kind: null, accountId: { not: null } },
+        where: { tenantId, ...inYear, kind: null, splitOfId: null, accountId: { not: null } },
         select: {
           id: true,
           amount: true,
@@ -161,18 +175,25 @@ export async function loadAutoBook(
       }),
     ]);
 
-  const entries: AutoEntryInput[] = entryRows.map((r) => ({
-    id: r.id,
-    date: r.date ? toYmd(r.date) : `${year}-01-01`,
-    description: r.description ?? "",
-    account: r.account,
-    amount: Number(r.amount),
-    flow: Number(r.flow ?? 0),
-    businessUse: r.businessUse,
-    businessRatio: r.businessRatio === null ? null : Number(r.businessRatio),
-    source: sourceOf(r),
-    pairId: r.transferGroupId ?? r.chargeGroupId,
-  }));
+  const entries: AutoEntryInput[] = entryRows.flatMap((r) => {
+    const base = {
+      date: r.date ? toYmd(r.date) : `${year}-01-01`,
+      source: sourceOf(r),
+      pairId: r.transferGroupId ?? r.chargeGroupId,
+    };
+    const rows = r.splits.length > 0 ? r.splits : [r];
+    return rows.map((x) => ({
+      ...base,
+      id: x.id,
+      description:
+        x === r ? (r.description ?? "") : `${r.description ?? ""}（${x.description ?? ""}）`,
+      account: x.account,
+      amount: Number(x.amount),
+      flow: Number(x.flow ?? 0),
+      businessUse: x.businessUse,
+      businessRatio: x.businessRatio === null ? null : Number(x.businessRatio),
+    }));
+  });
 
   const openingByBank = new Map(
     openingBank.map((g) => [g.bankAccountId, Number(g._sum.flow ?? 0)]),

@@ -11,19 +11,32 @@ import { actualWhere, scopedAmount, ScopeQuery } from "@/lib/ledger/scope";
 //     （lib/shared/financial-matrix.ts）。同じ科目・月に複数明細が存在しうる点が予算と異なる。
 // 実績 1 行の出どころ。セルの内訳モーダルで「どこから入った実績か」を示すために使う。
 // 明細（現金・銀行・カード）はその明細の日付・摘要・口座名、仕訳連動は仕訳の摘要を添える。
+// 明細分け（通販の注文）の商品ごとの行（内訳）は、紐付けた明細の種別・口座名と「明細の摘要（商品名）」を添える。
 // どれでもない行は、科目×月へ直接入れていたころの実績（過去の直接入力）。
-type SourceRecord = {
-  journalEntry: { id: number; transactionDate: Date; description: string } | null;
+type EntryPart = {
   kind: LedgerKind | null;
   date: Date | null;
   description: string | null;
   bankAccount: { name: string } | null;
   cardAccount: { name: string } | null;
 };
+type SourceRecord = EntryPart & {
+  journalEntry: { id: number; transactionDate: Date; description: string } | null;
+  splitOf: EntryPart | null;
+};
 
 const ENTRY_SOURCE_KIND = { CASH: "cash", BANK: "bank", CARD: "card" } as const;
 
 function recordSource(r: SourceRecord) {
+  if (r.splitOf?.kind) {
+    const p = r.splitOf;
+    return {
+      kind: ENTRY_SOURCE_KIND[p.kind!],
+      date: p.date,
+      description: `${p.description ?? ""}（${r.description ?? ""}）`,
+      accountName: p.bankAccount?.name ?? p.cardAccount?.name ?? "現金",
+    };
+  }
   if (r.kind) {
     return {
       kind: ENTRY_SOURCE_KIND[r.kind],
@@ -62,6 +75,15 @@ export const GET = withApi({
           journalEntry: { select: { id: true, transactionDate: true, description: true } },
           bankAccount: { select: { name: true } },
           cardAccount: { select: { name: true } },
+          splitOf: {
+            select: {
+              kind: true,
+              date: true,
+              description: true,
+              bankAccount: { select: { name: true } },
+              cardAccount: { select: { name: true } },
+            },
+          },
         },
         orderBy: [{ account: { code: "asc" } }, { period: { month: "asc" } }, { id: "asc" }],
       }),
@@ -87,7 +109,7 @@ export const GET = withApi({
         id: r.id,
         amount: scopedAmount(r, query.scope),
         fullAmount: Number(r.amount),
-        businessRatio: r.kind && r.businessUse ? Number(r.businessRatio) : null,
+        businessRatio: (r.kind || r.splitOfId) && r.businessUse ? Number(r.businessRatio) : null,
         journalEntryId: r.journalEntryId,
         account: r.account,
         period: r.period,

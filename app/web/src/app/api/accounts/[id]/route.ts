@@ -67,7 +67,15 @@ export const DELETE = withApi({
     const hasChildren = await db.account.findFirst({ where: { parentId: id, tenantId } });
     if (hasChildren) throw conflict("子勘定科目が存在するため削除できません");
 
-    await db.account.delete({ where: { id } });
+    // 明細分け（通販の注文）の商品に付いている科目は消さない（商品の科目を付け替えてから）
+    const hasShopItems = await db.shopOrderItem.findFirst({ where: { categoryAccountId: id } });
+    if (hasShopItems) throw conflict("明細分けの商品に使われているため削除できません");
+
+    // 商品名の学習ルールは、科目と一緒に消す
+    await db.$transaction(async (tx) => {
+      await tx.shopItemRule.deleteMany({ where: { categoryAccountId: id } });
+      await tx.account.delete({ where: { id } });
+    });
     await audit("delete", `account:${id}`, { before });
     return new NextResponse(null, { status: 204 });
   },
