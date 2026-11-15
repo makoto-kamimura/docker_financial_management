@@ -6,6 +6,7 @@ export type MoreRoute =
   | "assets"
   | "bank-accounts"
   | "card-transactions"
+  | "shop-accounts"
   | "loans"
   | "settings"
   | "journals"
@@ -41,6 +42,14 @@ const MENU_ITEMS: { group: string; items: MenuItem[] }[] = [
         icon: "wallet-outline",
         color: "#0891b2",
         bg: "#ecfeff",
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        id: "shop-accounts",
+        label: "明細管理",
+        icon: "bag-handle-outline",
+        color: "#ea580c",
+        bg: "#fff7ed",
         modes: ["household", "sole", "corporate"],
       },
       {

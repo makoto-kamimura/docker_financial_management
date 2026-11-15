@@ -21,6 +21,7 @@ import {
   Landmark,
   CreditCard,
   Wallet,
+  ShoppingBag,
   Plug,
   FileBarChart2,
   Building,
@@ -131,6 +132,12 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/card-transactions",
         label: "カード・電子マネー管理",
         icon: Wallet,
+        modes: ["household", "sole", "corporate"],
+      },
+      {
+        href: "/shop-accounts",
+        label: "明細管理",
+        icon: ShoppingBag,
         modes: ["household", "sole", "corporate"],
       },
       {

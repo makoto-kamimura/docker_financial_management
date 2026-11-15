@@ -22,6 +22,7 @@ export const SHARED_WITH_MOBILE = [
   "rate-forecast.ts",
   "receipt-hints.ts",
   "self-medication.ts",
+  "shop-account-type.ts",
   "step-checklist.ts",
   "tax-documents.ts",
   "tax-estimate.ts",

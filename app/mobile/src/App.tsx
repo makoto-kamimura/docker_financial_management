@@ -22,6 +22,7 @@ import { BankAccountsScreen } from "./screens/BankAccountsScreen";
 import { MoreScreen, type MoreRoute } from "./screens/MoreScreen";
 import { AssetsScreen } from "./screens/AssetsScreen";
 import { CardTransactionsScreen } from "./screens/CardTransactionsScreen";
+import { ShopAccountsScreen } from "./screens/ShopAccountsScreen";
 import { BudgetScreen } from "./screens/BudgetScreen";
 import { LoansScreen } from "./screens/LoansScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
@@ -52,6 +53,7 @@ const MORE_TITLES: Record<MoreRoute, string> = {
   assets: "資産管理",
   "bank-accounts": "銀行管理",
   "card-transactions": "カード・電子マネー管理",
+  "shop-accounts": "明細管理",
   loans: "借入金管理",
   settings: "設定",
   journals: "仕訳帳",
@@ -263,6 +265,9 @@ function AppContent() {
             viewMode={viewMode}
             onOpenHistory={(id) => openHistory("card", id)}
           />
+        )}
+        {activeTab === "more" && moreRoute === "shop-accounts" && (
+          <ShopAccountsScreen viewMode={viewMode} />
         )}
         {activeTab === "more" && moreRoute === "loans" && <LoansScreen viewMode={viewMode} />}
         {activeTab === "more" && moreRoute === "settings" && <SettingsScreen />}
