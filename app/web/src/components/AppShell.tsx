@@ -298,6 +298,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         <div className="px-4 py-4 border-b border-slate-700/60">
           <div className="flex items-start gap-2 mb-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.svg" alt="" className="h-8 w-8 shrink-0" />
             <span className="text-white font-semibold text-xs tracking-wide leading-tight block flex-1">
               カケイカイケイ
               <span className="block mt-0.5 text-slate-400 font-normal">{TITLE[viewMode]}</span>

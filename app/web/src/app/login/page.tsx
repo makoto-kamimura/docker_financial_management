@@ -86,6 +86,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="" className="mx-auto mb-3 h-14 w-14" />
           <h1 className="text-2xl font-bold text-slate-900">カケイカイケイ</h1>
           <p className="text-sm text-slate-500 mt-1">アカウントにログイン</p>
         </div>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -121,6 +122,7 @@ export function LoginScreen({ onLogin }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={s.card}>
+        <Image source={require("../../assets/logo.png")} style={s.logo} />
         <Text style={s.title}>カケイカイケイ</Text>
         <Text style={s.subtitle}>ログイン</Text>
         <TextInput
@@ -163,6 +165,7 @@ const s = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  logo: { width: 64, height: 64, alignSelf: "center", marginBottom: 12 },
   title: { fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 4 },
   subtitle: { fontSize: 14, color: "#64748b", textAlign: "center", marginBottom: 24 },
   input: {
