@@ -146,3 +146,26 @@ export function convertAmazonOrderHistory(text: string): ShopOrderConversion | n
     skipped: [...skipped].map(([reason, count]) => ({ reason, count })),
   };
 }
+
+/**
+ * 請求を、JSON にしたときの大きさが maxBytes を超えないように分ける（送る前の WAF が本文の大きさを
+ * 128KB ほどで止めるため。1 件で maxBytes を超える請求は、その 1 件だけの組にする）
+ */
+export function chunkCharges(charges: ShopChargeInput[], maxBytes = 100_000): ShopChargeInput[][] {
+  const encoder = new TextEncoder();
+  const chunks: ShopChargeInput[][] = [];
+  let current: ShopChargeInput[] = [];
+  let size = 0;
+  for (const c of charges) {
+    const bytes = encoder.encode(JSON.stringify(c)).length + 1;
+    if (current.length > 0 && size + bytes > maxBytes) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(c);
+    size += bytes;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}

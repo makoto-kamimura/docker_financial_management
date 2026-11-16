@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { amazonDate, convertAmazonOrderHistory } from "./shop-order-formats";
+import { amazonDate, chunkCharges, convertAmazonOrderHistory } from "./shop-order-formats";
 
 const HEADER =
   'ASIN,"Billing Address","Carrier Name & Tracking Number",Currency,Department,"Gift Message","Gift Recipient Contact","Gift Sender Name","Item Serial Number","Order Date","Order ID","Order Status","Original Quantity","Payment Method Type","Product Condition","Product Name","Purchase Order Number","Ship Date","Shipment Item Subtotal","Shipment Item Subtotal Tax","Shipment Status","Shipping Address","Shipping Charge","Shipping Option","Total Amount","Total Discounts","Unit Price","Unit Price Tax",Website';
@@ -165,5 +165,30 @@ describe("convertAmazonOrderHistory", () => {
 
   it("見出しが合わなければ null", () => {
     expect(convertAmazonOrderHistory("日付,摘要,金額\n2026/11/01,AMAZON,1000")).toBeNull();
+  });
+});
+
+describe("chunkCharges", () => {
+  const charge = (i: number, nameLength = 100) => ({
+    key: `250-${i}|2026-11-01`,
+    orderNo: `250-${i}`,
+    date: "2026-11-01",
+    amount: 1_000,
+    items: [{ name: "あ".repeat(nameLength), quantity: 1, amount: 1_000 }],
+  });
+
+  it("JSON の大きさが上限を超えないように分け、順番を保つ", () => {
+    const charges = Array.from({ length: 50 }, (_, i) => charge(i));
+    const chunks = chunkCharges(charges, 5_000);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.flat()).toEqual(charges);
+    for (const c of chunks) {
+      expect(new TextEncoder().encode(JSON.stringify({ charges: c })).length).toBeLessThan(5_100);
+    }
+  });
+
+  it("上限より大きい 1 件は、その 1 件だけの組にする", () => {
+    const chunks = chunkCharges([charge(1, 10), charge(2, 3_000), charge(3, 10)], 1_000);
+    expect(chunks.map((c) => c.map((x) => x.orderNo))).toEqual([["250-1"], ["250-2"], ["250-3"]]);
   });
 });
