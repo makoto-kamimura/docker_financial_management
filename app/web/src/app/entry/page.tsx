@@ -13,7 +13,7 @@ import type { LedgerStatus } from "@/components/LedgerTable";
 import { PageHeader, SegmentedControl, Tabs } from "@/components/ui";
 import { SectionLead, TermDetails } from "@/components/Explain";
 import { useViewMode } from "@/lib/client/use-view-mode";
-import { ENTRY_HELP, LEARNING_RULE_TERMS, textFor } from "@/lib/shared/help-texts";
+import { ENTRY_HELP, LEARNING_RULE_TERMS, SHOP_HELP, textFor } from "@/lib/shared/help-texts";
 import { ActualsMatrixTab } from "@/components/entry/ActualsMatrixTab";
 import { CashCalendarTab } from "@/components/entry/CashCalendarTab";
 import { CashHistoryTab } from "@/components/entry/CashHistoryTab";
@@ -21,6 +21,7 @@ import { ImportTab } from "@/components/entry/ImportTab";
 import { LearningRulesPanel } from "@/components/entry/LearningRulesPanel";
 import { ShopOrdersPanel, type ShopOrderStatus } from "@/components/entry/ShopOrdersPanel";
 import { ShopItemRulesPanel } from "@/components/entry/ShopItemRulesPanel";
+import { ShopImportPanel, type ShopImportAccount } from "@/components/entry/ShopImportPanel";
 import Link from "next/link";
 import { type Account, type Source, type SourceAccount } from "@/components/entry/types";
 import { useActualsScope } from "@/lib/client/use-view-mode";
@@ -46,7 +47,7 @@ const SOURCES: [Source, string][] = [
   ["bank", "銀行"],
   ["card", "カード・電子マネー"],
 ];
-// 履歴だけは、明細分け（明細管理で登録した通販の注文）も出どころに選べる
+// 取り込みと履歴は、明細分け（明細管理で登録した通販の注文）も出どころに選べる
 type ViewSource = Source | "shop";
 const HISTORY_SOURCES: [ViewSource, string][] = [...SOURCES, ["shop", "明細分け"]];
 const SHOP_STATUSES: ShopOrderStatus[] = ["all", "unlinked", "uncategorized"];
@@ -75,7 +76,7 @@ function useInitialTab(): {
     source:
       source === "bank" || source === "card"
         ? source
-        : source === "shop" && initialTab === "history"
+        : source === "shop" && (initialTab === "history" || initialTab === "csv")
           ? "shop"
           : "manual",
     account: Number.isInteger(account) && account > 0 ? account : null,
@@ -130,10 +131,12 @@ function EntryContent() {
   });
   const { data: shopAccounts } = useQuery({
     queryKey: ["shop-accounts", scope],
-    enabled: tab === "history" && source === "shop" && scope !== null,
-    queryFn: async (): Promise<SourceAccount[]> =>
+    enabled: (tab === "history" || tab === "csv") && source === "shop" && scope !== null,
+    queryFn: async (): Promise<ShopImportAccount[]> =>
       (await (await fetch(withScope("/api/shop-accounts", scope!))).json()).data ?? [],
   });
+  // 取り込み先の明細分け（選んでいなければ最初のもの）
+  const importShop = shopAccounts?.find((a) => a.id === shopAccountId) ?? shopAccounts?.[0] ?? null;
   const { data: cardAccounts } = useQuery({
     queryKey: ["linked-accounts", scope],
     enabled: sourceTab && source === "card" && scope !== null,
@@ -165,8 +168,8 @@ function EntryContent() {
         onChange={(t) => {
           setTab(t);
           setHistoryStatus("all");
-          // 明細分けは履歴だけの出どころ
-          if (t !== "history" && source === "shop") setSource("manual");
+          // 明細分けは取り込みと履歴だけの出どころ
+          if (t !== "history" && t !== "csv" && source === "shop") setSource("manual");
         }}
       />
 
@@ -177,7 +180,12 @@ function EntryContent() {
             {
               manual: ENTRY_HELP.table,
               calendar: ENTRY_HELP.calendar,
-              csv: source === "manual" ? ENTRY_HELP.importReceipt : ENTRY_HELP.importStatement,
+              csv:
+                source === "manual"
+                  ? ENTRY_HELP.importReceipt
+                  : source === "shop"
+                    ? SHOP_HELP.importLead
+                    : ENTRY_HELP.importStatement,
               history: ENTRY_HELP.history,
             }[tab]
           }
@@ -196,7 +204,7 @@ function EntryContent() {
       {sourceTab && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <SegmentedControl
-            options={tab === "history" ? HISTORY_SOURCES : SOURCES}
+            options={tab === "history" || tab === "csv" ? HISTORY_SOURCES : SOURCES}
             value={source}
             onChange={setSource}
           />
@@ -213,10 +221,11 @@ function EntryContent() {
               <select
                 aria-label="明細分け"
                 className="input-field w-60"
-                value={shopAccountId ?? ""}
+                value={(tab === "csv" ? importShop?.id : shopAccountId) ?? ""}
                 onChange={(e) => setShopAccountId(e.target.value ? Number(e.target.value) : null)}
               >
-                <option value="">すべての明細分け</option>
+                {/* 取り込みは明細分けを 1 つ選ぶ（「すべて」は無い） */}
+                {tab !== "csv" && <option value="">すべての明細分け</option>}
                 {shopAccounts?.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
@@ -284,9 +293,19 @@ function EntryContent() {
       {tab === "calendar" && source === "manual" && (
         <CashCalendarTab accounts={accounts} mode={sysMode} />
       )}
-      {tab === "csv" && (
+      {tab === "csv" && source === "shop" && (
+        <ShopImportPanel
+          key={importShop?.id ?? 0}
+          account={importShop}
+          onShowHistory={(id) => {
+            setShopAccountId(id);
+            setTab("history");
+          }}
+        />
+      )}
+      {tab === "csv" && source !== "shop" && (
         <ImportTab
-          source={source === "shop" ? "manual" : source}
+          source={source}
           account={
             (source === "bank"
               ? bankAccounts?.find((a) => a.id === importBankId)
