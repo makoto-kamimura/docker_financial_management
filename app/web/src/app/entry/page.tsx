@@ -19,6 +19,9 @@ import { CashCalendarTab } from "@/components/entry/CashCalendarTab";
 import { CashHistoryTab } from "@/components/entry/CashHistoryTab";
 import { ImportTab } from "@/components/entry/ImportTab";
 import { LearningRulesPanel } from "@/components/entry/LearningRulesPanel";
+import { ShopOrdersPanel, type ShopOrderStatus } from "@/components/entry/ShopOrdersPanel";
+import { ShopItemRulesPanel } from "@/components/entry/ShopItemRulesPanel";
+import Link from "next/link";
 import { type Account, type Source, type SourceAccount } from "@/components/entry/types";
 import { useActualsScope } from "@/lib/client/use-view-mode";
 import { withScope } from "@/lib/shared/business-use";
@@ -43,25 +46,43 @@ const SOURCES: [Source, string][] = [
   ["bank", "銀行"],
   ["card", "カード・電子マネー"],
 ];
+// 履歴だけは、明細分け（明細管理で登録した通販の注文）も出どころに選べる
+type ViewSource = Source | "shop";
+const HISTORY_SOURCES: [ViewSource, string][] = [...SOURCES, ["shop", "明細分け"]];
+const SHOP_STATUSES: ShopOrderStatus[] = ["all", "unlinked", "uncategorized"];
 
 // 他の画面から ?tab=confirm&month=YYYY-MM のように開けるようにする（ダッシュボードの状況の 1 行など）。
-// 銀行管理・カード管理の「明細を見る」からは ?tab=history&source=bank&account=ID で開く
+// 銀行管理・カード管理の「明細を見る」からは ?tab=history&source=bank&account=ID で開く。
+// 明細分けの履歴は ?tab=history&source=shop[&account=ID][&q=注文番号][&status=uncategorized] で開く
 function useInitialTab(): {
   tab: Tab;
   month: string | undefined;
-  source: Source;
+  source: ViewSource;
   account: number | null;
+  q: string;
+  shopStatus: ShopOrderStatus;
 } {
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab");
   const month = searchParams.get("month");
   const source = searchParams.get("source");
   const account = Number(searchParams.get("account"));
+  const status = searchParams.get("status");
+  const initialTab = TAB_IDS.includes(tab as Tab) ? (tab as Tab) : "manual";
   return {
-    tab: TAB_IDS.includes(tab as Tab) ? (tab as Tab) : "manual",
+    tab: initialTab,
     month: month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : undefined,
-    source: source === "bank" || source === "card" ? source : "manual",
+    source:
+      source === "bank" || source === "card"
+        ? source
+        : source === "shop" && initialTab === "history"
+          ? "shop"
+          : "manual",
     account: Number.isInteger(account) && account > 0 ? account : null,
+    q: searchParams.get("q") ?? "",
+    shopStatus: SHOP_STATUSES.includes(status as ShopOrderStatus)
+      ? (status as ShopOrderStatus)
+      : "all",
   };
 }
 
@@ -84,7 +105,11 @@ function EntryContent() {
   const [historyStatus, setHistoryStatus] = useState<LedgerStatus>("all");
 
   // ── 出どころ（カレンダー・履歴で共通）──────────────────────────
-  const [source, setSource] = useState<Source>(initial.source);
+  const [source, setSource] = useState<ViewSource>(initial.source);
+  // 明細分け（null はすべて）
+  const [shopAccountId, setShopAccountId] = useState<number | null>(
+    initial.source === "shop" ? initial.account : null,
+  );
   // 銀行は null で「すべての銀行」、カードは null で「すべてのカード・電子マネー」
   // （取り込みは 1 枚を選ぶので、カードが null なら最初のカード）
   const [bankAccountId, setBankAccountId] = useState<number | null>(
@@ -102,6 +127,12 @@ function EntryContent() {
     enabled: sourceTab && source === "bank" && scope !== null,
     queryFn: async (): Promise<SourceAccount[]> =>
       (await (await fetch(withScope("/api/bank-accounts", scope!))).json()).data ?? [],
+  });
+  const { data: shopAccounts } = useQuery({
+    queryKey: ["shop-accounts", scope],
+    enabled: tab === "history" && source === "shop" && scope !== null,
+    queryFn: async (): Promise<SourceAccount[]> =>
+      (await (await fetch(withScope("/api/shop-accounts", scope!))).json()).data ?? [],
   });
   const { data: cardAccounts } = useQuery({
     queryKey: ["linked-accounts", scope],
@@ -134,6 +165,8 @@ function EntryContent() {
         onChange={(t) => {
           setTab(t);
           setHistoryStatus("all");
+          // 明細分けは履歴だけの出どころ
+          if (t !== "history" && source === "shop") setSource("manual");
         }}
       />
 
@@ -162,7 +195,35 @@ function EntryContent() {
       {/* ── 出どころの選択（カレンダー・取り込み・履歴）。種別を選び、銀行・カードのときは口座も選ぶ ── */}
       {sourceTab && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <SegmentedControl options={SOURCES} value={source} onChange={setSource} />
+          <SegmentedControl
+            options={tab === "history" ? HISTORY_SOURCES : SOURCES}
+            value={source}
+            onChange={setSource}
+          />
+          {source === "shop" &&
+            (shopAccounts && shopAccounts.length === 0 ? (
+              <span className="text-xs text-slate-500">
+                明細分けが登録されていません（
+                <Link href={"/shop-accounts" as never} className="text-indigo-600 underline">
+                  明細管理
+                </Link>
+                で登録します）
+              </span>
+            ) : (
+              <select
+                aria-label="明細分け"
+                className="input-field w-60"
+                value={shopAccountId ?? ""}
+                onChange={(e) => setShopAccountId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">すべての明細分け</option>
+                {shopAccounts?.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            ))}
           {source === "bank" && (
             <select
               aria-label="銀行"
@@ -225,7 +286,7 @@ function EntryContent() {
       )}
       {tab === "csv" && (
         <ImportTab
-          source={source}
+          source={source === "shop" ? "manual" : source}
           account={
             (source === "bank"
               ? bankAccounts?.find((a) => a.id === importBankId)
@@ -243,12 +304,24 @@ function EntryContent() {
           }}
         />
       )}
+      {tab === "history" && source === "shop" && (
+        <ShopOrdersPanel
+          shopAccountId={shopAccountId}
+          initialQuery={initial.source === "shop" ? initial.q : ""}
+          initialStatus={initial.source === "shop" ? initial.shopStatus : "all"}
+        />
+      )}
       {tab === "history" && source === "manual" && (
         <CashHistoryTab accounts={accounts} mode={sysMode} />
       )}
 
       {/* ── 設定タブ（学習ルールの一覧と変更。予算管理の設定と同じ形）── */}
-      {tab === "settings" && <LearningRulesPanel mode={sysMode} accounts={accounts} />}
+      {tab === "settings" && (
+        <>
+          <LearningRulesPanel mode={sysMode} accounts={accounts} />
+          <ShopItemRulesPanel mode={sysMode} accounts={accounts} />
+        </>
+      )}
     </AppShell>
   );
 }

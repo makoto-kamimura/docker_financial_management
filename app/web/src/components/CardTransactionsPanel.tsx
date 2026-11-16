@@ -17,6 +17,7 @@ import { Trash2 } from "lucide-react";
 import { InfoNote, SectionLead, TermDetails } from "@/components/Explain";
 import { CARD_HELP, CARD_TERMS } from "@/lib/shared/help-texts";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
+import { ShopChargeBadge, type ShopChargeSummary } from "@/components/ShopChargeBadge";
 import {
   LINKED_ACCOUNT_TYPE_LABELS,
   isChargeableType,
@@ -73,6 +74,8 @@ type Txn = {
    * こちらも収入として計上しない（チャージ元と合わせて二重に効くため）。
    */
   chargeGroupId: string | null;
+  /** 明細分け（通販の注文）に紐付いていれば、その注文の要約。商品ごとの行が実績になり、明細そのものには科目を付けない */
+  shopCharge?: ShopChargeSummary | null;
 };
 // チャージの自動判定ルール（card_transfer_rules）
 type CardTransferRule = {
@@ -497,7 +500,7 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
             rows={history.rows.map((t) => {
               // 摘要が一致する固定決済があれば「登録済み」表示に切り替える
               const registered = matchedRecurring(t);
-              const excluded = Boolean(t.transferToAccountId || t.chargeGroupId);
+              const excluded = Boolean(t.transferToAccountId || t.chargeGroupId || t.shopCharge);
               const chargeTargets = chargeTargetsFor(t);
               return {
                 key: t.id,
@@ -515,8 +518,11 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                 directionLabel: flowLabel("card", t.amount),
                 category: (
                   <>
-                    {/* チャージは資金の移動なので科目に紐付けない（二重計上の防止） */}
-                    {t.transferToAccountId ? (
+                    {/* チャージは資金の移動なので科目に紐付けない（二重計上の防止）。
+                        明細分けに紐付いた明細は、商品ごとの行が実績になる */}
+                    {t.shopCharge ? (
+                      <ShopChargeBadge charge={t.shopCharge} />
+                    ) : t.transferToAccountId ? (
                       <span className="inline-flex items-center gap-1">
                         <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
                           チャージ
@@ -577,6 +583,13 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                       </LedgerBadge>
                     )}
                     {registered && <LedgerBadge tone="indigo">固定決済</LedgerBadge>}
+                    {t.shopCharge && (
+                      <LedgerBadge tone={t.shopCharge.uncategorizedCount > 0 ? "amber" : "emerald"}>
+                        {t.shopCharge.uncategorizedCount > 0
+                          ? "明細分け（科目なしあり）"
+                          : "明細分け"}
+                      </LedgerBadge>
+                    )}
                   </>
                 ),
                 more: (
@@ -605,8 +618,9 @@ export function CardTransactionsPanel({ view, accountId, initialStatus }: Props)
                             解除
                           </button>
                         </div>
-                      ) : t.chargeGroupId ? (
-                        // 入金側は自分ではチャージ先を持たない（相手のチャージ元が持つ）
+                      ) : t.chargeGroupId || t.shopCharge ? (
+                        // 入金側は自分ではチャージ先を持たない（相手のチャージ元が持つ）。
+                        // 明細分けに紐付いた明細（通販の支払い）もチャージにしない
                         <span className="text-xs text-slate-400">対象外</span>
                       ) : chargeTargets.length === 0 ? (
                         <span className="text-xs text-slate-300 whitespace-nowrap">

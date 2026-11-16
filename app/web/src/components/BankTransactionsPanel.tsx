@@ -9,6 +9,7 @@ import { invalidateActuals } from "@/lib/client/invalidate-actuals";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ChargeLinkModal } from "@/components/ChargeLinkModal";
+import { ShopChargeBadge, type ShopChargeSummary } from "@/components/ShopChargeBadge";
 import { InfoNote, TermDetails } from "@/components/Explain";
 import {
   LedgerBadge,
@@ -60,6 +61,8 @@ type Txn = {
   chargeToAccount: { id: number; name: string; type?: string } | null;
   /** チャージ先に入った明細と対にする識別子（紐付け済みかどうかの表示に使う） */
   chargeGroupId: string | null;
+  /** 明細分け（通販の注文）に紐付いていれば、その注文の要約。商品ごとの行が実績になり、明細そのものには科目を付けない */
+  shopCharge?: ShopChargeSummary | null;
 };
 type Transfer = {
   id: number;
@@ -446,7 +449,7 @@ export function BankTransactionsPanel({
         rows={history.rows.map((t) => {
           // 摘要が一致する固定入出金があれば「登録済み」表示に切り替える
           const registered = matchedTransfer(t);
-          const excluded = Boolean(t.transferGroupId || t.chargeToAccountId);
+          const excluded = Boolean(t.transferGroupId || t.chargeToAccountId || t.shopCharge);
           return {
             key: t.id,
             date: new Date(t.date).toLocaleDateString("ja-JP"),
@@ -462,8 +465,11 @@ export function BankTransactionsPanel({
             directionLabel: flowLabel("bank", t.amount),
             category: (
               <>
-                {/* 口座間振替は自己資金の移動なので科目に紐付けない（二重計上の防止） */}
-                {t.transferGroupId ? (
+                {/* 口座間振替は自己資金の移動なので科目に紐付けない（二重計上の防止）。
+                    明細分けに紐付いた明細は、商品ごとの行が実績になる */}
+                {t.shopCharge ? (
+                  <ShopChargeBadge charge={t.shopCharge} />
+                ) : t.transferGroupId ? (
                   <span className="inline-flex items-center gap-1">
                     <span className="text-xs bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded whitespace-nowrap">
                       振替
@@ -529,6 +535,11 @@ export function BankTransactionsPanel({
                   </LedgerBadge>
                 )}
                 {registered && <LedgerBadge tone="indigo">毎月の入出金</LedgerBadge>}
+                {t.shopCharge && (
+                  <LedgerBadge tone={t.shopCharge.uncategorizedCount > 0 ? "amber" : "emerald"}>
+                    {t.shopCharge.uncategorizedCount > 0 ? "明細分け（科目なしあり）" : "明細分け"}
+                  </LedgerBadge>
+                )}
               </>
             ),
             more: (
@@ -568,8 +579,8 @@ export function BankTransactionsPanel({
                         解除
                       </button>
                     </div>
-                  ) : t.transferGroupId ? (
-                    // 振替として紐付け済みの明細は先にそちらを外す必要がある
+                  ) : t.transferGroupId || t.shopCharge ? (
+                    // 振替として紐付け済みの明細は先にそちらを外す必要がある（明細分けの紐付けも同じ）
                     <span className="text-xs text-slate-400">対象外</span>
                   ) : t.amount >= 0 ? (
                     // チャージは口座からの出金。入金明細は対象にならない

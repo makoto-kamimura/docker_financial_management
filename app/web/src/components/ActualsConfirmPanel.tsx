@@ -389,7 +389,10 @@ type UnassignedEntry = {
 };
 type UnassignedResponse = {
   data: UnassignedEntry[];
+  /** 未割り当ての件数（明細分けの科目の無い商品を含む） */
   unassignedCount: number;
+  /** そのうち、明細分け（通販の注文）の科目の無い商品の件数（一覧には出さず、明細分けの履歴で付ける） */
+  shopItemCount?: number;
   truncated: boolean;
 };
 type CategoryAccount = {
@@ -609,6 +612,18 @@ function UnassignedCard({
             {list?.unassignedCount ?? 0} 件）
           </h3>
           <SectionLead className="mb-2">{ENTRY_HELP.unassigned}</SectionLead>
+          {(list?.shopItemCount ?? 0) > 0 && (
+            <Notice tone="warn" className="mb-2">
+              明細分け（通販の注文）の商品で、科目の付いていないものが {list!.shopItemCount}{" "}
+              件あります（未割り当ての件数に入っています）。{" "}
+              <Link
+                href={"/entry?tab=history&source=shop&status=uncategorized" as never}
+                className="font-medium underline underline-offset-2"
+              >
+                明細分けの履歴で科目を付ける
+              </Link>
+            </Notice>
+          )}
           <SectionLead className="mb-2">{ENTRY_HELP.businessUse}</SectionLead>
           <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 mb-2">
             <input
@@ -772,11 +787,11 @@ function UnassignedCard({
 
 // 行の事業利用（印）と按分（%）。按分は入れ終えたとき（フォーカスを外したとき）に保存する。
 // 空けて保存すると、科目の事業利用按分の割合（無ければ 100%）になる
-function BusinessCell({
+export function BusinessCell({
   entry,
   onChange,
 }: {
-  entry: UnassignedEntry;
+  entry: { description: string; businessUse: boolean; businessRatio: number | null };
   onChange: (change: { businessUse: boolean; businessRatio?: number | null }) => void;
 }) {
   const [ratio, setRatio] = useState(entry.businessRatio?.toString() ?? "");

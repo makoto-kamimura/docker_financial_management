@@ -1367,7 +1367,18 @@ export type BankTransaction = {
   chargeToAccount: { id: number; name: string } | null;
   /** チャージ先の明細と対になっていれば値が入る */
   chargeGroupId: string | null;
+  /** 明細分け（通販の注文）に紐付いていれば、その注文の要約。商品ごとの行が実績になる */
+  shopCharge?: ShopChargeSummary | null;
 } & BusinessFields;
+
+/** 明細に紐付いた明細分け（通販の注文）の要約 */
+export type ShopChargeSummary = {
+  id: number;
+  orderNo: string;
+  shopName: string;
+  itemCount: number;
+  uncategorizedCount: number;
+};
 
 export async function fetchBankTransactions(accountId: number): Promise<BankTransaction[]> {
   const json = await request<{ data?: BankTransaction[] }>(
@@ -1560,6 +1571,122 @@ export async function deleteShopAccount(id: number): Promise<void> {
   await request(`/shop-accounts/${id}`, "削除に失敗しました", { method: "DELETE" });
 }
 
+// 明細分けの注文（請求）。web 版の実績管理の履歴（出どころ: 明細分け）と同じ GET /api/shop-orders
+export type ShopOrderItem = {
+  id: number;
+  name: string;
+  quantity: number;
+  amount: number;
+  /** 明細に紐付いていれば、明細の金額に合わせて割り振った額 */
+  allocatedAmount: number | null;
+  categoryAccountId: number | null;
+  categoryAccount: { id: number; code: string; name: string } | null;
+  businessUse: boolean;
+  businessRatio: number | null;
+};
+
+export type ShopOrder = {
+  id: number;
+  shopAccount: { id: number; name: string; type: string };
+  orderNo: string;
+  date: string;
+  amount: number;
+  sellerName: string | null;
+  linkedBy: "AUTO" | "MANUAL" | null;
+  entry: {
+    id: number;
+    kind: "BANK" | "CARD" | "CASH";
+    date: string | null;
+    description: string | null;
+    /** +入金 / −出金 */
+    amount: number;
+    sourceName: string;
+  } | null;
+  items: ShopOrderItem[];
+  uncategorizedCount: number;
+};
+
+export type ShopOrderStatus = "all" | "unlinked" | "uncategorized";
+
+export async function fetchShopOrders(opts: {
+  shopAccountId: number | null;
+  status: ShopOrderStatus;
+  q?: string;
+  limit: number;
+  offset: number;
+}): Promise<{ data: ShopOrder[]; total: number }> {
+  const params = new URLSearchParams({
+    status: opts.status,
+    limit: String(opts.limit),
+    offset: String(opts.offset),
+  });
+  if (opts.shopAccountId) params.set("shopAccountId", String(opts.shopAccountId));
+  if (opts.q) params.set("q", opts.q);
+  const json = await request<{ data?: ShopOrder[]; total?: number }>(
+    `/shop-orders?${params}`,
+    "注文の取得に失敗しました",
+  );
+  return { data: json.data ?? [], total: json.total ?? 0 };
+}
+
+export type ShopOrderCandidate = {
+  id: number;
+  kind: "BANK" | "CARD";
+  date: string;
+  description: string;
+  amount: number;
+  sourceName: string;
+  categoryAccount: { id: number; code: string; name: string } | null;
+  dayGap: number;
+  amountGap: number;
+  keywordMatch: boolean;
+};
+
+export async function fetchShopOrderCandidates(id: number): Promise<ShopOrderCandidate[]> {
+  const json = await request<{ data?: ShopOrderCandidate[] }>(
+    `/shop-orders/${id}/candidates`,
+    "候補の取得に失敗しました",
+  );
+  return json.data ?? [];
+}
+
+export async function linkShopOrder(id: number, entryId: number): Promise<void> {
+  await request(`/shop-orders/${id}/link`, "紐付けに失敗しました", jsonInit("POST", { entryId }));
+}
+
+export async function unlinkShopOrder(id: number): Promise<void> {
+  await request(`/shop-orders/${id}/link`, "紐付けを外せませんでした", { method: "DELETE" });
+}
+
+export async function deleteShopOrder(id: number): Promise<void> {
+  await request(`/shop-orders/${id}`, "削除に失敗しました", { method: "DELETE" });
+}
+
+/** 商品の科目・事業利用を変える。科目を選んだときは商品名で学習する */
+export async function patchShopOrderItem(
+  id: number,
+  change: {
+    categoryAccountId?: number | null;
+    businessUse?: boolean;
+    businessRatio?: number | null;
+  },
+): Promise<void> {
+  await request(
+    `/shop-orders/items/${id}`,
+    "保存に失敗しました",
+    jsonInit("PATCH", { ...change, ...(change.categoryAccountId ? { learn: true } : {}) }),
+  );
+}
+
+export async function autoLinkShopOrders(shopAccountId: number | null): Promise<number> {
+  const json = await request<{ linked?: number }>(
+    "/shop-orders/auto-link",
+    "自動の紐付けに失敗しました",
+    jsonInit("POST", shopAccountId ? { shopAccountId } : {}),
+  );
+  return json.linked ?? 0;
+}
+
 export type CardTransaction = {
   id: number;
   /** 明細のカード（すべてのカードの履歴では行ごとに違う） */
@@ -1579,6 +1706,8 @@ export type CardTransaction = {
    * 「チャージ先に入った入金側」で、こちらも収入として計上しない
    */
   chargeGroupId: string | null;
+  /** 明細分け（通販の注文）に紐付いていれば、その注文の要約。商品ごとの行が実績になる */
+  shopCharge?: ShopChargeSummary | null;
 } & BusinessFields;
 
 export async function fetchCardTransactions(accountId: number): Promise<CardTransaction[]> {
@@ -1855,10 +1984,17 @@ export async function fetchUnassignedEntries(
   month: number,
   /** true なら科目の付いた明細も返す（付けた科目・事業利用を見直すため） */
   includeAssigned = false,
-): Promise<{ data: UnassignedEntry[]; unassignedCount: number; truncated: boolean }> {
+): Promise<{
+  data: UnassignedEntry[];
+  unassignedCount: number;
+  /** 未割り当てのうち、明細分けの科目の無い商品の件数（一覧には出さない） */
+  shopItemCount: number;
+  truncated: boolean;
+}> {
   const json = await request<{
     data?: UnassignedEntry[];
     unassignedCount?: number;
+    shopItemCount?: number;
     truncated?: boolean;
   }>(
     `/ledger/unassigned?year=${year}&month=${month}${includeAssigned ? "&includeAssigned=1" : ""}`,
@@ -1868,6 +2004,7 @@ export async function fetchUnassignedEntries(
   return {
     data,
     unassignedCount: json.unassignedCount ?? data.length,
+    shopItemCount: json.shopItemCount ?? 0,
     truncated: json.truncated ?? false,
   };
 }

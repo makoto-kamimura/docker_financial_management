@@ -49,6 +49,7 @@ import {
 import { CARD_HELP, CARD_TERMS } from "../../shared/help-texts";
 import { BusinessTag } from "../BusinessUseControls";
 import { useLedgerHistory } from "../LedgerHistory";
+import { shopChargeLabel } from "../shopCharge";
 
 const normalizeLabel = (s: string) => s.trim().toLowerCase();
 // チャージ元・チャージ入金は資金の移動なので収支・実績・固定決済の対象外
@@ -307,7 +308,10 @@ export function CardTransactionsList({
             directionLabel={flowLabel("card", t.amount)}
             category={
               <>
-                {t.transferToAccountId ? (
+                {t.shopCharge ? (
+                  // 明細分けに紐付いた明細は、商品ごとの行が実績になる（商品の科目は履歴の出どころ「明細分け」で付ける）
+                  <Text style={s.badge}>{shopChargeLabel(t.shopCharge)}</Text>
+                ) : t.transferToAccountId ? (
                   <Text style={s.badge}>チャージ（{t.transferToAccount?.name ?? "指定済み"}）</Text>
                 ) : t.chargeGroupId ? (
                   // チャージ元の明細と対にした入金側。こちらも収支には計上しない
@@ -341,7 +345,11 @@ export function CardTransactionsList({
             status={
               <>
                 <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
-                {isMovement(t) ? (
+                {t.shopCharge ? (
+                  <LedgerBadge tone={t.shopCharge.uncategorizedCount > 0 ? "amber" : "emerald"}>
+                    明細分け
+                  </LedgerBadge>
+                ) : isMovement(t) ? (
                   <LedgerBadge>実績対象外</LedgerBadge>
                 ) : t.categoryAccountId !== null ? (
                   <LedgerBadge tone="emerald">実績</LedgerBadge>

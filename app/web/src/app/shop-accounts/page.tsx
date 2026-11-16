@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import Link from "next/link";
 import { Modal } from "@/components/Modal";
 import { AppShell } from "@/components/AppShell";
 import { SectionLead } from "@/components/Explain";
@@ -422,6 +423,13 @@ export default function ShopAccountsPage() {
                       {a.note && <div className="text-xs text-slate-400 mt-0.5">{a.note}</div>}
                     </div>
                     <div className="flex flex-col items-end gap-1">
+                      {/* 注文の一覧と商品の科目付けは、実績管理の履歴（出どころ: 明細分け）で行う */}
+                      <Link
+                        href={`/entry?tab=history&source=shop&account=${a.id}` as never}
+                        className="text-xs text-indigo-500 hover:text-indigo-700"
+                      >
+                        注文を見る
+                      </Link>
                       <button
                         type="button"
                         onClick={() => openEdit(a)}

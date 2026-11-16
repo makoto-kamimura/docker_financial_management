@@ -38,6 +38,7 @@ import { Button, EmptyText, Field, Notice, Pills, SelectField, SheetModal, TermL
 import { BANK_HELP, BANK_TERMS } from "../../shared/help-texts";
 import { BusinessTag } from "../BusinessUseControls";
 import { useLedgerHistory } from "../LedgerHistory";
+import { shopChargeLabel } from "../shopCharge";
 
 const normalizeLabel = (s: string) => s.trim().toLowerCase();
 
@@ -273,7 +274,10 @@ export function BankTransactionsList({
               directionLabel={flowLabel("bank", t.amount)}
               category={
                 <>
-                  {t.transferGroupId ? (
+                  {t.shopCharge ? (
+                    // 明細分けに紐付いた明細は、商品ごとの行が実績になる（商品の科目は履歴の出どころ「明細分け」で付ける）
+                    <Text style={s.badge}>{shopChargeLabel(t.shopCharge)}</Text>
+                  ) : t.transferGroupId ? (
                     <>
                       <Text style={s.badge}>振替</Text>
                       <TouchableOpacity onPress={() => unlink(t)}>
@@ -300,7 +304,11 @@ export function BankTransactionsList({
               status={
                 <>
                   <LedgerBadge>{SOURCE_LABELS[t.source] ?? t.source}</LedgerBadge>
-                  {excluded ? (
+                  {t.shopCharge ? (
+                    <LedgerBadge tone={t.shopCharge.uncategorizedCount > 0 ? "amber" : "emerald"}>
+                      明細分け
+                    </LedgerBadge>
+                  ) : excluded ? (
                     <LedgerBadge>実績対象外</LedgerBadge>
                   ) : t.categoryAccountId !== null ? (
                     <LedgerBadge tone="emerald">実績</LedgerBadge>
