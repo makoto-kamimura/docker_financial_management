@@ -13,6 +13,7 @@ import { SHOP_HELP } from "@/lib/shared/help-texts";
 import { shopOrderHistoryUrl } from "@/lib/shared/shop-account-type";
 import { decodeCsv } from "@/lib/shared/statement-formats";
 import {
+  chunkCharges,
   convertAmazonOrderHistory,
   type ShopOrderConversion,
 } from "@/lib/shared/shop-order-formats";
@@ -48,7 +49,9 @@ const UNREADABLE =
 
 async function errorOf(res: Response, fallback: string) {
   const j = await res.json().catch(() => null);
-  return (j?.error as string | undefined) ?? fallback;
+  // 入力の誤り（400）は error が文字列でない（項目ごとの誤り）ことがある。
+  // サーバーの手前（WAF など）で止められたときは JSON が返らないので、HTTP の状態を添える
+  return typeof j?.error === "string" ? j.error : `${fallback}（HTTP ${res.status}）`;
 }
 
 export function ShopImportPanel({
@@ -65,6 +68,8 @@ export function ShopImportPanel({
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 分けて送っている途中の進み具合（1 回で送れるときは null）
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   if (!account) {
     return (
@@ -77,7 +82,39 @@ export function ShopImportPanel({
   }
   const url = shopOrderHistoryUrl(account);
 
-  const body = (c: ShopOrderConversion) => JSON.stringify({ charges: c.charges });
+  // 送る前の WAF が本文の大きさ（128KB ほど）で止めるので、請求を 100KB ほどずつに分けて順に送る
+  async function postChunks<T>(
+    conversion: ShopOrderConversion,
+    dryRun: boolean,
+    fallback: string,
+  ): Promise<T[] | null> {
+    const results: T[] = [];
+    const chunks = chunkCharges(conversion.charges);
+    for (const [i, charges] of chunks.entries()) {
+      if (chunks.length > 1) setProgress({ done: i, total: chunks.length });
+      const res = await fetch(
+        `/api/shop-orders/import?shopAccountId=${account!.id}${dryRun ? "&dryRun=1" : ""}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ charges }),
+        },
+      );
+      if (!res.ok) {
+        const message = await errorOf(res, fallback);
+        setError(
+          i > 0 && !dryRun
+            ? `${message}（${chunks.length} 回に分けて送ったうちの ${i} 回目までは取り込みました。同じ CSV をもう一度入れると、残りだけを取り込みます）`
+            : message,
+        );
+        return null;
+      }
+      const json = await res.json();
+      results.push((dryRun ? json.preview : json.result) as T);
+    }
+    setProgress(null);
+    return results;
+  }
 
   async function readFile(file: File) {
     setError(null);
@@ -97,19 +134,32 @@ export function ShopImportPanel({
     const next: Pending = { fileName: file.name, conversion, preview: "loading" };
     setPending(next);
     try {
-      const res = await fetch(`/api/shop-orders/import?shopAccountId=${account!.id}&dryRun=1`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: body(conversion),
-      });
-      if (!res.ok) {
-        setError(await errorOf(res, "取り込む前の確認に失敗しました"));
+      const previews = await postChunks<Preview>(
+        conversion,
+        true,
+        "取り込む前の確認に失敗しました",
+      );
+      if (!previews) {
         setPending({ ...next, preview: "failed" });
         return;
       }
-      setPending({ ...next, preview: (await res.json()).preview });
+      const dates = previews.flatMap((p) => [p.from, p.to]).filter((d): d is string => !!d);
+      dates.sort();
+      setPending({
+        ...next,
+        preview: {
+          from: dates[0] ?? null,
+          to: dates.at(-1) ?? null,
+          fresh: previews.reduce((n, p) => n + p.fresh, 0),
+          duplicate: previews.reduce((n, p) => n + p.duplicate, 0),
+          items: previews.reduce((n, p) => n + p.items, 0),
+        },
+      });
     } catch {
+      setError("通信に失敗しました。時間をおいてもう一度試してください。");
       setPending({ ...next, preview: "failed" });
+    } finally {
+      setProgress(null);
     }
   }
 
@@ -117,17 +167,16 @@ export function ShopImportPanel({
     setImporting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/shop-orders/import?shopAccountId=${account!.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: body(p.conversion),
-      });
-      if (!res.ok) {
-        setError(await errorOf(res, "取り込みに失敗しました"));
-        return;
+      const results = await postChunks<Result>(p.conversion, false, "取り込みに失敗しました");
+      if (results) {
+        setResult({
+          inserted: results.reduce((n, r) => n + r.inserted, 0),
+          duplicate: results.reduce((n, r) => n + r.duplicate, 0),
+          linked: results.reduce((n, r) => n + r.linked, 0),
+          uncategorizedItems: results.reduce((n, r) => n + r.uncategorizedItems, 0),
+        });
+        setPending(null);
       }
-      setResult((await res.json()).result);
-      setPending(null);
       for (const key of [
         "shop-orders",
         "shop-accounts",
@@ -142,6 +191,7 @@ export function ShopImportPanel({
       setError("通信に失敗しました。時間をおいてもう一度試してください。");
     } finally {
       setImporting(false);
+      setProgress(null);
     }
   }
 
@@ -191,6 +241,11 @@ export function ShopImportPanel({
       </div>
 
       {error && <Notice tone="error">{error}</Notice>}
+      {progress && (
+        <p className="text-xs text-slate-500">
+          {progress.total} 回に分けて送っています（{progress.done + 1} 回目）…
+        </p>
+      )}
 
       {result && (
         <div className="card border border-green-200 bg-green-50 space-y-2">
