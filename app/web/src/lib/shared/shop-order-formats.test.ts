@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { amazonDate, chunkCharges, convertAmazonOrderHistory } from "./shop-order-formats";
+import {
+  amazonDate,
+  chunkCharges,
+  convertAmazonOrderHistory,
+  countJsonFields,
+} from "./shop-order-formats";
 
 const HEADER =
   'ASIN,"Billing Address","Carrier Name & Tracking Number",Currency,Department,"Gift Message","Gift Recipient Contact","Gift Sender Name","Item Serial Number","Order Date","Order ID","Order Status","Original Quantity","Payment Method Type","Product Condition","Product Name","Purchase Order Number","Ship Date","Shipment Item Subtotal","Shipment Item Subtotal Tax","Shipment Status","Shipping Address","Shipping Charge","Shipping Option","Total Amount","Total Discounts","Unit Price","Unit Price Tax",Website';
@@ -190,5 +195,15 @@ describe("chunkCharges", () => {
   it("上限より大きい 1 件は、その 1 件だけの組にする", () => {
     const chunks = chunkCharges([charge(1, 10), charge(2, 3_000), charge(3, 10)], 1_000);
     expect(chunks.map((c) => c.map((x) => x.orderNo))).toEqual([["250-1"], ["250-2"], ["250-3"]]);
+  });
+
+  it("JSON の項目の数も上限を超えないように分ける", () => {
+    // 1 件は 4 項目（鍵・注文番号・日付・金額）＋商品 1 件で 3 項目 = 7 項目
+    const charges = Array.from({ length: 300 }, (_, i) => charge(i, 1));
+    expect(countJsonFields(charges[0])).toBe(7);
+    const chunks = chunkCharges(charges, 1_000_000, 500);
+    expect(chunks.flat()).toEqual(charges);
+    for (const c of chunks) expect(countJsonFields(c)).toBeLessThanOrEqual(500);
+    expect(chunks).toHaveLength(Math.ceil(300 / Math.floor(500 / 7)));
   });
 });
