@@ -147,24 +147,45 @@ export function convertAmazonOrderHistory(text: string): ShopOrderConversion | n
   };
 }
 
+/** JSON の値の葉（文字列・数値などの項目）の数。WAF は JSON の本文を項目ごとに数える */
+export function countJsonFields(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((n: number, v) => n + countJsonFields(v), 0);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).reduce(
+      (n: number, v) => n + (v === undefined ? 0 : countJsonFields(v)),
+      0,
+    );
+  }
+  return 1;
+}
+
 /**
- * 請求を、JSON にしたときの大きさが maxBytes を超えないように分ける（送る前の WAF が本文の大きさを
- * 128KB ほどで止めるため。1 件で maxBytes を超える請求は、その 1 件だけの組にする）
+ * 請求を、送る前の WAF に止められない大きさの組に分ける。WAF は本文の大きさ（128KB ほど）と、
+ * JSON の項目の数（1,000 ほど）で止めるので、JSON にしたときの大きさが maxBytes 以下、項目の数が maxFields 以下に収める。
+ * 1 件でどちらかを超える請求は、その 1 件だけの組にする
  */
-export function chunkCharges(charges: ShopChargeInput[], maxBytes = 100_000): ShopChargeInput[][] {
+export function chunkCharges(
+  charges: ShopChargeInput[],
+  maxBytes = 100_000,
+  maxFields = 500,
+): ShopChargeInput[][] {
   const encoder = new TextEncoder();
   const chunks: ShopChargeInput[][] = [];
   let current: ShopChargeInput[] = [];
   let size = 0;
+  let fields = 0;
   for (const c of charges) {
     const bytes = encoder.encode(JSON.stringify(c)).length + 1;
-    if (current.length > 0 && size + bytes > maxBytes) {
+    const n = countJsonFields(c);
+    if (current.length > 0 && (size + bytes > maxBytes || fields + n > maxFields)) {
       chunks.push(current);
       current = [];
       size = 0;
+      fields = 0;
     }
     current.push(c);
     size += bytes;
+    fields += n;
   }
   if (current.length > 0) chunks.push(current);
   return chunks;
