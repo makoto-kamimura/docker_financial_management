@@ -375,6 +375,7 @@ flowchart LR
 - パスワードを5回続けて間違えると、そのアカウントは15分ロックされる。これとは別に、同じ IP からのログインは 5 分に 10 回までにする。
 - パスワードは 8 文字以上。本人は変えられず、admin がユーザー管理で再設定する。admin がパスワードかロールを変えると、そのユーザーのセッションはすべて切れる。
 - セッションは、最後の操作から24時間、またはログインから7日で切れる（環境変数 `SESSION_IDLE_HOURS`・`SESSION_ABSOLUTE_DAYS` で変えられる）。切れたら、ログイン画面に理由を表示して戻す。
+- 連携した人は、共通の認証サーバーの SSO（パスキーの 2 段階認証つき）でもログインできる。SSO のログインでは、このアプリの多要素認証（TOTP）は求めない（認証サーバーのパスキーが兼ねる）。連携・解除と「SSO だけでログインする」は、設定の「セキュリティ」で行う（Web・モバイルとも。[第19章](#19-認証の実装)）。
 
 ### 6.2 多要素認証
 
@@ -1236,6 +1237,13 @@ npm run typecheck && npm run format:check
   3. 無ければ、`Origin` が `APP_ORIGIN`（未設定ならリクエスト自身のオリジン）と一致すること。
   4. どちらのヘッダーも無いリクエストは、セッション Cookie を持っていなければ通し、持っていれば断る。
 - **レート制限**：Redis の固定時間枠で数える。ログインは IP ごとに5分で10回（Redis が使えないときはメモリで数える）。CSV の取り込みと同期は、ユーザーごとに10分で10回。
+- **SSO**（任意。`OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`PUBLIC_BASE_URL` がそろったときだけ有効）：共通の認証サーバー（OpenID Connect）でログインし、パスワードのログインと同じセッションを発行する。仕様は、認証サーバーのリポジトリ（docker_auth_server）の `docs/runbooks/app-integration.md` と同じ（ほかの自作アプリと共通）。実装は `src/lib/server/oidc.ts`（ID トークンの確認と通信）・`src/lib/server/sso.ts`（流れ）・`src/app/api/auth/sso/*`・`src/app/auth/sso/*`（Web）。
+  - パスワードでログインしたあと、設定の「セキュリティ」で自分の SSO のアカウントを連携した人だけが使える。新しい利用者は作らない。メールアドレスの一致では自動でひも付けない。デモ用（`@example.com`）には連携できない。
+  - 認証サーバーにパスキー（2 段階認証）でログインした人だけを通し（ID トークンの `amr` に `mfa`。`OIDC_REQUIRE_MFA`）、その代わりにこのアプリの多要素認証（TOTP）は求めない。
+  - ID トークンは、認証サーバーの公開鍵（`jwks_uri`）で署名を確かめ、`iss`・`aud`・`exp`・`nonce` も確かめる。署名の確認は `node:crypto` で直接行い、方式は RS256/384/512・PS256/384/512・ES256・EdDSA だけを許す。
+  - PKCE を二重に使う（クライアント ↔ API と、API ↔ 認証サーバー）。`state`・`intent`・結果コードは DB にハッシュだけを保存し、1 回で消す。Web は httpOnly の Cookie（`sso_pkce`、パスは `/auth/sso`、10 分）、モバイルはメモリに `code_verifier` を持つ。モバイルは `expo-web-browser` でアプリ内のブラウザを開き、`kakei://auth/sso`（Expo Go では `exp://…/--/auth/sso`）で戻る。
+  - **SSO だけでログインする**（本人が選ぶ）：セッションの `loginMethod`（`pwd` / `sso`）を、リクエストのたびに確かめる。オンにすると、パスワードでのログインを 403 で断り（パスワードを確かめたあと。違えば 401 のまま）、パスワードのセッションはほかの端末のものも含めて無効になる。オンにできるのは、連携済みで SSO でログイン中の人だけ。連携を解除すると外れる。非常用に `OIDC_ALLOW_PASSWORD_FOR_SSO_ONLY=true`。
+  - 監査ログ：SSO のログインは `login`（`method:sso`）、ほかに `sso_linked`・`sso_unlinked`・`sso_only_changed`・`login_denied_sso_only`。
 - **ページの保護**：`middleware.ts` が、Cookie のない画面へのアクセスを `/login` に転送する。セッションの有効性は API 側で確かめ、API が 401 を返すと、画面はログインへ戻す。
 
 ## 20. 機能ごとの実装方針
@@ -1436,8 +1444,10 @@ npm run typecheck && npm run format:check
 | テーブル | 主な列 | 補足 |
 |---|---|---|
 | `tenants` | type（SOLE_PROPRIETOR / CORPORATION）, name, corporateNumber, capitalAmount, establishedOn, closingMonth, startMonth | startMonth は closingMonth の翌月（CHECK 制約） |
-| `users` | tenantId, email, name, passwordHash, role, mfaEnabled, totpSecret, totpLastUsedStep, mfaRecoveryCodes, loginAttempts, lockedUntil | email は一意 |
-| `sessions` | id（トークンの SHA-256）, userId, expiresAt, lastSeenAt, ip, userAgent | |
+| `users` | tenantId, email, name, passwordHash, role, mfaEnabled, totpSecret, totpLastUsedStep, mfaRecoveryCodes, loginAttempts, lockedUntil, ssoOnly | email は一意。ssoOnly は「SSO だけでログインする」 |
+| `sessions` | id（トークンの SHA-256）, userId, expiresAt, lastSeenAt, ip, userAgent, loginMethod | loginMethod は `pwd` / `sso` |
+| `user_identities` | userId, provider（sso）, subject（認証サーバーの `sub`）, email（表示用）, lastLoginAt | SSO の連携。`[provider, subject]` と `[userId, provider]` が一意 |
+| `oauth_flows` | mode, userId, intentHash / stateHash / resultHash（どれもハッシュ）, clientChallenge, returnTo, expiresAt | SSO の途中の状態。使ったら消す |
 | `mfa_challenges` | token（SHA-256）, userId, attempts, expiresAt | |
 | `audit_logs` | tenantId, userId, action, target, ip, userAgent, before, after, changedAt | |
 | `learning_progress` | tenantId, userId, topicKey, readAt | `[userId, topicKey]` 一意 |
@@ -1571,6 +1581,12 @@ npm run typecheck && npm run format:check
 | POST | `/auth/logout` | — |
 | GET / PATCH | `/auth/me`（PATCH は自分の表示名の変更） | ログイン済み / V |
 | POST | `/auth/mfa/verify` | —（mfaToken で確かめる） |
+| GET | `/auth/providers` | —（SSO が使えるか `{sso, sso_name}`） |
+| GET | `/auth/sso/start` `/auth/sso/callback` | —（SSO の開始と認証サーバーからの戻り。303） |
+| POST | `/auth/sso/exchange` | —（結果コードと `code_verifier` の交換。モバイル用。連携は Bearer の本人） |
+| GET | `/me/identities` | ログイン済み（自分の連携と「SSO だけ」の状態） |
+| POST / DELETE | `/me/identities/sso/intent`・`/me/identities/sso` | ログイン済み（連携の開始・解除） |
+| PUT | `/me/sso-only` | ログイン済み（「SSO だけでログインする」。オンは SSO でログイン中の人だけ） |
 | POST | `/auth/mfa/setup` `/auth/mfa/enable` `/auth/mfa/disable` `/auth/mfa/recovery` | V |
 | GET / POST | `/admin/users` | Ad |
 | PATCH / DELETE | `/admin/users/[id]` | Ad |
