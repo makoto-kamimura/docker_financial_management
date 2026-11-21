@@ -18,14 +18,19 @@ import {
 export async function GET(req: NextRequest) {
   const mode = req.nextUrl.searchParams.get("mode") === "link" ? "link" : "login";
   const verifier = createVerifier();
-  const params = new URLSearchParams({ mode, client: "web", code_challenge: pkceChallenge(verifier) });
+  const params = new URLSearchParams({
+    mode,
+    client: "web",
+    code_challenge: pkceChallenge(verifier),
+  });
 
   if (mode === "link") {
     // 連携はログイン中の本人だけ
     const user = await getCurrentUser();
     if (!user) return redirectTo("/login");
     const r = await createIntent(user);
-    if (!r.ok) return redirectTo(`${SETTINGS_SSO}&sso_error=${r.status === 400 ? "demo" : "failed"}`);
+    if (!r.ok)
+      return redirectTo(`${SETTINGS_SSO}&sso_error=${r.status === 400 ? "demo" : "failed"}`);
     params.set("intent", r.intent);
   }
 

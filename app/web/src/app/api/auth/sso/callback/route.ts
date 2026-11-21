@@ -13,6 +13,9 @@ export async function GET(req: NextRequest) {
     return new NextResponse(null, { status: 303, headers: { Location: location } });
   } catch (e) {
     console.warn("sso callback rejected:", (e as Error).message);
-    return new NextResponse(ERROR_HTML, { status: 400, headers: { "Content-Type": "text/html; charset=utf-8" } });
+    return new NextResponse(ERROR_HTML, {
+      status: 400,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 }

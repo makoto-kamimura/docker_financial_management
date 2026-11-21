@@ -20,7 +20,12 @@ vi.mock("next/headers", () => ({
 
 import { prisma } from "@/lib/server/prisma";
 import { hashPassword } from "@/lib/server/auth";
-import { oidcIo, pkceChallenge, resetOidcCache, JWKS_FORCE_REFRESH_MIN_MS } from "@/lib/server/oidc";
+import {
+  oidcIo,
+  pkceChallenge,
+  resetOidcCache,
+  JWKS_FORCE_REFRESH_MIN_MS,
+} from "@/lib/server/oidc";
 import { FakeIdp, SSO_TEST_ENV, Signer } from "@/lib/server/sso-test-idp";
 import { POST as loginPost } from "@/app/api/auth/login/route";
 import { GET as meGet } from "@/app/api/auth/me/route";
@@ -43,7 +48,11 @@ const idp = new FakeIdp(new Signer("RS256", "rsa-1"));
 const realIo = { ...oidcIo };
 let tenantId: number;
 const ids: Record<"me" | "other" | "demo", number> = { me: 0, other: 0, demo: 0 };
-const email = { me: `me_${SUFFIX}@family.test`, other: `you_${SUFFIX}@family.test`, demo: `demo_${SUFFIX}@example.com` };
+const email = {
+  me: `me_${SUFFIX}@family.test`,
+  other: `you_${SUFFIX}@family.test`,
+  demo: `demo_${SUFFIX}@example.com`,
+};
 
 function req(url: string, init: { method?: string; body?: unknown; cookie?: string } = {}) {
   const headers: Record<string, string> = {
@@ -68,7 +77,9 @@ function as(token: string | null) {
 
 async function pwdLogin(who: keyof typeof email, password = "pw-1234-secret") {
   as(null);
-  const res = await loginPost(req("/api/auth/login", { method: "POST", body: { email: email[who], password } }));
+  const res = await loginPost(
+    req("/api/auth/login", { method: "POST", body: { email: email[who], password } }),
+  );
   const json = await res.json().catch(() => ({}));
   return { status: res.status, token: json?.data?.sessionId as string | undefined, json };
 }
@@ -77,9 +88,19 @@ const verifier = () => randomBytes(32).toString("base64url");
 const query = (loc: string) => new URLSearchParams(loc.split("?")[1] ?? "");
 
 /** モバイルの流れを通し、交換の応答（または戻り先の error）を返す */
-async function runFlow(mode: "login" | "link", token: string | null = null, sub = "sub-1", amr = ["pwd", "mfa"]) {
+async function runFlow(
+  mode: "login" | "link",
+  token: string | null = null,
+  sub = "sub-1",
+  amr = ["pwd", "mfa"],
+) {
   const v = verifier();
-  const params = new URLSearchParams({ mode, client: "mobile", code_challenge: pkceChallenge(v), redirect_uri: MOBILE_RETURN });
+  const params = new URLSearchParams({
+    mode,
+    client: "mobile",
+    code_challenge: pkceChallenge(v),
+    redirect_uri: MOBILE_RETURN,
+  });
   if (mode === "link") {
     as(token);
     params.set("intent", (await (await intentPost()).json()).intent);
@@ -95,7 +116,12 @@ async function runFlow(mode: "login" | "link", token: string | null = null, sub 
   const q = query(loc);
   if (q.get("error")) return q.get("error")!;
   as(token);
-  return exchangePost(req("/api/auth/sso/exchange", { method: "POST", body: { code: q.get("code"), code_verifier: v } }));
+  return exchangePost(
+    req("/api/auth/sso/exchange", {
+      method: "POST",
+      body: { code: q.get("code"), code_verifier: v },
+    }),
+  );
 }
 
 beforeAll(async () => {
@@ -123,7 +149,13 @@ beforeEach(async () => {
   await prisma.oauthFlow.deleteMany({});
   await prisma.user.updateMany({
     where: { id: { in: userIds } },
-    data: { ssoOnly: false, mfaEnabled: false, totpSecret: null, loginAttempts: 0, lockedUntil: null },
+    data: {
+      ssoOnly: false,
+      mfaEnabled: false,
+      totpSecret: null,
+      loginAttempts: 0,
+      lockedUntil: null,
+    },
   });
 });
 
@@ -158,7 +190,12 @@ describe("SSO", () => {
     const pwd = (await pwdLogin("me")).token!;
     as(pwd);
     const before = await (await identitiesGet()).json();
-    expect(before).toMatchObject({ sso_enabled: true, can_link: true, identities: [], login_method: "pwd" });
+    expect(before).toMatchObject({
+      sso_enabled: true,
+      can_link: true,
+      identities: [],
+      login_method: "pwd",
+    });
     const linked = (await runFlow("link", pwd)) as Response;
     expect(linked.status).toBe(200);
     expect(await linked.json()).toEqual({ mode: "link", email: "me@family.test" });
@@ -173,9 +210,14 @@ describe("SSO", () => {
 
     // 「SSO だけ」はパスワードのログインではオンにできない
     as(pwd);
-    expect((await ssoOnlyPut(req("/api/me/sso-only", { method: "PUT", body: { enabled: true } }))).status).toBe(400);
+    expect(
+      (await ssoOnlyPut(req("/api/me/sso-only", { method: "PUT", body: { enabled: true } })))
+        .status,
+    ).toBe(400);
     as(sso);
-    const on = await ssoOnlyPut(req("/api/me/sso-only", { method: "PUT", body: { enabled: true } }));
+    const on = await ssoOnlyPut(
+      req("/api/me/sso-only", { method: "PUT", body: { enabled: true } }),
+    );
     expect(await on.json()).toEqual({ sso_only: true });
     // パスワードのセッションは、ほかの端末のものもその時点から 401。パスワードのログインは 403（違えば 401）
     as(pwd);
@@ -184,7 +226,10 @@ describe("SSO", () => {
     expect((await pwdLogin("me", "wrong-password")).status).toBe(401);
     as(sso);
     expect((await meGet()).status).toBe(200);
-    expect(await (await identitiesGet()).json()).toMatchObject({ login_method: "sso", sso_only: true });
+    expect(await (await identitiesGet()).json()).toMatchObject({
+      login_method: "sso",
+      sso_only: true,
+    });
 
     // 非常用の切り替え
     process.env.OIDC_ALLOW_PASSWORD_FOR_SSO_ONLY = "true";
@@ -196,7 +241,9 @@ describe("SSO", () => {
 
     // 解除すると「SSO だけ」も外れ、SSO では入れなくなる
     as(sso);
-    expect(await (await unlinkDelete(req("/api/me/identities/sso", { method: "DELETE" }))).json()).toEqual({ unlinked: true });
+    expect(
+      await (await unlinkDelete(req("/api/me/identities/sso", { method: "DELETE" }))).json(),
+    ).toEqual({ unlinked: true });
     expect((await pwdLogin("me")).status).toBe(200);
     expect(await runFlow("login")).toBe("not_linked");
   });
@@ -204,7 +251,10 @@ describe("SSO", () => {
   it("このアプリの MFA（TOTP）を有効にしていても、SSO のログインでは求めない", async () => {
     const pwd = (await pwdLogin("me")).token!;
     expect(((await runFlow("link", pwd)) as Response).status).toBe(200);
-    await prisma.user.update({ where: { id: ids.me }, data: { mfaEnabled: true, totpSecret: "JBSWY3DPEHPK3PXP" } });
+    await prisma.user.update({
+      where: { id: ids.me },
+      data: { mfaEnabled: true, totpSecret: "JBSWY3DPEHPK3PXP" },
+    });
     const p = await pwdLogin("me");
     expect(p.status).toBe(401);
     expect(p.json.mfaRequired).toBe(true);
@@ -219,11 +269,19 @@ describe("SSO", () => {
     expect(((await runFlow("link", pwd)) as Response).status).toBe(200);
     as(null);
     const v = verifier();
-    const params = new URLSearchParams({ mode: "login", client: "mobile", code_challenge: pkceChallenge(v), redirect_uri: MOBILE_RETURN });
+    const params = new URLSearchParams({
+      mode: "login",
+      client: "mobile",
+      code_challenge: pkceChallenge(v),
+      redirect_uri: MOBILE_RETURN,
+    });
     const s = await startGet(req(`/api/auth/sso/start?${params}`));
     const back = idp.authorize(s.headers.get("location")!);
     const code = query((await callbackGet(req(back))).headers.get("location")!).get("code");
-    const ex = (cv: string) => exchangePost(req("/api/auth/sso/exchange", { method: "POST", body: { code, code_verifier: cv } }));
+    const ex = (cv: string) =>
+      exchangePost(
+        req("/api/auth/sso/exchange", { method: "POST", body: { code, code_verifier: cv } }),
+      );
     expect((await ex(verifier())).status).toBe(401);
     expect((await ex(v)).status).toBe(401);
     // state の再利用は 400
@@ -244,13 +302,23 @@ describe("SSO", () => {
     as(null);
     const v = verifier();
     const params = new URLSearchParams({
-      mode: "link", client: "mobile", code_challenge: pkceChallenge(v), redirect_uri: MOBILE_RETURN, intent,
+      mode: "link",
+      client: "mobile",
+      code_challenge: pkceChallenge(v),
+      redirect_uri: MOBILE_RETURN,
+      intent,
     });
     const s = await startGet(req(`/api/auth/sso/start?${params}`));
     const back = idp.authorize(s.headers.get("location")!);
     const code = query((await callbackGet(req(back))).headers.get("location")!).get("code");
     as(mine);
-    expect((await exchangePost(req("/api/auth/sso/exchange", { method: "POST", body: { code, code_verifier: v } }))).status).toBe(403);
+    expect(
+      (
+        await exchangePost(
+          req("/api/auth/sso/exchange", { method: "POST", body: { code, code_verifier: v } }),
+        )
+      ).status,
+    ).toBe(403);
     // intent は 1 回だけ
     as(null);
     const again = await startGet(req(`/api/auth/sso/start?${params}`));
@@ -264,16 +332,26 @@ describe("SSO", () => {
   it("中止と戻り先の確認", async () => {
     as(null);
     const v = verifier();
-    const s = await startGet(req(`/api/auth/sso/start?mode=login&client=web&code_challenge=${pkceChallenge(v)}`));
+    const s = await startGet(
+      req(`/api/auth/sso/start?mode=login&client=web&code_challenge=${pkceChallenge(v)}`),
+    );
     const state = new URL(s.headers.get("location")!).searchParams.get("state")!;
     const cb = await callbackGet(req(`/api/auth/sso/callback?error=access_denied&state=${state}`));
     expect(cb.headers.get("location")).toBe(`${BASE}/auth/sso/complete?error=cancelled`);
     for (const bad of ["https://evil.test/cb", "evil://x"]) {
-      const p = new URLSearchParams({ mode: "login", client: "mobile", code_challenge: pkceChallenge(v), redirect_uri: bad });
+      const p = new URLSearchParams({
+        mode: "login",
+        client: "mobile",
+        code_challenge: pkceChallenge(v),
+        redirect_uri: bad,
+      });
       expect((await startGet(req(`/api/auth/sso/start?${p}`))).status).toBe(400);
     }
     const ok = new URLSearchParams({
-      mode: "login", client: "mobile", code_challenge: pkceChallenge(v), redirect_uri: "exp://192.168.0.2:8081/--/auth/sso",
+      mode: "login",
+      client: "mobile",
+      code_challenge: pkceChallenge(v),
+      redirect_uri: "exp://192.168.0.2:8081/--/auth/sso",
     });
     expect((await startGet(req(`/api/auth/sso/start?${ok}`))).status).toBe(303);
   });
@@ -295,7 +373,10 @@ describe("SSO", () => {
     const done = await webComplete(req(loc, { cookie: `sso_pkce=${pkce}` }));
     expect(done.headers.get("location")).toBe("/dashboard");
     expect(jar.get(SESSION_COOKIE)).toBeTruthy();
-    const session = await prisma.session.findFirst({ where: { userId: ids.me }, orderBy: { createdAt: "desc" } });
+    const session = await prisma.session.findFirst({
+      where: { userId: ids.me },
+      orderBy: { createdAt: "desc" },
+    });
     expect(session?.loginMethod).toBe("sso");
   });
 

@@ -18,7 +18,12 @@ const keys = parseJwks({ keys: [rsa.jwk, ed.jwk, ec.jwk] });
 const b64 = (s: Buffer | string) => Buffer.from(s).toString("base64url");
 
 const verify = (token: string, requireMfa = true) =>
-  verifyIdToken(token, keys, { issuer: TEST_ISSUER, clientId: TEST_CLIENT_ID, nonce: "n0nce", requireMfa });
+  verifyIdToken(token, keys, {
+    issuer: TEST_ISSUER,
+    clientId: TEST_CLIENT_ID,
+    nonce: "n0nce",
+    requireMfa,
+  });
 
 function rejected(token: string, requireMfa = true): string | null {
   try {
@@ -39,7 +44,9 @@ describe("verifyIdToken", () => {
     const other = new Signer("RS256", "rsa-1"); // 同じ kid の別の鍵
     expect(rejected(other.sign(claims()))).toBe("signature");
     const [head, , sig] = rsa.sign(claims()).split(".");
-    expect(rejected(`${head}.${b64(JSON.stringify(claims({ sub: "x" })))}.${sig}`)).toBe("signature");
+    expect(rejected(`${head}.${b64(JSON.stringify(claims({ sub: "x" })))}.${sig}`)).toBe(
+      "signature",
+    );
     // HS256（公開鍵を共通鍵として使わせる攻撃）と none
     const h = b64(JSON.stringify({ alg: "HS256", kid: "rsa-1" }));
     const b = b64(JSON.stringify(claims()));
@@ -51,7 +58,9 @@ describe("verifyIdToken", () => {
     expect(rejected(rsa.sign(claims({ iss: "https://evil.test/auth/v1" })))).toBe("iss");
     expect(rejected(rsa.sign(claims({ aud: "other" })))).toBe("aud");
     expect(rejected(rsa.sign(claims({ aud: [TEST_CLIENT_ID, "other"] })))).toBe("azp");
-    expect(verify(rsa.sign(claims({ aud: [TEST_CLIENT_ID, "other"], azp: TEST_CLIENT_ID }))).sub).toBe("sub-1");
+    expect(
+      verify(rsa.sign(claims({ aud: [TEST_CLIENT_ID, "other"], azp: TEST_CLIENT_ID }))).sub,
+    ).toBe("sub-1");
     expect(rejected(rsa.sign(claims({ exp: Math.floor(Date.now() / 1000) - 120 })))).toBe("exp");
     expect(rejected(rsa.sign(claims({ exp: undefined })))).toBe("exp");
     expect(rejected(rsa.sign(claims({ nonce: "other" })))).toBe("nonce");
@@ -74,7 +83,13 @@ describe("PKCE・戻り先・デモ用ドメイン", () => {
     const prefixes = ["kakei://", "exp://"];
     expect(mobileRedirectAllowed("kakei://auth/sso", prefixes)).toBe(true);
     expect(mobileRedirectAllowed("exp://192.168.0.2:8081/--/auth/sso", prefixes)).toBe(true);
-    for (const bad of ["https://evil.test/", "http://x/", "evil://auth/sso", "kakei://auth/sso#x", ""]) {
+    for (const bad of [
+      "https://evil.test/",
+      "http://x/",
+      "evil://auth/sso",
+      "kakei://auth/sso#x",
+      "",
+    ]) {
       expect(mobileRedirectAllowed(bad, prefixes)).toBe(false);
     }
     expect(linkDenied("demo@example.com", ["example.com"])).toBe(true);

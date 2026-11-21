@@ -1,7 +1,13 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/server/auth";
 import { exchangeResult } from "@/lib/server/sso";
-import { PKCE_COOKIE, SETTINGS_SSO, decodePkce, pkceCookieOptions, redirectTo } from "@/lib/server/sso-web";
+import {
+  PKCE_COOKIE,
+  SETTINGS_SSO,
+  decodePkce,
+  pkceCookieOptions,
+  redirectTo,
+} from "@/lib/server/sso-web";
 
 function done(location: string) {
   const res = redirectTo(location);

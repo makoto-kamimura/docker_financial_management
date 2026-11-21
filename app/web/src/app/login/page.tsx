@@ -161,7 +161,10 @@ export default function LoginPage() {
               {sso && (
                 <div className="mt-5 space-y-2 text-center">
                   <p className="text-xs text-slate-500">{SSO_COPY.or}</p>
-                  <a href="/auth/sso/start?mode=login" className="btn-secondary block w-full py-2.5">
+                  <a
+                    href="/auth/sso/start?mode=login"
+                    className="btn-secondary block w-full py-2.5"
+                  >
                     {SSO_COPY.login(sso)}
                   </a>
                   <p className="text-xs text-slate-500">{SSO_COPY.loginHint(sso)}</p>

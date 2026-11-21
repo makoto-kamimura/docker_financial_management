@@ -83,10 +83,13 @@ export const randomToken = () => randomBytes(32).toString("base64url");
 /** DB に保存するためのハッシュ。トークンそのものは保存しない */
 export const hashToken = (token: string) => createHash("sha256").update(token).digest("base64url");
 
-export const pkceChallenge = (verifier: string) => createHash("sha256").update(verifier).digest("base64url");
+export const pkceChallenge = (verifier: string) =>
+  createHash("sha256").update(verifier).digest("base64url");
 
-export const isValidVerifier = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9\-._~]{43,128}$/.test(v);
-export const isValidChallenge = (c: unknown): c is string => typeof c === "string" && /^[A-Za-z0-9\-_]{43}$/.test(c);
+export const isValidVerifier = (v: unknown): v is string =>
+  typeof v === "string" && /^[A-Za-z0-9\-._~]{43,128}$/.test(v);
+export const isValidChallenge = (c: unknown): c is string =>
+  typeof c === "string" && /^[A-Za-z0-9\-_]{43}$/.test(c);
 
 export function verifyPkce(verifier: string, challenge: string): boolean {
   if (!isValidVerifier(verifier)) return false;
@@ -128,11 +131,18 @@ export function parseJwks(jwks: unknown): Map<string, Jwk> {
     if ((jwk.use ?? "sig") !== "sig") continue;
     const kty = jwk.kty;
     const supported =
-      kty === "RSA" || (kty === "EC" && jwk.crv === "P-256") || (kty === "OKP" && jwk.crv === "Ed25519");
+      kty === "RSA" ||
+      (kty === "EC" && jwk.crv === "P-256") ||
+      (kty === "OKP" && jwk.crv === "Ed25519");
     if (!supported) continue;
     try {
       const key = createPublicKey({ key: jwk as never, format: "jwk" });
-      keys.set(jwk.kid, { kid: jwk.kid, kty: kty as string, alg: typeof jwk.alg === "string" ? jwk.alg : undefined, key });
+      keys.set(jwk.kid, {
+        kid: jwk.kid,
+        kty: kty as string,
+        alg: typeof jwk.alg === "string" ? jwk.alg : undefined,
+        key,
+      });
     } catch {
       // 使えない鍵は飛ばす
     }
@@ -166,7 +176,11 @@ function verifySignature(alg: string, jwk: Jwk, data: Buffer, sig: Buffer): void
     ok = cryptoVerify(
       digest,
       data,
-      { key: jwk.key, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: constants.RSA_PSS_SALTLEN_DIGEST },
+      {
+        key: jwk.key,
+        padding: constants.RSA_PKCS1_PSS_PADDING,
+        saltLength: constants.RSA_PSS_SALTLEN_DIGEST,
+      },
       sig,
     );
   } else if (alg === "ES256" && jwk.kty === "EC") {
@@ -245,7 +259,12 @@ export const sameIssuer = (a: string, b: string) => a.replace(/\/+$/, "") === b.
 
 // ── 認証サーバーとの通信（起動時には取りに行かない）。キャッシュはプロセスごと ──────────
 
-type Metadata = { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string };
+type Metadata = {
+  issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  jwks_uri: string;
+};
 const cache: { metadata?: [number, Metadata]; jwks?: [number, unknown] } = {};
 
 export function resetOidcCache(): void {
@@ -265,10 +284,14 @@ export const oidcIo = {
     });
     if (res.status !== 200) throw new Error(`GET ${url} returned ${res.status}`);
     const data = await res.json();
-    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error(`GET ${url}: not a JSON object`);
+    if (!data || typeof data !== "object" || Array.isArray(data))
+      throw new Error(`GET ${url}: not a JSON object`);
     return data;
   },
-  async postForm(url: string, form: Record<string, string>): Promise<{ status: number; body: string }> {
+  async postForm(
+    url: string,
+    form: Record<string, string>,
+  ): Promise<{ status: number; body: string }> {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -291,12 +314,15 @@ export async function metadata(): Promise<Metadata> {
   const hit = cache.metadata;
   if (hit && oidcIo.now() - hit[0] < CACHE_TTL_MS) return hit[1];
   const issuer = oidcConfig().issuer;
-  const meta = await oidcIo.getJson(`${issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`);
+  const meta = await oidcIo.getJson(
+    `${issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`,
+  );
   for (const k of ["issuer", "authorization_endpoint", "token_endpoint", "jwks_uri"]) {
     if (typeof meta[k] !== "string" || !meta[k]) throw new Error(`discovery document has no ${k}`);
   }
   const m = meta as unknown as Metadata;
-  if (!sameIssuer(m.issuer, issuer)) throw new Error(`discovery issuer ${m.issuer} does not match OIDC_ISSUER`);
+  if (!sameIssuer(m.issuer, issuer))
+    throw new Error(`discovery issuer ${m.issuer} does not match OIDC_ISSUER`);
   const o = origin(m.issuer);
   for (const k of ["authorization_endpoint", "token_endpoint", "jwks_uri"] as const) {
     if (origin(m[k]) !== o) throw new Error(`${k} is not on the issuer's origin`);
@@ -309,7 +335,8 @@ async function jwks(force: boolean): Promise<Map<string, Jwk>> {
   const hit = cache.jwks;
   if (hit) {
     const age = oidcIo.now() - hit[0];
-    if ((!force && age < CACHE_TTL_MS) || (force && age < JWKS_FORCE_REFRESH_MIN_MS)) return parseJwks(hit[1]);
+    if ((!force && age < CACHE_TTL_MS) || (force && age < JWKS_FORCE_REFRESH_MIN_MS))
+      return parseJwks(hit[1]);
   }
   const raw = await oidcIo.getJson((await metadata()).jwks_uri);
   if (parseJwks(raw).size === 0) throw new Error("JWKS has no usable keys");
@@ -317,7 +344,11 @@ async function jwks(force: boolean): Promise<Map<string, Jwk>> {
   return parseJwks(raw);
 }
 
-export async function authorizationUrl(state: string, nonce: string, serverChallenge: string): Promise<string> {
+export async function authorizationUrl(
+  state: string,
+  nonce: string,
+  serverChallenge: string,
+): Promise<string> {
   const c = oidcConfig();
   const q = new URLSearchParams({
     client_id: c.clientId,
@@ -354,7 +385,10 @@ export async function exchangeCode(code: string, serverVerifier: string): Promis
 }
 
 /** ID トークンを確かめる。知らない鍵（鍵の入れ替え直後）なら、公開鍵を 1 回だけ読み直す */
-export async function verifyWithIdp(idToken: string, nonce: string): Promise<Record<string, unknown>> {
+export async function verifyWithIdp(
+  idToken: string,
+  nonce: string,
+): Promise<Record<string, unknown>> {
   const { issuer } = await metadata();
   const c = oidcConfig();
   const check = (keys: Map<string, Jwk>) =>

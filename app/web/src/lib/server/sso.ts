@@ -113,7 +113,10 @@ export async function handleCallback(q: URLSearchParams): Promise<string> {
   const flow = await prisma.$transaction(async (tx) => {
     const f = await tx.oauthFlow.findFirst({ where: { stateHash, expiresAt: { gt: new Date() } } });
     if (!f) return null;
-    const { count } = await tx.oauthFlow.updateMany({ where: { id: f.id, stateHash }, data: { stateHash: null } });
+    const { count } = await tx.oauthFlow.updateMany({
+      where: { id: f.id, stateHash },
+      data: { stateHash: null },
+    });
     return count === 1 ? f : null;
   });
   if (!flow?.returnTo) throw new Error("unknown or expired state");
@@ -198,7 +201,9 @@ export async function exchangeResult(
   // 結果コードは 1 回だけ使える。code_verifier が違っても消す（総当たりさせない）
   const resultHash = hashToken((code ?? "").trim());
   const flow = await prisma.$transaction(async (tx) => {
-    const f = await tx.oauthFlow.findFirst({ where: { resultHash, expiresAt: { gt: new Date() } } });
+    const f = await tx.oauthFlow.findFirst({
+      where: { resultHash, expiresAt: { gt: new Date() } },
+    });
     if (!f) return null;
     const { count } = await tx.oauthFlow.deleteMany({ where: { id: f.id, resultHash } });
     return count === 1 ? f : null;
@@ -216,11 +221,22 @@ export async function exchangeResult(
       include: { user: true },
     });
     if (!identity) return fail(401, "unauthorized");
-    await prisma.userIdentity.update({ where: { id: identity.id }, data: { lastLoginAt: new Date() } });
+    await prisma.userIdentity.update({
+      where: { id: identity.id },
+      data: { lastLoginAt: new Date() },
+    });
     const user = identity.user;
     const sessionId = await createSession(user.id, req, LOGIN_SSO);
-    await writeAudit(user.id, "login", `user:${user.id} method:sso`, { tenantId: user.tenantId, ...m });
-    return { ok: true, mode: "login", sessionId, user: { id: user.id, name: user.name, role: user.role } };
+    await writeAudit(user.id, "login", `user:${user.id} method:sso`, {
+      tenantId: user.tenantId,
+      ...m,
+    });
+    return {
+      ok: true,
+      mode: "login",
+      sessionId,
+      user: { id: user.id, name: user.name, role: user.role },
+    };
   }
 
   // 連携: ログイン中の本人と、連携を始めた本人が同じであること
@@ -234,9 +250,13 @@ export async function exchangeResult(
   const owner = await prisma.userIdentity.findUnique({
     where: { provider_subject: { provider: PROVIDER, subject } },
   });
-  if (owner && owner.userId !== user.id) return fail(409, "この SSO のアカウントは、ほかの利用者に連携されています");
+  if (owner && owner.userId !== user.id)
+    return fail(409, "この SSO のアカウントは、ほかの利用者に連携されています");
   if (owner) {
-    await prisma.userIdentity.update({ where: { id: owner.id }, data: { email: flow.resultEmail } });
+    await prisma.userIdentity.update({
+      where: { id: owner.id },
+      data: { email: flow.resultEmail },
+    });
   } else {
     const mine = await prisma.userIdentity.findUnique({
       where: { userId_provider: { userId: user.id, provider: PROVIDER } },
@@ -256,7 +276,10 @@ export async function exchangeResult(
 }
 
 /** 連携を始める。ブラウザの遷移では Bearer を送れないので、使い捨ての intent を渡す */
-export async function createIntent(user: { id: number; email: string }): Promise<{ ok: true; intent: string } | Fail> {
+export async function createIntent(user: {
+  id: number;
+  email: string;
+}): Promise<{ ok: true; intent: string } | Fail> {
   if (!ssoEnabled()) return fail(404, "not found");
   if (linkDenied(user.email, oidcConfig().linkDenyDomains)) return fail(400, DEMO_DENIED);
   const intent = randomToken();
@@ -272,7 +295,10 @@ export async function createIntent(user: { id: number; email: string }): Promise
 }
 
 /** 自分の連携の一覧と、SSO が使えるか */
-export async function identities(user: { id: number; email: string; ssoOnly: boolean }, loginMethod: string) {
+export async function identities(
+  user: { id: number; email: string; ssoOnly: boolean },
+  loginMethod: string,
+) {
   const on = ssoEnabled();
   const rows = await prisma.userIdentity.findMany({
     where: { userId: user.id },
@@ -300,7 +326,11 @@ export async function unlink(user: { id: number; tenantId: number }, req?: NextR
     prisma.userIdentity.deleteMany({ where: { userId: user.id, provider: PROVIDER } }),
     prisma.user.update({ where: { id: user.id }, data: { ssoOnly: false } }),
   ]);
-  if (count > 0) await writeAudit(user.id, "sso_unlinked", `user:${user.id}`, { tenantId: user.tenantId, ...meta(req) });
+  if (count > 0)
+    await writeAudit(user.id, "sso_unlinked", `user:${user.id}`, {
+      tenantId: user.tenantId,
+      ...meta(req),
+    });
   return { unlinked: count > 0 };
 }
 
@@ -322,7 +352,10 @@ export async function setSsoOnly(
     });
     if (!linked) return fail(400, "先に SSO のアカウントを連携してください");
     if (loginMethod !== LOGIN_SSO) {
-      return fail(400, "SSO でログインし直してから有効にしてください（SSO で入れることを確かめるため）");
+      return fail(
+        400,
+        "SSO でログインし直してから有効にしてください（SSO で入れることを確かめるため）",
+      );
     }
   }
   await prisma.user.update({ where: { id: user.id }, data: { ssoOnly: enabled } });

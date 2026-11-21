@@ -92,7 +92,8 @@ export function SsoSection() {
               className="btn-secondary"
               disabled={busy}
               onClick={() =>
-                confirm(SSO_COPY.unlinkConfirm(name)) && call("/api/me/identities/sso", { method: "DELETE" })
+                confirm(SSO_COPY.unlinkConfirm(name)) &&
+                call("/api/me/identities/sso", { method: "DELETE" })
               }
             >
               {SSO_COPY.unlink}

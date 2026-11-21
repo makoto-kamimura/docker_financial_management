@@ -1,5 +1,11 @@
 // SSO のテスト用: 本物の鍵で ID トークンに署名する偽の認証サーバー（oidcIo に差し込む）
-import { createHash, generateKeyPairSync, randomBytes, sign as cryptoSign, type KeyObject } from "node:crypto";
+import {
+  createHash,
+  generateKeyPairSync,
+  randomBytes,
+  sign as cryptoSign,
+  type KeyObject,
+} from "node:crypto";
 
 export const TEST_ISSUER = "https://auth.test/auth/v1";
 export const TEST_CLIENT_ID = "financial";
@@ -25,7 +31,9 @@ export class Signer {
   }
 
   sign(claims: Record<string, unknown>, opts: { alg?: string; kid?: string } = {}): string {
-    const head = b64(JSON.stringify({ alg: opts.alg ?? this.kind, kid: opts.kid ?? this.kid, typ: "JWT" }));
+    const head = b64(
+      JSON.stringify({ alg: opts.alg ?? this.kind, kid: opts.kid ?? this.kid, typ: "JWT" }),
+    );
     const body = b64(JSON.stringify(claims));
     const data = Buffer.from(`${head}.${body}`);
     const sig =
@@ -64,7 +72,8 @@ export class FakeIdp {
 
   authorize(url: string, sub = "sub-1", amr = ["pwd", "mfa"]): string {
     const q = new URL(url).searchParams;
-    if (q.get("client_id") !== TEST_CLIENT_ID || q.get("code_challenge_method") !== "S256") throw new Error("bad client");
+    if (q.get("client_id") !== TEST_CLIENT_ID || q.get("code_challenge_method") !== "S256")
+      throw new Error("bad client");
     const code = randomBytes(8).toString("hex");
     this.codes.set(code, { q, sub, amr });
     return `${q.get("redirect_uri")}?code=${code}&state=${q.get("state")}`;
@@ -86,16 +95,28 @@ export class FakeIdp {
     throw new Error(`GET ${url} returned 404`);
   }
 
-  async postForm(_url: string, form: Record<string, string>): Promise<{ status: number; body: string }> {
+  async postForm(
+    _url: string,
+    form: Record<string, string>,
+  ): Promise<{ status: number; body: string }> {
     const entry = this.codes.get(form.code);
     this.codes.delete(form.code);
-    if (!entry || form.client_secret !== "s3cret") return { status: 400, body: '{"error":"invalid_grant"}' };
+    if (!entry || form.client_secret !== "s3cret")
+      return { status: 400, body: '{"error":"invalid_grant"}' };
     const challenge = createHash("sha256").update(form.code_verifier).digest("base64url");
-    if (challenge !== entry.q.get("code_challenge") || form.redirect_uri !== entry.q.get("redirect_uri")) {
+    if (
+      challenge !== entry.q.get("code_challenge") ||
+      form.redirect_uri !== entry.q.get("redirect_uri")
+    ) {
       return { status: 400, body: '{"error":"invalid_grant"}' };
     }
-    const token = this.signer.sign(claims({ sub: entry.sub, nonce: entry.q.get("nonce"), amr: entry.amr }));
-    return { status: 200, body: JSON.stringify({ id_token: token, access_token: "x", token_type: "Bearer" }) };
+    const token = this.signer.sign(
+      claims({ sub: entry.sub, nonce: entry.q.get("nonce"), amr: entry.amr }),
+    );
+    return {
+      status: 200,
+      body: JSON.stringify({ id_token: token, access_token: "x", token_type: "Bearer" }),
+    };
   }
 }
 
