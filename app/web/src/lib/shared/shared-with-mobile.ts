@@ -23,6 +23,7 @@ export const SHARED_WITH_MOBILE = [
   "receipt-hints.ts",
   "self-medication.ts",
   "shop-account-type.ts",
+  "sso-copy.ts",
   "step-checklist.ts",
   "tax-documents.ts",
   "tax-estimate.ts",

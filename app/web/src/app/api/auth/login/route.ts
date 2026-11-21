@@ -11,6 +11,7 @@ import {
 import { writeAudit } from "@/lib/server/audit";
 import { consumeMfaChallenge, issueMfaChallenge } from "@/lib/server/mfa-challenge";
 import { checkRateLimit, clientIp, rateLimitResponse } from "@/lib/server/rate-limit";
+import { LOGIN_PASSWORD, loginMethodAllowed, oidcConfig } from "@/lib/server/oidc";
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -94,6 +95,15 @@ export async function POST(req: NextRequest) {
       where: { id: user.id },
       data: { passwordHash: await hashPassword(password) },
     });
+  }
+
+  // 「SSO だけ」の人は、パスワードが合っていても断る（パスワードが違えば上の 401 のまま。設定は漏らさない）
+  if (!loginMethodAllowed(user, LOGIN_PASSWORD)) {
+    await writeAudit(user.id, "login_denied_sso_only", `user:${user.id}`, auditMeta);
+    return NextResponse.json(
+      { error: `このアカウントは ${oidcConfig().displayName} でのログインだけが許可されています` },
+      { status: 403 },
+    );
   }
 
   // MFA 無効ならここでセッション発行・失敗カウントリセット
