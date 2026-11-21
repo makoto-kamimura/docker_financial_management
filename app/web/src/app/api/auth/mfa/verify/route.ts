@@ -5,6 +5,7 @@ import { createSession } from "@/lib/server/auth";
 import { writeAudit } from "@/lib/server/audit";
 import { consumeMfaChallenge } from "@/lib/server/mfa-challenge";
 import { clientIp } from "@/lib/server/rate-limit";
+import { LOGIN_PASSWORD, loginMethodAllowed, oidcConfig } from "@/lib/server/oidc";
 
 const VerifySchema = z
   .object({
@@ -45,6 +46,13 @@ export async function POST(req: NextRequest) {
   }
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: result.sessionUserId } });
+  // チャレンジの発行後に「SSO だけ」に切り替わった場合も、パスワードのセッションは作らない
+  if (!loginMethodAllowed(user, LOGIN_PASSWORD)) {
+    return NextResponse.json(
+      { error: `このアカウントは ${oidcConfig().displayName} でのログインだけが許可されています` },
+      { status: 403 },
+    );
+  }
   const sessionId = await createSession(user.id, req);
   await writeAudit(user.id, "login", `user:${user.id}`, { tenantId: user.tenantId, ip, userAgent });
   return NextResponse.json({ data: { id: user.id, name: user.name, role: user.role, sessionId } });

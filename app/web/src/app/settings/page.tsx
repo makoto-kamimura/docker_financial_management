@@ -14,6 +14,7 @@ import {
 import { TaxSettingsSection } from "@/components/settings/TaxSettingsSection";
 import { IncomeTaxRulesSection } from "@/components/settings/IncomeTaxRulesSection";
 import { SecuritySection } from "@/components/settings/SecuritySection";
+import { SsoSection } from "@/components/settings/SsoSection";
 import { AccountNamesSection } from "@/components/settings/AccountNamesSection";
 import { BillingSection } from "@/components/settings/BillingSection";
 
@@ -58,7 +59,12 @@ function SettingsContent() {
         </>
       )}
       {tab === "accountNames" && <AccountNamesSection />}
-      {tab === "security" && <SecuritySection />}
+      {tab === "security" && (
+        <>
+          <SsoSection />
+          <SecuritySection />
+        </>
+      )}
       {tab === "billing" && <BillingSection />}
     </AppShell>
   );

@@ -476,9 +476,12 @@ model User {
   mfaRecoveryCodes String? // JSON 配列: ハッシュ化されたリカバリーコード
   loginAttempts    Int       @default(0) // 連続失敗回数
   lockedUntil      DateTime? // アカウントロック解除時刻
+  ssoOnly          Boolean   @default(false) // SSO だけでログインする（パスワードのログインとセッションを断る）
   createdAt        DateTime  @default(now())
 
   sessions         Session[]
+  identities       UserIdentity[]
+  oauthFlows       OauthFlow[]
   journalApprovals JournalApproval[]
   mfaChallenges    MfaChallenge[]
   learningProgress LearningProgress[]
@@ -515,11 +518,51 @@ model Session {
   lastSeenAt DateTime @default(now()) // アイドルタイムアウト判定（24h）
   ip         String? // 監査用
   userAgent  String? // 監査用
+  loginMethod String  @default("pwd") // ログインした方法（pwd / sso）。「SSO だけ」の判定に使う
   createdAt  DateTime @default(now())
 
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+// SSO（共通の認証サーバー。OpenID Connect）の連携。利用者と ID トークンの sub を結ぶ。
+// 1 人に 1 つ、1 つの sub は 1 人だけ。仕様は docker_auth_server の docs/runbooks/app-integration.md
+model UserIdentity {
+  id          Int       @id @default(autoincrement())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      Int
+  provider    String    @db.VarChar(32)
+  subject     String    @db.VarChar(255)
+  email       String? // 表示用
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+
+  @@unique([provider, subject])
+  @@unique([userId, provider])
+  @@map("user_identities")
+}
+
+// SSO の途中の状態。state・intent・結果コードはハッシュだけを持ち、使ったら消す
+model OauthFlow {
+  id              Int      @id @default(autoincrement())
+  mode            String   @db.VarChar(8) // login / link
+  user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          Int?
+  intentHash      String?  @unique @db.VarChar(64)
+  stateHash       String?  @unique @db.VarChar(64)
+  nonce           String?  @db.VarChar(64)
+  serverVerifier  String?  @db.VarChar(64)
+  clientChallenge String?  @db.VarChar(64)
+  returnTo        String?  @db.VarChar(2048)
+  resultHash      String?  @unique @db.VarChar(64)
+  resultSubject   String?  @db.VarChar(255)
+  resultEmail     String?
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("oauth_flows")
 }
 
 // MFA 2段階ログインの一時チャレンジ（パスワード認証後・TOTP/リカバリーコード検証前）。

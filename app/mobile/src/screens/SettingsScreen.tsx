@@ -17,6 +17,7 @@ import {
   type SettingsSnapshot,
 } from "../api";
 import { Button, Card, EmptyText, Input, Notice, SectionTitle, TabBar } from "../components/ui";
+import { SsoCard } from "../components/SsoCard";
 import { SETTINGS_HELP } from "../shared/help-texts";
 import { CATEGORY_LABEL, categoryRank } from "../shared/labels";
 
@@ -190,6 +191,7 @@ export function SettingsScreen() {
               </Card>
             )}
 
+            {tab === "security" && <SsoCard />}
             {tab === "security" && (
               <Card>
                 <SectionTitle note={SETTINGS_HELP.mfa}>多要素認証（MFA / TOTP）</SectionTitle>

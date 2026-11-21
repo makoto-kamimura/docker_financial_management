@@ -9,6 +9,7 @@ import {
   sessionCookieName,
   SESSION_TOKEN_PREFIX,
 } from "@/lib/server/session-constants";
+import { LOGIN_PASSWORD, loginMethodAllowed, type LoginMethod } from "@/lib/server/oidc";
 
 const scryptAsync = promisify(scrypt) as (
   password: string,
@@ -110,13 +111,18 @@ function clientMeta(req?: NextRequest): { ip?: string; userAgent?: string } {
 
 // ログイン: セッションを作成し Cookie を設定する。トークンを返す（モバイルは Bearer として使用）。
 // ログイン成功時は常に新規トークンを発行する（セッション固定攻撃対策）。
-export async function createSession(userId: number, req?: NextRequest): Promise<string> {
+// loginMethod はログインした方法（pwd / sso）。「SSO だけ」の人のパスワードのセッションを断るのに使う。
+export async function createSession(
+  userId: number,
+  req?: NextRequest,
+  loginMethod: LoginMethod = LOGIN_PASSWORD,
+): Promise<string> {
   const token = SESSION_TOKEN_PREFIX + randomBytes(32).toString("hex");
   const now = new Date();
   const expiresAt = new Date(now.getTime() + absoluteTtlMs());
   const { ip, userAgent } = clientMeta(req);
   await prisma.session.create({
-    data: { id: hashToken(token), userId, expiresAt, lastSeenAt: now, ip, userAgent },
+    data: { id: hashToken(token), userId, expiresAt, lastSeenAt: now, ip, userAgent, loginMethod },
   });
 
   const store = await cookies();
@@ -139,6 +145,11 @@ function resolveRequestToken(reqHeaders: Headers, cookieToken: string | undefine
 // 現在のリクエストのログインユーザーを取得する（未ログインなら null）
 // Cookie（Web）または Authorization: Bearer <token>（モバイル）の両方に対応
 export async function getCurrentUser() {
+  return (await getCurrentSession())?.user ?? null;
+}
+
+// 現在のリクエストのログインユーザーと、そのセッションのログイン方法（pwd / sso）
+export async function getCurrentSession() {
   const reqHeaders = await headers();
   const store = await cookies();
   const token = resolveRequestToken(reqHeaders, store.get(sessionCookieName())?.value);
@@ -153,6 +164,8 @@ export async function getCurrentUser() {
   const now = new Date();
   if (session.expiresAt < now) return null; // 絶対期限
   if (session.lastSeenAt.getTime() + idleTtlMs() < now.getTime()) return null; // アイドルタイムアウト
+  // 「SSO だけ」の人のパスワードのセッションは、ほかの端末のものも含めてその時点から断る
+  if (!loginMethodAllowed(session.user, session.loginMethod)) return null;
 
   // 書き込み頻度を抑えるため、一定時間以上古い場合のみ lastSeenAt を更新する
   if (now.getTime() - session.lastSeenAt.getTime() > LAST_SEEN_UPDATE_THRESHOLD_MS) {
@@ -163,7 +176,7 @@ export async function getCurrentUser() {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { passwordHash: _passwordHash, ...user } = session.user;
-  return user; // includes tenantId
+  return { user, loginMethod: session.loginMethod }; // user includes tenantId
 }
 
 // ログアウト: セッションを削除し Cookie をクリアする。Cookie（Web）/ Bearer（モバイル）の両方に対応。

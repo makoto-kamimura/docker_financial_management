@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -10,7 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { login, verifyMfa, type UserInfo } from "../api";
+import { fetchSsoName, login, verifyMfa, type UserInfo } from "../api";
+import { SSO_COPY } from "../shared/sso-copy";
+import { signInWithSso } from "../sso";
 
 type Props = { onLogin: (user: UserInfo) => void };
 
@@ -23,6 +26,24 @@ export function LoginScreen({ onLogin }: Props) {
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [sso, setSso] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchSsoName().then(setSso);
+  }, []);
+
+  // SSO でログイン（このアプリの MFA は求めない。認証サーバーのパスキーが兼ねる）
+  async function handleSso() {
+    setLoading(true);
+    try {
+      const user = await signInWithSso("login", sso ?? "SSO");
+      if (user && user !== true) onLogin(user);
+    } catch (e: unknown) {
+      Alert.alert("ログイン失敗", e instanceof Error ? e.message : "エラーが発生しました。");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleLogin() {
     if (!email || !password) {
@@ -121,6 +142,7 @@ export function LoginScreen({ onLogin }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={s.card}>
+        <Image source={require("../../assets/logo.png")} style={s.logo} />
         <Text style={s.title}>カケイカイケイ</Text>
         <Text style={s.subtitle}>ログイン</Text>
         <TextInput
@@ -147,6 +169,15 @@ export function LoginScreen({ onLogin }: Props) {
         >
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>ログイン</Text>}
         </TouchableOpacity>
+        {sso && (
+          <>
+            <Text style={s.ssoOr}>{SSO_COPY.or}</Text>
+            <TouchableOpacity style={[s.ssoBtn, loading && s.btnDisabled]} onPress={handleSso} disabled={loading}>
+              <Text style={s.ssoBtnText}>{SSO_COPY.login(sso)}</Text>
+            </TouchableOpacity>
+            <Text style={s.ssoHint}>{SSO_COPY.loginHint(sso)}</Text>
+          </>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -163,6 +194,7 @@ const s = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  logo: { width: 64, height: 64, alignSelf: "center", marginBottom: 12 },
   title: { fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 4 },
   subtitle: { fontSize: 14, color: "#64748b", textAlign: "center", marginBottom: 24 },
   input: {
@@ -183,6 +215,10 @@ const s = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.6 },
   btnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
+  ssoOr: { textAlign: "center", color: "#64748b", fontSize: 12, marginTop: 16, marginBottom: 8 },
+  ssoBtn: { borderWidth: 1, borderColor: "#2563eb", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
+  ssoBtnText: { color: "#2563eb", fontWeight: "600", fontSize: 15 },
+  ssoHint: { textAlign: "center", color: "#64748b", fontSize: 11, marginTop: 8 },
   mfaLinkRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 16 },
   mfaLinkText: { fontSize: 13, color: "#64748b" },
   mfaLinkTextPrimary: { fontSize: 13, color: "#4f46e5", fontWeight: "600" },
