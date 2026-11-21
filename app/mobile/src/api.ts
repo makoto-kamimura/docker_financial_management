@@ -2663,3 +2663,57 @@ export async function fetchSettingsSnapshot(): Promise<SettingsSnapshot> {
 export async function patchMe(name: string): Promise<void> {
   await request("/auth/me", "表示名の変更に失敗しました", jsonInit("PATCH", { name }));
 }
+
+// ── SSO（共通の認証サーバー。仕様は docker_auth_server の docs/runbooks/app-integration.md）──────
+export type SsoIdentities = {
+  sso_enabled: boolean;
+  sso_name: string | null;
+  can_link: boolean;
+  identities: { provider: string; email: string | null }[];
+  sso_only: boolean;
+  login_method: "pwd" | "sso";
+};
+
+export const ssoStartUrl = (params: URLSearchParams) => `${API_BASE_URL}/auth/sso/start?${params}`;
+
+/** SSO が使えるか。使えないとき・取れないときは null（ボタンを出さない） */
+export async function fetchSsoName(): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/auth/providers`);
+    if (!res.ok) return null;
+    const j = (await res.json()) as { sso?: boolean; sso_name?: string | null };
+    return j.sso ? j.sso_name || "SSO" : null;
+  } catch {
+    return null;
+  }
+}
+
+export const fetchSsoIdentities = () => request<SsoIdentities>("/me/identities", "SSO の状態を取得できませんでした");
+export const createSsoIntent = () =>
+  request<{ intent: string }>("/me/identities/sso/intent", "連携を始められませんでした", { method: "POST" });
+export const unlinkSso = () =>
+  request<{ unlinked: boolean }>("/me/identities/sso", "連携を解除できませんでした", { method: "DELETE" });
+export const setSsoOnly = (enabled: boolean) =>
+  request<{ sso_only: boolean }>("/me/sso-only", "切り替えられませんでした", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+
+/** 結果コードと code_verifier の交換。ログインならセッションを保存してユーザーを返す。失敗は status を返す */
+export async function exchangeSso(
+  code: string,
+  verifier: string,
+): Promise<{ ok: true; user: UserInfo | null } | { ok: false; status: number }> {
+  const res = await apiFetch("/auth/sso/exchange", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, code_verifier: verifier }),
+  });
+  if (!res.ok) return { ok: false, status: res.status };
+  const json = await res.json().catch(() => ({}));
+  if (json.mode !== "login") return { ok: true, user: null };
+  if (!json.data?.sessionId) return { ok: false, status: 500 };
+  await setSession(json.data.sessionId as string);
+  return { ok: true, user: { id: json.data.id, name: json.data.name, role: json.data.role } };
+}

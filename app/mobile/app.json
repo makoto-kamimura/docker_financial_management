@@ -48,7 +48,9 @@
           "imageWidth": 200
         }
       ],
-      "expo-sharing"
-    ]
+      "expo-sharing",
+      "expo-web-browser"
+    ],
+    "scheme": "kakei"
   }
 }
