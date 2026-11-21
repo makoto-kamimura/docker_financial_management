@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SSO_COPY, ssoErrorMessage } from "@/lib/shared/sso-copy";
 
 type Step = "credentials" | "mfa";
 
@@ -14,9 +15,21 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [sso, setSso] = useState<string | null>(null);
 
   useEffect(() => {
-    setSessionExpired(new URLSearchParams(window.location.search).get("sessionExpired") === "1");
+    const q = new URLSearchParams(window.location.search);
+    setSessionExpired(q.get("sessionExpired") === "1");
+    const ssoError = q.get("sso_error");
+    // SSO が使えるときだけボタンを出す（GET /api/auth/providers）
+    void fetch("/api/auth/providers")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { sso?: boolean; sso_name?: string | null } | null) => {
+        const name = j?.sso ? j.sso_name || "SSO" : null;
+        setSso(name);
+        if (ssoError) setError(ssoErrorMessage(ssoError, "login", name ?? "SSO"));
+      })
+      .catch(() => {});
   }, []);
 
   async function handleCredentialsSubmit(e: { preventDefault(): void }) {
@@ -86,6 +99,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="" className="mx-auto mb-3 h-14 w-14" />
           <h1 className="text-2xl font-bold text-slate-900">カケイカイケイ</h1>
           <p className="text-sm text-slate-500 mt-1">アカウントにログイン</p>
         </div>
@@ -143,6 +158,18 @@ export default function LoginPage() {
                   {loading ? "ログイン中…" : "ログイン"}
                 </button>
               </form>
+              {sso && (
+                <div className="mt-5 space-y-2 text-center">
+                  <p className="text-xs text-slate-500">{SSO_COPY.or}</p>
+                  <a
+                    href="/auth/sso/start?mode=login"
+                    className="btn-secondary block w-full py-2.5"
+                  >
+                    {SSO_COPY.login(sso)}
+                  </a>
+                  <p className="text-xs text-slate-500">{SSO_COPY.loginHint(sso)}</p>
+                </div>
+              )}
             </>
           ) : (
             <>

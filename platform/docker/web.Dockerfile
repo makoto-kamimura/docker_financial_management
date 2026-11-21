@@ -31,6 +31,8 @@ RUN npx next build --no-lint && rm -rf .next/cache
 FROM base AS runner
 ENV NODE_ENV=production
 COPY --from=builder /app/.next ./.next
+# favicon 以外のアイコン（マニフェストのアイコン、画面内のロゴ）
+COPY --from=builder /app/public ./public
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 # migrate deploy・seed・起動に必要なファイルを同梱
