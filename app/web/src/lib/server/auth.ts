@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/prisma";
 import { getConfig } from "@/lib/server/config";
+import { requestIp } from "@/lib/server/client-ip";
 import {
   isCookieSecure,
   sessionCookieName,
@@ -104,7 +105,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
 
 function clientMeta(req?: NextRequest): { ip?: string; userAgent?: string } {
   if (!req) return {};
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const ip = requestIp(req);
   const userAgent = req.headers.get("user-agent") ?? undefined;
   return { ip, userAgent };
 }

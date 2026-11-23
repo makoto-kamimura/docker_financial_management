@@ -5,7 +5,7 @@ import { requireRole, type Role } from "@/lib/server/authz";
 import { tenantDb, type TenantDb } from "@/lib/server/tenant-db";
 import { writeAudit, type AuditOptions } from "@/lib/server/audit";
 import { errorResponse } from "@/lib/server/api-error";
-import { clientIp } from "@/lib/server/rate-limit";
+import { clientIp } from "@/lib/server/client-ip";
 
 export type AuthUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 

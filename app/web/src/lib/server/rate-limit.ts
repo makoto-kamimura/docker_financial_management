@@ -1,5 +1,5 @@
 import { createClient } from "redis";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 // S-9: Redis の INCR + EXPIRE による固定窓レート制限。
 // 認証系ルート（login/mfa）は Redis 不通時もレート制限を維持する必要があるため、
@@ -69,11 +69,6 @@ export async function checkRateLimit(
     if (options.useMemoryFallback) return checkMemoryFallback(key, limit, windowSeconds);
     return { allowed: true, retryAfterSeconds: 0 };
   }
-}
-
-// リクエストの発信元 IP を取得する（プロキシ経由を想定し x-forwarded-for の先頭値を使う）
-export function clientIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }
 
 // 429 + Retry-After レスポンスの共通生成

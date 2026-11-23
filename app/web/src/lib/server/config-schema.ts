@@ -22,6 +22,8 @@ export const Env = z.object({
     .positive()
     .default(10 * 1024 * 1024),
   APP_ORIGIN: z.string().url().optional(),
+  // 前段の信頼するリバースプロキシの段数。接続元の IP は X-Forwarded-For の右からこの数だけ数えた値（lib/server/client-ip.ts）
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(1).max(10).default(1),
   // 有料プラン（Stripe）。秘密鍵と価格 ID の両方があるときだけ申し込める（lib/billing/stripe.ts）
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),

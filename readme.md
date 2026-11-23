@@ -1237,6 +1237,7 @@ npm run typecheck && npm run format:check
   3. 無ければ、`Origin` が `APP_ORIGIN`（未設定ならリクエスト自身のオリジン）と一致すること。
   4. どちらのヘッダーも無いリクエストは、セッション Cookie を持っていなければ通し、持っていれば断る。
 - **レート制限**：Redis の固定時間枠で数える。ログインは IP ごとに5分で10回（Redis が使えないときはメモリで数える）。CSV の取り込みと同期は、ユーザーごとに10分で10回。
+- **接続元の IP**（ログインの回数制限・セッション・監査ログで共通。`src/lib/server/client-ip.ts`）：`X-Forwarded-For` の右から、信頼するリバースプロキシの段数（`TRUSTED_PROXY_HOPS`、既定 1）だけ数えた値を使う。左側はクライアントが自由に送れるので使わない。`X-Forwarded-For` が無いときだけ `X-Real-IP` を使う。IP の形でない値は使わない（回数制限では `unknown` として数える）。web のポートはリバースプロキシの後ろに置く（[D-7](#24-決定事項)）。
 - **SSO**（任意。`OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`PUBLIC_BASE_URL` がそろったときだけ有効）：共通の認証サーバー（OpenID Connect）でログインし、パスワードのログインと同じセッションを発行する。仕様は、認証サーバーのリポジトリ（docker_auth_server）の `docs/runbooks/app-integration.md` と同じ（ほかの自作アプリと共通）。実装は `src/lib/server/oidc.ts`（ID トークンの確認と通信）・`src/lib/server/sso.ts`（流れ）・`src/app/api/auth/sso/*`・`src/app/auth/sso/*`（Web）。
   - パスワードでログインしたあと、設定の「セキュリティ」で自分の SSO のアカウントを連携した人だけが使える。新しい利用者は作らない。メールアドレスの一致では自動でひも付けない。デモ用（`@example.com`）には連携できない。
   - 認証サーバーにパスキー（2 段階認証）でログインした人だけを通し（ID トークンの `amr` に `mfa`。`OIDC_REQUIRE_MFA`）、その代わりにこのアプリの多要素認証（TOTP）は求めない。
@@ -1774,7 +1775,7 @@ npm run typecheck && npm run format:check
 | 通信 | 本番は TLS。本番の Cookie は `__Host-` 付き・Secure |
 | 監査 | 主な操作を監査ログに残す（帳簿と法人の操作は対象外。秘密の値は伏せる。[6.4節](#64-監査ログ)） |
 | アップロード | 1 ファイル 10MB まで（`UPLOAD_MAX_BYTES`）。PDF と画像（jpg・png・gif・webp）だけで、ファイルの先頭のバイトでも種類を確かめる。R2 に置くときもバケットは非公開で、配信はテナントを確かめるアプリの API だけ。R2 の API トークンはそのバケットの読み書きだけに絞る |
-| 設定 | 主な環境変数（DB・Redis・掃除の鍵・Cookie・セッション・アップロードの上限・APP_ORIGIN）を、最初に使うときに Zod で検査する（`src/lib/server/config.ts` の `getConfig()`。スキーマは `config-schema.ts`）。外部連携の変数は検査しない |
+| 設定 | 主な環境変数（DB・Redis・掃除の鍵・Cookie・セッション・アップロードの上限・APP_ORIGIN・TRUSTED_PROXY_HOPS）を、最初に使うときに Zod で検査する（`src/lib/server/config.ts` の `getConfig()`。スキーマは `config-schema.ts`）。外部連携の変数は検査しない |
 
 ### 23.3 可用性とデータ保全
 
@@ -1819,6 +1820,7 @@ CI はほかに、整形・lint・型・ビルドと、PostgreSQL へのマイ�
 | D-5c | 実績への同期は `syncJournalToFinancialRecords` の1か所を通す | 経路ごとに同期がずれないようにするため |
 | D-5d | 売掛・買掛の発生と消込、棚卸の確定、減価償却では、監査のための仕訳も記録する。発生時点で売上・仕入を実績に計上すること（発生主義）はしない | 試算表・総勘定元帳に記録を残しつつ、実績の意味を変えないため |
 | D-6 | 課税方式は年度ごとの `tax_settings` を正とし、ないときだけ事業者情報の既定値を使う | 年度によって課税方式が変わるため |
+| D-7 | 接続元の IP は `X-Forwarded-For` の右から、信頼するプロキシの段数（`TRUSTED_PROXY_HOPS`）だけ数えた値にする。`X-Real-IP` は `X-Forwarded-For` が無いときだけ使う | 左端にはクライアントが送った値がそのまま入るので、接続元としては使わない。`X-Real-IP` を上書きしないプロキシ（`X-Forwarded-For` だけを足すもの）の後ろでも、正しい接続元を取るため |
 | — | カード払いの固定決済は `transfers` に入れず `card_recurring_payments` に分ける | 銀行の残高の見込みで、カード引き落としと二重に数えないため（[20.5節](#205-カード払いの固定決済)） |
 | — | 口座の残高は「明細の合計 ＋ 差額（`balanceAdjustment`）」に一本化する | 明細の取り込み前の残高を扱えるようにし、残高の定義を1か所にするため（[20.3節](#203-口座の残高)） |
 | — | 振替とチャージの明細は、科目を付けず実績から除く | お金の置き場所が変わるだけで、収支ではないため |

@@ -15,6 +15,8 @@ services:
       # 公開 URL（CSRF の Origin 検査に使う）。例: https://example.com
       APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN を .env に設定してください}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # 前段の信頼するリバースプロキシの段数（既定 1）。接続元の IP の決め方は .env.example を参照
+      TRUSTED_PROXY_HOPS:
       # session-cleanup と同じ鍵（32 文字以上）
       CLEANUP_SERVICE_KEY: ${CLEANUP_SERVICE_KEY:?CLEANUP_SERVICE_KEY を .env に設定してください}
       SESSION_IDLE_HOURS: ${SESSION_IDLE_HOURS:-24}
