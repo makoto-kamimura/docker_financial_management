@@ -10,7 +10,8 @@ import {
 } from "@/lib/server/auth";
 import { writeAudit } from "@/lib/server/audit";
 import { consumeMfaChallenge, issueMfaChallenge } from "@/lib/server/mfa-challenge";
-import { checkRateLimit, clientIp, rateLimitResponse } from "@/lib/server/rate-limit";
+import { clientIp } from "@/lib/server/client-ip";
+import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
 import { LOGIN_PASSWORD, loginMethodAllowed, oidcConfig } from "@/lib/server/oidc";
 
 const LoginSchema = z.object({

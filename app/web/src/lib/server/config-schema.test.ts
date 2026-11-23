@@ -16,6 +16,13 @@ describe("Env スキーマ (S-13)", () => {
     expect(result.UPLOAD_MAX_BYTES).toBe(10 * 1024 * 1024);
     expect(result.CLEANUP_SERVICE_KEY).toBeUndefined();
     expect(result.UPLOAD_STORAGE).toBe("local");
+    expect(result.TRUSTED_PROXY_HOPS).toBe(1);
+  });
+
+  it("TRUSTED_PROXY_HOPS は 1 以上の整数", () => {
+    expect(Env.parse({ ...BASE_ENV, TRUSTED_PROXY_HOPS: "2" }).TRUSTED_PROXY_HOPS).toBe(2);
+    expect(() => Env.parse({ ...BASE_ENV, TRUSTED_PROXY_HOPS: "0" })).toThrow();
+    expect(() => Env.parse({ ...BASE_ENV, TRUSTED_PROXY_HOPS: "1.5" })).toThrow();
   });
 
   it("UPLOAD_STORAGE は local か r2 だけ", () => {

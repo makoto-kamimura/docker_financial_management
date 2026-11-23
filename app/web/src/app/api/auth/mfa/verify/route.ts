@@ -4,7 +4,7 @@ import { prisma } from "@/lib/server/prisma";
 import { createSession } from "@/lib/server/auth";
 import { writeAudit } from "@/lib/server/audit";
 import { consumeMfaChallenge } from "@/lib/server/mfa-challenge";
-import { clientIp } from "@/lib/server/rate-limit";
+import { clientIp } from "@/lib/server/client-ip";
 import { LOGIN_PASSWORD, loginMethodAllowed, oidcConfig } from "@/lib/server/oidc";
 
 const VerifySchema = z

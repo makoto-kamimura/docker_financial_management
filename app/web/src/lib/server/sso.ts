@@ -12,6 +12,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/prisma";
 import { createSession } from "@/lib/server/auth";
 import { writeAudit } from "@/lib/server/audit";
+import { requestIp } from "@/lib/server/client-ip";
 import {
   LOGIN_SSO,
   PROVIDER,
@@ -41,7 +42,7 @@ const DEMO_DENIED = "デモ用のアカウントには SSO を連携できませ
 
 function meta(req?: NextRequest) {
   return {
-    ip: req?.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+    ip: requestIp(req),
     userAgent: req?.headers.get("user-agent"),
   };
 }
