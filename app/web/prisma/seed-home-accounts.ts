@@ -4,11 +4,9 @@
  * 新規テナントには API 側（POST /api/admin/users の newTenant / POST /api/tenants）で
  * 自動登録される。このスクリプトはデモテナント（id=1）への投入・再投入用。
  */
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../src/lib/server/prisma";
 import { ACCOUNT_DISPLAY_NAMES } from "./account-display-names";
 import { HOME_ACCOUNTS_SEED } from "../src/lib/accounting/default-accounts";
-
-const prisma = new PrismaClient();
 
 async function main() {
   console.log("🌱 家庭モード勘定科目 seed 開始...");
