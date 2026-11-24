@@ -6,7 +6,7 @@ import { parseYearMonth } from "@/lib/common/year-month";
 export const zYearMonth = z.string().transform((v, ctx) => {
   const d = parseYearMonth(v);
   if (!d) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: `invalid: ${v} (expected YYYY-MM)` });
+    ctx.addIssue({ code: "custom", message: `invalid: ${v} (expected YYYY-MM)` });
     return z.NEVER;
   }
   return d;
@@ -16,7 +16,7 @@ export const zYearMonth = z.string().transform((v, ctx) => {
 export const zDate = z.string().transform((v, ctx) => {
   const d = new Date(v);
   if (isNaN(d.getTime())) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: `invalid date: ${v}` });
+    ctx.addIssue({ code: "custom", message: `invalid date: ${v}` });
     return z.NEVER;
   }
   return d;

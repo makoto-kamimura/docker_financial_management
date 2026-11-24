@@ -15,7 +15,7 @@ import { checkRateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
 import { LOGIN_PASSWORD, loginMethodAllowed, oidcConfig } from "@/lib/server/oidc";
 
 const LoginSchema = z.object({
-  email: z.string().email(),
+  email: z.email(),
   password: z.string().min(1),
   // 旧クライアント互換: password と同時に MFA コードを送る 1 段階フロー（1 リリースの間のみ許容）
   code: z.string().optional(),
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
   const parsed = LoginSchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json({ error: z.flattenError(parsed.error) }, { status: 400 });
   }
   const { email, password, code, recoveryCode } = parsed.data;
 

@@ -16,7 +16,7 @@ export const BankTransferCreateSchema = z
     description: z.string().nullish(),
   })
   .refine((d) => d.fromAccountId !== d.toAccountId, {
-    message: "出金元と入金先が同じです",
+    error: "出金元と入金先が同じです",
   });
 
 export type BankTransferInput = z.output<typeof BankTransferCreateSchema>;

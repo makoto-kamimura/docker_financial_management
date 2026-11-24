@@ -35,8 +35,9 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-# migrate deploy・seed・起動に必要なファイルを同梱
+# migrate deploy・seed・起動に必要なファイルを同梱（接続先と seed の指定は prisma.config.ts にある）
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # 初期データ投入（prisma/seed.ts）が読む lib（tsx で実行する。新しい DB の初回起動時だけ使う）
 COPY --from=builder /app/src/lib ./src/lib
 # 運用のスクリプト（証憑の R2 への移行など。docker compose exec web npx tsx scripts/... で使う）

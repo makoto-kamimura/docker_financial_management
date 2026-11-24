@@ -26,7 +26,7 @@ const ConfirmSchema = z
       .min(1),
   })
   .refine((d) => d.fromMode !== d.toMode, {
-    message: "fromMode/toMode must differ and be HOME or CORPORATE",
+    error: "fromMode/toMode must differ and be HOME or CORPORATE",
   });
 
 // POST /api/account-conversion/confirm … 変換確認画面での確定操作。

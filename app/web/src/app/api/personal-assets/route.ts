@@ -53,10 +53,10 @@ const CreateSchema = z
       .optional(),
   })
   .refine((d) => !(d.debtStartOn && d.debtPayoffDue && d.debtStartOn > d.debtPayoffDue), {
-    message: "debtStartOn must be before or equal to debtPayoffDue",
+    error: "debtStartOn must be before or equal to debtPayoffDue",
   })
   .refine((d) => (d.parts?.length ?? 0) > 0 || d.currentValue !== undefined, {
-    message: "currentValue is required when parts are not given",
+    error: "currentValue is required when parts are not given",
   });
 
 // GET /api/personal-assets … 実物資産一覧（負債スケジュール・内訳・評価額の見積もり付き）

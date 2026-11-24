@@ -8,7 +8,7 @@ import { seedDefaultAccountsForTenant } from "@/lib/accounting/default-accounts"
 import { seedDefaultAllocationRulesForTenant } from "@/lib/budget/default-allocation-rules";
 
 const CreateSchema = z.object({
-  email: z.string().email(),
+  email: z.email(),
   name: z.string().min(1),
   role: z.enum(["admin", "editor", "viewer"]).default("viewer"),
   password: z.string().min(8),

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { ZodType, ZodTypeDef } from "zod";
+import { z, type ZodType } from "zod";
 import { getCurrentUser } from "@/lib/server/auth";
 import { requireRole, type Role } from "@/lib/server/authz";
 import { tenantDb, type TenantDb } from "@/lib/server/tenant-db";
@@ -46,14 +46,14 @@ export const emptyRouteContext = (): RouteContext => ({ params: Promise.resolve(
  * 処理順:
  *   1. requireRole(role)（401 / 403）
  *   2. [id] パラメータの検証（正の整数以外は 400 "invalid id"）
- *   3. schema / querySchema による Zod 検証（失敗は 400 + flatten）
+ *   3. schema / querySchema による Zod 検証（失敗は 400 + z.flattenError）
  *   4. handler 実行。throw された ApiError / Prisma エラーは errorResponse が写像
  */
 export function withApi<TBody = undefined, TQuery = undefined>(opts: {
   role: Role;
   // Input/Output が異なるスキーマ（.default() / .coerce）でも Output 側で型付けする
-  schema?: ZodType<TBody, ZodTypeDef, unknown>;
-  querySchema?: ZodType<TQuery, ZodTypeDef, unknown>;
+  schema?: ZodType<TBody, unknown>;
+  querySchema?: ZodType<TQuery, unknown>;
   handler: (ctx: ApiContext<TBody, TQuery>) => Promise<Response>;
 }): (req: NextRequest, route: RouteContext) => Promise<Response> {
   // Next.js のルート型検証は第 2 引数を必須型で要求するため、宣言上は必須にし
@@ -84,7 +84,7 @@ export function withApi<TBody = undefined, TQuery = undefined>(opts: {
         }
         const parsed = opts.schema.safeParse(raw);
         if (!parsed.success) {
-          return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+          return NextResponse.json({ error: z.flattenError(parsed.error) }, { status: 400 });
         }
         body = parsed.data;
       }
@@ -95,7 +95,7 @@ export function withApi<TBody = undefined, TQuery = undefined>(opts: {
           Object.fromEntries(req.nextUrl.searchParams.entries()),
         );
         if (!parsed.success) {
-          return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+          return NextResponse.json({ error: z.flattenError(parsed.error) }, { status: 400 });
         }
         query = parsed.data;
       }

@@ -1,11 +1,9 @@
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../src/lib/server/prisma";
 import { seedDefaultAllocationRulesForTenant } from "../src/lib/budget/default-allocation-rules";
 import { seedDefaultAccountsForTenant } from "../src/lib/accounting/default-accounts";
 import { defaultRulesFor } from "../src/lib/shared/tax-rules";
 import { emptyTaxInputs, estimateTax, type TaxLedger } from "../src/lib/shared/tax-estimate";
 import { randomBytes, scryptSync } from "node:crypto";
-
-const prisma = new PrismaClient();
 
 // 銀行明細を 1 行入れる（明細は実績の表 financial_records の kind = BANK の行。科目なし＝未割り当て）
 async function createSeedBankEntry(

@@ -5,9 +5,9 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// 接続先（DATABASE_URL）は prisma.config.ts に書く（Prisma 7 から schema には書かない）
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // 勘定科目カテゴリ

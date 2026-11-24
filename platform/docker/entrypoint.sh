@@ -4,7 +4,8 @@ set -e
 echo "[entrypoint] Resolving any previously failed migrations..."
 node -e "
 const { PrismaClient } = require('@prisma/client');
-const p = new PrismaClient();
+const { PrismaPg } = require('@prisma/adapter-pg');
+const p = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 p.\$executeRawUnsafe('UPDATE \"_prisma_migrations\" SET rolled_back_at = NOW() WHERE finished_at IS NULL AND rolled_back_at IS NULL')
   .then(() => p.\$disconnect())
   .catch(() => p.\$disconnect());
@@ -16,7 +17,8 @@ npx prisma migrate deploy
 echo "[entrypoint] Checking if initial seed is needed..."
 node -e "
 const { PrismaClient } = require('@prisma/client');
-const p = new PrismaClient();
+const { PrismaPg } = require('@prisma/adapter-pg');
+const p = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 p.user.count()
   .then(n => { p.\$disconnect(); process.exit(n === 0 ? 0 : 1); })
   .catch(() => { p.\$disconnect(); process.exit(0); });

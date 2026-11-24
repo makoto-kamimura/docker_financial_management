@@ -2,9 +2,7 @@
  * F003: 個人事業主向け初期勘定科目 seed
  * 既存データは変更せず upsert のみ実行する。
  */
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "../src/lib/server/prisma";
 
 const ACCOUNTS = [
   // ── 収入 ──────────────────────────────────────────

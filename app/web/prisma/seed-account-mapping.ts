@@ -9,9 +9,7 @@
  * 法人科目コード（corporateCode）は seed-business-accounts.ts で定義されているコードに準拠。
  * 統合先が複数の場合は最も一般的な科目を primary とし、notes に代替候補を記載。
  */
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "../src/lib/server/prisma";
 
 type MappingRule = {
   homeCode: string;
