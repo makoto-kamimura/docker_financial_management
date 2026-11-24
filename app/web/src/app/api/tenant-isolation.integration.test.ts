@@ -404,6 +404,77 @@ describe("tenantDb 拡張そのものの分離挙動", () => {
     expect(created.tenantId).toBe(seed.tenantAId);
     await prisma.receivable.delete({ where: { id: created.id } });
   });
+
+  it("count・aggregate はテナント A の行だけを数える", async () => {
+    const dbA = tenantDb(seed.tenantAId);
+    const ids = [seed.receivableAId, seed.receivableBId];
+    expect(await dbA.receivable.count({ where: { id: { in: ids } } })).toBe(1);
+    const agg = await dbA.receivable.aggregate({
+      where: { id: { in: ids } },
+      _count: { _all: true },
+    });
+    expect(agg._count._all).toBe(1);
+  });
+
+  it("update・updateMany・deleteMany はテナント B の行に届かない", async () => {
+    const dbA = tenantDb(seed.tenantAId);
+    await expect(
+      dbA.receivable.update({ where: { id: seed.receivableBId }, data: { note: "越境" } }),
+    ).rejects.toMatchObject({ code: "P2025" });
+    const updated = await dbA.receivable.updateMany({
+      where: { id: seed.receivableBId },
+      data: { note: "越境" },
+    });
+    expect(updated.count).toBe(0);
+    const deleted = await dbA.receivable.deleteMany({ where: { id: seed.receivableBId } });
+    expect(deleted.count).toBe(0);
+    const b = await prisma.receivable.findUnique({ where: { id: seed.receivableBId } });
+    expect(b?.note).not.toBe("越境");
+  });
+
+  it("createMany・upsert・$transaction の中でも acting テナントの tenantId を強制する", async () => {
+    const dbA = tenantDb(seed.tenantAId);
+    const base = {
+      customerName: "強制テスト",
+      amount: 1,
+      issueDate: new Date("2026-01-01"),
+      dueDate: new Date("2026-02-01"),
+    };
+    const many = await dbA.receivable.createMany({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: [{ ...base, tenantId: seed.tenantBId, description: `${SUFFIX}_many` } as any],
+    });
+    expect(many.count).toBe(1);
+    // テナント B の id で upsert しても B の行は変わらず、A に新しい行ができる
+    const upserted = await dbA.receivable.upsert({
+      where: { id: seed.receivableBId },
+      update: { note: "越境" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      create: { ...base, tenantId: seed.tenantBId, description: `${SUFFIX}_upsert` } as any,
+    });
+    expect(upserted.tenantId).toBe(seed.tenantAId);
+    const inTx = await dbA.$transaction(async (tx) => {
+      const row = await tx.receivable.create({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: { ...base, tenantId: seed.tenantBId, description: `${SUFFIX}_tx` } as any,
+      });
+      const seen = await tx.receivable.findMany({
+        where: { id: { in: [row.id, seed.receivableBId] } },
+      });
+      return { row, seen };
+    });
+    expect(inTx.row.tenantId).toBe(seed.tenantAId);
+    expect(inTx.seen.map((r) => r.id)).toEqual([inTx.row.id]);
+
+    const made = await prisma.receivable.findMany({
+      where: { description: { startsWith: SUFFIX } },
+    });
+    expect(made).toHaveLength(3);
+    expect(made.every((r) => r.tenantId === seed.tenantAId)).toBe(true);
+    const b = await prisma.receivable.findUnique({ where: { id: seed.receivableBId } });
+    expect(b?.note).not.toBe("越境");
+    await prisma.receivable.deleteMany({ where: { id: { in: made.map((r) => r.id) } } });
+  });
 });
 
 describe("[F-2/F-3] budgets/allocation-apply のテナント越境検証", () => {
