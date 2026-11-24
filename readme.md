@@ -1007,7 +1007,7 @@ freee・マネーフォワード（OAuth 2.0）とオープンバンキングと
 | レイヤ | 技術 |
 |---|---|
 | Web・API | Next.js 15（App Router / Route Handlers）・React 19・TypeScript |
-| DB | PostgreSQL 16 + Prisma 6 |
+| DB | PostgreSQL 16 + Prisma 7 |
 | キャッシュ・レート制限 | Redis 7 |
 | モバイル | Expo SDK 58・React Native 0.88 |
 | レシートの OCR | Python 3.12・OpenCV・PaddleOCR（PP-OCRv6 を RapidOCR / ONNX Runtime で実行） |
@@ -1022,8 +1022,8 @@ freee・マネーフォワード（OAuth 2.0）とオープンバンキングと
 | UI | Tailwind CSS 4・lucide-react | |
 | グラフ | Recharts 2 | 推移の折れ線・予算と実績の棒 |
 | データ取得 | TanStack Query 5 | |
-| 入力の検査 | Zod 3 | API の本文・クエリと、環境変数の検査 |
-| ORM | Prisma 6 | マイグレーションは `prisma/migrations` |
+| 入力の検査 | Zod 4 | API の本文・クエリと、環境変数の検査 |
+| ORM | Prisma 7 | ドライバーアダプター `@prisma/adapter-pg` で接続する。接続先・マイグレーション・seed の指定は `prisma.config.ts`。マイグレーションは `prisma/migrations` |
 | CSV | papaparse | |
 | Redis | `redis` 4 | つながらないときは、キャッシュなしで動く |
 | パスワード | Node の `scrypt` | |
@@ -1259,7 +1259,7 @@ npm run typecheck && npm run format:check
 
 1. `requireRole` でログインとロールを確かめる（401 / 403）。
 2. パスの `[id]` が正の整数であることを確かめる。
-3. 本文とクエリを Zod で検査する。
+3. 本文とクエリを Zod で検査する。通らなければ 400 で `{ error: { formErrors, fieldErrors } }`（`z.flattenError`）を返す。
 4. テナントで絞った `db` と、監査ログを書く `audit()` をハンドラーに渡す。
 5. 例外を `src/lib/server/api-error.ts` で決まった形のエラー応答にする。
 
@@ -1821,6 +1821,7 @@ CI はほかに、整形・lint・型・ビルドと、PostgreSQL へのマイ�
 | D-5d | 売掛・買掛の発生と消込、棚卸の確定、減価償却では、監査のための仕訳も記録する。発生時点で売上・仕入を実績に計上すること（発生主義）はしない | 試算表・総勘定元帳に記録を残しつつ、実績の意味を変えないため |
 | D-6 | 課税方式は年度ごとの `tax_settings` を正とし、ないときだけ事業者情報の既定値を使う | 年度によって課税方式が変わるため |
 | D-7 | 接続元の IP は `X-Forwarded-For` の右から、信頼するプロキシの段数（`TRUSTED_PROXY_HOPS`）だけ数えた値にする。`X-Real-IP` は `X-Forwarded-For` が無いときだけ使う | 左端にはクライアントが送った値がそのまま入るので、接続元としては使わない。`X-Real-IP` を上書きしないプロキシ（`X-Forwarded-For` だけを足すもの）の後ろでも、正しい接続元を取るため |
+| D-8 | Prisma 7 では、PostgreSQL へドライバーアダプター（`@prisma/adapter-pg`）で接続する。接続先の URL と seed の指定は `schema.prisma`・`package.json` ではなく `app/web/prisma.config.ts` に置く | Prisma 7 でクエリエンジンがなくなり、クライアントはアダプター経由でつなぐ形になったため。CLI の設定の置き場所も `prisma.config.ts` に移ったため |
 | — | カード払いの固定決済は `transfers` に入れず `card_recurring_payments` に分ける | 銀行の残高の見込みで、カード引き落としと二重に数えないため（[20.5節](#205-カード払いの固定決済)） |
 | — | 口座の残高は「明細の合計 ＋ 差額（`balanceAdjustment`）」に一本化する | 明細の取り込み前の残高を扱えるようにし、残高の定義を1か所にするため（[20.3節](#203-口座の残高)） |
 | — | 振替とチャージの明細は、科目を付けず実績から除く | お金の置き場所が変わるだけで、収支ではないため |
