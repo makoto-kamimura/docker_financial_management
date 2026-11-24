@@ -1,6 +1,6 @@
 // レシートの読み取り結果（下書き）。読み取ったあと、利用者が確かめてから実績として登録する。
-// Claude の構造化出力に渡すため、zod は SDK に合わせて v4 の API で書く。
-import * as z from "zod/v4";
+// Claude の構造化出力（SDK の betaZodOutputFormat）に渡すスキーマ。
+import { z } from "zod";
 import type { ReceiptQualityWarning as QualityWarning } from "@/lib/shared/receipt-hints";
 
 export const PAYMENT_METHODS = ["cash", "card", "emoney", "unknown"] as const;

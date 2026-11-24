@@ -14,7 +14,7 @@ const VerifySchema = z
     recoveryCode: z.string().optional(),
   })
   .refine((v) => !!v.code || !!v.recoveryCode, {
-    message: "code または recoveryCode のいずれかが必要です",
+    error: "code または recoveryCode のいずれかが必要です",
   });
 
 // POST /api/auth/mfa/verify … ログイン第2段階。mfaToken + TOTP コード or リカバリーコードでセッションを発行する。
@@ -24,7 +24,7 @@ const VerifySchema = z
 export async function POST(req: NextRequest) {
   const parsed = VerifySchema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json({ error: z.flattenError(parsed.error) }, { status: 400 });
   }
   const { mfaToken, code, recoveryCode } = parsed.data;
   const ip = clientIp(req);

@@ -20,10 +20,10 @@ export const TransferCreateSchema = z
     linkedAccountId: z.number().int().nullable().optional(),
   })
   .refine((d) => d.fromAccountId != null || d.toAccountId != null, {
-    message: "出金元または入金先のいずれかは口座を指定してください",
+    error: "出金元または入金先のいずれかは口座を指定してください",
   })
   .refine((d) => !(d.fromAccountId != null && d.fromAccountId === d.toAccountId), {
-    message: "出金元と入金先が同じです",
+    error: "出金元と入金先が同じです",
   });
 
 export const TransferPatchSchema = z.object({

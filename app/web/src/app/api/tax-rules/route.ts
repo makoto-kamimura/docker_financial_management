@@ -22,7 +22,7 @@ export const GET = withApi({
 //   既定値と同じ項目は保存しない。既定値の無い年（前年からコピーした年）は全項目をそのまま持つ
 export const PUT = withApi({
   role: "editor",
-  schema: z.object({ year: Year, values: z.record(z.unknown()) }),
+  schema: z.object({ year: Year, values: z.record(z.string(), z.unknown()) }),
   handler: async ({ user, db, body, audit }) => {
     const { tenantId } = user;
     for (const [path, v] of Object.entries(body.values)) {

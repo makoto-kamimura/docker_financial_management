@@ -23,7 +23,7 @@ const RuleSchema = z
     fallbackCategory: z.enum(ALLOCATION_TARGET_CATEGORIES).nullable().optional(),
   })
   .refine((r) => r.maxPercent === null || r.minPercent <= r.maxPercent, {
-    message: "minPercent は maxPercent 以下にしてください",
+    error: "minPercent は maxPercent 以下にしてください",
   });
 
 const PutSchema = z.object({

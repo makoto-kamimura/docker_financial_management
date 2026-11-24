@@ -3,8 +3,8 @@ import { z } from "zod";
 // S-13: 環境変数の検証スキーマ。副作用（process.env の即時 parse）を持たないよう
 // lib/server/config.ts と分離している（テストからスキーマ単体を検証できるようにするため）。
 export const Env = z.object({
-  DATABASE_URL: z.string().url(),
-  REDIS_URL: z.string().url().optional(),
+  DATABASE_URL: z.url(),
+  REDIS_URL: z.url().optional(),
   CLEANUP_SERVICE_KEY: z.string().min(32).optional(), // 短い鍵を拒否
   COOKIE_SECURE: z.enum(["true", "false"]).default("true"),
   SESSION_IDLE_HOURS: z.coerce.number().positive().default(24),
@@ -15,25 +15,25 @@ export const Env = z.object({
   R2_ACCESS_KEY_ID: z.string().min(1).optional(),
   R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   R2_BUCKET: z.string().min(1).optional(),
-  R2_ENDPOINT: z.string().url().optional(), // テストで MinIO などに向けるときだけ
+  R2_ENDPOINT: z.url().optional(), // テストで MinIO などに向けるときだけ
   UPLOAD_MAX_BYTES: z.coerce
     .number()
     .int()
     .positive()
     .default(10 * 1024 * 1024),
-  APP_ORIGIN: z.string().url().optional(),
+  APP_ORIGIN: z.url().optional(),
   // 前段の信頼するリバースプロキシの段数。接続元の IP は X-Forwarded-For の右からこの数だけ数えた値（lib/server/client-ip.ts）
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(1).max(10).default(1),
   // 有料プラン（Stripe）。秘密鍵と価格 ID の両方があるときだけ申し込める（lib/billing/stripe.ts）
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   STRIPE_PRICE_ID: z.string().min(1).optional(),
-  STRIPE_API_BASE: z.string().url().optional(), // テストで Stripe の代わりのサーバーに向けるときだけ
+  STRIPE_API_BASE: z.url().optional(), // テストで Stripe の代わりのサーバーに向けるときだけ
   // レシートの読み取り（有料プラン）。キーが無ければ、有料プランでも無料プランと同じ読み取りになる
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   RECEIPT_OCR_MODEL: z.string().min(1).optional(),
-  ANTHROPIC_BASE_URL: z.string().url().optional(), // テストで Claude の代わりのサーバーに向けるときだけ
+  ANTHROPIC_BASE_URL: z.url().optional(), // テストで Claude の代わりのサーバーに向けるときだけ
   // レシートの OCR サービス（app/ocr）。無料プランの読み取りに使う。無ければ web の中の Tesseract で読む
-  RECEIPT_OCR_URL: z.string().url().optional(),
+  RECEIPT_OCR_URL: z.url().optional(),
 });
 export type Env = z.infer<typeof Env>;
