@@ -35,7 +35,7 @@ test.describe("収支マイナス警告", () => {
       data: {
         date,
         description: "E2E 赤字確認",
-        accountCode: "H3000",
+        accountCode: "H-3018",
         amount: 99_000_000,
         direction: "expense",
       },

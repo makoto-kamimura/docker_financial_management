@@ -42,14 +42,14 @@ test.describe("共通の作り", () => {
     ]);
   });
 
-  test("実績管理のタブは 一覧 → カレンダー → CSV → 実績の確定 → 履歴 → 設定 の順", async ({
+  test("実績管理のタブは 一覧 → カレンダー → 取り込み → 実績の確定 → 履歴 → 設定 の順", async ({
     page,
   }) => {
     await page.goto("/entry");
     await expect(page.getByRole("tab")).toHaveText([
       "一覧",
       "カレンダー",
-      "CSV インポート",
+      "取り込み",
       "実績の確定",
       "履歴",
       "設定",
