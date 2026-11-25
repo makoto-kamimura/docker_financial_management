@@ -1,6 +1,6 @@
 # よくある操作
 
-開発環境（`platform/docker-compose.yml`）での、よく使う操作。起動の手順は [readme 18.7節](../../readme.md#187-クイックスタート)を参照。
+開発環境（`platform/docker-compose.yml`）での、よく使う操作。起動の手順は [readme 18.7節](../../README.md#187-クイックスタート)を参照。
 
 | やりたいこと | コマンド |
 |---|---|

@@ -1,4 +1,4 @@
-# カケイカイケイ
+# カケイカイケイ（docker_financial_management）
 
 > **家計簿から、決算書まで。ひとつの帳簿で。**
 
@@ -25,6 +25,7 @@
 | ステータス | **主要機能は実装済み**（Web・モバイル。[ロードマップ](#17-開発ロードマップ)の Phase 0〜7 完了）。本番運用に向けた設定と、見つかった不具合の修正が残る（[25. 未決事項](#25-未決事項)） |
 | リリース日 | 未定 |
 | 作成者 | **Makoto Kamimura** — [@makoto-kamimura](https://github.com/makoto-kamimura) |
+| ライセンス | [MIT](LICENSE) |
 
 このREADMEは、プロジェクト紹介と仕様書を兼ね、次の2部と付録で構成する。
 
@@ -1069,7 +1070,7 @@ flowchart LR
 
 ```text
 docker_financial_management/
-├── readme.md                 本書（仕様書の本体）
+├── README.md                 本書（仕様書の本体）
 ├── app/
 │   ├── web/                  Next.js（画面と API）
 │   │   ├── src/
