@@ -1,7 +1,7 @@
 "use client";
 
 // 設定の「セキュリティ」タブの SSO の欄: 共通の認証サーバーとの連携・解除と「SSO だけでログインする」。
-// 仕様は docker_auth_server の docs/runbooks/app-integration.md。
+// 仕様は認証サーバーのリポジトリの docs/runbooks/app-integration.md。
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
