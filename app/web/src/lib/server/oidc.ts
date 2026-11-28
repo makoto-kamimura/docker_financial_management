@@ -1,7 +1,7 @@
 // SSO（OpenID Connect）のクライアント。接続先は設定の発行元（OIDC_ISSUER）だけで決まり、
 // エンドポイントと公開鍵は /.well-known/openid-configuration から読む。
 //
-// 乗っ取りを防ぐ要（docker_auth_server の docs/runbooks/app-integration.md の 2.2）:
+// 乗っ取りを防ぐ要（認証サーバーのリポジトリの docs/runbooks/app-integration.md の 2.2）:
 // - ID トークンは公開鍵（JWKS）で署名を確かめ、iss・aud・exp・nonce も確かめる
 // - 利用者の特定には sub だけを使う
 // - 戻ったあとは使い捨ての結果コードを返し、開始したクライアントの code_verifier と引き換える

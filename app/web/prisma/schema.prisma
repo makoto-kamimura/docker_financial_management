@@ -527,7 +527,7 @@ model Session {
 }
 
 // SSO（共通の認証サーバー。OpenID Connect）の連携。利用者と ID トークンの sub を結ぶ。
-// 1 人に 1 つ、1 つの sub は 1 人だけ。仕様は docker_auth_server の docs/runbooks/app-integration.md
+// 1 人に 1 つ、1 つの sub は 1 人だけ。仕様は認証サーバーのリポジトリの docs/runbooks/app-integration.md
 model UserIdentity {
   id          Int       @id @default(autoincrement())
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)

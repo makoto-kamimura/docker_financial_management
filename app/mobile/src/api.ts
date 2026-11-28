@@ -2664,7 +2664,7 @@ export async function patchMe(name: string): Promise<void> {
   await request("/auth/me", "表示名の変更に失敗しました", jsonInit("PATCH", { name }));
 }
 
-// ── SSO（共通の認証サーバー。仕様は docker_auth_server の docs/runbooks/app-integration.md）──────
+// ── SSO（共通の認証サーバー。仕様は認証サーバーのリポジトリの docs/runbooks/app-integration.md）──────
 export type SsoIdentities = {
   sso_enabled: boolean;
   sso_name: string | null;

@@ -1239,7 +1239,7 @@ npm run typecheck && npm run format:check
   4. どちらのヘッダーも無いリクエストは、セッション Cookie を持っていなければ通し、持っていれば断る。
 - **レート制限**：Redis の固定時間枠で数える。ログインは IP ごとに5分で10回（Redis が使えないときはメモリで数える）。CSV の取り込みと同期は、ユーザーごとに10分で10回。
 - **接続元の IP**（ログインの回数制限・セッション・監査ログで共通。`src/lib/server/client-ip.ts`）：`X-Forwarded-For` の右から、信頼するリバースプロキシの段数（`TRUSTED_PROXY_HOPS`、既定 1）だけ数えた値を使う。左側はクライアントが自由に送れるので使わない。`X-Forwarded-For` が無いときだけ `X-Real-IP` を使う。IP の形でない値は使わない（回数制限では `unknown` として数える）。web のポートはリバースプロキシの後ろに置く（[D-7](#24-決定事項)）。
-- **SSO**（任意。`OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`PUBLIC_BASE_URL` がそろったときだけ有効）：共通の認証サーバー（OpenID Connect）でログインし、パスワードのログインと同じセッションを発行する。仕様は、認証サーバーのリポジトリ（docker_auth_server）の `docs/runbooks/app-integration.md` と同じ（ほかの自作アプリと共通）。実装は `src/lib/server/oidc.ts`（ID トークンの確認と通信）・`src/lib/server/sso.ts`（流れ）・`src/app/api/auth/sso/*`・`src/app/auth/sso/*`（Web）。
+- **SSO**（任意。`OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`PUBLIC_BASE_URL` がそろったときだけ有効）：共通の認証サーバー（OpenID Connect）でログインし、パスワードのログインと同じセッションを発行する。仕様は、認証サーバーのリポジトリの `docs/runbooks/app-integration.md` と同じ（ほかの自作アプリと共通）。実装は `src/lib/server/oidc.ts`（ID トークンの確認と通信）・`src/lib/server/sso.ts`（流れ）・`src/app/api/auth/sso/*`・`src/app/auth/sso/*`（Web）。
   - パスワードでログインしたあと、設定の「セキュリティ」で自分の SSO のアカウントを連携した人だけが使える。新しい利用者は作らない。メールアドレスの一致では自動でひも付けない。デモ用（`@example.com`）には連携できない。
   - 認証サーバーにパスキー（2 段階認証）でログインした人だけを通し（ID トークンの `amr` に `mfa`。`OIDC_REQUIRE_MFA`）、その代わりにこのアプリの多要素認証（TOTP）は求めない。
   - ID トークンは、認証サーバーの公開鍵（`jwks_uri`）で署名を確かめ、`iss`・`aud`・`exp`・`nonce` も確かめる。署名の確認は `node:crypto` で直接行い、方式は RS256/384/512・PS256/384/512・ES256・EdDSA だけを許す。
